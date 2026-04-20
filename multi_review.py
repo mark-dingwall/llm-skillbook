@@ -48,6 +48,9 @@ def detect_self() -> str:
         return "gemini"
     if os.environ.get("CODEX_ENV"):
         return "codex"
+    # opencode sets OPENCODE=1 in the child env of every shell/agent invocation.
+    if os.environ.get("OPENCODE"):
+        return "opencode"
     return ""
 
 
