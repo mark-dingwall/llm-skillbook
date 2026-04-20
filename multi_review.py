@@ -420,61 +420,52 @@ ADAPTER_FOR = {
 
 # -------- Invocation commands --------
 
-def build_command(cli: str, model: str | None) -> list[str]:
-    """Return argv. Prompt is always written to the child's stdin (see run_reviewer)
-    so it never appears in /proc/PID/cmdline."""
-    if cli == "claude":
-        cmd = ["claude", "-p", "--output-format", "stream-json",
-               "--include-partial-messages", "--verbose"]
-        if model:
-            cmd += ["--model", model]
-        return cmd
-    if cli == "gemini":
-        # -p requires a value; "" lets gemini take the whole prompt from stdin.
-        cmd = ["gemini", "-p", "", "-o", "stream-json"]
-        if model:
-            cmd += ["-m", model]
-        return cmd
-    if cli == "codex":
-        cmd = ["codex", "exec", "--json", "--skip-git-repo-check"]
-        if model:
-            cmd += ["--model", model]
-        cmd.append("-")
-        return cmd
-    if cli == "opencode":
-        cmd = ["opencode", "run"]
-        if model:
-            cmd += ["--model", model]
-        cmd.append("-")
-        return cmd
-    raise ValueError(f"Unknown CLI: {cli}")
+# Per-CLI invocation recipe. "base" + optional stream_flags + optional
+# --model/-m override + optional stdin sentinel. Prompt is always written to
+# the child's stdin (see run_reviewer) so it never appears in /proc/PID/cmdline.
+# gemini's -p requires a value; "" lets it take the whole prompt from stdin.
+CLI_SPEC = {
+    "claude": {
+        "base": ["claude", "-p"],
+        "stream_flags": ["--output-format", "stream-json",
+                         "--include-partial-messages", "--verbose"],
+        "model_flag": "--model",
+        "stdin_sentinel": None,
+    },
+    "gemini": {
+        "base": ["gemini", "-p", ""],
+        "stream_flags": ["-o", "stream-json"],
+        "model_flag": "-m",
+        "stdin_sentinel": None,
+    },
+    "codex": {
+        "base": ["codex", "exec", "--skip-git-repo-check"],
+        "stream_flags": ["--json"],
+        "model_flag": "--model",
+        "stdin_sentinel": "-",
+    },
+    "opencode": {
+        "base": ["opencode", "run"],
+        "stream_flags": [],
+        "model_flag": "--model",
+        "stdin_sentinel": "-",
+    },
+}
 
 
-def build_synthesis_command(cli: str, model: str | None) -> list[str]:
-    """Synthesis uses a text-only (non-streaming) invocation. Prompt on stdin."""
-    if cli == "claude":
-        cmd = ["claude", "-p"]
-        if model:
-            cmd += ["--model", model]
-        return cmd
-    if cli == "gemini":
-        cmd = ["gemini", "-p", ""]
-        if model:
-            cmd += ["-m", model]
-        return cmd
-    if cli == "codex":
-        cmd = ["codex", "exec", "--skip-git-repo-check"]
-        if model:
-            cmd += ["--model", model]
-        cmd.append("-")
-        return cmd
-    if cli == "opencode":
-        cmd = ["opencode", "run"]
-        if model:
-            cmd += ["--model", model]
-        cmd.append("-")
-        return cmd
-    raise ValueError(f"Unknown synthesizer: {cli}")
+def build_command(cli: str, model: str | None, *, streaming: bool) -> list[str]:
+    try:
+        spec = CLI_SPEC[cli]
+    except KeyError:
+        raise ValueError(f"Unknown CLI: {cli}")
+    cmd = list(spec["base"])
+    if streaming:
+        cmd += spec["stream_flags"]
+    if model:
+        cmd += [spec["model_flag"], model]
+    if spec["stdin_sentinel"]:
+        cmd.append(spec["stdin_sentinel"])
+    return cmd
 
 
 # -------- Reviewer runner --------
@@ -524,7 +515,7 @@ async def run_reviewer(
     state: ReviewerState,
 ) -> ReviewerResult:
     adapter = state.adapter
-    cmd = build_command(cli, model)
+    cmd = build_command(cli, model, streaming=True)
     state.status = "starting"
     state.started_at = time.time()
 
@@ -712,7 +703,7 @@ async def run_synthesis(
     timeout: int,
 ) -> tuple[bool, str, str]:
     prompt = SYNTHESIS_PROMPT + "\n\n---\n\n" + review_md
-    cmd = build_synthesis_command(cli, model)
+    cmd = build_command(cli, model, streaming=False)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
