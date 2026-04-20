@@ -663,7 +663,20 @@ async def run_all_reviewers(
 
     results = []
     for s, t in zip(states, tasks):
-        res = t.result()
+        try:
+            res = t.result()
+        except BaseException as exc:
+            # Any exception that escapes run_reviewer (OS/pipe errors, CancelledError,
+            # asyncio internals) must not abort the loop — REVIEW.md still needs to
+            # be written for the other reviewers.
+            s.status = "error"
+            if not s.finished_at:
+                s.finished_at = time.time()
+            res = ReviewerResult(
+                cli=s.cli, ok=False, text=s.adapter.get_response_text(),
+                stderr_tail="", usage=s.adapter.usage, elapsed=s.elapsed,
+                error=f"unhandled {type(exc).__name__}: {exc}",
+            )
         s.result = res
         results.append(res)
     return results
