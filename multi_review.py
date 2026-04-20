@@ -195,7 +195,10 @@ def build_prompt(
 ) -> str:
     parts = [INJECTION_PREAMBLE, "# Cross-AI Review Request\n\n"]
     if prompt_file:
-        parts.append(prompt_file.read_text())
+        try:
+            parts.append(prompt_file.read_text())
+        except OSError as e:
+            raise SystemExit(f"Error reading --prompt-file {prompt_file}: {e}")
     elif custom_prompt:
         parts.append(custom_prompt)
     else:
@@ -208,8 +211,13 @@ def build_prompt(
             if not ctx.exists():
                 print(f"Warning: context file not found: {ctx}", file=sys.stderr)
                 continue
+            try:
+                body = ctx.read_text(errors="replace")
+            except OSError as e:
+                print(f"Warning: cannot read context file {ctx}: {e}", file=sys.stderr)
+                continue
             parts.append(f'<file path="{html.escape(str(ctx), quote=True)}">\n')
-            parts.append(ctx.read_text(errors="replace"))
+            parts.append(body)
             parts.append("\n</file>\n\n")
 
     if input_files:
@@ -218,8 +226,13 @@ def build_prompt(
             if not f.exists():
                 print(f"Warning: input file not found: {f}", file=sys.stderr)
                 continue
+            try:
+                body = f.read_text(errors="replace")
+            except OSError as e:
+                print(f"Warning: cannot read input file {f}: {e}", file=sys.stderr)
+                continue
             parts.append(f'<file path="{html.escape(str(f), quote=True)}">\n')
-            parts.append(f.read_text(errors="replace"))
+            parts.append(body)
             parts.append("\n</file>\n\n")
 
     return "".join(parts)
@@ -675,6 +688,8 @@ async def run_synthesis(
         )
     except FileNotFoundError as e:
         return False, "", f"synthesizer not found: {e}"
+    except Exception as e:
+        return False, "", f"synthesizer launch failed: {e}"
 
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
@@ -782,7 +797,10 @@ def write_review_md(
         lines.append("_Consensus synthesis skipped (run without --no-synthesize to populate)._")
     lines.append("")
 
-    output.write_text("\n".join(lines))
+    try:
+        output.write_text("\n".join(lines))
+    except OSError as e:
+        raise SystemExit(f"Error writing {output}: {e}")
 
 
 # -------- Argparse --------
