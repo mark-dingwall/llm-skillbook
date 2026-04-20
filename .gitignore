@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# multi-review runtime
+.multi-review.log
+REVIEW.md
+
+# Spike samples (kept during development only)
+.spike-samples/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
