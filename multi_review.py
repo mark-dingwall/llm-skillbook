@@ -314,8 +314,9 @@ class ClaudeAdapter(ProgressAdapter):
                 self.usage.cached_tokens = u.get(
                     "cache_read_input_tokens", self.usage.cached_tokens
                 )
-            if "result" in ev and isinstance(ev["result"], str):
-                self.text_parts = [ev["result"]]
+            result = ev.get("result")
+            if isinstance(result, str) and result:
+                self.text_parts = [result]
 
 
 class GeminiAdapter(ProgressAdapter):
@@ -509,11 +510,11 @@ async def run_reviewer(
     except FileNotFoundError as e:
         state.status = "error"
         state.finished_at = time.time()
-        return ReviewerResult(cli, False, "", "", Usage(), 0.0, error=f"CLI not found: {e}")
+        return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=f"CLI not found: {e}")
     except Exception as e:
         state.status = "error"
         state.finished_at = time.time()
-        return ReviewerResult(cli, False, "", "", Usage(), 0.0, error=str(e))
+        return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=str(e))
 
     state.status = "running"
 
@@ -555,6 +556,7 @@ async def run_reviewer(
     except asyncio.TimeoutError:
         try:
             proc.kill()
+            await proc.wait()
         except ProcessLookupError:
             pass
         state.status = "timeout"
@@ -815,7 +817,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help=f"Per-reviewer timeout seconds (default: {DEFAULT_TIMEOUT})")
     p.add_argument("--no-synthesize", dest="synthesize", action="store_false", default=True,
                    help="Disable consensus synthesis pass")
-    p.add_argument("--synthesizer", default=DEFAULT_SYNTHESIZER,
+    p.add_argument("--synthesizer", choices=ALL_REVIEWERS, default=DEFAULT_SYNTHESIZER,
                    help=f"Reviewer to run the synthesis pass (default: {DEFAULT_SYNTHESIZER})")
     p.add_argument("--model", action="append", default=[],
                    help="Per-reviewer model override: --model claude=claude-opus-4-7 (repeatable)")
