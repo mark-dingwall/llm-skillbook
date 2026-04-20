@@ -693,10 +693,9 @@ async def run_all_reviewers(
     for s, t in zip(states, tasks):
         try:
             res = t.result()
-        except BaseException as exc:
-            # Any exception that escapes run_reviewer (OS/pipe errors, CancelledError,
-            # asyncio internals) must not abort the loop — REVIEW.md still needs to
-            # be written for the other reviewers.
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             s.status = "error"
             if not s.finished_at:
                 s.finished_at = time.time()
