@@ -416,58 +416,60 @@ ADAPTER_FOR = {
 
 # -------- Invocation commands --------
 
-def build_command(cli: str, prompt: str, model: str | None) -> tuple[list[str], bool]:
-    """Return (argv, use_stdin). If use_stdin, prompt piped on stdin."""
+def build_command(cli: str, model: str | None) -> list[str]:
+    """Return argv. Prompt is always written to the child's stdin (see run_reviewer)
+    so it never appears in /proc/PID/cmdline."""
     if cli == "claude":
-        cmd = ["claude", "-p", prompt, "--output-format", "stream-json",
+        cmd = ["claude", "-p", "--output-format", "stream-json",
                "--include-partial-messages", "--verbose"]
         if model:
             cmd += ["--model", model]
-        return cmd, False
+        return cmd
     if cli == "gemini":
-        cmd = ["gemini", "-p", prompt, "-o", "stream-json"]
+        # -p requires a value; "" lets gemini take the whole prompt from stdin.
+        cmd = ["gemini", "-p", "", "-o", "stream-json"]
         if model:
             cmd += ["-m", model]
-        return cmd, False
+        return cmd
     if cli == "codex":
         cmd = ["codex", "exec", "--json", "--skip-git-repo-check"]
         if model:
             cmd += ["--model", model]
-        cmd.append(prompt)
-        return cmd, False
+        cmd.append("-")
+        return cmd
     if cli == "opencode":
         cmd = ["opencode", "run"]
         if model:
             cmd += ["--model", model]
         cmd.append("-")
-        return cmd, True
+        return cmd
     raise ValueError(f"Unknown CLI: {cli}")
 
 
-def build_synthesis_command(cli: str, prompt: str, model: str | None) -> tuple[list[str], bool]:
-    """Synthesis uses a text-only (non-streaming) invocation where possible."""
+def build_synthesis_command(cli: str, model: str | None) -> list[str]:
+    """Synthesis uses a text-only (non-streaming) invocation. Prompt on stdin."""
     if cli == "claude":
-        cmd = ["claude", "-p", prompt]
+        cmd = ["claude", "-p"]
         if model:
             cmd += ["--model", model]
-        return cmd, False
+        return cmd
     if cli == "gemini":
-        cmd = ["gemini", "-p", prompt]
+        cmd = ["gemini", "-p", ""]
         if model:
             cmd += ["-m", model]
-        return cmd, False
+        return cmd
     if cli == "codex":
         cmd = ["codex", "exec", "--skip-git-repo-check"]
         if model:
             cmd += ["--model", model]
-        cmd.append(prompt)
-        return cmd, False
+        cmd.append("-")
+        return cmd
     if cli == "opencode":
         cmd = ["opencode", "run"]
         if model:
             cmd += ["--model", model]
         cmd.append("-")
-        return cmd, True
+        return cmd
     raise ValueError(f"Unknown synthesizer: {cli}")
 
 
@@ -510,14 +512,14 @@ async def run_reviewer(
     state: ReviewerState,
 ) -> ReviewerResult:
     adapter = state.adapter
-    cmd, use_stdin = build_command(cli, prompt, model)
+    cmd = build_command(cli, model)
     state.status = "starting"
     state.started_at = time.time()
 
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.PIPE if use_stdin else asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -532,7 +534,7 @@ async def run_reviewer(
 
     state.status = "running"
 
-    if use_stdin and proc.stdin is not None:
+    if proc.stdin is not None:
         try:
             proc.stdin.write(prompt.encode())
             await proc.stdin.drain()
@@ -691,11 +693,11 @@ async def run_synthesis(
     timeout: int,
 ) -> tuple[bool, str, str]:
     prompt = SYNTHESIS_PROMPT + "\n\n---\n\n" + review_md
-    cmd, use_stdin = build_synthesis_command(cli, prompt, model)
+    cmd = build_synthesis_command(cli, model)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.PIPE if use_stdin else asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -706,12 +708,13 @@ async def run_synthesis(
 
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(prompt.encode() if use_stdin else None),
+            proc.communicate(prompt.encode()),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
         try:
             proc.kill()
+            await proc.wait()
         except ProcessLookupError:
             pass
         return False, "", f"synthesis timeout after {timeout}s"
