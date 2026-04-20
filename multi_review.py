@@ -194,18 +194,6 @@ Output raw Markdown only. No preamble, no "Here is the synthesis", no code fence
 """
 
 
-def build_synthesis_input(results: list[ReviewerResult]) -> str:
-    """Wrap each successful review in a <review> tag so the synthesizer treats
-    the reviewer output as data rather than instructions."""
-    parts = []
-    for r in results:
-        if not r.ok:
-            continue
-        reviewer = html.escape(r.cli, quote=True)
-        parts.append(f'<review reviewer="{reviewer}">\n{r.text}\n</review>\n')
-    return "\n".join(parts)
-
-
 def build_prompt(
     task: str,
     custom_prompt: str | None,
@@ -225,31 +213,21 @@ def build_prompt(
         parts.append(TEMPLATES.get(task, TEMPLATES["generic"]))
     parts.append("\n\n")
 
-    if context_files:
-        parts.append("## Context\n\n")
-        for ctx in context_files:
-            if not ctx.exists():
-                print(f"Warning: context file not found: {ctx}", file=sys.stderr)
-                continue
-            try:
-                body = ctx.read_text(errors="replace")
-            except OSError as e:
-                print(f"Warning: cannot read context file {ctx}: {e}", file=sys.stderr)
-                continue
-            parts.append(f'<file path="{html.escape(str(ctx), quote=True)}">\n')
-            parts.append(body)
-            parts.append("\n</file>\n\n")
-
-    if input_files:
-        parts.append("## Files to Review\n\n")
-        for f in input_files:
-            if not f.exists():
-                print(f"Warning: input file not found: {f}", file=sys.stderr)
-                continue
+    for kind, header, files in [
+        ("context", "## Context\n\n", context_files),
+        ("input", "## Files to Review\n\n", input_files),
+    ]:
+        if not files:
+            continue
+        parts.append(header)
+        for f in files:
             try:
                 body = f.read_text(errors="replace")
             except OSError as e:
-                print(f"Warning: cannot read input file {f}: {e}", file=sys.stderr)
+                if isinstance(e, FileNotFoundError):
+                    print(f"Warning: {kind} file not found: {f}", file=sys.stderr)
+                else:
+                    print(f"Warning: cannot read {kind} file {f}: {e}", file=sys.stderr)
                 continue
             parts.append(f'<file path="{html.escape(str(f), quote=True)}">\n')
             parts.append(body)
@@ -530,6 +508,14 @@ class ReviewerState:
         return end - self.started_at
 
 
+async def kill_proc(proc: asyncio.subprocess.Process) -> None:
+    try:
+        proc.kill()
+        await proc.wait()
+    except ProcessLookupError:
+        pass
+
+
 async def run_reviewer(
     cli: str,
     prompt: str,
@@ -596,11 +582,7 @@ async def run_reviewer(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        try:
-            proc.kill()
-            await proc.wait()
-        except ProcessLookupError:
-            pass
+        await kill_proc(proc)
         state.status = "timeout"
         state.finished_at = time.time()
         stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
@@ -711,6 +693,18 @@ async def run_all_reviewers(
 
 # -------- Synthesis --------
 
+def build_synthesis_input(results: list[ReviewerResult]) -> str:
+    """Wrap each successful review in a <review> tag so the synthesizer treats
+    the reviewer output as data rather than instructions."""
+    parts = []
+    for r in results:
+        if not r.ok:
+            continue
+        reviewer = html.escape(r.cli, quote=True)
+        parts.append(f'<review reviewer="{reviewer}">\n{r.text}\n</review>\n')
+    return "\n".join(parts)
+
+
 async def run_synthesis(
     cli: str,
     review_md: str,
@@ -737,11 +731,7 @@ async def run_synthesis(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        try:
-            proc.kill()
-            await proc.wait()
-        except ProcessLookupError:
-            pass
+        await kill_proc(proc)
         return False, "", f"synthesis timeout after {timeout}s"
 
     text = stdout_b.decode("utf-8", errors="replace").strip()
