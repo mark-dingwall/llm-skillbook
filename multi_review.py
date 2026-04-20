@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import html
 import json
 import os
 import shutil
@@ -207,7 +208,7 @@ def build_prompt(
             if not ctx.exists():
                 print(f"Warning: context file not found: {ctx}", file=sys.stderr)
                 continue
-            parts.append(f'<file path="{ctx}">\n')
+            parts.append(f'<file path="{html.escape(str(ctx), quote=True)}">\n')
             parts.append(ctx.read_text(errors="replace"))
             parts.append("\n</file>\n\n")
 
@@ -217,7 +218,7 @@ def build_prompt(
             if not f.exists():
                 print(f"Warning: input file not found: {f}", file=sys.stderr)
                 continue
-            parts.append(f'<file path="{f}">\n')
+            parts.append(f'<file path="{html.escape(str(f), quote=True)}">\n')
             parts.append(f.read_text(errors="replace"))
             parts.append("\n</file>\n\n")
 
@@ -698,7 +699,7 @@ async def run_synthesis(
 def yaml_list(items: list[str]) -> str:
     if not items:
         return "[]"
-    return "[" + ", ".join(items) + "]"
+    return "[" + ", ".join(json.dumps(i) for i in items) + "]"
 
 
 def write_review_md(
@@ -732,7 +733,7 @@ def write_review_md(
     if models:
         lines.append("models:")
         for k, v in models.items():
-            lines.append(f"  {k}: {v}")
+            lines.append(f"  {k}: {json.dumps(v)}")
     lines.append("usage:")
     lines.extend(usage_block_lines)
     if synthesizer and synthesized_at:
