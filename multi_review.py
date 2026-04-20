@@ -368,9 +368,15 @@ class GeminiAdapter(ProgressAdapter):
             self.phase = "running"
         elif t == "message" and ev.get("role") == "assistant":
             content = ev.get("content", "")
-            if content:
-                # Gemini emits coarse deltas; each message is appended.
+            if not content:
+                return
+            # Verified against gemini stream-json: assistant messages carry
+            # "delta": true and must be concatenated. If a future gemini version
+            # emits cumulative messages (no delta flag), replace to avoid dupes.
+            if ev.get("delta"):
                 self.text_parts.append(content)
+            else:
+                self.text_parts = [content]
         elif t == "result":
             self.phase = "done"
             stats = ev.get("stats", {})
