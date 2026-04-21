@@ -395,19 +395,50 @@ class CodexAdapter(ProgressAdapter):
 
 
 class OpenCodeAdapter(ProgressAdapter):
-    """OpenCode has no JSON stream — track bytes only.
+    """Parses `opencode run --format json` event stream.
 
-    The full stdout is captured as the response text via flush_stdout()."""
-
-    label_cols = "bytes"
+    Event types: text, reasoning, tool_use, step_start, step_finish, error.
+    """
 
     def feed_line(self, line: str) -> None:
         super().feed_line(line)
-        self.text_parts.append(line)
-        self.phase = "running"
-
-    def get_response_text(self) -> str:
-        return "".join(self.text_parts).strip()
+        line = line.strip()
+        if not line:
+            return
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        t = ev.get("type")
+        part = ev.get("part") or {}
+        if t == "step_start":
+            self.phase = "running"
+        elif t == "text":
+            txt = part.get("text", "")
+            if txt:
+                self.text_parts.append(txt)
+        elif t == "tool_use":
+            status = (part.get("state") or {}).get("status") or part.get("status")
+            if status in ("completed", "error"):
+                self.usage.tool_calls += 1
+            tool_name = part.get("tool") or "?"
+            self.phase = f"tool:{tool_name}"
+        elif t == "step_finish":
+            self.phase = "done"
+            u = part.get("usage") or ev.get("usage") or {}
+            if u:
+                self.usage.input_tokens = u.get(
+                    "input_tokens", u.get("input", self.usage.input_tokens)
+                )
+                self.usage.output_tokens = u.get(
+                    "output_tokens", u.get("output", self.usage.output_tokens)
+                )
+                self.usage.cached_tokens = u.get(
+                    "cached_tokens", u.get("cached", self.usage.cached_tokens)
+                )
+        elif t == "error":
+            err = ev.get("error") or {}
+            self.phase = f"error:{err.get('name', 'error')}"
 
 
 ADAPTER_FOR = {
@@ -446,7 +477,7 @@ CLI_SPEC = {
     },
     "opencode": {
         "base": ["opencode", "run"],
-        "stream_flags": [],
+        "stream_flags": ["--format", "json"],
         "model_flag": "--model",
         "stdin_sentinel": "-",
     },
@@ -582,6 +613,9 @@ async def run_reviewer(
             adapter.usage, time.time() - state.started_at,
             error=f"timeout after {timeout}s",
         )
+    except asyncio.CancelledError:
+        await kill_proc(proc)
+        raise
 
     state.finished_at = time.time()
     rc = proc.returncode
@@ -656,11 +690,18 @@ async def run_all_reviewers(
 
     tasks = [asyncio.create_task(runner_for(s)) for s in states]
 
-    with Live(build_table(states), console=console, refresh_per_second=6) as live:
-        while not all(t.done() for t in tasks):
+    try:
+        with Live(build_table(states), console=console, refresh_per_second=6) as live:
+            while not all(t.done() for t in tasks):
+                live.update(build_table(states))
+                await asyncio.sleep(0.15)
             live.update(build_table(states))
-            await asyncio.sleep(0.15)
-        live.update(build_table(states))
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
     results = []
     for s, t in zip(states, tasks):
@@ -840,31 +881,41 @@ def parse_model_overrides(values: list[str] | None) -> dict[str, str]:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    tasks = ",".join(TEMPLATES)
+    reviewers = ",".join(ALL_REVIEWERS)
     p = argparse.ArgumentParser(
         prog="multi-review",
         description="Cross-AI peer review: run the same prompt through multiple AI CLIs in parallel.",
+        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=28),
     )
-    p.add_argument("files", nargs="*", help="Files to review")
-    p.add_argument("--task", choices=list(TEMPLATES), default="generic",
-                   help="Preset review prompt template (default: generic)")
-    p.add_argument("--prompt", help="Custom review prompt (overrides --task)")
-    p.add_argument("--prompt-file", type=Path, help="Read custom prompt from file")
-    p.add_argument("--context", type=Path, action="append", default=[],
-                   help="Extra context file prepended to prompt (repeatable)")
-    p.add_argument("--reviewers", help="Comma-separated list of reviewers (default: all available minus self)")
-    p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
-                   help=f"Output path (default: {DEFAULT_OUTPUT})")
-    p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
-                   help=f"Per-reviewer timeout seconds (default: {DEFAULT_TIMEOUT})")
+    p.add_argument("files", nargs="*", metavar="FILE",
+                   help="Files to review (wrapped in <file> tags and appended to prompt)")
+    p.add_argument("--task", choices=list(TEMPLATES), default="generic", metavar="TASK",
+                   help=f"Preset review prompt template: {tasks} (default: generic)")
+    p.add_argument("--prompt", metavar="TEXT",
+                   help="Inline custom review prompt (overrides --task)")
+    p.add_argument("--prompt-file", type=Path, metavar="PATH",
+                   help="Read custom review prompt from file (overrides --task and --prompt)")
+    p.add_argument("--context", type=Path, action="append", default=[], metavar="PATH",
+                   help="Extra context file prepended to prompt, wrapped in <file> tags (repeatable)")
+    p.add_argument("--reviewers", metavar="LIST",
+                   help=f"Comma-separated reviewers to run, e.g. {reviewers} (default: all available minus self)")
+    p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, metavar="PATH",
+                   help=f"Destination Markdown report (default: {DEFAULT_OUTPUT})")
+    p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, metavar="SECS",
+                   help=f"Per-reviewer timeout in seconds; reviewer fails on exceed (default: {DEFAULT_TIMEOUT})")
     p.add_argument("--no-synthesize", dest="synthesize", action="store_false", default=True,
-                   help="Disable consensus synthesis pass")
-    p.add_argument("--synthesizer", choices=ALL_REVIEWERS, default=DEFAULT_SYNTHESIZER,
-                   help=f"Reviewer to run the synthesis pass (default: {DEFAULT_SYNTHESIZER})")
-    p.add_argument("--model", action="append", default=[],
-                   help="Per-reviewer model override: --model claude=claude-opus-4-7 (repeatable)")
-    p.add_argument("--dry-run", action="store_true", help="Print assembled prompt and exit")
-    p.add_argument("--list-reviewers", action="store_true", help="Show detected CLIs + self-detection")
-    p.add_argument("--version", action="version", version=f"multi-review {__version__}")
+                   help="Skip the consensus-synthesis pass (default: run it when >=2 reviewers succeed)")
+    p.add_argument("--synthesizer", choices=ALL_REVIEWERS, default=DEFAULT_SYNTHESIZER, metavar="REVIEWER",
+                   help=f"Reviewer that runs the synthesis pass: {reviewers} (default: {DEFAULT_SYNTHESIZER})")
+    p.add_argument("--model", action="append", default=[], metavar="REVIEWER=MODEL",
+                   help="Per-reviewer model override, e.g. --model claude=claude-opus-4-7 (repeatable)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Assemble and print the prompt to stdout without invoking any reviewer")
+    p.add_argument("--list-reviewers", action="store_true",
+                   help="Print detected reviewer CLIs and self-detection result, then exit")
+    p.add_argument("--version", action="version", version=f"multi-review {__version__}",
+                   help="Print version and exit")
     return p.parse_args(argv)
 
 
@@ -897,6 +948,8 @@ async def async_main(args: argparse.Namespace) -> int:
     self_cli = detect_self()
     requested = [r.strip() for r in args.reviewers.split(",")] if args.reviewers else None
     reviewers = resolve_reviewers(requested, self_cli)
+    available = detect_available()
+    unavailable = [c for c in ALL_REVIEWERS if c not in available]
 
     if not reviewers:
         console.print("[red]No reviewers available after filtering (self-skip + availability).[/red]", style="red")
@@ -913,7 +966,12 @@ async def async_main(args: argparse.Namespace) -> int:
         input_files=input_files,
     )
 
-    console.print(f"[dim]Prompt: {len(prompt):,} bytes · Reviewers: {', '.join(reviewers)} · Self-skip: {self_cli or 'none'}[/dim]")
+    status = (f"[dim]Prompt: {len(prompt):,} bytes · Reviewers: {', '.join(reviewers)} "
+              f"· Self-skip: {self_cli or 'none'}")
+    if unavailable:
+        status += f" · Unavailable: {', '.join(unavailable)}"
+    status += "[/dim]"
+    console.print(status)
 
     results = await run_all_reviewers(reviewers, prompt, models, args.timeout, console)
 
@@ -953,6 +1011,10 @@ async def async_main(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
+    if not args.list_reviewers and not args.dry_run \
+            and not args.files and not args.prompt and not args.prompt_file:
+        parse_args(["-h"])
+
     if args.list_reviewers:
         return cmd_list_reviewers()
 
@@ -961,6 +1023,8 @@ def main(argv: list[str] | None = None) -> int:
         self_cli = detect_self()
         requested = [r.strip() for r in args.reviewers.split(",")] if args.reviewers else None
         reviewers = resolve_reviewers(requested, self_cli)
+        available = detect_available()
+        unavailable = [c for c in ALL_REVIEWERS if c not in available]
         input_files = [Path(f) for f in args.files]
         prompt = build_prompt(
             task=args.task,
@@ -973,6 +1037,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Output:     {args.output}")
         print(f"Self:       {self_cli or '<none>'}")
         print(f"Reviewers:  {', '.join(reviewers) if reviewers else '<none>'}")
+        if unavailable:
+            print(f"Unavailable: {', '.join(unavailable)}")
         print(f"Synthesize: {args.synthesize} (via {args.synthesizer})")
         print(f"Models:     {models or '<defaults>'}")
         print(f"Prompt:     {len(prompt)} bytes")
@@ -981,7 +1047,11 @@ def main(argv: list[str] | None = None) -> int:
         print(prompt)
         return 0
 
-    return asyncio.run(async_main(args))
+    try:
+        return asyncio.run(async_main(args))
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

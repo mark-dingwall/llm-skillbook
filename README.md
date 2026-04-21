@@ -17,7 +17,7 @@ Single-file Python script. Run via `uv`. No packaging, no install step.
   - [`claude`](https://github.com/anthropics/claude-code)
   - [`gemini`](https://github.com/google-gemini/gemini-cli)
   - [`codex`](https://github.com/openai/codex)
-  - [`opencode`](https://opencode.ai) _(optional — no JSON stream, progress tracked as byte count only)_
+  - [`opencode`](https://opencode.ai) _(optional — uses `--format json` event stream; token usage best-effort, depends on upstream schema)_
 
 ## Install
 
@@ -96,9 +96,9 @@ Each CLI exposes different telemetry during a run. The dashboard shows what's av
 | `claude`   | live (per-message)           | yes  | yes | yes (`running`, `tool:<name>`, `done`) |
 | `gemini`   | final-only (in `result`)     | final-only | yes | coarse (`running`, `done`) |
 | `codex`    | final-only (in `turn.completed`) | yes  | yes | yes (`running`, `tool:<name>`, `done`) |
-| `opencode` | —                            | —    | yes | minimal (`running`, `done`) — no JSON stream |
+| `opencode` | best-effort (in `step_finish`) | yes | yes | yes (`running`, `tool:<name>`, `done`, `error:<name>`) |
 
-`opencode` has no structured event stream, so its dashboard column is the raw byte count of stdout.
+`opencode` now emits a structured event stream via `--format json`. Token counts are best-effort: they appear if the CLI surfaces them in `step_finish`, otherwise `0`. Bytes read is still tracked for all reviewers.
 
 ## Consensus synthesis (and the double-weighting caveat)
 
