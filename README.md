@@ -144,7 +144,7 @@ section with an `error:` line and a tail of their captured stderr.
 
 ```
 multi-review [file ...]
-  --task {code,plan,design,security,generic}  (default: generic)
+  --task                   {code,plan,design,security,generic}  (default: generic)
   --prompt TEXT            # custom prompt, overrides --task
   --prompt-file PATH       # read custom prompt from file
   --context PATH           # extra context (repeatable)

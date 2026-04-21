@@ -19,3 +19,7 @@ REVIEW.md
 .idea/
 *.swp
 .DS_Store
+
+# LLM files
+.claude/
+.codex
