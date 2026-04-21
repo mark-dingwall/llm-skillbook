@@ -2,50 +2,62 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project shape
+## Project
 
-Single-file Python tool (`multi_review.py`, ~950 LOC). PEP 723 inline metadata declares `python>=3.11` and `rich>=13.7`; the shebang `#!/usr/bin/env -S uv run --script` lets `uv` resolve deps on first run. No package, no `pyproject.toml`, no test suite, no lint config. The script is the product.
+Single-file Python tool (`multi_review.py`) that fans out one review prompt to multiple AI CLIs in parallel (`claude`, `gemini`, `codex`, `opencode`), aggregates responses into `REVIEW.md`, and optionally runs a consensus-synthesis pass.
 
-## Common commands
+No packaging. No test suite. Runs via `uv` using a PEP 723 inline script header (`#!/usr/bin/env -S uv run --script`); `rich>=13.7` is declared inline and resolved on first run.
+
+## Commands
 
 ```bash
-# Run directly (uv resolves rich on first invocation)
-./multi_review.py --list-reviewers
-./multi_review.py --dry-run --task code path/to/file.py
-./multi_review.py --task security --context docs/threat-model.md api/*.py
+# Run directly (uv resolves deps)
+./multi_review.py [files...]
 
-# Smoke test without calling any CLI
-./multi_review.py --dry-run --task generic README.md
+# Show detected CLIs + self-detection (no network calls)
+./multi_review.py --list-reviewers
+
+# Assemble prompt + print, no reviewers invoked
+./multi_review.py --dry-run --task code src/*.py
+
+# Force explicit reviewer set (bypasses self-skip / availability filter)
+./multi_review.py --reviewers gemini,codex file.py
+
+# Per-reviewer model override
+./multi_review.py --model claude=claude-opus-4-7 --model codex=gpt-5 file.py
 ```
 
-There are no `make`, `pytest`, `ruff`, or CI configs. The README explicitly lists "automated tests (one manual smoke test only)" under *Not in v0.1*. Do not invent a test harness unless asked.
+No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typing is not wired up — don't assume a tool is available without checking.
 
 ## Architecture
 
-Four concerns, all in `multi_review.py`:
+### Data flow
 
-1. **Reviewer resolution** — `detect_self()` reads env vars (`CLAUDE_CODE_ENTRYPOINT`, `GEMINI_CLI`, `CODEX_ENV`, `ANTIGRAVITY_AGENT`) to identify the host CLI and self-exclude it from the reviewer set. `detect_available()` checks `PATH`. `resolve_reviewers()` intersects requested ∩ available ∩ not-self.
+1. `parse_args` → `detect_self` + `resolve_reviewers` filter the reviewer list (self-skip by env var, availability by `shutil.which`).
+2. `build_prompt` assembles `INJECTION_PREAMBLE` + task template (or custom/`--prompt-file`) + context files + input files, each wrapped in `<file path="…">…</file>`.
+3. `run_all_reviewers` spawns one `asyncio.subprocess` per reviewer. Each child's stdout (JSONL event stream) is fed line-by-line into a per-CLI `ProgressAdapter`. A `rich.Live` dashboard (`build_table`) polls adapter state at ~6Hz.
+4. `run_synthesis` (if ≥2 reviewers succeeded and `--synthesize` is on) pipes `build_synthesis_input(results)` through `--synthesizer` CLI for a Consensus Summary block.
+5. `write_review_md` emits YAML frontmatter + one section per reviewer + Consensus Summary.
 
-2. **Prompt assembly** — `build_prompt()` emits an `INJECTION_PREAMBLE` then a task template from `TEMPLATES` (or a `--prompt` / `--prompt-file` override), then wraps every context and input file in `<file path="…">…</file>` tags. The preamble tells the model those tags are data, not instructions — this is the only injection defense.
+### Key abstractions
 
-3. **Per-CLI streaming adapters** — one `ProgressAdapter` subclass per reviewer parses that CLI's JSONL stdout into a shared `Usage` struct + accumulated response text:
-   - `ClaudeAdapter`: `stream_event` / `assistant` / `result` envelopes. Prefers fully-assembled `assistant.message.content` over stream deltas to avoid dupes.
-   - `GeminiAdapter`: coarse `message` / `result` events; usage only arrives in final `result`.
-   - `CodexAdapter`: `item.completed` for `agent_message` (last wins) and `tool_call`; `turn.completed` for usage.
-   - `OpenCodeAdapter`: no JSON stream — captures raw stdout as text, tracks bytes only. Its `label_cols = "bytes"` signals the dashboard to show bytes instead of tokens.
-   Adapters are registered in `ADAPTER_FOR`. Each CLI's command line is built in `build_command()` / `build_synthesis_command()` — streaming vs non-streaming invocations use different flags.
+- **`CLI_SPEC` table** (multi_review.py:458): single source of truth for each CLI's invocation — `base` args, streaming flags, `--model` flag name, and optional `stdin_sentinel` (the `-` arg some CLIs need to read prompt from stdin). `build_command` composes argv from this; both `run_reviewer` (streaming) and `run_synthesis` (non-streaming) consume it.
+- **Adding a new reviewer**: add to `ALL_REVIEWERS`, add a `CLI_SPEC` entry, write a `ProgressAdapter` subclass, register in `ADAPTER_FOR`. README *Not in v0.1* names `coderabbit`, `qwen`, `cursor` as open candidates.
+- **`ProgressAdapter` subclasses** (one per CLI): parse that CLI's JSON event stream into a `Usage` dataclass + accumulated text. Each CLI has different telemetry fidelity — see README table. Keep the adapter defensive: upstream event schemas drift.
+- **`ReviewerState` / `ReviewerResult`**: mutable state the dashboard watches vs. final result returned from `run_reviewer`.
 
-4. **Orchestration** — `run_all_reviewers()` launches all reviewers via `asyncio.create_subprocess_exec` concurrently; a `rich.Live` table rebuilds from `ReviewerState` objects on each tick. A reviewer is classified `ok` iff `returncode == 0` AND `len(text.encode()) >= FAILURE_MIN_BYTES` (50). After all reviewers return, if `≥2` succeeded and `--synthesize` is on, `run_synthesis()` pipes the assembled `REVIEW.md` back through `--synthesizer` (default `claude`) with `SYNTHESIS_PROMPT` to fill the Consensus section.
+### Invariants to preserve
 
-## Output contract
+- **Prompt goes on stdin, never argv.** Every CLI is invoked with the prompt written to `proc.stdin`. This keeps prompts out of `/proc/PID/cmdline` (see commit `55d783b`). Don't move prompt to argv.
+- **Self-skip via env vars** (`detect_self`): `CLAUDE_CODE_ENTRYPOINT` → skip `claude`, `GEMINI_CLI` → skip `gemini`, `CODEX_ENV` → skip `codex`, `OPENCODE` → skip `opencode`. `ANTIGRAVITY_AGENT=1` short-circuits to "none". Override with `--reviewers`.
+- **Dual failure classification**: a reviewer fails if rc ≠ 0 OR captured output < `FAILURE_MIN_BYTES` (50). Don't weaken either check — both have caught real breakage. Partial failures still produce `REVIEW.md`; failed reviewers get their own section with stderr tail (last 2000 chars) and up to 1000 chars of any partial output.
+- **Injection posture**: all file content is wrapped in `<file>` tags with a preamble telling the model to treat that content as review data. Synthesis input wraps each review in `<review reviewer="…">`. `html.escape(..., quote=True)` is used on attribute values. This is defense-in-depth, not a sandbox.
+- **Exit codes**: `0` ≥1 reviewer succeeded, `1` all failed or none available, `2` argparse error.
 
-`write_review_md()` produces YAML frontmatter (`task`, `reviewers_succeeded`, `reviewers_failed`, `reviewed_at`, `files`, `models`, per-reviewer `usage`, and synthesis metadata when populated) followed by one `## <Cli> Review` section per reviewer and a final `## Consensus Summary`. Failed reviewers get a `(FAILED)` heading with error, elapsed, stderr tail (last 2000 chars), and up to 1000 chars of any partial output. Exit codes: `0` = ≥1 reviewer succeeded, `1` = all failed or no reviewers resolved, `2` = argparse error.
+### Synthesis caveat (documented in README)
 
-## Conventions worth preserving
+When `--synthesizer` is also a reviewer, that model is double-weighted. `async_main` handles the "synthesizer was self-skipped as reviewer" case implicitly because the synthesizer call uses the CLI name directly regardless of the reviewer list. Don't "fix" this by auto-excluding the synthesizer from reviewers without discussion — the README explicitly calls this out as user choice.
 
-- **Self-skip is the default** and must stay on unless `--reviewers` is explicit. This is what keeps the peer review independent.
-- **Synthesizer double-weighting caveat** (README §Consensus synthesis): when the synthesizer is also a reviewer, its view is double-counted. Preserve this property and the warning if you refactor synthesis.
-- **Per-reviewer model override** uses `--model cli=model-id` (repeatable) — `parse_model_overrides()` validates the CLI name is in `ALL_REVIEWERS`.
-- **Adding a new reviewer** = add to `ALL_REVIEWERS`, write a `ProgressAdapter` subclass, register in `ADAPTER_FOR`, and extend both `build_command()` and `build_synthesis_command()`. The README *Not in v0.1* list names `coderabbit`, `qwen`, `cursor` as open candidates.
-- **Failure classification is dual** (exit code OR too-small output). Don't weaken either check — both have caught real breakage.
-- **Progress telemetry differs per CLI** (see README table). The dashboard's `label_cols` / `bytes_seen` distinction exists because opencode has no event stream.
+## Dependency tracking
+
+Gemini emitted cumulative (non-delta) assistant messages in some versions. `GeminiAdapter.feed_line` keys off `ev.get("delta")` — if a future gemini release drops that flag, it will double-count text. Comment at multi_review.py:351 flags this. Same caution applies to any adapter when upstream schemas change.
