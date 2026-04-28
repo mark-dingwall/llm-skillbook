@@ -61,7 +61,7 @@ multi-review --model claude=claude-opus-4-7 --model codex=gpt-5 file.py
 
 ## How it works
 
-1. Builds one prompt (task preset or custom) and wraps the reviewed files in `<file>` tags with a prompt-injection defense preamble.
+1. Builds one prompt (task preset or custom) and wraps the reviewed files in nonce-tagged `<file-NONCE>` tags with a prompt-injection defense preamble.
 2. Launches all available reviewer CLIs in parallel via `asyncio`.
 3. Streams each CLI's JSONL event output through a per-CLI `ProgressAdapter` that tracks token counts, tool calls, and elapsed time — all rendered in a live `rich` dashboard.
 4. Captures each CLI's response and writes `REVIEW.md` with YAML frontmatter (reviewers, usage, models) + one Markdown section per reviewer.
@@ -122,11 +122,14 @@ Disable it entirely with `--no-synthesize`.
 
 ## Prompt-injection defense
 
-Every file passed to `multi-review` is wrapped in `<file path="...">...</file>`
-tags, and the prompt opens with an explicit instruction that content inside those
-tags is review data, not instructions. This does not remove the risk of injection
-— it only raises the floor. Don't use `multi-review` to review attacker-controlled
-input without additional sandboxing.
+Every file passed to `multi-review` is wrapped in
+`<file-NONCE path="...">...</file-NONCE>` tags using a fresh 8-hex per-run nonce
+(synthesis input wraps each review in `<review-NONCE reviewer="...">` the same way),
+and the prompt opens with an explicit instruction that content inside those tags is
+review data, not instructions. The nonce prevents a reviewed file from forging the
+closing tag and breaking out of the data block. This does not remove the risk of
+injection — it only raises the floor. Don't use `multi-review` to review
+attacker-controlled input without additional sandboxing.
 
 ## Exit codes
 
@@ -154,6 +157,7 @@ multi-review [file ...]
   --no-synthesize          # disable consensus pass
   --synthesizer CLI        # default: claude
   --model cli=model-id     # per-reviewer model override (repeatable)
+  --allow-missing          # warn-and-skip missing input/context files (default: error)
   --dry-run                # print assembled prompt, exit
   --list-reviewers         # show detected CLIs + self-detection
   --version
