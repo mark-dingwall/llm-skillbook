@@ -131,6 +131,35 @@ closing tag and breaking out of the data block. This does not remove the risk of
 injection — it only raises the floor. Don't use `multi-review` to review
 attacker-controlled input without additional sandboxing.
 
+## Inline vs reference mode
+
+By default (`--mode inline`), every input file's contents are embedded into the
+prompt inside `<file-NONCE>` tags. Front-loading 100k+ tokens of source can
+dilute model attention and surface fewer findings than a same-prompt interactive
+run where the model reads files iteratively as it reasons.
+
+`--mode reference` instead emits a manifest of absolute paths and instructs the
+model to read each file via its own file-reading tools. Context files (`--context`)
+are still inline-wrapped regardless of mode — they're framing material the model
+needs before any tool call.
+
+```bash
+multi-review --mode reference --task code src/auth.ts src/session.ts
+```
+
+When to prefer reference:
+
+- Large file sets where front-loaded context dilutes attention.
+- Reviewer CLIs whose models have strong file-reading / search discipline.
+
+Caveats:
+
+- The reviewer CLI must have its file-read tool enabled. Permission prompts
+  mid-stream are still possible (Phase 2 of this work will add an opt-in
+  `--bypass-perms` + bwrap sandbox combo to suppress prompts safely).
+- Models with poor read-as-you-reason habits may underperform inline. If a
+  reviewer comes back light on findings, swap modes and compare.
+
 ## Exit codes
 
 - `0` — at least one reviewer succeeded and wrote a review.
@@ -157,6 +186,8 @@ multi-review [file ...]
   --no-synthesize          # disable consensus pass
   --synthesizer CLI        # default: claude
   --model cli=model-id     # per-reviewer model override (repeatable)
+  --mode {inline,reference} # inline: file contents embedded (default).
+                            # reference: manifest of absolute paths only.
   --allow-missing          # warn-and-skip missing input/context files (default: error)
   --dry-run                # print assembled prompt, exit
   --list-reviewers         # show detected CLIs + self-detection
