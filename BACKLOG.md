@@ -222,6 +222,16 @@ Context files stay inline regardless of mode (they're framing docs, small).
 
 ## Capacity-aware reviewer fallback
 
+**Status (2026-04-29):** Shipped for **gemini**. 6-deep default chain
+(`GEMINI_FALLBACK_CHAIN`) walked on capacity-class stderr, stops at first
+success. `--no-fallback` disables; `--fallback-model gemini=A,B,C` overrides
+the chain; `--model gemini=X` pins. Synthesis pass uses the same chain.
+Frontmatter surfaces `fallbacks:` only when ≥2 hops walked, dashboard shows
+"Model" column with `*N` marker when fallback fired. **claude / codex /
+opencode patterns remain unimplemented** — `CAPACITY_PATTERNS` is gemini-only;
+their `fallback_chain` is empty. Add their patterns + chains here when
+real-world stderr samples are collected.
+
 ### Motivation
 
 Gemini's frontier models hit `429 MODEL_CAPACITY_EXHAUSTED` opaquely and
@@ -292,23 +302,6 @@ the user re-runs the whole thing by hand.
   - `write_review_md`: surface `fallbacks_fired` in frontmatter.
 - `README.md`: new section on capacity-aware fallback.
 - `CLAUDE.md`: invariant note that fallback is one-hop, capacity-only.
-
-## Bug: `--reviewers` does not override self-skip
-
-CLAUDE.md "Self-skip via env vars" invariant says "Override with
-`--reviewers`." `resolve_reviewers` (multi_review.py:67) always self-skips
-regardless of whether the user listed their host CLI explicitly. Reproduced
-2026-04-29 trying claude-only run from inside Claude Code: hit "No reviewers
-available after filtering". Workaround: `env -u CLAUDE_CODE_ENTRYPOINT
-multi_review.py …`.
-
-Fix options:
-- Honor explicit `--reviewers` list verbatim (treat self-skip as default
-  filter, not a hard rule). Likely user intent — they typed it.
-- Or: explicit `--allow-self` flag, keep self-skip even with `--reviewers`.
-- Either way: update CLAUDE.md to match what the code does.
-
-Trivial fix; doc-vs-impl drift.
 
 ## Bug: Claude adapter under-counts when claude is the spawned reviewer
 

@@ -66,10 +66,11 @@ def detect_available() -> list[str]:
 
 def resolve_reviewers(requested: list[str] | None, self_cli: str) -> list[str]:
     available = detect_available()
-    base = requested if requested else available
+    explicit = requested is not None
+    base = requested if explicit else available
     out = []
     for cli in base:
-        if cli == self_cli and self_cli != "none":
+        if not explicit and cli == self_cli and self_cli != "none":
             continue
         if cli not in available:
             continue
@@ -533,15 +534,35 @@ ADAPTER_FOR = {
 
 # -------- Invocation commands --------
 
+# Default fallback chain for gemini, walked top-to-bottom on capacity-class
+# failures (see CAPACITY_PATTERNS). chain[0] is also the default model when no
+# --model override is supplied.
+GEMINI_FALLBACK_CHAIN = [
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+]
+
+# Best-effort regex per CLI for capacity-class failures (429 / quota /
+# overloaded). Stderr scraping — these WILL rot as upstream messages drift
+# (mirrors the GeminiAdapter `delta` caution near multi_review.py:431).
+# Add real-world stderr samples here as they're observed.
+CAPACITY_PATTERNS: dict[str, "re.Pattern[str]"] = {
+    "gemini": re.compile(
+        r"MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|Quota exceeded|"
+        r"\b429\b|UNAVAILABLE|model is overloaded",
+        re.IGNORECASE,
+    ),
+}
+
 # Per-CLI invocation recipe. "base" + optional stream_flags + optional
-# --model/-m override (or default_args when no override) + optional stdin
-# sentinel. Prompt is always written to the child's stdin (see run_reviewer)
-# so it never appears in /proc/PID/cmdline.
+# --model/-m override (or default_args / fallback_chain[0] when no override) +
+# optional stdin sentinel. Prompt is always written to the child's stdin (see
+# run_reviewer) so it never appears in /proc/PID/cmdline.
 # gemini's -p requires a value; "" lets it take the whole prompt from stdin.
-#
-# TODO: support user-configurable model selection — either via expanded CLI
-# args (e.g. --reasoning-effort REVIEWER=LEVEL) or a config.yaml with per-CLI
-# defaults. Current default_args are hardcoded.
 CLI_SPEC = {
     "claude": {
         "base": ["claude", "-p"],
@@ -549,13 +570,16 @@ CLI_SPEC = {
                          "--include-partial-messages", "--verbose"],
         "model_flag": "--model",
         "default_args": ["--model", "opus", "--effort", "xhigh"],
+        "fallback_chain": [],
         "stdin_sentinel": None,
     },
     "gemini": {
         "base": ["gemini", "-p", ""],
         "stream_flags": ["-o", "stream-json"],
         "model_flag": "-m",
-        "default_args": ["-m", "gemini-3.1-pro-preview"],
+        # Default model now sourced from fallback_chain[0] when no override.
+        "default_args": [],
+        "fallback_chain": GEMINI_FALLBACK_CHAIN,
         "stdin_sentinel": None,
     },
     "codex": {
@@ -564,6 +588,7 @@ CLI_SPEC = {
         "model_flag": "--model",
         "default_args": ["--model", "gpt-5.5",
                          "-c", 'model_reasoning_effort="high"'],
+        "fallback_chain": [],
         "stdin_sentinel": "-",
     },
     "opencode": {
@@ -571,6 +596,7 @@ CLI_SPEC = {
         "stream_flags": ["--format", "json"],
         "model_flag": "--model",
         "default_args": ["--model", "openrouter/deepseek/deepseek-v4-pro"],
+        "fallback_chain": [],
         "stdin_sentinel": "-",
     },
 }
@@ -587,10 +613,55 @@ def build_command(cli: str, model: str | None, *, streaming: bool) -> list[str]:
     if model:
         cmd += [spec["model_flag"], model]
     else:
-        cmd += spec.get("default_args", [])
+        chain = spec.get("fallback_chain") or []
+        if chain:
+            cmd += [spec["model_flag"], chain[0]]
+        else:
+            cmd += spec.get("default_args", [])
     if spec["stdin_sentinel"]:
         cmd.append(spec["stdin_sentinel"])
     return cmd
+
+
+def make_adapter(cli: str) -> ProgressAdapter:
+    return ADAPTER_FOR[cli]()
+
+
+def _is_capacity_failure(stderr_tail: str, text: str, pattern: "re.Pattern[str]") -> bool:
+    """Capacity-class match against stderr (primary) and accumulated text
+    (fallback for CLIs that surface 429 inside their event stream)."""
+    if pattern.search(stderr_tail or ""):
+        return True
+    if text and pattern.search(text):
+        return True
+    return False
+
+
+def resolve_chain(
+    cli: str,
+    model_override: str | None,
+    fallback_override: list[str] | None,
+    no_fallback: bool,
+) -> list[str | None]:
+    """Compute the model chain for a reviewer.
+
+    - --model REVIEWER=X pins to [X] (no fallback).
+    - --no-fallback truncates to the first hop only.
+    - --fallback-model REVIEWER=A,B,C overrides the built-in chain.
+    - Default: built-in CLI_SPEC[cli]["fallback_chain"], or [None] when empty
+      (None = no model flag, CLI uses its own default).
+    """
+    if model_override is not None:
+        return [model_override]
+    chain: list[str | None]
+    if fallback_override:
+        chain = list(fallback_override)
+    else:
+        spec_chain = CLI_SPEC[cli].get("fallback_chain") or []
+        chain = list(spec_chain) if spec_chain else [None]
+    if no_fallback and len(chain) > 1:
+        chain = chain[:1]
+    return chain
 
 
 # -------- Reviewer runner --------
@@ -604,6 +675,9 @@ class ReviewerResult:
     usage: Usage
     elapsed: float
     error: str | None = None
+    model_used: str | None = None
+    attempts: list[str] = field(default_factory=list)
+    fallback_fired: bool = False
 
 
 @dataclass
@@ -615,6 +689,8 @@ class ReviewerState:
     finished_at: float = 0.0
     result: ReviewerResult | None = None
     error: str | None = None
+    current_model: str | None = None
+    attempts: list[str] = field(default_factory=list)
 
     @property
     def elapsed(self) -> float:
@@ -632,7 +708,7 @@ async def kill_proc(proc: asyncio.subprocess.Process) -> None:
         pass
 
 
-async def run_reviewer(
+async def _run_reviewer_attempt(
     cli: str,
     prompt: str,
     model: str | None,
@@ -643,6 +719,7 @@ async def run_reviewer(
     cmd = build_command(cli, model, streaming=True)
     state.status = "starting"
     state.started_at = time.time()
+    state.finished_at = 0.0
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -740,6 +817,45 @@ async def run_reviewer(
     )
 
 
+async def run_reviewer(
+    cli: str,
+    prompt: str,
+    timeout: int,
+    state: ReviewerState,
+    *,
+    chain: list[str | None],
+    capacity_pattern: "re.Pattern[str] | None",
+) -> ReviewerResult:
+    """Walk the model chain. One spawn per hop. Stops on success, on a
+    non-capacity failure, or after the chain is exhausted. capacity_pattern=
+    None disables fallback semantics (single attempt only)."""
+    attempts: list[str] = []
+    last: ReviewerResult | None = None
+    for m in chain:
+        label = m if m is not None else "<default>"
+        attempts.append(label)
+        state.attempts = list(attempts)
+        state.current_model = label
+        # Fresh adapter per hop so usage/text don't leak across attempts.
+        state.adapter = make_adapter(cli)
+        last = await _run_reviewer_attempt(cli, prompt, m, timeout, state)
+        last.model_used = label
+        last.attempts = list(attempts)
+        if last.ok:
+            last.fallback_fired = len(attempts) > 1
+            return last
+        if capacity_pattern is None:
+            break
+        if not _is_capacity_failure(last.stderr_tail, last.text, capacity_pattern):
+            break  # real failure (auth/network/prompt) — don't burn the chain
+        if last.text and len(last.text.encode()) >= FAILURE_MIN_BYTES:
+            break  # mid-stream 429 with usable partial — keep it
+    if last is not None:
+        last.attempts = list(attempts)
+        last.fallback_fired = len(attempts) > 1
+    return last  # type: ignore[return-value]
+
+
 # -------- Dashboard --------
 
 STATUS_STYLE = {
@@ -756,6 +872,7 @@ STATUS_STYLE = {
 def build_table(states: list[ReviewerState]) -> Table:
     tbl = Table(title="multi-review", expand=True)
     tbl.add_column("Reviewer", style="bold")
+    tbl.add_column("Model")
     tbl.add_column("Status")
     tbl.add_column("In tok", justify="right")
     tbl.add_column("Out tok", justify="right")
@@ -767,8 +884,15 @@ def build_table(states: list[ReviewerState]) -> Table:
         status_text = Text(s.status, style=STATUS_STYLE.get(s.status, "white"))
         if s.status in ("running", "starting") and s.adapter.phase:
             status_text.append(f" · {s.adapter.phase[:24]}", style="dim")
+        if s.current_model:
+            model_text = Text(s.current_model)
+            if len(s.attempts) > 1:
+                model_text.append(f" *{len(s.attempts)}", style="dim yellow")
+        else:
+            model_text = Text("—", style="dim")
         tbl.add_row(
             s.cli,
+            model_text,
             status_text,
             f"{u.input_tokens:,}" if u.input_tokens else "—",
             f"{u.output_tokens:,}" if u.output_tokens else "—",
@@ -785,12 +909,34 @@ async def run_all_reviewers(
     models: dict[str, str],
     timeout: int,
     console: Console,
+    *,
+    fallback_overrides: dict[str, list[str]] | None = None,
+    no_fallback: bool = False,
 ) -> list[ReviewerResult]:
     states = [ReviewerState(cli=c, adapter=ADAPTER_FOR[c]()) for c in reviewers]
+    fb = fallback_overrides or {}
+
+    chains: dict[str, list[str | None]] = {}
+    patterns: dict[str, "re.Pattern[str] | None"] = {}
+    for c in reviewers:
+        chain = resolve_chain(c, models.get(c), fb.get(c), no_fallback)
+        chains[c] = chain
+        head = chain[0]
+        head_label = head if head is not None else "<default>"
+        for s in states:
+            if s.cli == c:
+                s.current_model = head_label
+                break
+        if no_fallback or len(chain) == 1:
+            patterns[c] = None
+        else:
+            patterns[c] = CAPACITY_PATTERNS.get(c)
 
     async def runner_for(state: ReviewerState) -> ReviewerResult:
         return await run_reviewer(
-            state.cli, prompt, models.get(state.cli), timeout, state,
+            state.cli, prompt, timeout, state,
+            chain=chains[state.cli],
+            capacity_pattern=patterns[state.cli],
         )
 
     tasks = [asyncio.create_task(runner_for(s)) for s in states]
@@ -847,7 +993,7 @@ def build_synthesis_input(results: list[ReviewerResult]) -> tuple[str, str]:
     return "\n".join(parts), nonce
 
 
-async def run_synthesis(
+async def _run_synthesis_attempt(
     cli: str,
     review_body: str,
     nonce: str,
@@ -885,6 +1031,39 @@ async def run_synthesis(
         text = strip_filename_prefix(text)
     ok = proc.returncode == 0 and len(text.encode()) >= FAILURE_MIN_BYTES
     return ok, text, err, suggested if ok else None
+
+
+async def run_synthesis(
+    cli: str,
+    review_body: str,
+    nonce: str,
+    model: str | None,
+    timeout: int,
+    *,
+    chain: list[str | None] | None = None,
+    capacity_pattern: "re.Pattern[str] | None" = None,
+) -> tuple[bool, str, str, str | None, list[str]]:
+    """Wraps `_run_synthesis_attempt` with a fallback chain. Returns
+    (ok, text, err, suggested_filename, attempts)."""
+    if chain is None:
+        chain = [model]
+    attempts: list[str] = []
+    last: tuple[bool, str, str, str | None] = (False, "", "no synthesis attempt", None)
+    for m in chain:
+        label = m if m is not None else "<default>"
+        attempts.append(label)
+        last = await _run_synthesis_attempt(cli, review_body, nonce, m, timeout)
+        ok, text, err, _ = last
+        if ok:
+            break
+        if capacity_pattern is None:
+            break
+        if not _is_capacity_failure(err, text, capacity_pattern):
+            break
+        if text and len(text.encode()) >= FAILURE_MIN_BYTES:
+            break
+    ok, text, err, suggested = last
+    return ok, text, err, suggested, attempts
 
 
 def extract_filename_from_synthesis(text: str) -> str | None:
@@ -1077,6 +1256,7 @@ def write_review_md(
     consensus_text: str | None,
     synthesizer: str | None,
     synthesized_at: str | None,
+    synthesis_attempts: list[str] | None = None,
 ) -> None:
     succeeded = [r for r in results if r.ok]
     failed = [r for r in results if not r.ok]
@@ -1105,6 +1285,23 @@ def write_review_md(
     if synthesizer and synthesized_at:
         lines.append(f"synthesizer: {synthesizer}")
         lines.append(f"synthesized_at: {synthesized_at}")
+
+    fallback_entries: list[tuple[str, list[str], str]] = []
+    for r in results:
+        if r.fallback_fired and r.attempts:
+            fallback_entries.append((r.cli, r.attempts, r.model_used or r.attempts[-1]))
+    synthesis_walked = synthesis_attempts and len(synthesis_attempts) > 1
+    if fallback_entries or synthesis_walked:
+        lines.append("fallbacks:")
+        for cli, attempts, used in fallback_entries:
+            lines.append(f"  {cli}:")
+            lines.append(f"    attempts: {yaml_list(attempts)}")
+            lines.append(f"    used: {json.dumps(used)}")
+        if synthesis_walked:
+            assert synthesis_attempts is not None
+            lines.append("  synthesis:")
+            lines.append(f"    attempts: {yaml_list(synthesis_attempts)}")
+            lines.append(f"    used: {json.dumps(synthesis_attempts[-1])}")
     lines.append("---")
     lines.append("")
     lines.append("# Cross-AI Review")
@@ -1168,6 +1365,21 @@ def parse_model_overrides(values: list[str] | None) -> dict[str, str]:
     return out
 
 
+def parse_fallback_overrides(values: list[str] | None) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for v in values or []:
+        if "=" not in v:
+            raise SystemExit(f"--fallback-model must be <cli>=<m1>[,<m2>,...], got: {v}")
+        k, _, chain = v.partition("=")
+        if k not in ALL_REVIEWERS:
+            raise SystemExit(f"--fallback-model: unknown reviewer '{k}' (valid: {','.join(ALL_REVIEWERS)})")
+        models = [m.strip() for m in chain.split(",") if m.strip()]
+        if not models:
+            raise SystemExit(f"--fallback-model: empty chain for '{k}'")
+        out[k] = models
+    return out
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     tasks = ",".join(TEMPLATES)
     reviewers = ",".join(ALL_REVIEWERS)
@@ -1197,7 +1409,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--synthesizer", choices=ALL_REVIEWERS, default=DEFAULT_SYNTHESIZER, metavar="REVIEWER",
                    help=f"Reviewer that runs the synthesis pass: {reviewers} (default: {DEFAULT_SYNTHESIZER})")
     p.add_argument("--model", action="append", default=[], metavar="REVIEWER=MODEL",
-                   help="Per-reviewer model override, e.g. --model claude=claude-opus-4-7 (repeatable)")
+                   help="Per-reviewer model override, e.g. --model claude=claude-opus-4-7. "
+                        "PINS the CLI to that exact model and DISABLES fallback for it. "
+                        "Use --fallback-model REVIEWER=A,B,C for an explicit chain instead "
+                        "(or omit --model REVIEWER to keep the built-in chain). Repeatable.")
+    p.add_argument("--fallback-model", action="append", default=[], metavar="REVIEWER=A,B,C",
+                   help="Override the built-in capacity-fallback chain for a CLI, e.g. "
+                        "--fallback-model gemini=gemini-3.1-pro-preview,gemini-2.5-pro. Repeatable.")
+    p.add_argument("--no-fallback", action="store_true",
+                   help="Disable capacity-aware model fallback (gemini default chain). "
+                        "Truncates each chain to its first hop.")
     p.add_argument("--mode", choices=["inline", "reference"], default="inline",
                    help="inline: file contents embedded in prompt (default). "
                         "reference: manifest of absolute paths only; model reads files via its own tools.")
@@ -1238,6 +1459,7 @@ def print_usage_summary(results: list[ReviewerResult], console: Console) -> None
 async def async_main(args: argparse.Namespace) -> int:
     console = Console(stderr=False)
     models = parse_model_overrides(args.model)
+    fallbacks = parse_fallback_overrides(args.fallback_model)
     self_cli = detect_self()
     requested = [r.strip() for r in args.reviewers.split(",")] if args.reviewers else None
     reviewers = resolve_reviewers(requested, self_cli)
@@ -1261,33 +1483,62 @@ async def async_main(args: argparse.Namespace) -> int:
         mode=args.mode,
     )
 
+    self_skip_label = self_cli if (self_cli and self_cli != "none" and self_cli not in reviewers) else "none"
     status = (f"[dim]Prompt: {len(prompt):,} bytes · Reviewers: {', '.join(reviewers)} "
-              f"· Self-skip: {self_cli or 'none'}")
+              f"· Self-skip: {self_skip_label}")
     if unavailable:
         status += f" · Unavailable: {', '.join(unavailable)}"
     status += "[/dim]"
     console.print(status)
 
-    results = await run_all_reviewers(reviewers, prompt, models, args.timeout, console)
+    results = await run_all_reviewers(
+        reviewers, prompt, models, args.timeout, console,
+        fallback_overrides=fallbacks, no_fallback=args.no_fallback,
+    )
+
+    for r in results:
+        if r.fallback_fired:
+            console.print(
+                f"[yellow]Fallback fired for {r.cli}: "
+                f"walked {' → '.join(r.attempts)} (used {r.model_used}). "
+                f"Stderr tail (capture for tuning): {r.stderr_tail.strip()[:200]}[/yellow]"
+            )
 
     succeeded = [r for r in results if r.ok]
     consensus_text: str | None = None
     synthesizer_used: str | None = None
     synthesized_at: str | None = None
+    synthesis_attempts: list[str] | None = None
 
     suggested_filename: str | None = None
 
     if args.synthesize and len(succeeded) >= 2:
         console.print(f"[dim]Synthesizing consensus with {args.synthesizer}...[/dim]")
         synth_body, synth_nonce = build_synthesis_input(results)
-        ok, text, err, suggested_filename = await run_synthesis(
+        synth_chain = resolve_chain(
+            args.synthesizer, models.get(args.synthesizer),
+            fallbacks.get(args.synthesizer), args.no_fallback,
+        )
+        synth_pattern = (
+            None if (args.no_fallback or len(synth_chain) == 1)
+            else CAPACITY_PATTERNS.get(args.synthesizer)
+        )
+        # First-hop concrete model passed for backward-compat with
+        # _run_synthesis_attempt's signature; chain drives the loop.
+        ok, text, err, suggested_filename, synthesis_attempts = await run_synthesis(
             args.synthesizer, synth_body, synth_nonce,
-            models.get(args.synthesizer), args.timeout,
+            synth_chain[0], args.timeout,
+            chain=synth_chain, capacity_pattern=synth_pattern,
         )
         if ok:
             consensus_text = text
             synthesizer_used = args.synthesizer
             synthesized_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            if synthesis_attempts and len(synthesis_attempts) > 1:
+                console.print(
+                    f"[yellow]Synthesis fallback fired: "
+                    f"walked {' → '.join(synthesis_attempts)}[/yellow]"
+                )
         else:
             console.print(f"[yellow]Synthesis failed: {err.strip()[:200]}[/yellow]")
 
@@ -1310,6 +1561,7 @@ async def async_main(args: argparse.Namespace) -> int:
     write_review_md(
         output_path, args.task, input_files, results, models,
         consensus_text, synthesizer_used, synthesized_at,
+        synthesis_attempts=synthesis_attempts,
     )
 
     print_usage_summary(results, console)
@@ -1334,6 +1586,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         models = parse_model_overrides(args.model)
+        fallbacks = parse_fallback_overrides(args.fallback_model)
         self_cli = detect_self()
         requested = [r.strip() for r in args.reviewers.split(",")] if args.reviewers else None
         reviewers = resolve_reviewers(requested, self_cli)
@@ -1358,6 +1611,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Unavailable: {', '.join(unavailable)}")
         print(f"Synthesize: {args.synthesize} (via {args.synthesizer})")
         print(f"Models:     {models or '<defaults>'}")
+        print(f"Fallback:   {'OFF' if args.no_fallback else 'ON'}")
+        for c in reviewers:
+            chain = resolve_chain(c, models.get(c), fallbacks.get(c), args.no_fallback)
+            label = ", ".join(m if m is not None else "<default>" for m in chain)
+            print(f"  {c}: {label}")
         print(f"Prompt:     {len(prompt)} bytes")
         print()
         print("=== PROMPT ===")

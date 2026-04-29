@@ -131,6 +131,54 @@ closing tag and breaking out of the data block. This does not remove the risk of
 injection — it only raises the floor. Don't use `multi-review` to review
 attacker-controlled input without additional sandboxing.
 
+## Capacity-aware fallback (gemini)
+
+Gemini's frontier models hit `429 MODEL_CAPACITY_EXHAUSTED` opaquely. Every
+gemini run is **capacity-resilient by default**: a 6-deep model chain is
+walked on capacity-class stderr matches (regex over `RESOURCE_EXHAUSTED`,
+`MODEL_CAPACITY_EXHAUSTED`, `Quota exceeded`, `429`, `UNAVAILABLE`,
+`model is overloaded`), stopping at the first success.
+
+Default chain (top-to-bottom precedence):
+
+```
+gemini-3.1-pro-preview
+gemini-3-flash-preview
+gemini-2.5-pro
+gemini-3.1-flash-lite-preview
+gemini-2.5-flash
+gemini-2.5-flash-lite
+```
+
+Knobs:
+
+- `--no-fallback` — disable fallback entirely (single attempt only).
+- `--fallback-model gemini=A,B,C` — override the chain.
+- `--model gemini=X` — **pins** to X and **disables fallback** for gemini.
+  Use `--fallback-model` if you want both an override and a chain.
+
+Real failures (auth, network, prompt-too-large) do **not** burn the chain —
+only capacity-class matches trigger the next hop. Mid-stream 429s that
+already produced ≥50 bytes of usable output are kept as-is (no retry).
+
+Surfacing:
+
+- The dashboard shows a **Model** column. When fallback fires you get an
+  `*N` marker (N = attempts).
+- `REVIEW.md` frontmatter gains a `fallbacks:` block when ≥2 hops were
+  walked, naming `attempts` and the `used` model. Synthesis pass tracked
+  the same way under `fallbacks.synthesis`.
+- A `[yellow]Fallback fired …[/yellow]` console line per reviewer (and for
+  synthesis) prints the stderr tail — capture these for tuning the regex.
+
+Cost note: a stuck-capacity gemini can spend up to 6× the prompt cost on a
+single review. Fallback firing is visible (dashboard + frontmatter +
+console line) so the cost stays attributable, but watch for it on large
+prompts. Use `--no-fallback` if you'd rather fail fast.
+
+Other CLIs (claude, codex, opencode) have no fallback today — their
+capacity patterns and chains are unset.
+
 ## Inline vs reference mode
 
 By default (`--mode inline`), every input file's contents are embedded into the
@@ -185,7 +233,9 @@ multi-review [file ...]
   --timeout SEC            # default: 600 per reviewer
   --no-synthesize          # disable consensus pass
   --synthesizer CLI        # default: claude
-  --model cli=model-id     # per-reviewer model override (repeatable)
+  --model cli=model-id     # per-reviewer model override; pins + disables fallback.
+  --fallback-model cli=A,B,C  # override the built-in fallback chain (repeatable)
+  --no-fallback            # disable capacity-aware fallback (gemini default chain)
   --mode {inline,reference} # inline: file contents embedded (default).
                             # reference: manifest of absolute paths only.
   --allow-missing          # warn-and-skip missing input/context files (default: error)
