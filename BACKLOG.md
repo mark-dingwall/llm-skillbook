@@ -35,37 +35,9 @@ dual-mode + claude-only dual-mode runs surfaced richer, **per-model** signal.
 
 ### Phase 1 falsification findings (2026-04-29)
 
-Chunk B was used as substitute (chunk A's findings already shipped). Same
-prompt and reviewer set, only `--mode` flag varied. Claude-only dual run done
-separately (claude is normally self-skipped).
-
-Cost / time deltas (codex; same findings in both modes):
-
-| Metric        | Codex inline | Codex reference | Δ |
-|---------------|--------------|-----------------|---|
-| Wallclock     | 173.8 s      | 170.6 s         | −2 % |
-| Input tokens  | 1.27 M       | 881 k           | −31 % |
-| Cached        | 1.17 M       | 793 k           | −33 % |
-| Tool calls    | 18           | 35              | +94 % |
-| Findings      | 2H, 3M       | 2H, 2M + cov    | same set |
-
-Quality deltas (per reviewer, signed):
-
-| Reviewer  | Δ findings  | Notes |
-|-----------|-------------|-------|
-| Codex     | 0           | Identical findings, ~30 % cheaper input. Net positive on cost. |
-| Opencode  | −5          | Lost the critical `bots.clear()` determinism catch in reference. Regressed. |
-| Claude    | +1H + 2 new | Reference caught `bots.clear()` H1 (inline missed) **plus** a unique reporterVT vs final-write race nobody else saw, plus UX-level Picocli nits. Improved. |
-| Gemini    | n/a         | Reference run failed rc=1 mid-stream. Likely capacity (see capacity-fallback section). |
-
-**Takeaway**: reference mode is **per-model**, not uniformly better.
-Claude's read-as-you-reason discipline rewards reference mode (extra HIGH
-finding, novel race caught). Opencode's doesn't — lost ground. Codex is
-indifferent on quality but ~30 % cheaper on input tokens for same output.
-
-This validates Phase 2 specifically for claude-as-reviewer routine use,
-and for any cost-sensitive codex runs. Less compelling for opencode-as-
-reviewer; reference mode should remain opt-in, never default.
+Run data + per-reviewer narrative migrated to `EXPERIMENTS.md` (see
+"hostbots" section). Comparison work continues there as new data points
+land via the auto-harvest (`runs/runs.jsonl`).
 
 ### Goals (Phase 2)
 

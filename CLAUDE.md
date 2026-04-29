@@ -55,7 +55,7 @@ No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typi
 - **Injection posture**: all file content is wrapped in `<file>` tags with a preamble telling the model to treat that content as review data. Synthesis input wraps each review in `<review reviewer="…">`. `html.escape(..., quote=True)` is used on attribute values. This is defense-in-depth, not a sandbox.
 - **Context files always inline.** Both `--mode inline` and `--mode reference` wrap context files in `<file-NONCE>` tags — they're framing material the model needs *before* any tool call, so they cannot be deferred to the manifest. The reference-mode preamble (`reference_preamble`) stacks *after* the nonce-tag preamble (`injection_preamble`); both apply because context still uses tags even when input files don't.
 - **Exit codes**: `0` ≥1 reviewer succeeded, `1` all failed or none available, `2` argparse error.
-- **Capacity-aware fallback (gemini)**: every gemini run walks `CLI_SPEC["gemini"]["fallback_chain"]` (6-deep, defined in `GEMINI_FALLBACK_CHAIN`) on capacity-class stderr matches (`CAPACITY_PATTERNS["gemini"]`) and stops at the first success. `--no-fallback` disables it. `--model gemini=X` *pins* to X (no fallback) — use `--fallback-model gemini=A,B,C` for an explicit chain. Real failures (auth/network/prompt) don't burn the chain. Mid-stream 429 with usable partial output (≥`FAILURE_MIN_BYTES`) is kept, no retry. Synthesis pass uses the same chain. Frontmatter surfaces `fallbacks:` only when ≥2 hops walked. Other CLIs have empty `fallback_chain` — no fallback today.
+- **Capacity-aware fallback (gemini)**: every gemini run walks `CLI_SPEC["gemini"]["fallback_chain"]` (3-deep, defined in `GEMINI_FALLBACK_CHAIN`) on capacity-class stderr matches (`CAPACITY_PATTERNS["gemini"]`) and stops at the first success. `--no-fallback` disables it. `--model gemini=X` *pins* to X (no fallback) — use `--fallback-model gemini=A,B,C` for an explicit chain. Real failures (auth/network/prompt) don't burn the chain. Mid-stream 429 with usable partial output (≥`FAILURE_MIN_BYTES`) is kept, no retry. Synthesis pass uses the same chain. Frontmatter surfaces `fallbacks:` only when ≥2 hops walked. Other CLIs have empty `fallback_chain` — no fallback today.
 
 ### Synthesis caveat (documented in README)
 
@@ -64,3 +64,7 @@ When `--synthesizer` is also a reviewer, that model is double-weighted. `async_m
 ## Dependency tracking
 
 Gemini emitted cumulative (non-delta) assistant messages in some versions. `GeminiAdapter.feed_line` keys off `ev.get("delta")` — if a future gemini release drops that flag, it will double-count text. Comment at multi_review.py:351 flags this. Same caution applies to any adapter when upstream schemas change.
+
+## Comparison-test methodology
+
+Every run writes a metadata row to `runs/runs.jsonl` by default (opt out with `--no-harvest`). `multi_review.py --report` reads that JSONL and regenerates `EXPERIMENTS.md` — the inline-vs-reference comparison log + ordering rule + per-project narrative. Schema is flat JSONL keyed by `HARVEST_SCHEMA_VERSION`; bump that on field rename/removal (additions are safe). Per-project narrative depth lives in `runs/notes/<project>-<YYYY-MM-DD>.md` sidecars stitched in at report time. `EXPERIMENTS.md` is fully generated — never edit it by hand; edits are overwritten on next `--report`.

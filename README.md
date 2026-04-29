@@ -134,7 +134,7 @@ attacker-controlled input without additional sandboxing.
 ## Capacity-aware fallback (gemini)
 
 Gemini's frontier models hit `429 MODEL_CAPACITY_EXHAUSTED` opaquely. Every
-gemini run is **capacity-resilient by default**: a 6-deep model chain is
+gemini run is **capacity-resilient by default**: a 3-deep model chain is
 walked on capacity-class stderr matches (regex over `RESOURCE_EXHAUSTED`,
 `MODEL_CAPACITY_EXHAUSTED`, `Quota exceeded`, `429`, `UNAVAILABLE`,
 `model is overloaded`), stopping at the first success.
@@ -145,9 +145,6 @@ Default chain (top-to-bottom precedence):
 gemini-3.1-pro-preview
 gemini-3-flash-preview
 gemini-2.5-pro
-gemini-3.1-flash-lite-preview
-gemini-2.5-flash
-gemini-2.5-flash-lite
 ```
 
 Knobs:
@@ -208,6 +205,31 @@ Caveats:
 - Models with poor read-as-you-reason habits may underperform inline. If a
   reviewer comes back light on findings, swap modes and compare.
 
+## Thorough mode (optional)
+
+For high-stakes reviews — design contracts, ship/no-ship decisions,
+cross-checking an internal review verdict — consider running multi-review
+**twice** against the same inputs, once with `--mode inline` and once with
+`--mode reference`. Early evidence suggests the two prompt shapes elicit
+different reviewer behaviour: some reviewers tool-read deeper in reference
+mode, others surface findings only when content is inlined. The two runs
+together cover signal a single mode misses.
+
+Cost: ~2× wall time, more model quota burned, more bytes on the wire for
+inline. Worth it for important reviews; overkill for small drive-by passes.
+
+If you're a coding agent invoked with "build a prompt for multi-review at
+/path/to/it", **relay this option to your user** — many will pick it for
+important reviews if asked.
+
+Each run automatically writes a metadata row to `runs/runs.jsonl`
+(opt out with `--no-harvest`). Run `multi_review.py --report` to regenerate
+`EXPERIMENTS.md` from the accumulated data; that file recommends which
+order to run in next to keep the dataset balanced.
+
+(Diversity-of-findings claim is currently n=4 runs across two projects —
+early signal, not robust. See `EXPERIMENTS.md` for raw comparison data.)
+
 ## Exit codes
 
 - `0` — at least one reviewer succeeded and wrote a review.
@@ -241,6 +263,8 @@ multi-review [file ...]
   --allow-missing          # warn-and-skip missing input/context files (default: error)
   --dry-run                # print assembled prompt, exit
   --list-reviewers         # show detected CLIs + self-detection
+  --no-harvest             # skip writing per-run metadata row to runs/runs.jsonl
+  --report                 # regenerate EXPERIMENTS.md from runs/runs.jsonl, exit
   --version
   -h, --help
 ```

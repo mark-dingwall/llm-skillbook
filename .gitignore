@@ -11,6 +11,9 @@ __pycache__/
 .multi-review.log
 REVIEW.md
 
+# Per-run harvest data (regenerable; EXPERIMENTS.md is generated from it)
+runs/runs.jsonl
+
 # Spike samples (kept during development only)
 .spike-samples/
 
