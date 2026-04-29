@@ -29,11 +29,45 @@ permanently — threshold arbitrary, mixes signals to the model, triples
 test matrix for marginal gain. Revisit only if Phase 2 falsification data
 shows reference mode under-reads small files.
 
-Phase 2 below is gated on Phase 1 falsification: re-run phase-18 chunk-A
-in reference mode; if codex doesn't close the gap to the 188 s interactive
-baseline, sandbox + bypass-perms work has no payoff.
+Phase 2 below was gated on Phase 1 falsification. See "Phase 1 falsification
+findings" below — chunk-A retest unavailable (issues already fixed); chunk-B
+dual-mode + claude-only dual-mode runs surfaced richer, **per-model** signal.
 
-### Goals (Phase 2, gated on Phase 1 falsification)
+### Phase 1 falsification findings (2026-04-29)
+
+Chunk B was used as substitute (chunk A's findings already shipped). Same
+prompt and reviewer set, only `--mode` flag varied. Claude-only dual run done
+separately (claude is normally self-skipped).
+
+Cost / time deltas (codex; same findings in both modes):
+
+| Metric        | Codex inline | Codex reference | Δ |
+|---------------|--------------|-----------------|---|
+| Wallclock     | 173.8 s      | 170.6 s         | −2 % |
+| Input tokens  | 1.27 M       | 881 k           | −31 % |
+| Cached        | 1.17 M       | 793 k           | −33 % |
+| Tool calls    | 18           | 35              | +94 % |
+| Findings      | 2H, 3M       | 2H, 2M + cov    | same set |
+
+Quality deltas (per reviewer, signed):
+
+| Reviewer  | Δ findings  | Notes |
+|-----------|-------------|-------|
+| Codex     | 0           | Identical findings, ~30 % cheaper input. Net positive on cost. |
+| Opencode  | −5          | Lost the critical `bots.clear()` determinism catch in reference. Regressed. |
+| Claude    | +1H + 2 new | Reference caught `bots.clear()` H1 (inline missed) **plus** a unique reporterVT vs final-write race nobody else saw, plus UX-level Picocli nits. Improved. |
+| Gemini    | n/a         | Reference run failed rc=1 mid-stream. Likely capacity (see capacity-fallback section). |
+
+**Takeaway**: reference mode is **per-model**, not uniformly better.
+Claude's read-as-you-reason discipline rewards reference mode (extra HIGH
+finding, novel race caught). Opencode's doesn't — lost ground. Codex is
+indifferent on quality but ~30 % cheaper on input tokens for same output.
+
+This validates Phase 2 specifically for claude-as-reviewer routine use,
+and for any cost-sensitive codex runs. Less compelling for opencode-as-
+reviewer; reference mode should remain opt-in, never default.
+
+### Goals (Phase 2)
 
 1. `--sandbox {auto,bwrap,none}`, default `auto` (bwrap if available + Linux,
    else none).
@@ -175,8 +209,8 @@ Context files stay inline regardless of mode (they're framing docs, small).
 ### Risks / open questions
 
 1. Reference mode means model sees only paths up front. Models with poor
-   file-reading discipline may underperform inline — this is the falsification
-   gate before Phase 2.
+   file-reading discipline underperform inline (falsification confirmed
+   for opencode on chunk B). Document per-reviewer guidance in README.
 2. Synthesis pass operates on reviewer output text (not source) — no change.
 3. bwrap is Linux-only. macOS gets `--sandbox none` (manual risk acceptance)
    or future `sandbox-exec` work.
@@ -185,3 +219,111 @@ Context files stay inline regardless of mode (they're framing docs, small).
    Document in README.
 5. Path resolution: reference manifest uses absolute paths. Resolve relative
    inputs early (`Path.resolve()`) before building bwrap mounts.
+
+## Capacity-aware reviewer fallback
+
+### Motivation
+
+Gemini's frontier models hit `429 MODEL_CAPACITY_EXHAUSTED` opaquely and
+without warning — quota visibility is poor and exhaustion windows are not
+documented. Past workaround was manual: kill the run, switch to
+`gemini-2.5-pro`, re-invoke. Other CLIs share the shape (Anthropic
+`overloaded_error` / 529, OpenAI `rate_limit_exceeded` / 429, opencode
+inherits whatever its routed provider returns).
+
+Today: a capacity-failed reviewer is indistinguishable from a real failure
+(auth, network, prompt too large). It just shows up as "failed" in
+`REVIEW.md` with a stderr tail. Synthesis loses that voice silently and
+the user re-runs the whole thing by hand.
+
+### Goals
+
+1. **Detect** capacity-class failures distinctly from generic failures.
+   Stderr regex per CLI (gemini: `MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|Quota exceeded`;
+   claude: `overloaded_error|rate_limit`; codex: `rate_limit_exceeded|insufficient_quota`;
+   opencode: provider-dependent — best-effort).
+2. **Fallback** to a configured next model and retry once per reviewer.
+   Reuse existing `--model` mechanism; new `--fallback-model
+   CLI=primary,secondary[,tertiary]` (comma-chain) or simpler
+   `--fallback-model CLI=secondary` (one hop). Start with one hop.
+3. **Surface** in `REVIEW.md` frontmatter that a fallback fired (which
+   model was tried, which succeeded). Don't hide the degradation.
+
+### Non-goals
+
+- Auto-discovering the right fallback model. User configures.
+- Retrying on non-capacity errors. Real failures stay failures.
+- Generic exponential-backoff retry. That's a different problem.
+
+### Sketch
+
+- Add `fallback_models: dict[str, list[str]]` parsed from `--fallback-model`.
+- New `CAPACITY_PATTERNS: dict[str, re.Pattern]` keyed by CLI.
+- In `run_reviewer`, after `proc.wait()` returns non-zero (or output <
+  `FAILURE_MIN_BYTES`): check stderr against pattern; if matched and
+  fallbacks exist, re-spawn with next model. Cap at one retry per
+  reviewer to bound runtime.
+- `ReviewerResult` gains `model_used: str` and `fallback_fired: bool`.
+- `write_review_md` frontmatter adds a `fallbacks_fired` array.
+
+### Risks / open questions
+
+1. **Detection drift.** CLIs change error text. The regexes will rot.
+   Document at the pattern definition that they're best-effort.
+2. **Double cost.** A capacity retry is a second full invocation of the
+   prompt. At chunk-A scale (~300 k input tokens) that matters. Worth a
+   `--no-fallback` escape hatch and a startup log line so the user knows
+   it's armed.
+3. **Capacity-during-stream.** Some CLIs surface 429 mid-stream after
+   partial output. Decision: any captured output below
+   `FAILURE_MIN_BYTES` plus a capacity-pattern stderr match = fallback.
+   Above the threshold = keep what we got, no retry (already useful).
+4. **Synth interaction.** If the fallback succeeds, synthesis runs as
+   normal. If it fails again, that reviewer is dropped from the synth
+   input — same as today's failure path.
+
+### Files to modify
+
+- `multi_review.py`:
+  - `parse_args`: `--fallback-model`, `--no-fallback`.
+  - New `CAPACITY_PATTERNS` table near `CLI_SPEC`.
+  - `run_reviewer`: post-failure detection + retry hop.
+  - `ReviewerResult`: `model_used`, `fallback_fired`.
+  - `write_review_md`: surface `fallbacks_fired` in frontmatter.
+- `README.md`: new section on capacity-aware fallback.
+- `CLAUDE.md`: invariant note that fallback is one-hop, capacity-only.
+
+## Bug: `--reviewers` does not override self-skip
+
+CLAUDE.md "Self-skip via env vars" invariant says "Override with
+`--reviewers`." `resolve_reviewers` (multi_review.py:67) always self-skips
+regardless of whether the user listed their host CLI explicitly. Reproduced
+2026-04-29 trying claude-only run from inside Claude Code: hit "No reviewers
+available after filtering". Workaround: `env -u CLAUDE_CODE_ENTRYPOINT
+multi_review.py …`.
+
+Fix options:
+- Honor explicit `--reviewers` list verbatim (treat self-skip as default
+  filter, not a hard rule). Likely user intent — they typed it.
+- Or: explicit `--allow-self` flag, keep self-skip even with `--reviewers`.
+- Either way: update CLAUDE.md to match what the code does.
+
+Trivial fix; doc-vs-impl drift.
+
+## Bug: Claude adapter under-counts when claude is the spawned reviewer
+
+`ClaudeAdapter` reports `input: 33, output: 1318, cached: 2.54 M` for an
+8.3 KB review with 22 tool-call turns (claude-only reference run on chunk
+B, 2026-04-29). Output bytes vs token count don't reconcile — adapter is
+probably reading only the final `result` event's tokens, not aggregating
+across turns. The cached count reads cumulative cache hits across all tool
+turns instead of input cache reuse, which is also misleading.
+
+Inline run on same chunk: `input: 10, output: 16, cached: 40,450` for the
+same 8.3 KB output. Output `16` is clearly wrong.
+
+Fix: aggregate token counts across the message stream the same way
+`text_parts` is aggregated. Verify against a known-cost run with claude API
+billing as ground truth.
+
+Doesn't affect review quality, but breaks the dashboard's cost reporting.
