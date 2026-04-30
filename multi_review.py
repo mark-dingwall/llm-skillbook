@@ -34,7 +34,6 @@ __version__ = "0.1.0"
 
 HARVEST_SCHEMA_VERSION = 1
 ALL_REVIEWERS = ["claude", "gemini", "codex", "opencode"]
-DEFAULT_TIMEOUT = 600
 FAILURE_MIN_BYTES = 50
 DEFAULT_SYNTHESIZER = "claude"
 DEFAULT_OUTPUT = Path("REVIEW.md")
@@ -710,7 +709,7 @@ async def _run_reviewer_attempt(
     cli: str,
     prompt: str,
     model: str | None,
-    timeout: int,
+    timeout: int | None,
     state: ReviewerState,
 ) -> ReviewerResult:
     adapter = state.adapter
@@ -769,10 +768,13 @@ async def _run_reviewer_attempt(
             stderr_chunks.append(chunk)
 
     try:
-        await asyncio.wait_for(
-            asyncio.gather(drain_stdout(), drain_stderr(), proc.wait()),
-            timeout=timeout,
-        )
+        if timeout is None:
+            await asyncio.gather(drain_stdout(), drain_stderr(), proc.wait())
+        else:
+            await asyncio.wait_for(
+                asyncio.gather(drain_stdout(), drain_stderr(), proc.wait()),
+                timeout=timeout,
+            )
     except asyncio.TimeoutError:
         await kill_proc(proc)
         state.status = "timeout"
@@ -818,7 +820,7 @@ async def _run_reviewer_attempt(
 async def run_reviewer(
     cli: str,
     prompt: str,
-    timeout: int,
+    timeout: int | None,
     state: ReviewerState,
     *,
     chain: list[str | None],
@@ -905,7 +907,7 @@ async def run_all_reviewers(
     reviewers: list[str],
     prompt: str,
     models: dict[str, str],
-    timeout: int,
+    timeout: int | None,
     console: Console,
     *,
     fallback_overrides: dict[str, list[str]] | None = None,
@@ -996,7 +998,7 @@ async def _run_synthesis_attempt(
     review_body: str,
     nonce: str,
     model: str | None,
-    timeout: int,
+    timeout: int | None,
 ) -> tuple[bool, str, str, str | None]:
     prompt = synthesis_prompt(nonce) + "\n\n---\n\n" + review_body
     cmd = build_command(cli, model, streaming=False)
@@ -1014,10 +1016,13 @@ async def _run_synthesis_attempt(
         return False, "", f"synthesizer launch failed: {e}", None
 
     try:
-        stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(prompt.encode()),
-            timeout=timeout,
-        )
+        if timeout is None:
+            stdout_b, stderr_b = await proc.communicate(prompt.encode())
+        else:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(prompt.encode()),
+                timeout=timeout,
+            )
     except asyncio.TimeoutError:
         await kill_proc(proc)
         return False, "", f"synthesis timeout after {timeout}s", None
@@ -1036,7 +1041,7 @@ async def run_synthesis(
     review_body: str,
     nonce: str,
     model: str | None,
-    timeout: int,
+    timeout: int | None,
     *,
     chain: list[str | None] | None = None,
     capacity_pattern: "re.Pattern[str] | None" = None,
@@ -1156,7 +1161,7 @@ def sanitize_review_filename(raw: str) -> str | None:
     return f"REVIEW-{base}.md"
 
 
-async def suggest_filename_haiku(prompt: str, timeout: int) -> str | None:
+async def suggest_filename_haiku(prompt: str, timeout: int | None) -> str | None:
     """One-shot non-streaming haiku call to suggest a filename. Never raises."""
     if not shutil.which("claude"):
         return None
@@ -1184,10 +1189,13 @@ async def suggest_filename_haiku(prompt: str, timeout: int) -> str | None:
         return None
 
     try:
-        stdout_b, _ = await asyncio.wait_for(
-            proc.communicate(stdin_payload),
-            timeout=timeout,
-        )
+        if timeout is None:
+            stdout_b, _ = await proc.communicate(stdin_payload)
+        else:
+            stdout_b, _ = await asyncio.wait_for(
+                proc.communicate(stdin_payload),
+                timeout=timeout,
+            )
     except asyncio.TimeoutError:
         await kill_proc(proc)
         return None
@@ -1629,8 +1637,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help=f"Comma-separated reviewers to run, e.g. {reviewers} (default: all available minus self)")
     p.add_argument("--output", type=Path, default=None, metavar="PATH",
                    help="Destination Markdown report (default: auto-named REVIEW-<slug>.md)")
-    p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, metavar="SECS",
-                   help=f"Per-reviewer timeout in seconds; reviewer fails on exceed (default: {DEFAULT_TIMEOUT})")
+    p.add_argument("--timeout", type=int, default=None, metavar="SECS",
+                   help="Per-reviewer timeout in seconds; reviewer fails on exceed (default: no timeout — run to completion or Ctrl+C)")
     p.add_argument("--no-synthesize", dest="synthesize", action="store_false", default=True,
                    help="Skip the consensus-synthesis pass (default: run it when >=2 reviewers succeed)")
     p.add_argument("--synthesizer", choices=ALL_REVIEWERS, default=DEFAULT_SYNTHESIZER, metavar="REVIEWER",

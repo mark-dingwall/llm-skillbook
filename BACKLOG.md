@@ -275,20 +275,270 @@ the user re-runs the whole thing by hand.
 - `README.md`: new section on capacity-aware fallback.
 - `CLAUDE.md`: invariant note that fallback is one-hop, capacity-only.
 
-## Bug: Claude adapter under-counts when claude is the spawned reviewer
+## Bug: ClaudeAdapter token counts often unreliable
 
-`ClaudeAdapter` reports `input: 33, output: 1318, cached: 2.54 M` for an
-8.3 KB review with 22 tool-call turns (claude-only reference run on chunk
-B, 2026-04-29). Output bytes vs token count don't reconcile — adapter is
-probably reading only the final `result` event's tokens, not aggregating
-across turns. The cached count reads cumulative cache hits across all tool
-turns instead of input cache reuse, which is also misleading.
+`ClaudeAdapter` input/output/cached token counts are frequently
+implausible relative to the actual review the model produced. Pattern is
+old enough that we don't trust the dashboard's claude row for cost
+reasoning. Time to do the full audit and fix it against API-billing
+ground truth.
 
-Inline run on same chunk: `input: 10, output: 16, cached: 40,450` for the
-same 8.3 KB output. Output `16` is clearly wrong.
+### Evidence (oldest first)
 
-Fix: aggregate token counts across the message stream the same way
-`text_parts` is aggregated. Verify against a known-cost run with claude API
-billing as ground truth.
+- **Chunk A multi-CLI inline** (2026-04-28T23:07:40Z, runs.jsonl row 3):
+  claude `input: 5, output: 9821, cached: 20,225, tool_calls: 0` for a
+  ~24 KB review across 26 input files. Codex on the same prompt reports
+  `input: 298,167`. A 5-token input is implausible — likely the adapter
+  is reading a fragment of one stream event, not the request envelope.
+- **Chunk C reference** (2026-04-29T20:11:44Z, runs.jsonl row 5):
+  claude `input: 31, output: 1005, cached: 2,311,328, tool_calls: 15`.
+  Cached at 2.3 M while input at 31 makes no sense as a ratio — input
+  is undercounted or cached is double-counting reuse across turns.
+- **Chunk C inline** (2026-04-29T20:16:54Z, runs.jsonl row 6):
+  `input: 28, output: 778, cached: 1,599,394`. Same pattern.
+- **Chunk B claude-only inline** (2026-04-29T06:12:01Z, runs.jsonl row 9):
+  `input: 10, output: 16, cached: 40,450, tool_calls: 0` for an 8.3 KB
+  review file. The B3 anomaly (near-empty completed output) is real, but
+  `output: 16` is also clearly wrong because the file isn't 16 tokens.
+- **Chunk B claude-only reference** (2026-04-29T06:13:10Z, runs.jsonl
+  row 10): `input: 33, output: 1318, cached: 2,542,690, tool_calls: 22`
+  for the same 8.3 KB output. Output `1318` is more plausible than B3's
+  `16` but still doesn't reconcile against bytes; cached at 2.5 M is
+  the cumulative-across-tool-turns shape again.
 
-Doesn't affect review quality, but breaks the dashboard's cost reporting.
+### Hypothesis
+
+Two probable bugs combined:
+
+1. **Per-event reads, not aggregates.** Adapter reads only the final
+   `result` event's `usage` (or one specific event mid-stream), missing
+   the per-turn assistant messages. Output tokens look like
+   "last-message tokens" not "all-turns tokens".
+2. **Cached double-counts.** `cached_tokens` accumulates each turn's
+   cache hit. With 15–22 tool-call turns and ~150 KB input cached, that
+   inflates cached to 1.5–2.5 M even though true input cache reuse is
+   bounded by the prompt size.
+
+Input tokens at 5/10/28/31/33 are weird enough they may be reading a
+totally different event field (e.g. *uncached* input only, on a
+fully-cached run).
+
+### Fix (sketch)
+
+- Aggregate token counts across the message stream the same way
+  `text_parts` is aggregated in `ClaudeAdapter`.
+- Distinguish initial-request input tokens (envelope) from per-turn
+  follow-on input. Decide which one we want surfaced, then surface
+  consistently.
+- Cached should report cache *reuse* of the initial prompt, not the sum
+  of per-turn cache reads.
+- Verify against a known-cost run with claude API billing dashboard as
+  ground truth — pick a single chunk-A-sized review, run it, compare
+  reported numbers to the billing console line item.
+
+### Out of scope
+
+- Doesn't affect review quality. Reviews still produce real output;
+  this is purely a telemetry / dashboard / cost-reporting bug.
+- Same audit may need to happen for the other adapters (codex/gemini/
+  opencode), but they're not currently complained about. Defer.
+
+## Default: no timeout if `--timeout` not specified
+
+**Status (2026-05-01):** Policy fix shipped. `--timeout` default is now
+`None`; `_run_reviewer_attempt`, `_run_synthesis_attempt`, and
+`suggest_filename_haiku` all skip the `wait_for` wrapper when timeout is
+`None` and await the underlying `gather` / `communicate` directly.
+`DEFAULT_TIMEOUT` constant removed. Help text + README updated. The
+`wait_for` lag bug (goal 3) remains open — see "Remaining: wait_for
+lag" below.
+
+Long-running frontier models on 100k+ token prompts routinely exceed 10
+min — observed gemini-3.1-pro-preview running ~17 min on a 142 KB
+prompt before finishing. Worse, the wall-clock timeout did **not** fire
+at the 600 s deadline in that run (process kept running past 1000 s
+with output streaming). That's a separate bug — the policy fix above
+just stops imposing a timeout the user didn't ask for.
+
+### Goals
+
+1. ~~`--timeout` unset → no per-reviewer timeout (run to completion or
+   user-driven `Ctrl+C`).~~ **Done.**
+2. ~~`--timeout N` (explicit) → enforce N seconds, kill on exceed
+   (today's behaviour).~~ **Done.**
+3. Investigate the `wait_for(gather(...), timeout=600)` no-fire bug
+   independently. Suspected cause: stdout pipe backpressure or
+   event-loop starvation under heavy JSONL throughput preventing the
+   timeout coro from being scheduled. Reproducer: gemini on a 100 KB+
+   prompt with stream-json output.
+
+### Evidence (2026-04-30, 142 KB Guestflow wave-2 review)
+
+- Hop 1 `gemini-3.1-pro-preview`: ran ~1020s, exited with capacity-class
+  stderr (gaxios `AbortSignal` / stream body redacted). Timeout never
+  fired. Fallback fired (capacity-class match) → hop 2.
+- Hop 2 `gemini-3-flash-preview`: ran 785.6s before timeout fired.
+  Still 31% over the 600s deadline. So `wait_for` *eventually* fires —
+  it's lagged, not broken. Worth bisecting: is it adapter `feed_line`
+  CPU time blocking the loop? `rich.Live` rebuild on every state poll?
+  Run with `PYTHONASYNCIODEBUG=1` to log slow-callback warnings.
+
+### Evidence (2026-05-01, --timeout 5 smoke test)
+
+Tiny prompt ("nothing to do"), all four reviewers, fresh post-policy-fix
+build. claude fired clean at 5.0s. The other three lagged:
+
+| CLI      | Elapsed | Slop  | Bytes at deadline |
+|----------|---------|-------|-------------------|
+| claude   | 5.0s    | 0     | 26,745            |
+| gemini   | 8.5s    | +3.5s | 0                 |
+| opencode | 9.1s    | +4.1s | 0                 |
+| codex    | 13.6s   | +8.6s | 101               |
+
+Slop is reproducible even on a sub-second prompt with near-zero
+streaming. Rules out heavy `feed_line` JSON parses as the *sole* cause —
+gemini/opencode had 0 bytes streamed and still slopped 3-4s.
+
+`state.elapsed` is recorded *after* `kill_proc` returns, so the slop
+includes SIGKILL + `proc.wait()` reap + cancelled drain-coro teardown.
+claude is a single binary; the others are Node/Bun wrappers that fork
+runtime children. Hypothesis: wrapper PID reaps fast but the child
+runtime holds the stdout pipe fd, delaying drain cleanup. Worth probing
+with `PYTHONASYNCIODEBUG=1` and a `time.monotonic()` log line *between*
+the TimeoutError catch and the post-`kill_proc` `state.finished_at`
+assignment to localise the cost.
+
+### Files to modify
+
+- `multi_review.py`:
+  - `DEFAULT_TIMEOUT` → `None` (or remove constant, use `default=None`).
+  - `_run_reviewer_attempt`, `run_synthesis`, `suggest_filename_haiku`:
+    skip the `wait_for` wrapper when `timeout is None`; await the
+    `gather` / `communicate` directly.
+  - `parse_args`: help text reflects the new default.
+- `README.md`: note the change.
+
+### Risks
+
+- Hung CLI with no output and no timeout = forever-stuck reviewer.
+  Mitigation: combine with the streaming-resume work below — if no
+  bytes have arrived for N seconds, that's a different (idle) signal
+  than wall-clock timeout. Could surface as `--idle-timeout` later.
+  Not v1.
+
+## Streaming output → crash-resume across model fallback
+
+### Motivation
+
+When a reviewer (today: gemini fallback chain) hops models, the in-flight
+stream is lost. We restart from token zero on the next model. Two costs:
+
+1. **Wasted compute / tokens.** Mid-stream 429 after 17 min of output
+   discards everything generated so far.
+2. **Discontinuous review.** Final `REVIEW.md` only reflects the
+   succeeded hop's output; we lose the partial signal from the failed
+   hop, including *where* it was in its analysis when it died.
+
+### Evidence (2026-04-30, 142 KB Guestflow wave-2 review)
+
+Same run as above. Hop 1 (`gemini-3.1-pro-preview`) wrote 147 KB to
+`bytes_seen` before dying with capacity-class stderr — discarded. Hop 2
+(`gemini-3-flash-preview`) wrote 170 KB before tripping the (lagged)
+600 s timeout — also discarded. Combined ~320 KB of in-flight reasoning
+thrown away across both hops. Hop 3 (`gemini-2.5-pro`) was **not**
+attempted because timeout failure isn't matched by `CAPACITY_PATTERNS`
+(line 847 → "real failure, don't burn the chain"). Net: gemini contributes
+nothing to `REVIEW.md` despite 31 min of compute. This is exactly the
+pathology this entry exists to fix — also surface a related question:
+should timeout count as fallback-eligible for chains that have remaining
+hops? Probably yes, gated on partial output existing.
+
+### Goals
+
+1. Stream every reviewer's stdout (raw JSONL events) to a per-run temp
+   file, e.g. `runs/streams/<run-id>/<cli>.jsonl`.
+2. On capacity / crash mid-stream: capture a **crash record** —
+   timestamp, last event, last assistant-text offset, model active at
+   crash, stderr tail.
+3. On fallback hop: prepend a crash-aware preamble to the next model's
+   prompt that includes the partial output and *asks the next model to
+   continue from where the prior one stopped*, OR run the next model
+   fresh and stitch.
+4. Preserve both fragments in `REVIEW.md` so a post-mortem LLM (or
+   human) can evaluate continuity / quality before-vs-after the hop.
+
+### Open questions / per-CLI investigation
+
+- **Gemini**: does `-o stream-json` emit an event flush we can reliably
+  checkpoint on? Does the API support `continue from this transcript`
+  semantics, or do we just feed the partial back as context? Prior
+  schema notes (multi_review.py:351) flag delta-vs-cumulative drift —
+  resume must handle both.
+- **Claude / codex / opencode**: same question. Stream format and
+  resumption affordances differ per CLI. One CLI at a time; gemini
+  first because it's the only one with an active fallback chain today.
+- Resume strategy:
+  - **Native continuation** (preferred): if CLI supports an
+    `--input-transcript` or equivalent, pass the prior partial. Quality
+    likely best.
+  - **Re-prompt with partial as context** (universal fallback): include
+    the partial output in the prompt to the next model with a directive
+    like "the prior model stopped mid-analysis at offset X, here's its
+    output, continue or start fresh as you see fit". Cheap to implement,
+    quality varies by model.
+  - **Stitch separately** (no re-prompt): run the next model from
+    scratch, surface both fragments side-by-side in REVIEW.md. Honest
+    but lossy.
+
+### Crash record schema (sketch)
+
+```json
+{
+  "cli": "gemini",
+  "model": "gemini-3.1-pro-preview",
+  "crashed_at": "2026-04-30T19:18:42Z",
+  "elapsed_s": 1023.4,
+  "last_event_type": "assistant_text_delta",
+  "last_assistant_offset_bytes": 147028,
+  "stderr_tail": "...MODEL_CAPACITY_EXHAUSTED...",
+  "partial_text_path": "runs/streams/<run-id>/gemini.text",
+  "raw_stream_path": "runs/streams/<run-id>/gemini.jsonl"
+}
+```
+
+Surfaces in `REVIEW.md` frontmatter as a `crash_resume:` block when any
+hop crashed mid-stream, regardless of whether the hop's text was kept.
+
+### Quality-eval angle
+
+Persisting the before-crash and after-resume text lets a post-mortem
+prompt ("compare these two halves of a review — does the second half
+continue the analysis coherently or restart?") run later. That's how
+we evaluate whether resume strategies are worth their complexity.
+Ties into the per-run harvest in `runs/runs.jsonl` — add a
+`crash_resume` column.
+
+### Files to modify
+
+- `multi_review.py`:
+  - `_run_reviewer_attempt`: tee stdout to a per-run temp file in
+    addition to the adapter.
+  - `run_reviewer`: on capacity break, persist the crash record before
+    looping to the next hop; pass partial + crash record into the next
+    `_run_reviewer_attempt` (new param).
+  - Adapter base class: optional `serialize_partial()` returning the
+    accumulated assistant text + offset.
+  - `write_review_md`: `crash_resume` frontmatter block when present.
+  - Harvest: new `crash_resume` field in `runs.jsonl`.
+- README + CLAUDE.md: invariant section on stream persistence + resume
+  contract.
+
+### Risks
+
+- **Resume coherence.** Naive "here's the partial, continue" prompts
+  may produce duplicated or contradictory analysis. Quality-eval
+  framework above is the validation loop.
+- **Disk usage.** Per-run streams could be large. Default retain N
+  most-recent runs (e.g. 20) in `runs/streams/`, prune older.
+- **Schema drift.** Each CLI's stream format evolves. Crash record's
+  `last_event_type` is best-effort; persist the raw line too.

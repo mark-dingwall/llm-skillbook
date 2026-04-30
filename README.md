@@ -252,7 +252,7 @@ multi-review [file ...]
   --context PATH           # extra context (repeatable)
   --reviewers csv          # explicit reviewer list
   --output PATH            # default: ./REVIEW.md
-  --timeout SEC            # default: 600 per reviewer
+  --timeout SEC            # default: no timeout (run to completion or Ctrl+C)
   --no-synthesize          # disable consensus pass
   --synthesizer CLI        # default: claude
   --model cli=model-id     # per-reviewer model override; pins + disables fallback.
