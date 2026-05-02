@@ -192,6 +192,153 @@ Context files stay inline regardless of mode (they're framing docs, small).
 5. Path resolution: reference manifest uses absolute paths. Resolve relative
    inputs early (`Path.resolve()`) before building bwrap mounts.
 
+## Reference-mode cwd guard: warn or auto-chdir before reviewers exit on permission denial
+
+### Motivation
+
+Reference mode (`--mode reference`) hands the model a manifest of absolute
+paths and expects the CLI to read files via its own tools. Most modern
+LLM CLIs default to a sandbox-to-cwd permission policy: claude refuses
+reads outside the launch cwd entirely; gemini refuses with "outside
+permitted workspace directory" the same way. So when `multi-review` is
+invoked from a directory other than the target repo, those reviewers
+exit early with a refusal message and produce no review content — but
+their refusal text is long enough to pass `FAILURE_MIN_BYTES`, so they
+register as `OK` in the dashboard and the output file. Silent
+degradation, not a loud failure.
+
+This is operator UX, not a model issue. The harness already has the
+absolute paths it would need to detect the mismatch.
+
+### Evidence
+
+- **2026-04-29 host-claude reference, paralife** (runs.jsonl row 7):
+  claude-as-host invoked from `multi-review` cwd, target files in
+  `paralife`. Claude refused on permission grounds. Documented in
+  `runs/notes/paralife-2026-04-29.md` as the original Phase-1
+  falsification observation, attributed to claude-specific behaviour.
+- **2026-05-02 multi-CLI reference, paralife-phase19**: same procedural
+  setup. **Both claude AND gemini refused**, generalising the failure
+  beyond claude alone. Codex + opencode read files successfully (more
+  permissive read-path posture today). Net: 2/4 reviewers structurally
+  blocked, not detectable from the dashboard's `OK` status. Sidecar:
+  `runs/notes/paralife-2026-05-02.md`.
+
+The harness's `OK` verdict relied on `bytes >= FAILURE_MIN_BYTES (50)`
+and rc=0; both reviewers' refusal-explanation text cleared the byte
+threshold and the CLI exited cleanly. The check correctly catches
+*content-empty* failures but is blind to *content-is-a-refusal*
+failures.
+
+### Goals
+
+1. **Detect** in `parse_args` (or before reviewer dispatch in
+   `async_main`) when `--mode reference` is in effect AND the cwd is
+   not an ancestor of any input file's parent directory.
+2. **Default behaviour: warn loudly** with a one-screen message naming
+   the affected files, the current cwd, and the suggested cwd
+   (longest common ancestor of all input + context files), then exit
+   non-zero unless `--allow-cwd-mismatch` is passed.
+3. **Optional: auto-chdir** behind an opt-in flag
+   (`--auto-chdir-to-target`) that does the longest-common-ancestor
+   computation and chdirs there before spawning reviewers. Print the
+   chosen target path. Off by default — silent cwd changes are
+   surprising.
+4. **Update the manifest message** in `reference_preamble()` to remind
+   the model that path access is gated by its tool's sandbox, and that
+   it should surface clear "permission denied" / "outside workspace"
+   refusals as **failures**, not as the review itself. Today the
+   refusals look like reviews and slip past `FAILURE_MIN_BYTES`.
+
+### Non-goals
+
+- Sandbox bypass (that's the bwrap section above — separate work,
+  bigger blast radius).
+- Auto-detecting which CLIs need cwd-relaxation flags. Each CLI's
+  sandbox surface is different; user picks the right invocation cwd
+  instead.
+- Heuristic content-classification of the refusal vs a real review.
+  Tighten `FAILURE_MIN_BYTES` is tempting but lossy — a real
+  one-sentence "no findings" review would also fail. The cwd-mismatch
+  *cause* is detectable up front; do that instead of post-hoc text
+  classification.
+
+### Sketch
+
+- New helper `cwd_is_ancestor_of_inputs(input_files, context_files)` →
+  bool. Uses `Path.cwd().resolve()` and compares against each input
+  file's resolved parent directory.
+- In `async_main` (or end of `parse_args`):
+  ```python
+  if args.mode == "reference" and not cwd_is_ancestor_of_inputs(...):
+      lca = longest_common_ancestor(input_files + context_files)
+      print(f"WARNING: --mode reference but cwd ({Path.cwd()}) is not "
+            f"an ancestor of the input files. Most LLM CLIs sandbox "
+            f"file reads to cwd; reviewers will likely refuse with "
+            f"'outside permitted workspace'. Suggested: cd {lca} && "
+            f"<rerun command>", file=sys.stderr)
+      if not args.allow_cwd_mismatch:
+          sys.exit(2)
+  ```
+- New CLI flag `--allow-cwd-mismatch` (off by default) for the cases
+  where the user has independently confirmed each CLI is configured
+  to read outside cwd (e.g. opencode's "yolo" config) and wants to
+  proceed anyway.
+- Tighten `reference_preamble()` to add: "If your tool sandbox blocks
+  reads on the listed paths, do NOT produce a review. Emit a single
+  line `__REVIEWER_BLOCKED_BY_SANDBOX__: <reason>` and exit so the
+  harness can record this as a failure rather than silently passing."
+  Then `run_reviewer` checks captured output for that sentinel and
+  reclassifies as failed regardless of byte count.
+
+### Risks / open questions
+
+1. **False positives on multi-repo inputs.** If input files span
+   multiple unrelated repos with no real common ancestor (e.g. `/`),
+   the suggested-cwd output is unhelpful. Detect this and degrade to
+   "no useful common ancestor — reference mode unsupported for this
+   input set, use --mode inline".
+2. **Symlinks.** `Path.resolve()` follows symlinks; the cwd might be
+   a symlink into the target tree. Resolve both sides before
+   comparing. Probably fine in practice.
+3. **Sentinel reliance.** The `__REVIEWER_BLOCKED_BY_SANDBOX__`
+   approach trusts the model to emit it. Some reviewers won't, and
+   we'll still get the long-form refusal. Cwd-guard is the load-bearing
+   defence; sentinel is a belt-and-braces additional surface.
+4. **Why not just always auto-chdir?** Because users sometimes have
+   reasons to invoke from a sibling repo (e.g., `multi-review` is
+   itself the host project, files are dual-purpose). Loud warn +
+   opt-in auto-chdir keeps both flows possible.
+
+### Files to modify
+
+- `multi_review.py`:
+  - New `cwd_is_ancestor_of_inputs` + `longest_common_ancestor` helpers.
+  - `async_main`: cwd-mismatch check post-`parse_args`, pre-`run_all_reviewers`.
+  - `parse_args`: `--allow-cwd-mismatch`, `--auto-chdir-to-target` flags.
+  - `reference_preamble`: append the sandbox-refusal directive +
+    sentinel contract.
+  - `run_reviewer`: post-stream sentinel check → reclassify as failed.
+- `README.md`: note the cwd requirement for `--mode reference`.
+- `CLAUDE.md`: invariant note that reference mode requires cwd to be
+  an ancestor of input files (or `--allow-cwd-mismatch` opt-out).
+
+### Verification
+
+1. From `multi-review/` cwd, run `--mode reference` against
+   `~/kramtime/paralife/...`. Must exit 2 with a clear suggested
+   `cd` line.
+2. From `~/kramtime/paralife/`, same invocation. Must run cleanly,
+   all reviewers produce real output.
+3. Smoke `--allow-cwd-mismatch` from the wrong cwd. Reviewers run;
+   any that hit a sandbox refusal AND emit the sentinel get
+   reclassified as failed in `REVIEW.md`. Refusal text from a
+   reviewer that *doesn't* emit the sentinel still slips through —
+   document this honestly.
+4. Multi-repo input set with no common ancestor → harness explains
+   why reference mode is structurally unsuitable, suggests `--mode
+   inline`.
+
 ## Capacity-aware reviewer fallback
 
 **Status (2026-04-29):** Shipped for **gemini**. 6-deep default chain

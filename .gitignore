@@ -10,6 +10,7 @@ __pycache__/
 # multi-review runtime
 .multi-review.log
 REVIEW.md
+REVIEW-*.md
 
 # Per-run harvest data (regenerable; EXPERIMENTS.md is generated from it)
 runs/runs.jsonl
