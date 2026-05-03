@@ -20,7 +20,7 @@ No packaging. No test suite. Runs via `uv` using a PEP 723 inline script header 
 # Assemble prompt + print, no reviewers invoked
 ./multi_review.py --dry-run --task code src/*.py
 
-# Force explicit reviewer set (bypasses self-skip / availability filter)
+# Force explicit reviewer set (bypasses --skip-self and availability filter)
 ./multi_review.py --reviewers gemini,codex file.py
 
 # Per-reviewer model override
@@ -33,7 +33,7 @@ No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typi
 
 ### Data flow
 
-1. `parse_args` → `detect_self` + `resolve_reviewers` filter the reviewer list (self-skip by env var, availability by `shutil.which`).
+1. `parse_args` → `detect_self` + `resolve_reviewers` filter the reviewer list (availability by `shutil.which`; host CLI included by default — `--skip-self` opt-in to drop it from auto-resolved set).
 2. `build_prompt` assembles `INJECTION_PREAMBLE` + task template (or custom/`--prompt-file`) + context files + input files. Context files are always wrapped inline in `<file-NONCE path="…">…</file-NONCE>`. Input files are inline-wrapped under `--mode inline` (default) or emitted as a manifest of resolved absolute paths under `--mode reference` (model reads them via its own tools). Reference mode prepends a second injection preamble (`reference_preamble()`) warning that file *contents* read at tool-call time are review subjects, not instructions.
 3. `run_all_reviewers` spawns one `asyncio.subprocess` per reviewer. Each child's stdout (JSONL event stream) is fed line-by-line into a per-CLI `ProgressAdapter`. A `rich.Live` dashboard (`build_table`) polls adapter state at ~6Hz.
 4. `run_synthesis` (if ≥2 reviewers succeeded and `--synthesize` is on) pipes `build_synthesis_input(results)` through `--synthesizer` CLI for a Consensus Summary block.
@@ -50,7 +50,7 @@ No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typi
 ### Invariants to preserve
 
 - **Prompt goes on stdin, never argv.** Every CLI is invoked with the prompt written to `proc.stdin`. This keeps prompts out of `/proc/PID/cmdline` (see commit `55d783b`). Don't move prompt to argv.
-- **Self-skip via env vars** (`detect_self`): `CLAUDE_CODE_ENTRYPOINT` → skip `claude`, `GEMINI_CLI` → skip `gemini`, `CODEX_ENV` → skip `codex`, `OPENCODE` → skip `opencode`. `ANTIGRAVITY_AGENT=1` short-circuits to "none". Self-skip is a **default filter only**: passing `--reviewers` listing the host CLI honours it and runs that CLI as a reviewer.
+- **Self-skip is opt-in** (`--skip-self`, default off). `detect_self()` reports the host via env vars: `CLAUDE_CODE_ENTRYPOINT` → `claude`, `GEMINI_CLI` → `gemini`, `CODEX_ENV` → `codex`, `OPENCODE` → `opencode`. `ANTIGRAVITY_AGENT=1` short-circuits detection to `"none"`. Rationale: a fresh subprocess of the host CLI has independent context — running it as a reviewer is valid and adds signal. `--skip-self` honoured only for the auto-resolved set; explicit `--reviewers` always wins. Don't reintroduce a default skip without discussion (see chat 2026-05-03).
 - **Dual failure classification**: a reviewer fails if rc ≠ 0 OR captured output < `FAILURE_MIN_BYTES` (50). Don't weaken either check — both have caught real breakage. Partial failures still produce `REVIEW.md`; failed reviewers get their own section with stderr tail (last 2000 chars) and up to 1000 chars of any partial output.
 - **Injection posture**: all file content is wrapped in `<file>` tags with a preamble telling the model to treat that content as review data. Synthesis input wraps each review in `<review reviewer="…">`. `html.escape(..., quote=True)` is used on attribute values. This is defense-in-depth, not a sandbox.
 - **Context files always inline.** Both `--mode inline` and `--mode reference` wrap context files in `<file-NONCE>` tags — they're framing material the model needs *before* any tool call, so they cannot be deferred to the manifest. The reference-mode preamble (`reference_preamble`) stacks *after* the nonce-tag preamble (`injection_preamble`); both apply because context still uses tags even when input files don't.
@@ -60,7 +60,7 @@ No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typi
 
 ### Synthesis caveat (documented in README)
 
-When `--synthesizer` is also a reviewer, that model is double-weighted. `async_main` handles the "synthesizer was self-skipped as reviewer" case implicitly because the synthesizer call uses the CLI name directly regardless of the reviewer list. Don't "fix" this by auto-excluding the synthesizer from reviewers without discussion — the README explicitly calls this out as user choice.
+When `--synthesizer` is also a reviewer, that model is double-weighted. The synthesizer call uses the CLI name directly regardless of the reviewer list, so it works whether or not the host was dropped via `--skip-self`. Don't "fix" double-weighting by auto-excluding the synthesizer from reviewers without discussion — the README explicitly calls this out as user choice.
 
 ## Dependency tracking
 

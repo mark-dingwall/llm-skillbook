@@ -64,13 +64,20 @@ def detect_available() -> list[str]:
     return [c for c in ALL_REVIEWERS if shutil.which(c)]
 
 
-def resolve_reviewers(requested: list[str] | None, self_cli: str) -> list[str]:
+def resolve_reviewers(
+    requested: list[str] | None,
+    self_cli: str,
+    skip_self: bool = False,
+) -> list[str]:
     available = detect_available()
     explicit = requested is not None
     base = requested if explicit else available
     out = []
     for cli in base:
-        if not explicit and cli == self_cli and self_cli != "none":
+        # Self-skip is opt-in via --skip-self. Default behaviour: a fresh subprocess
+        # of the host CLI has independent context and is a valid reviewer.
+        # Explicit --reviewers always honoured (skip_self ignored when explicit).
+        if skip_self and not explicit and cli == self_cli and self_cli not in ("", "none"):
             continue
         if cli not in available:
             continue
@@ -1634,7 +1641,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--context", type=Path, action="append", default=[], metavar="PATH",
                    help="Extra context file prepended to prompt, wrapped in <file> tags (repeatable)")
     p.add_argument("--reviewers", metavar="LIST",
-                   help=f"Comma-separated reviewers to run, e.g. {reviewers} (default: all available minus self)")
+                   help=f"Comma-separated reviewers to run, e.g. {reviewers} (default: all available)")
+    p.add_argument("--skip-self", action="store_true", default=False,
+                   help="If launched from an AI CLI (claude/gemini/codex/opencode, detected via env vars), "
+                        "drop that CLI from the auto-resolved reviewer set. No-op when run from a plain shell "
+                        "(no host detected) or when --reviewers is explicit. "
+                        "Off by default — a fresh subprocess has independent context and is a valid reviewer.")
     p.add_argument("--output", type=Path, default=None, metavar="PATH",
                    help="Destination Markdown report (default: auto-named REVIEW-<slug>.md)")
     p.add_argument("--timeout", type=int, default=None, metavar="SECS",
@@ -1672,13 +1684,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def cmd_list_reviewers() -> int:
+def cmd_list_reviewers(skip_self: bool = False) -> int:
     self_cli = detect_self()
     available = detect_available()
     print(f"Supported: {', '.join(ALL_REVIEWERS)}")
     print(f"Available: {', '.join(available) if available else '<none>'}")
     print(f"Self:      {self_cli or '<unknown>'}")
-    effective = resolve_reviewers(None, self_cli)
+    print(f"Skip-self: {'on' if skip_self else 'off'}")
+    effective = resolve_reviewers(None, self_cli, skip_self=skip_self)
     print(f"Effective: {', '.join(effective) if effective else '<none>'}")
     return 0
 
@@ -1702,12 +1715,12 @@ async def async_main(args: argparse.Namespace) -> int:
     fallbacks = parse_fallback_overrides(args.fallback_model)
     self_cli = detect_self()
     requested = [r.strip() for r in args.reviewers.split(",")] if args.reviewers else None
-    reviewers = resolve_reviewers(requested, self_cli)
+    reviewers = resolve_reviewers(requested, self_cli, skip_self=args.skip_self)
     available = detect_available()
     unavailable = [c for c in ALL_REVIEWERS if c not in available]
 
     if not reviewers:
-        console.print("[red]No reviewers available after filtering (self-skip + availability).[/red]", style="red")
+        console.print("[red]No reviewers available after filtering (availability + --skip-self).[/red]", style="red")
         console.print(f"Supported: {', '.join(ALL_REVIEWERS)}")
         console.print(f"Self:      {self_cli or '<unknown>'}")
         return 1
@@ -1723,9 +1736,10 @@ async def async_main(args: argparse.Namespace) -> int:
         mode=args.mode,
     )
 
-    self_skip_label = self_cli if (self_cli and self_cli != "none" and self_cli not in reviewers) else "none"
+    self_label = self_cli if (self_cli and self_cli != "none") else "none"
+    skip_note = " (skipped)" if (args.skip_self and self_cli and self_cli not in reviewers) else ""
     status = (f"[dim]Prompt: {len(prompt):,} bytes · Reviewers: {', '.join(reviewers)} "
-              f"· Self-skip: {self_skip_label}")
+              f"· Self: {self_label}{skip_note}")
     if unavailable:
         status += f" · Unavailable: {', '.join(unavailable)}"
     status += "[/dim]"
@@ -1858,14 +1872,14 @@ def main(argv: list[str] | None = None) -> int:
         parse_args(["-h"])
 
     if args.list_reviewers:
-        return cmd_list_reviewers()
+        return cmd_list_reviewers(skip_self=args.skip_self)
 
     if args.dry_run:
         models = parse_model_overrides(args.model)
         fallbacks = parse_fallback_overrides(args.fallback_model)
         self_cli = detect_self()
         requested = [r.strip() for r in args.reviewers.split(",")] if args.reviewers else None
-        reviewers = resolve_reviewers(requested, self_cli)
+        reviewers = resolve_reviewers(requested, self_cli, skip_self=args.skip_self)
         available = detect_available()
         unavailable = [c for c in ALL_REVIEWERS if c not in available]
         input_files = [Path(f) for f in args.files]

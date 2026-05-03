@@ -67,24 +67,35 @@ multi-review --model claude=claude-opus-4-7 --model codex=gpt-5 file.py
 4. Captures each CLI's response and writes `REVIEW.md` with YAML frontmatter (reviewers, usage, models) + one Markdown section per reviewer.
 5. If ≥2 reviewers succeeded and `--synthesize` is on (default), pipes the aggregated `REVIEW.md` through the synthesizer CLI to fill a "Consensus Summary" section (Agreed Strengths / Agreed Concerns / Divergent Views).
 
-## Self-skip
+## Self-skip (opt-in)
 
-When running inside an AI CLI that is also a reviewer, that CLI is automatically
-excluded so the review stays independent. Detection is env-var-based:
+When `multi-review` is launched **from inside an AI CLI** (e.g. you're using Claude
+Code and you run `multi-review` in its terminal), that CLI is the "host". By default
+the host is still included as a reviewer — the spawned subprocess has its own
+context window with no prior reasoning carried over, so it remains a useful
+independent voice. Pass `--skip-self` to drop the host from the auto-resolved
+reviewer set.
 
-| Env var                  | Detected host | Reviewer skipped |
-| ------------------------ | ------------- | ---------------- |
-| `CLAUDE_CODE_ENTRYPOINT` | Claude Code   | `claude`         |
-| `GEMINI_CLI`             | Gemini CLI    | `gemini`         |
-| `CODEX_ENV`              | Codex CLI     | `codex`          |
-| `ANTIGRAVITY_AGENT=1`    | Antigravity   | _(none)_         |
+When launched from a plain shell, no host is detected and `--skip-self` is a no-op.
 
-Override with `--reviewers claude,gemini,codex` if you want to force a specific set.
+Detection is env-var-based — host is whichever of these the parent CLI sets:
+
+| Env var                  | Detected host | Reviewer dropped under `--skip-self` |
+| ------------------------ | ------------- | ------------------------------------- |
+| `CLAUDE_CODE_ENTRYPOINT` | Claude Code   | `claude`                              |
+| `GEMINI_CLI`             | Gemini CLI    | `gemini`                              |
+| `CODEX_ENV`              | Codex CLI     | `codex`                               |
+| `OPENCODE`               | opencode      | `opencode`                            |
+| `ANTIGRAVITY_AGENT=1`    | Antigravity   | _(none — host detection skipped)_     |
+
+`--skip-self` only affects the auto-resolved reviewer list. An explicit
+`--reviewers claude,gemini` runs exactly that set even with `--skip-self`.
 
 Check detection:
 
 ```bash
-multi-review --list-reviewers
+multi-review --list-reviewers              # shows host + effective set
+multi-review --list-reviewers --skip-self  # preview the dropped set
 ```
 
 ## Progress signals per reviewer
@@ -111,7 +122,7 @@ double-weighted (once as reviewer, once as synthesizer). For the most independen
 consensus, pick a synthesizer that is _not_ in the reviewer set, e.g.:
 
 ```bash
-multi-review --task code --synthesizer claude src/*.py   # if self-skip removed claude as reviewer
+multi-review --task code --skip-self --synthesizer claude src/*.py   # claude only as synthesizer
 multi-review --task code --reviewers gemini,codex --synthesizer claude src/*.py
 ```
 
