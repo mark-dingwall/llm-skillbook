@@ -1270,6 +1270,7 @@ def write_review_md(
     consensus_text: str | None,
     synthesizer: str | None,
     synthesized_at: str | None,
+    mode: str,
     synthesis_attempts: list[str] | None = None,
 ) -> None:
     succeeded = [r for r in results if r.ok]
@@ -1286,6 +1287,7 @@ def write_review_md(
 
     lines = ["---"]
     lines.append(f"task: {task}")
+    lines.append(f"mode: {mode}")
     lines.append(f"reviewers_succeeded: {yaml_list([r.cli for r in succeeded])}")
     lines.append(f"reviewers_failed: {yaml_list([r.cli for r in failed])}")
     lines.append(f"reviewed_at: {reviewed_at}")
@@ -1821,6 +1823,7 @@ async def async_main(args: argparse.Namespace) -> int:
     write_review_md(
         output_path, args.task, input_files, results, models,
         consensus_text, synthesizer_used, synthesized_at,
+        mode=args.mode,
         synthesis_attempts=synthesis_attempts,
     )
 
