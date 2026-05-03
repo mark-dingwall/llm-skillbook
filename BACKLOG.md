@@ -452,6 +452,16 @@ ground truth.
   for the same 8.3 KB output. Output `1318` is more plausible than B3's
   `16` but still doesn't reconcile against bytes; cached at 2.5 M is
   the cumulative-across-tool-turns shape again.
+- **Paralife Phase 19/19.5 inline** (2026-05-03T03:33:05Z, runs.jsonl
+  most-recent inline): claude `input: 10, output: 16, cached: 40,450,
+  tool_calls: 0` for a review section containing substantive HIGH +
+  MEDIUM findings. Same `output: 16` shape as chunk-B B3 — strongly
+  suggests the adapter is reading a single early stream event when
+  claude completes inline-mode work in one turn (no tool calls →
+  different event sequence than reference mode). Paired reference run
+  the same day reported `input: 64, output: 1745, cached: 6,950,126,
+  tool_calls: 25` for similar-shape output — output 1745 plausible,
+  cached 6.95 M still in the cumulative-across-turns shape.
 
 ### Hypothesis
 

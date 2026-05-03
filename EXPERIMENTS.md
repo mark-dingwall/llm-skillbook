@@ -38,6 +38,8 @@ For a clean comparison run:
 | 2026-05-01 | multi-review | reference | first | 58,313 | 671.1s | 0 | 29,168 | 4/4 |  |
 | 2026-05-01 | multi-review | inline | second | 387,778 | 849.6s | 0 | 56,533 | 4/4 |  |
 | 2026-05-02 | paralife | reference | #8 | 58,226 | 560.0s | 0 | 26,523 | 2/2 |  |
+| 2026-05-03 | paralife | reference | #9 | 111,972 | 742.9s | 0 | 52,834 | 4/4 |  |
+| 2026-05-03 | paralife | inline | #10 | 597,831 | 700.8s | 0 | 57,530 | 4/4 |  |
 
 ## Per-project narrative
 
@@ -186,6 +188,53 @@ Phase 19 (high-density placement, partition-aware world execution) external revi
 - Adapter telemetry on claude-retry: `in: 55, out: 1057, cached: 3,268,423` — the cached number is enormous (3.3M) because each tool turn re-reports the cache hit (same shape as the BACKLOG `ClaudeAdapter` audit entry). Real review content is intact (1.19MB output bytes).
 
 **Conclusion (revised)**: cwd-mismatch was the single explanatory variable for the 2/4 ref refusal. Backlog item filed for harness-level cwd guard. With the procedural fix in place, reference mode's premise — model reads files via own tools, less front-loaded context, deeper traces — is now supported by per-line evidence on this run. The headline finding for the paralife team remains the **overcrowding-bit dead check** (4 independent CLI reports), with claude's **one-tick observability gap** as the highest-confidence per-line cross-wave bug worth resolving before Phase 19.1.
+
+### paralife (2026-05-03)
+
+## paralife — Phase 19/19.5 cross-AI review (2026-05-03)
+
+Second paired ref-vs-inline run on paralife (24 Java files, 6 context docs incl. prior REVIEW + the 19.5 fix plan). Same prompt, same tree, ~12 min apart. Synthesizer = claude in both.
+
+**Headline: each mode found a *different* HIGH-severity blocker. Neither dominates.**
+
+### What both runs found
+- 3/4 reviewers → `NEEDS-REWORK`. Opencode → `READY-WITH-FOLLOWUPS` in both runs (consistent reviewer behaviour, not a mode artefact — opencode treats post-H2 follow-on bugs as "containable" while the other three flag them as regressions of the fix).
+- BondedPair death leaks the predator session (`DeathFinalizer.finalizeBondedPairDeath` only unregisters primary/secondary entity ids — both no-ops after H2's remap to `bp.id()`).
+- STALLED-predator + bond formation invalidates the resume token (`onBondFormed` no-ops because the session is absent from `SessionRegistry`; `ResumeTokenRegistry` keeps the stale particle id).
+- `LiveEntityRegistry.snapshot()` allocation/sort pressure (5–9 calls/tick).
+
+### What only the inline run surfaced
+**HIGH — `updateBotRegistryForFormation` looks up by `bp.primaryEntityId()`** (`SimulationEngine.java:851-861`). Post-H2, BotRegistry holds `session → bp.id()`, not `session → primaryEntityId`. The `.ifPresent` branch never fires; CompositeMember is created without a session mapping. Same bug recurs in `revertToBondedPair` and `dissolveToParticles`. Concrete one-line fix per site. Both claude and codex traced this independently in the inline run.
+
+This is the most concrete blocker found in either run. Reference mode missed it entirely — claude/codex in REF spent their tool budget tracing the disconnect-side paths and didn't open `updateBotRegistryForFormation` at all.
+
+### What only the reference run surfaced
+- **HIGH — H3 cross-thread duplicate-position race** (claude). Two threads sample the same `pos_X` before either calls `notifyChanged`; both `liveEntityRegistry.register` succeed (key is entityId, not position); second rolls back via `trySetEntity` failure but during the window `snapshot()` returns both entries → combat resolves twice. Test never fires (pre-registers all bots before tick 1).
+- **HIGH — register-vs-`afterConnectionClosed` ordering** (codex). `handleRegister` mutates registry/grid before setting `ATTR_ENTITY_ID`; concurrent close cleans up nothing.
+
+Both REF-only HIGHs depend on cross-thread interleaving that you can only see by reading the locking discipline carefully — which is exactly what tool-call-driven exploration encourages. Inline mode reviewers, given the files dumped into prompt, gravitated to grep-style findings (the composite-formation key mismatch is a textbook grep target: "where else does anything look up `primaryEntityId`?").
+
+### Telemetry quirks worth noting
+- **`claude` inline reports `in=10, out=16, cached=40,450, 0 tool calls`.** Output file is 295 KB and the review section contains substantive HIGH/MEDIUM findings — the adapter under-reports inline-mode usage materially. Same flag as the cumulative-vs-delta gemini caveat at `multi_review.py:351`: claude's inline mode emits an event shape the adapter doesn't accumulate. Worth a follow-up.
+- `claude` REF: 6.95M cached, 25 tool calls — reads heavily via cache. Healthy.
+- `gemini` REF: 40 tool calls, 3M input. Inline: 0 tool calls — pure prompt read.
+- `codex` uses tools in *both* modes (64 REF vs 17 INL). Inline mode does not deter codex from re-reading from disk; it just does less of it.
+- `opencode` usage telemetry remains 0/0/0 in both modes (known adapter limitation, README table).
+- Wall time comparable (742.9s REF vs 700.8s INL). Inline prompt 5.4× larger (597 KB vs 111 KB) — no apparent ingestion penalty.
+
+### What this run *shows this time*
+1. Mode determines which class of bug surfaces, not how many. Inline → grep/text-search-shaped findings (key mismatches, dead parameters, stale comments). Reference → execution/locking-order-shaped findings (cross-thread races, register-vs-close interleavings).
+2. Opencode's `READY-WITH-FOLLOWUPS` verdict is reviewer-stable across modes on this codebase — third paired run in a row where opencode dissents from the consensus. This isn't a mode signal; it's a reviewer-prior signal. Worth documenting as a trait.
+3. Claude inline telemetry under-reporting is now confirmed across two runs (paralife-2026-05-02 showed similar shape). Backlog candidate.
+
+### What this run does *not* prove
+- That reference mode "is better at concurrency bugs" or inline "is better at code-search bugs". Two paired runs on one codebase. The pattern is suggestive — file it, don't generalise. Need ≥5 paired runs across distinct projects before that becomes load-bearing.
+- That the composite-formation HIGH bug is real. It's a strong claim from claude+codex with concrete line citations, but H2's actual remap site (`SimulationEngine.java:692-720`) needs confirmation that `botRegistry.remapEntity` does in fact replace `entityToSession[primaryId]` rather than supplement it. Worth a 5-minute spot check before treating as ground truth.
+
+### Recommended follow-up
+- Verify the composite-formation key-mismatch bug exists (read `BotRegistry.remapEntity` + `updateBotRegistryForFormation` directly).
+- Open a backlog item to investigate claude inline telemetry under-reporting.
+- Keep collecting paired runs. Three paired-run data points (Guestflow ×2, paralife ×2 incl. today) all show mode-specific finding patterns; the shape may be reproducible.
 
 ## Open questions
 
