@@ -262,7 +262,7 @@ multi-review [file ...]
   --prompt-file PATH       # read custom prompt from file
   --context PATH           # extra context (repeatable)
   --reviewers csv          # explicit reviewer list
-  --output PATH            # default: ./REVIEW.md
+  --output PATH            # default: ./REVIEW.md; auto-suffixes -2/-3/... if target exists
   --timeout SEC            # default: no timeout (run to completion or Ctrl+C)
   --no-synthesize          # disable consensus pass
   --synthesizer CLI        # default: claude

@@ -1232,8 +1232,9 @@ def resolve_output_path(
 ) -> tuple[Path, str]:
     """Return (path, source) where source ∈ {'explicit','suggested','timestamp'}."""
     if explicit is not None:
-        return explicit, "explicit"
-    if suggested:
+        candidate = explicit
+        source = "explicit"
+    elif suggested:
         candidate = cwd / suggested
         source = "suggested"
     else:
@@ -1810,6 +1811,11 @@ async def async_main(args: argparse.Namespace) -> int:
         }.get(name_source, name_source)
         console.print(
             f"[dim]Suggested filename: {output_path.name} ({source_label})[/dim]"
+        )
+    elif output_path != args.output:
+        console.print(
+            f"[yellow]note: {args.output} exists; writing to {output_path.name} "
+            f"to avoid overwrite[/yellow]"
         )
 
     write_review_md(
