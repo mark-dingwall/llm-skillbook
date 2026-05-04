@@ -40,6 +40,12 @@ For a clean comparison run:
 | 2026-05-02 | paralife | reference | #8 | 58,226 | 560.0s | 0 | 26,523 | 2/2 |  |
 | 2026-05-03 | paralife | reference | #9 | 111,972 | 742.9s | 0 | 52,834 | 4/4 |  |
 | 2026-05-03 | paralife | inline | #10 | 597,831 | 700.8s | 0 | 57,530 | 4/4 |  |
+| 2026-05-03 | paralife | inline | #11 | 602,781 | 848.7s | 0 | 27,711 | 4/4 |  |
+| 2026-05-03 | paralife | reference | #12 | 42,635 | 579.7s | 0 | 24,997 | 4/4 |  |
+| 2026-05-03 | paralife | reference | #13 | 14,777 | 694.4s | 0 | 51,755 | 4/4 |  |
+| 2026-05-03 | paralife | inline | #14 | 647,559 | 645.4s | 0 | 46,969 | 4/4 |  |
+| 2026-05-04 | Guestflow | reference | #3 | 70,015 | 382.8s | 0 | 24,880 | 4/4 |  |
+| 2026-05-04 | Guestflow | inline | #4 | 185,129 | 792.9s | 0 | 25,641 | 4/4 |  |
 
 ## Per-project narrative
 
@@ -73,6 +79,76 @@ Wave-2 remediation re-run on Guestflow-16.1 (inline-first this time, separate se
 **Conclusion**: too few data points to claim a stable mode-quality trend. Reference mode wins on *both* runs but for different reasons each time, and the magnitude of the win varies. Need ≥5 paired runs across distinct codebases before drawing firm conclusions about which mode is preferable for which reviewer.
 
 **Confound on this run**: tightened relative to 2026-04-29 (inline-first, 30 min sleep, separate session) but still single-shot per mode. No control for prompt-content sensitivity — both modes saw the *same* set of 13 input files, so we can't tell whether reference's edge generalises beyond this remediation.
+
+### Guestflow (2026-05-04)
+
+## Guestflow — Phase 16.2 repo-clarity-cleanup paired review (2026-05-04)
+
+REF first (19:52Z), INL ~20 min later (20:12Z). 29 input files (mixed: TS scripts, `package.json` × 4, `wrangler.json` × 2, `tsconfig`, `vitest.config`, 3 GH workflows, `webflow.json` tenant configs, `.gitignore`). 6 contexts (3 × `CLAUDE.md` + 3 × phase docs). Distinct outputs (`-REF1.md` / `-INL1.md`). Synthesizer claude both runs. `--skip-self` (host = claude).
+
+Reviewer-mode pair this is **first paired run on Guestflow with a config-heavy input set** (prior G16.1 runs were source-file-heavy). Worth flagging because mode behaviour skewed differently.
+
+### Headline anomaly: codex INL used MORE tokens than REF
+
+| Reviewer | REF input | INL input | REF wall | INL wall |
+|----------|-----------|-----------|----------|----------|
+| claude   | 83        | 40        | 286s     | 193s     |
+| gemini   | 844K      | 67K       | 206s     | 233s     |
+| codex    | 2.70M     | **4.42M** | 336s     | 396s     |
+| opencode | (0/0)     | (0/0)     | 348s     | **762s** |
+
+Prompt: REF 69 KB, INL 183 KB (2.6× larger). Naive expectation: INL prompt larger but reviewers explore less → INL total cheaper. **Codex inverted that.** Codex INL did 57 tool calls (vs 82 REF) and pulled 4.42M input tokens — re-read most files even with content embedded. Reference mode was *cheaper* for codex on this input set.
+
+Gemini behaved as expected (REF 36 calls / 844K in; INL 0 calls / 67K in — pure prompt ingestion). Opencode INL pathologically slow (762s) for 81K bytes output — worst latency-to-signal seen across all paired runs.
+
+### What both runs found
+- cwd-coupling in `sync-deploy-repos.ts:313` (`repoRoot = process.cwd()`) and `verify-tenant.ts:167` (`process.cwd()` default for deploy-target lookup). 3-4 reviewers each run. CI works (cwd = repo root) but contract violation.
+- `client/README.md:15` claims `client/src/index.ts` is Worker entry — file absent, this is OpenNext/Next App Router (entry = `.open-next/worker.js`).
+- Workspace docs advertise retired `npm run deploy` / workspace-dir invocation of root-only scripts.
+- Stale `scripts/<name>.ts` paths in admin script doc-comments after the reorg moved them to `admin/scripts/`.
+- All 4 reviewers agree: SNAPSHOT_ALLOWLIST prefix-strip correct, import boundaries clean, `__dirname`-relative resolution sound, `client/.next/` cleared.
+
+### What only REF surfaced
+- **opencode**: `types/cloudflare-workers.d.ts` orphan at root (2 lines, unreferenced); `build-widgets.ts:15-16` cwd-coupling via `process.cwd()`; `admin/scripts/legacy/README.md:1` heading still says `# scripts/legacy`.
+- **codex**: `generate-tenant-env.ts:168` stale path; CI admin-build gap (claude also flagged in REF).
+- **claude**: `sync-deploy-repos.ts:84` README_BANNER write — operator-noise complaint, but a real cleanup.
+
+### What only INL surfaced
+- **opencode**: `admin/tests/scripts/__snapshots__/__snapshots__/` duplicate dir — likely git-move artefact from the reorg, vitest reads the parent only so it's dead but confusable. Also `register-webhook.ts` dead code (test exists, no production consumer); `client/package.json:21` `webhook-tui` lives at `src/scripts/` not `client/scripts/` (taxonomy mismatch with import-boundary table).
+- **claude**: `.gitignore` `/test-results/` + `/playwright-report/` are root-anchored — `client/test-results/` would not be ignored. Also `admin/CLAUDE.md` Project Structure tree omits `admin/scripts/`, `admin/tenant-config/`, `admin/deploy-targets.json`, `admin/migrations/`.
+- **codex**: `docs/DEPLOY_RUNBOOK.md` references in `admin/CLAUDE.md:162` + `client/CLAUDE.md:206` should be `admin/docs/DEPLOY_RUNBOOK.md`.
+- **gemini**: `client/package.json` is in `SNAPSHOT_ALLOWLIST` (line 34) AND overwritten by `rewritePackageJson` — redundant double-write. Concrete and worth confirming whether intentional.
+
+### Severity drift, same model
+**Gemini ranked the cwd-coupling bugs CRITICAL in REF, IMPORTANT in INL.** Same bugs, same lines, same model. No mechanistic explanation in the review text. File as confirmed mode-noise on severity classification — the *finding* is stable, the *severity* isn't.
+
+### Cross-run context leakage (new)
+**INL opencode read `16.2-IMPL-REVIEW-REF1.md` from the on-disk tree and cited it explicitly** ("flagged in prior review (`16.2-IMPL-REVIEW-REF1.md:160`)"). The prior-run output was sitting in `.planning/phases/16.2-…/`, opencode discovered it via tool calls, and re-flagged the `types/cloudflare-workers.d.ts` orphan with that pedigree. Prompt did not list this file. **Reference mode's tool-driven discovery pulls in artefacts that weren't in the input set.** Worth tracking — this is the first paired run where the second mode demonstrably contaminated itself with the first mode's output. Mitigation options: gitignore review outputs from the working tree until comparison is done, or write to a tmpdir.
+
+### Telemetry quirks
+- **Claude INL: in=40, out=734, 13 tool calls, 192s, 281 KB bytes.** 734 output tokens cannot account for 281 KB of stdout. Fifth paired run in a row with the same under-reporting shape (paralife pairs ×3 + this). Adapter is broken, not flaky. Same backlog item.
+- Claude REF healthy: in=83, out=3334, 50 tool calls, 286s, 814 KB. Cache 7.4M.
+- Codex INL cached 4.26M of its 4.42M total input — cache reuse high, but raw input still climbed past REF.
+- Opencode 0/0/0 both modes (known adapter limitation).
+
+### What this run *shows this time*
+1. **First config-heavy paired run.** Findings still split mode-uniquely (~4-5 each). The "INL/REF surfaces different bugs" pattern holds across input shapes (TS source vs configs+TS).
+2. **Codex token inversion is new.** First paired run where INL > REF total tokens for a reviewer that does heavy tool-calling. Not an adapter bug — codex genuinely re-read 57 files via tool calls in INL on top of the embedded content. Suggests codex doesn't trust embedded content for config-shaped inputs (`wrangler.json`, `package.json`, workflow YAMLs).
+3. **Cross-run output leakage** is a real artefact of reference-mode + on-disk prior reviews. Document it before running more pairs in `.planning/`-tracked dirs.
+4. **Severity is mode-sensitive even when finding is stable** — gemini swung the same cwd bug from CRITICAL to IMPORTANT between runs. Stop reading severity columns as ground truth on single runs.
+5. **Opencode INL 762s wall time** — worst observed. Not a finding-quality issue (still found 3 unique INL bugs), but a latency outlier. Watch whether this repeats on configs-heavy inputs.
+
+### What this run does *not* show
+- Cannot claim codex INL > REF tokens generalises beyond config-heavy inputs. n=1 for that pattern.
+- The cross-run leakage observation is from a single instance — opencode's behaviour, may or may not repeat across reviewers/runs. But the mechanism (tool calls discover working-tree artefacts) is general.
+- Severity drift on cwd-coupling is one bug × one reviewer × one pair. Suggestive, not load-bearing.
+
+### Recommended follow-up
+- **Triage cwd bugs.** All 4 reviewers (across both runs) agree on `sync-deploy-repos.ts:313` + `verify-tenant.ts:167`. Probably promote to ship-fix even though CI happens to work.
+- **Verify `admin/tests/scripts/__snapshots__/__snapshots__/` duplicate** (opencode INL only, but concrete and likely real).
+- **Verify gemini's `client/package.json` redundant allowlist entry** — is the double-write intentional (defensive) or accidental?
+- **Document cross-run leakage** in BACKLOG / README cautions for paired-run methodology.
+- **Claude inline adapter** still broken — no progress, escalate.
 
 ### Guestflow-16.1 (2026-04-29)
 
@@ -235,6 +311,113 @@ Both REF-only HIGHs depend on cross-thread interleaving that you can only see by
 - Verify the composite-formation key-mismatch bug exists (read `BotRegistry.remapEntity` + `updateBotRegistryForFormation` directly).
 - Open a backlog item to investigate claude inline telemetry under-reporting.
 - Keep collecting paired runs. Three paired-run data points (Guestflow ×2, paralife ×2 incl. today) all show mode-specific finding patterns; the shape may be reproducible.
+
+---
+
+## Second paired pass3 run, same day (07:06 INL → 07:36 REF)
+
+Re-run with **trimmed context** (only `CLAUDE.md` + `19-CONTEXT.md`; dropped VERIFICATION, REVIEW, and the two quick-plan docs from the morning pair) and a **broader file list** (+`Event.java`, `BotClient.java`, `ResumeTokenRegistry.java`, `EntityLifecycleListener.java`, `CompositeFormationTest.java`; −`BondLifecycleListener.java`). Inline prompt 602 KB, reference prompt 42 KB.
+
+### Methodology incident — output path collision
+Both runs used `--output .planning/.../19-MULTI-REVIEW-pass3.md`. INL wrote at 07:20:55. REF wrote at 07:45:48 and **clobbered** the INL file. File is untracked; no git history. **INL findings unrecoverable from this pair.**
+
+Lesson: paired runs need distinct `--output` paths or `cp` between runs. **Fixed same session**: `resolve_output_path` now auto-suffixes (`-2`, `-3`, …) on collision for explicit `--output` too — previously the explicit path early-returned past the de-dupe loop while suggested/timestamp paths were protected. Asymmetry was the bug. Future paired runs to the same `--output` produce `*-2.md` for the second writer with a yellow `note:` warning.
+
+### REF findings (from on-disk pass3 file)
+- **HIGH — composite-formation `unregisterByEntity` regression** (claude, gemini, synthesised by claude): pass-2 H-A fix correctly swapped the key from `bp.primaryEntityId()` to `bp.id()` but kept `unregisterByEntity` + `register` instead of `remapEntity`. `unregisterByEntity` always queues a `DeathNotice`, so `TickBroadcaster.drainAndBroadcastDeaths` fires `v|D` at the predator session same tick as composite formation. Predator client triggers respawn FSM, composite member orphans. One-line fix: `botRegistry.remapEntity(sessionId, newMemberId, pos)`. *Same bug class the prior pair's INL run found — but found here in REF this time.*
+- **HIGH — `PerceptionCodec.validateEventCode` rejects `'B'`** (claude, codex): encode side wires `v|B`, but decode rejects it. `BotClient.handlePayload` gets `CodecException`, logs WARN, never enters absorbed-respawn FSM. **Concrete grep-shaped finding surfaced in REF mode, not INL.** Counter-evidence to the prior sidecar's tentative "INL → grep findings, REF → concurrency findings" pattern. File it as falsification of that emerging shape.
+- **HIGH — `markDead` leaks ACTIVE resume tokens** (gemini HIGH; codex MEDIUM): `WorldWebSocketHandler.markDead` removes `ATTR_ENTITY_ID` without `resumeTokenRegistry.clearActive(...)`; subsequent `cleanupBot` skips it because eid is gone. Unbounded `ResumeEntry` growth.
+- **HIGH (gemini-only) — RNG determinism leak in `tickBuffsAndInfections`**: `infections.entrySet()` (CHM) iteration order drives `PendingGrant` ordering which drives shared-`rng` consumption. Worth verifying — if `infections` is sorted/insertion-ordered at the callsite the finding dissolves. Single-reviewer claim, lower confidence.
+
+### Verdict spread
+- claude/gemini/codex → NEEDS-REWORK
+- opencode → READY-TO-SHIP (only MEDIUMs, missed both confirmed HIGHs). **Fourth paired run in a row** where opencode dissents from consensus on this codebase. This is now a load-bearing reviewer-prior signal, not noise.
+
+### Telemetry observations
+- **claude REF cached 7.98M tokens, 32 tool calls.** Up from 6.95M / 25 in the morning REF run. Project-level cache is compounding well across same-day runs — the longer the day's review session, the cheaper subsequent REF runs get on this codebase.
+- **claude INL: in=20, out=295, 3 tool calls, 566s, 377 KB on the wire.** Under-reporting confirmed for the *third* paired run in a row. The 295 reported output tokens cannot account for 377 KB of stdout. Backlog item should now be "fix" not "investigate".
+- **gemini REF this run did far less exploration**: 14 tool calls vs 40 in the morning REF. Different sampled behaviour, same model. Run-to-run variance, as expected.
+- **Wall-time inversion vs morning pair**: morning was REF 743s / INL 701s (REF slower); this pair is REF 580s / INL 849s (REF faster). Mode is not a wall-time predictor — within-mode variance dominates between-mode delta.
+- **Codex tool counts**: 31 INL, 44 REF. Continues the pattern that codex uses tools heavily in *both* modes; INL doesn't suppress codex's disk reads, only reduces them ~30%.
+
+### What this pair *shows this time*
+1. **Counter-example to the morning pair's mode-specific finding shape.** Morning: INL surfaced the composite-formation key-mismatch grep-style bug, REF missed it; afternoon: REF surfaced the **same bug class** plus a textbook grep finding (`PerceptionCodec.validateEventCode`). The "INL → grep, REF → concurrency" hypothesis from the morning sidecar is now contradicted within 12 hours by paired runs on the same codebase. Treat that hypothesis as falsified pending more evidence; the more conservative claim survives — *which* bugs surface varies run-to-run and is not strongly mode-determined.
+2. **Reviewer-prior > mode-prior.** Opencode's READY verdict and miss of confirmed HIGHs is now consistent across 4 paired runs. That is a much stronger signal than any mode effect we've seen.
+3. **Trimming context didn't visibly hurt review quality.** 6 contexts → 2 contexts; both runs still surfaced concrete HIGHs with line cites. Argues against piling planning docs into context "just in case".
+4. **Output-path discipline matters.** Single most actionable lesson from this pair is operational, not analytical: don't overwrite paired-run outputs.
+
+### What this pair does *not* show
+- Cannot compare INL vs REF *findings* directly (INL output clobbered). All "INL did X / REF did Y" claims here are unsupported for this pair — only telemetry and the morning pair give that shape.
+- The claude INL under-reporting may itself be partly responsible for previous "INL surfaces less" framings. Until the adapter is fixed, INL bytes-on-the-wire is a more reliable proxy for output volume than reported output tokens.
+
+---
+
+## Third paired run, evening (17:17Z REF → 17:32Z INL) — pass-4
+
+Same day, broader context. **33 files** (added DeathFinalizer, OutboundSender, BotClient, PerceptionCodec, Event, EmergenceMetricsWiringTest, OutboundSenderTest, golden-trace JSON, plus all P19 tests). Single prompt file (`19-MULTI-REVIEW-pass4-PROMPT.md`, 14.7 KB) — no `--context` docs this time. Distinct outputs (`-ref.md` / `-inl.md`) — no clobber. Synthesizer claude both runs.
+
+### F1–F4 cross-mode consensus shifts
+
+The interesting signal this pair: **same four claimed-shipped fixes** (F1 composite remap, F2 `'B'` codec, F3 markDead resume-token leak, F4 RNG sort) but **per-fix consensus moves between modes**.
+
+| Fix | Bug | REF reviewers HIGH | INL reviewers HIGH/M |
+|-----|-----|--------------------|----------------------|
+| F1 — composite formation spurious DeathNotice | codex H, opencode H | opencode H |
+| F2 — `PerceptionCodec` rejects `'B'` | codex H | claude H, codex H, opencode M |
+| F3 — `markDead` leaks ACTIVE resume token | claude H, codex H, opencode H | codex H |
+| F4 — `randomBuff()` non-deterministic RNG | claude H, gemini H, codex M | claude H, gemini H, codex M, opencode H |
+
+**F4** is the only finding all 4 reviewers caught in *both* modes — rock-solid signal across 4 same-codebase paired runs now. Treat as ground truth.
+
+**F2 inverts mode preference vs F3**: INL gives stronger consensus on F2 (3/4 vs REF's 1/4); REF gives stronger consensus on F3 (3/4 vs INL's 1/4). Not "mode X catches grep bugs" — same codebase, same pair, opposite directions. Reinforces the falsification from the afternoon pair: per-bug consensus is mode-sensitive but not mode-predictable.
+
+### What only REF surfaced
+
+- **HIGH (claude) — `markStalled` blocks tick thread on stuck drain VT**: the A1 fix added `detachSession(WebSocketSession)` for graceful close, but `markStalled` deliberately keeps using `detachSession(String)` to preserve session-open-for-OOB-408 — and that path can't unblock a VT mid-`sendMessage` inside `synchronized(session)`. Tick thread then deadlocks on the same monitor when calling `sendOutOfBand`. Detailed trace through `WorldWebSocketHandler:687-736` + `OutboundSender:146-161, 252-285`. *Same bug surfaced in INL by gemini — different reviewer, same codebase, opposite mode.*
+- **HIGH (gemini) — `ActionResolver.drainActions` race drops frames**: `pendingActions.remove(k, v)` returns false when WS thread overwrites mid-drain; bot excluded from current tick. Single-reviewer claim, no INL corroboration. Worth verifying remove-by-key semantics.
+- **HIGH (gemini) — Buff/infection registry leak on disconnect**: `cleanupBot`/`cleanupByEntityId` don't unregister from `BuffRegistry` or `DeathCleanupHooks`; only `DeathFinalizer` clears, never invoked for graceful disconnects. Distinct from F3 (separate registries, separate leak). Single-reviewer claim.
+- **MEDIUM (claude) — Concurrent registration duplicate-position race**: WS-thread A and B both sample same `pos_X` before either calls `notifyChanged`; both `register` succeed (entityId-keyed); `snapshot()` returns both → consumers double-process for one tick.
+- **MEDIUM (gemini) — OOB frames bypass `FrameEmitListener`**: 408 STALLED frames invisible to GoldenTrace.
+- **MEDIUM (codex) — `ToxinPathGenerator` uses own `new Random()`** not event seed; not reset by `resetForTest()`.
+- **MEDIUM (codex) — `CompositeEnergyDistributor` CHM iter + RNG**: same root cause as F4 in a different bean.
+
+### What only INL surfaced
+
+- **MEDIUM (claude + codex) — `AdmissionMetrics.bucketTagsByEntityId` not migrated on remap**. `onEntityRemapped` updates `ATTR_ENTITY_ID` and resume tokens but leaks the original snapshot key. `cleanupBot`/`cleanupByEntityId` no-op the release. Slow leak per identity transition (bond → bp.id; composite → 2× cm.id; revert → 1× bp.id; dissolve → N×). **Two reviewers, independent traces, one-line fix proposed (`remapBucketTags(old,new)`).** Genuinely new bug not surfaced in REF. Concrete and actionable.
+- **MEDIUM (codex) — `FLEEING` not transferred on `bp→cm`/`cm→particle` remap**: f-block silently drops live fleeing effect after identity remap; old map entry leaks until expiry.
+- **MEDIUM (opencode) — `processEnvDeaths` still uses full grid scan**: Plan 04 migrated `tickBuffsAndInfections` but missed this site; O(width×height) every tick where `envDamageAppliedThisTick` true.
+- **MEDIUM (opencode) — `@Order` mismatch (TickBroadcaster code @50 vs CLAUDE.md @100)**: doc/code drift. P20 split has more blast radius than planning assumed.
+- **HIGH (gemini, codex) → A1 test does not assert VT exit**. INL gives stronger consensus (gemini elevated to HIGH; codex LOW). REF only had codex LOW. Inline brought this up to a credible HIGH.
+
+### Verdicts
+Both runs: 4/4 reviewers OK. Severity spreads similar — REF: 7H + 5M + 1L. INL: 7H + 7M + 4L. Counts close; *which* HIGHs differ.
+
+### Telemetry
+- **claude INL: in=10, out=16, cached=40,450, 0 tool calls — bytes=274 KB**. Output bytes wildly inconsistent with reported output tokens. **Fourth paired run in a row** confirming the inline adapter under-reporting. Backlog item already filed (paralife-19 sidecar). 16 output tokens cannot produce 274 KB of stdout — the adapter is dropping events. Consider this confirmed broken, not "investigate".
+- **claude REF: in=78, out=1873, cached=5.46M, 29 tool calls, 1.45 MB bytes**. Healthy reporting; substantive cache reuse from prior P19 reviews same day.
+- **codex REF: 3.45M input, 58 tool calls, 793 KB bytes**. Heavy explorer; produced more granular HIGHs than INL run (4 HIGHs vs 2).
+- **codex INL: 867K input, 14 tool calls**. Inline trims tool reads but doesn't suppress them — codex still re-reads 14 files even with the full text in prompt.
+- **gemini REF: 990K input, 22 tool calls. INL: 251K, 0 tool calls.** Inline mode genuinely deters gemini from reading; REF mode forces it to. Different model behaviour by mode is real for gemini — *not* the case for codex.
+- **opencode 0/0/0 both modes** (known adapter limitation).
+- **Wall time**: REF synthesised in 548s claude / 244s gemini / 293s codex / 636s opencode. INL: 414s / 280s / 180s / 607s. INL faster on claude+codex (no tool calls), comparable on gemini+opencode.
+
+### What this pair *shows this time*
+1. **F4 is real and ubiquitous.** 4/4 reviewers, both modes, on a sample of 1 — but combined with prior pair's gemini-only F4 finding, this is now 5 of the last 8 paired-run reviewer slots flagging the same RNG bug. **Treat as ground-truth blocker.**
+2. **F1/F2/F3 mode-consensus inversion** is the cleanest example yet that mode shifts *which* reviewer catches *which* bug, not what bugs exist. Same codebase, 13-min apart, F2 and F3 swap mode preferences. Falsification of any "mode X is sharper for bug class Y" claim.
+3. **INL caught a genuinely unique bug** (`bucketTagsByEntityId` leak, 2 reviewers concur). **REF caught 3 unique bugs** (`markStalled` deadlock, drainActions race, disconnect-side buff leak). REF "wider" in unique-bug surface this run; INL "deeper" on the one bug it found uniquely.
+4. **gemini is the most mode-sensitive reviewer** on this codebase — REF triggers tool-driven exploration (990K in, 22 calls); INL it ingests prompt and emits (251K in, 0 calls). Other reviewers vary less. If picking one reviewer to run in REF specifically, gemini gives the most differentiated output.
+5. **opencode reverts to consensus** this pair: 4/4 OK, finding spread comparable to other reviewers (2H + 4M + 2L INL; 2H + 3M + 1L REF). Prior 4-pair "opencode dissents" pattern broke. Reviewer-prior signal is less stable than the morning sidecar claimed.
+
+### What this pair does *not* show
+- This is *one* paired run. F4 consensus is robust; F1/F2/F3 inversion is suggestive but n=1 within this pair.
+- Cannot tell if `bucketTagsByEntityId` leak would appear in REF on a different day. The bug is real either way (claude+codex traced it independently) — but its mode-uniqueness is a single sample.
+- Bigger context (33 files, no `--context` docs) vs prior pairs (24 files + 6 contexts) confounds the comparison with same-day morning/afternoon runs. Mode delta is comparable within this pair, but cross-pair generalisation should account for input-set size.
+
+### Recommended follow-up
+- **Verify F1, F2, F3, F4 directly in source.** Three of four are claimed-shipped fixes per the prompt; if reviewers are right, VALIDATED.md is wrong.
+- **Fix the inline-mode adapter** (claude). Confirmed broken across 4 paired runs.
+- **Triage gemini's REF-only HIGHs** (drainActions race, disconnect buff/infection leak) — single-reviewer but plausible mechanism, worth a 5-min spot check.
+- **Triage claude's REF-only HIGH** (`markStalled` deadlock) and INL's `bucketTagsByEntityId` leak — both have concrete line cites and one-line fix proposals.
 
 ## Open questions
 
