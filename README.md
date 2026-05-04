@@ -275,6 +275,8 @@ multi-review [file ...]
   --dry-run                # print assembled prompt, exit
   --list-reviewers         # show detected CLIs + self-detection
   --no-harvest             # skip writing per-run metadata row to runs/runs.jsonl
+  --project-tag NAME       # partition harvest rows by phase or arbitrary label
+                           # (default: git origin basename, fallback cwd basename)
   --report                 # regenerate EXPERIMENTS.md from runs/runs.jsonl, exit
   --version
   -h, --help

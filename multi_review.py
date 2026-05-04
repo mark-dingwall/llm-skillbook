@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -1373,6 +1374,34 @@ def _iso_utc(t: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
 
 
+def derive_project(cwd: Path, override: str | None) -> str:
+    """Stable project key for harvest rows.
+
+    Precedence: explicit override > git remote origin basename > cwd basename.
+    Worktrees inherit the parent repo's origin, so paired runs from
+    `Guestflow-16.1/` and `Guestflow/` share one bucket.
+    """
+    if override:
+        return override
+    try:
+        out = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=cwd, capture_output=True, text=True,
+            timeout=2, check=False,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            url = out.stdout.strip()
+            if url.endswith(".git"):
+                url = url[:-4]
+            for sep in ("/", ":"):
+                if sep in url:
+                    return url.rsplit(sep, 1)[-1]
+            return url
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return cwd.name
+
+
 def harvest_run(
     *,
     started_at: float,
@@ -1387,6 +1416,7 @@ def harvest_run(
     fallback_attempts_by_reviewer: dict[str, list[str]],
     cwd: Path,
     invocation_argv: list[str],
+    project_tag: str | None = None,
 ) -> None:
     """Append one JSONL row of run metadata to runs/runs.jsonl.
 
@@ -1405,7 +1435,7 @@ def harvest_run(
         "mode": mode,
         "prompt_bytes": prompt_bytes,
         "cwd": str(cwd),
-        "project": cwd.name,
+        "project": derive_project(cwd, project_tag),
         "reviewers_succeeded": reviewers_succeeded,
         "reviewers_failed": reviewers_failed,
         "usage": usage_by_reviewer,
@@ -1680,6 +1710,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help="Print detected reviewer CLIs and self-detection result, then exit")
     p.add_argument("--no-harvest", action="store_true",
                    help="Skip writing per-run metadata row to runs/runs.jsonl (default: harvest on)")
+    p.add_argument("--project-tag", default=None, metavar="NAME",
+                   help="Override harvest project name "
+                        "(default: git remote origin basename, fallback cwd basename)")
     p.add_argument("--report", action="store_true",
                    help="Regenerate EXPERIMENTS.md from runs/runs.jsonl and exit (no review run)")
     p.add_argument("--version", action="version", version=f"multi-review {__version__}",
@@ -1861,6 +1894,7 @@ async def async_main(args: argparse.Namespace) -> int:
                 fallback_attempts_by_reviewer=fallback_chain_walked,
                 cwd=Path.cwd(),
                 invocation_argv=list(sys.argv),
+                project_tag=args.project_tag,
             )
         except Exception as e:
             print(f"warning: harvest failed: {e}", file=sys.stderr)
