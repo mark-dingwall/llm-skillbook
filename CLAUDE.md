@@ -29,6 +29,10 @@ No packaging. No test suite. Runs via `uv` using a PEP 723 inline script header 
 
 No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typing is not wired up — don't assume a tool is available without checking.
 
+## Testing discipline
+
+When fixing a bug or shipping a behavioural change in an untested area, write the test as part of the fix. The codebase currently has zero automated tests, which is a known gap — every bugfix is an opportunity to backfill the test that would have caught it. Do not ship a fix to a regressed path without leaving an executable check behind. Applies to: adapter JSONL parsing, harvest schema, prompt assembly, fallback chain logic, snapshot/drift detection (v0.2+), aggregation. Skill-level interactive flows that genuinely can't be automated → document a manual smoke step in the test plan instead.
+
 ## Architecture
 
 ### Data flow

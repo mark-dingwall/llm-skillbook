@@ -699,3 +699,31 @@ Ties into the per-run harvest in `runs/runs.jsonl` — add a
   most-recent runs (e.g. 20) in `runs/streams/`, prune older.
 - **Schema drift.** Each CLI's stream format evolves. Crash record's
   `last_event_type` is best-effort; persist the raw line too.
+
+## Synthesizer effort/model tuning: opus-high vs sonnet-high
+
+### Motivation
+
+Default `multi-review-synthesizer` agent ships with `model: opus, effort: high`.
+Synthesis is largely mechanical (read N reviews, extract agreements/divergences,
+produce Consensus Summary) — not deep-reasoning work the way code review is.
+
+Hypothesis: `sonnet, effort: high` produces materially equivalent synthesis at
+much lower cost. Worth testing once the v0.2 skill-based architecture lands and
+we have paired runs to compare.
+
+### Method
+
+- Run N paired reviews with `synthesizer: claude` and the default opus agent.
+- Re-run synthesis only over the captured per-reviewer outputs (no full re-review)
+  with a sonnet variant agent (`multi-review-synthesizer-sonnet.md`).
+- Compare on: accuracy of Agreed Strengths / Agreed Concerns / Divergent Views,
+  fidelity to reviewer language, fabrication rate (claims not in any review).
+- N ≥ 5 paired runs across distinct codebases before drawing conclusions
+  (consistent with the methodology rule in CLAUDE.md).
+
+### Decision
+
+If sonnet-high holds up: switch the default agent to sonnet. Add `model: opus`
+override path via prompt-file `synthesizer_model` field for users who want it.
+If opus-high wins: document the cost-quality trade in README and keep default.
