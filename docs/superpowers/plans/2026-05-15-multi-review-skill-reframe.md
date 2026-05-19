@@ -465,7 +465,7 @@ git commit -m "test: capture adapter JSONL fixtures + capture procedure"
 **Files:**
 - Create: `tests/unit/test_smoke.py`
 
-- [ ] **Step 1: Write smoke test**
+- [x] **Step 1: Write smoke test**
 
 ```python
 # tests/unit/test_smoke.py
@@ -475,12 +475,12 @@ def test_version_exposed():
     assert multi_review.__version__ == "0.2.0a0"
 ```
 
-- [ ] **Step 2: Run**
+- [x] **Step 2: Run**
 
 Run: `uv run pytest tests/ -v`
 Expected: all pass (smoke + paths from Task 2).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/unit/test_smoke.py
