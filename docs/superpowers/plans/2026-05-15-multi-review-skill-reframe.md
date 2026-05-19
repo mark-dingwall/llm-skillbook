@@ -1901,7 +1901,7 @@ Each CLI is a thin argparse wrapper around `core/`. All read inputs from files/a
 - Create: `multi_review/cli/validate_prompt.py`
 - Create: `tests/integration/test_cli_validate_prompt.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/integration/test_cli_validate_prompt.py
@@ -1932,12 +1932,12 @@ def test_validate_invalid_returns_2_with_error():
     assert "files" in out["error"].lower()
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/integration/test_cli_validate_prompt.py -v`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/validate_prompt.py
@@ -1965,12 +1965,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_validate_prompt.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/validate_prompt.py tests/integration/test_cli_validate_prompt.py
