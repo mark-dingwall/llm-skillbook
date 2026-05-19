@@ -53,7 +53,7 @@ uv run python -m multi_review.cli.pending gc --pending-dir <cwd>/.multi-review/p
 
 For each validated prompt file:
 
-a. Generate `run_id` (`uv run python -c "from multi_review.core.paths import generate_run_id; print(generate_run_id())"`).
+a. Generate `pass1_run_id` (`uv run python -c "from multi_review.core.paths import generate_run_id; print(generate_run_id())"`).
 
 b. If `mode == both`:
    - Generate `pair_id` (same helper, `generate_pair_id`).
@@ -62,11 +62,18 @@ b. If `mode == both`:
 
 c. If `mode != both`: single pass.
 
+d. If `mode == both`: generate `pass2_run_id` (same helper). Pending meta carries both ids so Step 10 can stage pass 2 in a distinct session directory. For `mode != both`, `pass2_run_id` is unused.
+
+**Path constants used by Steps 5–11** (resolved per active pass — substitute `pass1_run_id` during pass 1, `pass2_run_id` during pass 2):
+
+- `SESSION_DIR = <cwd>/.multi-review/sessions/<run_id>`
+- `REVIEWS_DIR = <SESSION_DIR>/reviews`
+
 ### Step 5 — Pass 1 fanout
 
-Prepare prompt:
+Prepare prompt (uses `SESSION_DIR` for `pass1_run_id`):
 ```
-uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <cwd>/.multi-review/sessions/<run_id> --mode-override <pass1_mode>
+uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSION_DIR> --mode-override <pass1_mode>
 ```
 
 If snapshotting (per spec §9.1 — input files AND context files):
@@ -81,31 +88,50 @@ uv run python -m multi_review.cli.snapshot create \
 1. **First**, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer):
    ```
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
-     --out-dir <run_id>/reviews --model <models[cli]> \
+     --out-dir <REVIEWS_DIR> --model <models[cli]> \
      --fallback-chain "<comma-separated or empty>" --effort <model_effort[cli]>
    ```
 2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
+
+   The agent definition is read-only (`tools: Read, Grep, Glob` — no Write per spec §5.2). Claude Code's Task tool returns the agent's final assistant message as a string; the host CAPTURES that string and persists it. Record wall time around the Task call as `<claude_duration>`. Then in a Bash heredoc write the captured text to `<REVIEWS_DIR>/claude.txt` and invoke the host-side writer:
+   ```
+   uv run python -m multi_review.cli.write_task_result \
+     --cli claude --out-dir <REVIEWS_DIR> \
+     --text-file <REVIEWS_DIR>/claude.txt \
+     --duration-seconds <claude_duration> \
+     --task-mode review --model claude-opus-4-7
+   ```
+   This produces `<REVIEWS_DIR>/claude.md` + `<REVIEWS_DIR>/claude.state.json` matching the shape `spawn.py` would emit. The Step 7 aggregator's `## Summary` heading check (M13) still applies and will demote a Task-subagent return that lacks the heading.
+
 3. **Join barrier**: continue once (a) the Task call returns AND (b) every backgrounded `spawn.py` task reports completion (poll via `TaskGet`/`TaskOutput`). Total wall ≈ max(claude Task, max(other reviewers)).
 
-If `claude` is not in `reviewers`, skip the Task dispatch; the join barrier reduces to the background-task polling.
+If `claude` is not in `reviewers`, skip the Task dispatch and the `mr-write-task-result` invocation; the join barrier reduces to the background-task polling.
 
 ### Step 6 — Synthesis
 
 If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` fields):
-- If `synthesizer == "claude"`: build synthesis input file, dispatch `multi-review-synthesizer` via Task.
-- Else: `mr-spawn --task-mode synthesize --cli <synthesizer> ...`
-- Read synthesis text from output file.
+- If `synthesizer == "claude"`: build the synthesis input file under `<SESSION_DIR>`, dispatch `multi-review-synthesizer` via Task, record wall time as `<synth_duration>`. The agent is read-only (`tools: Read`); CAPTURE the Task return value as a string, write it to `<SESSION_DIR>/synth.txt` via a Bash heredoc, then invoke:
+  ```
+  uv run python -m multi_review.cli.write_task_result \
+    --cli claude --out-dir <SESSION_DIR> \
+    --text-file <SESSION_DIR>/synth.txt \
+    --duration-seconds <synth_duration> \
+    --task-mode synthesize --model claude-opus-4-7
+  ```
+  This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
+- Else: `uv run python -m multi_review.cli.spawn --task-mode synthesize --cli <synthesizer> --out-dir <SESSION_DIR> ...`
+- Read synthesis text from `<SESSION_DIR>/synth.txt` for Step 7's `--synthesis-text-file`.
 
 ### Step 7 — Aggregate
 
-**Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<run_id>/reviews/<cli>.md` against the canonical regex `^#{1,3}\s+(summary|executive summary)\b` (case-insensitive — see `SUMMARY_HEADING_CONTRACT` and spec §5.2). Any reviewer whose output fails to match is demoted to `ok: false` and its body moved to `partial` in the state JSON. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
+**Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<REVIEWS_DIR>/<cli>.md` against the canonical regex `^#{1,3}\s+(summary|executive summary)\b` (case-insensitive — see `SUMMARY_HEADING_CONTRACT` and spec §5.2). Any reviewer whose output fails to match is demoted to `ok: false` and its body moved to `partial` in the state JSON. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
 
 **Output path branches by mode** (spec §4.2):
 
 - **Single-pass** (`mode != both`): write to cwd root.
   ```
   uv run python -m multi_review.cli.aggregate \
-    --reviews-dir <run_id>/reviews --output <cwd>/REVIEW-<slug>.md \
+    --reviews-dir <REVIEWS_DIR> --output <cwd>/REVIEW-<slug>.md \
     --mode <pass1_mode> --task <task> \
     --synthesis-text-file <synth_output> \
     --pair-id <pair_id_or_omit> --prompt-file <yaml_path>
@@ -113,7 +139,7 @@ If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` 
 - **Paired** (both passes; `mode == both`): write to the staged session dir; Step 11 promotes to cwd root with mode-suffixed names.
   ```
   uv run python -m multi_review.cli.aggregate \
-    --reviews-dir <run_id>/reviews --output <cwd>/.multi-review/sessions/<run_id>/REVIEW.md \
+    --reviews-dir <REVIEWS_DIR> --output <SESSION_DIR>/REVIEW.md \
     --mode <passN_mode> --task <task> \
     --synthesis-text-file <synth_output> \
     --pair-id <pair_id> --prompt-file <yaml_path>
@@ -125,19 +151,26 @@ Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies
 
 Build the row payload as a JSON file under `<cwd>/.multi-review/pending-harvest/<run_id>.json`.
 
-### Step 9 — Decide on cooldown
+### Step 9 — Persist pending meta + decide on cooldown
 
-If `mode == both` and pass 1 had a gemini fallback (check gemini state.json `fallback_hops > 0`):
-- Write pending meta: `mr-pending write` with status `awaiting-pass-2`, modes, `delay_type`, etc.
-- If `delay_type == background`:
-  - Spawn Bash background: `sleep <delay> && python -c "<resume check + notify-send invocation>"`
-  - Print resume command to user: "Resume manually with: `/multi-review --resume-pair <pair-id>`"
-  - **Stop processing further prompts in batch until resumed.**
-- If `delay_type == foreground`:
-  - Bash with countdown: `for i in $(seq <delay> -1 1); do echo -ne "\rPass 2 in ${i}s..."; sleep 1; done`.
-  - Auto-fire pass 2 after.
+If `mode != both`: nothing to persist; proceed immediately to Step 11 (single-pass runs skip Steps 10–10.5). **Tie-break:** when EXPERIMENTS counters tie at 0 (post-reset reality + every fresh codebase), default pass-1 mode is `reference` (spec §11.3).
 
-If pass 1 had no fallback OR `mode != both`: proceed immediately. **Tie-break:** when EXPERIMENTS counters tie at 0 (post-reset reality + every fresh codebase), default pass-1 mode is `reference` (spec §11.3).
+If `mode == both`:
+
+1. **Always** write pending meta — Step 10a's atomic status transition requires `awaiting-pass-2` regardless of whether a cooldown fires:
+   ```
+   uv run python -m multi_review.cli.pending write --meta-file <json>
+   ```
+   The JSON carries `status: awaiting-pass-2`, `pair_id`, `pass1_run_id`, `pass2_run_id`, `modes`, `delay_type`, etc.
+2. Then branch on whether pass 1 hit a gemini fallback (gemini state.json `fallback_hops > 0`):
+   - **No fallback** → proceed immediately to Step 10.
+   - **Fallback fired** + `delay_type == background`:
+     - Spawn Bash background: `sleep <delay> && python -c "<resume check + notify-send invocation>"`
+     - Print resume command to user: "Resume manually with: `/multi-review --resume-pair <pair-id>`"
+     - **Stop processing further prompts in batch until resumed.**
+   - **Fallback fired** + `delay_type == foreground`:
+     - Bash with countdown: `for i in $(seq <delay> -1 1); do echo -ne "\rPass 2 in ${i}s..."; sleep 1; done`.
+     - Auto-fire pass 2 after.
 
 ### Step 10 — Pass 2 (paired only)
 
@@ -154,24 +187,41 @@ c. If `if_drift != ignore`:
      - `drifted` + `if_drift == abort` → write pending meta `status: aborted`, harvest row marks `drift_status: drifted`, skip pass 2, continue.
      - `drifted` + `if_drift == ask` → AskUserQuestion(proceed | abort | investigate). On investigate: dispatch `multi-review-investigate` with the diff + pass-1 REVIEW.md → re-ask with verdict.
 
-d. Run pass 2 fanout, synthesis, aggregate — same as steps 5–7, with `mode_override` = pass 2 mode, `pair-id` flag passed through.
+d. Run pass 2 fanout, synthesis, aggregate — same as Steps 5–7 with `mode_override` = pass 2 mode and `pair-id` flag passed through, **but resolve `SESSION_DIR` and `REVIEWS_DIR` against `pass2_run_id`** (not the pass-1 id). All prepare / fanout / aggregate invocations during pass 2 use `<cwd>/.multi-review/sessions/<pass2_run_id>` so pass-2 artifacts never collide with pass-1's.
 
 e. Build pass 2 harvest row (pending).
+
+### Step 10.5 — Flush this pair's harvest rows (paired only)
+
+The Step 11 paired-report build reads `<CENTRAL_PATH>/runs.jsonl`. The pair's two pass rows are still staged under `<cwd>/.multi-review/pending-harvest/*.json` from Step 8 / Step 10e; flush them now so the report sees current data.
+
+- Tell user: "Writing this pair's 2 harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if the user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
+- On approval:
+  ```
+  uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
+  ```
+- On denial: rows stay pending; skip Step 11's report build for this pair and print the resume command. Step 13's flush still runs at batch end as a backstop.
+
+For `mode != both`, skip Step 10.5 — Step 13's batched flush is sufficient.
 
 ### Step 11 — Post-paired report
 
 `<CENTRAL_PATH>` was resolved in Step 1 from `~/.claude/skills/multi-review/config.json`. Use it instead of any hardcoded `~/kramtime/...` path.
 
-**Promote staged REVIEW.md files to cwd root with mode suffixes** (spec §4.2, §6.2 step 4). For each of the two passes, rename:
+**Promote staged REVIEW.md files to cwd root with mode suffixes** (spec §4.2, §6.2 step 4). The promotion MUST go through `resolve_output_path` to honour the no-overwrite invariant — a raw `mv` clobbers any existing `REVIEW-<slug>-<mode>.md` at the destination. Run once per pass:
 
 ```
-mv <cwd>/.multi-review/sessions/<pass-1-run-id>/REVIEW.md \
-   <cwd>/REVIEW-<slug>-<pass-1-mode>.md
-mv <cwd>/.multi-review/sessions/<pass-2-run-id>/REVIEW.md \
-   <cwd>/REVIEW-<slug>-<pass-2-mode>.md
+uv run python -c "
+import os, sys, pathlib
+from multi_review.core.aggregate import resolve_output_path
+src = pathlib.Path(sys.argv[1])
+dst = resolve_output_path(pathlib.Path(sys.argv[2]))
+os.replace(src, dst)
+print(dst)
+" <SESSION_DIR>/REVIEW.md <cwd>/REVIEW-<slug>-<pass-mode>.md
 ```
 
-Example: pass 1 mode `reference`, slug `auth-review` → `<cwd>/REVIEW-auth-review-reference.md`. Auto-suffix (`-2`, `-3`, …) applies per file independently on collision at the destination. Report both final paths to the user.
+The printed line is the actual final path (may be auto-suffixed `-2`, `-3`, …). Substitute `SESSION_DIR` with the per-pass session dir (pass 1 uses `pass1_run_id`, pass 2 uses `pass2_run_id`). Example: pass 1 mode `reference`, slug `auth-review` → `<cwd>/REVIEW-auth-review-reference.md` (or `-2` etc. if a prior run left a file there). Report both final paths to the user.
 
 Then build the long-form paired report. Filename is fixed by the builder as `<project>-<date>-<pair-id>.md` (spec §4.2 / §10.1):
 
@@ -196,7 +246,7 @@ Step 11 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<r
 
 ### Step 13 — Batch end: harvest flush + regen
 
-Flush all queued harvest rows in one batched invocation (spec §5.3):
+Flush any still-pending harvest rows (spec §5.3). For paired runs Step 10.5 already flushed each pair eagerly, so this pass is a no-op when only paired prompts ran; it still matters for single-pass prompts in a batch, or paired pairs whose Step 10.5 flush the user denied.
 
 - Tell user: "Writing N harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
 - On approval:
