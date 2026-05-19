@@ -31,7 +31,17 @@ No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typi
 
 ## Testing discipline
 
-When fixing a bug or shipping a behavioural change in an untested area, write the test as part of the fix. The codebase currently has zero automated tests, which is a known gap — every bugfix is an opportunity to backfill the test that would have caught it. Do not ship a fix to a regressed path without leaving an executable check behind. Applies to: adapter JSONL parsing, harvest schema, prompt assembly, fallback chain logic, snapshot/drift detection (v0.2+), aggregation. Skill-level interactive flows that genuinely can't be automated → document a manual smoke step in the test plan instead.
+When fixing a bug or shipping a behavioural change in an untested area, write the test as part of the fix. The v0.2 work landed a pytest suite under `tests/{unit,integration}/` — `uv run pytest tests/ -q` is the baseline; every bugfix is an opportunity to backfill the test that would have caught it. Do not ship a fix to a regressed path without leaving an executable check behind. Applies to: adapter JSONL parsing, harvest schema, prompt assembly, fallback chain logic, snapshot/drift detection, aggregation, sidecar grouping, report rendering. Skill-level interactive flows that genuinely can't be automated → document a manual smoke step under `tests/manual/*.md` instead.
+
+## v0.2 manual-smoke note
+
+v0.2 introduces skill-level interactive flows that bypass the test suite. When you hit a bug in
+SKILL.md procedure (a step doesn't fan out right, a Task subagent loses context, an
+AskUserQuestion sequence misbehaves), add or update the corresponding `tests/manual/*.md`
+procedure as part of the fix — and where the bug surface is automatable (parsing,
+sidecar classification, harvest fields), backfill a pytest test under
+`tests/{unit,integration}/`. Skill bugs are exactly the category that "manual only" excuses
+get used to skip — don't.
 
 ## Architecture
 

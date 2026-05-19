@@ -4231,7 +4231,7 @@ git commit -m "docs: rewrite README for v0.2 skill interface"
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Add section after Testing discipline**
+- [x] **Step 1: Add section after Testing discipline**
 
 Append:
 
@@ -4247,7 +4247,7 @@ sidecar classification, harvest fields), backfill a pytest test under
 get used to skip — don't.
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add CLAUDE.md
