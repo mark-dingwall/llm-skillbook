@@ -15,11 +15,21 @@ def _upgrade_row(row: dict) -> dict:
     row.setdefault("prompt_format_version", None)
     row.setdefault("drift_status", "not_applicable")
     row.setdefault("telemetry_notes", None)
+    # v1 → v2 rename: top-level `usage` becomes canonical `usage_by_reviewer`;
+    # `usage` is retained as deprecated alias (harvest.py module docstring).
+    # Without this rename, v1 rows pass through with `usage` only and report.py
+    # silently treats them as legacy (no telemetry → eligibility defaults bite).
+    if "usage_by_reviewer" not in row and "usage" in row:
+        row["usage_by_reviewer"] = row["usage"]
     for cli, ub in (row.get("usage_by_reviewer") or {}).items():
         ub.setdefault("telemetry_quality", TELEMETRY_QUALITY.get(cli, "degraded"))
         ub.setdefault("fallback_hops", 0)
         ub.setdefault("final_model", None)
         ub.setdefault("comparison_eligible", ub["fallback_hops"] == 0)
+    # Re-point the alias to the (now-backfilled) canonical dict so both keys
+    # share the same data. Mirrors harvest.build_row line 131-133.
+    if "usage_by_reviewer" in row:
+        row["usage"] = row["usage_by_reviewer"]
     return row
 
 def main(argv: list[str] | None = None) -> int:
