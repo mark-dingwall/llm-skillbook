@@ -83,3 +83,73 @@ def test_build_paired_report_filename_format(tmp_path):
         date="2026-05-05",
         pair_id="pair-20260505-0345-9f3a",
     ) == "paralife-2026-05-05-pair-20260505-0345-9f3a.md"
+
+
+def test_v2_row_missing_telemetry_is_ineligible(tmp_path):
+    """H10: schema_version=2 row with no usage_by_reviewer means the migrator's
+    per-reviewer backfill failed or the harness never wrote telemetry.
+    Excluding from counters prevents silently degraded rows from biasing the
+    next_recommended_order recommendation. Default must be False, not True."""
+    log = tmp_path / "runs.jsonl"
+    rows = [
+        # Pair A: clean v2 reference-first → should drive counter
+        _row(pair_id="pair-good", mode="reference",
+             timestamp="2026-05-05T03:00:00Z"),
+        _row(pair_id="pair-good", mode="inline",
+             timestamp="2026-05-05T03:20:00Z"),
+        # Pair B: degraded v2 inline-first WITHOUT usage_by_reviewer → ineligible
+        {"schema_version": 2, "run_id": "deg1", "project": "p", "mode": "inline",
+         "pair_id": "pair-degraded", "timestamp": "2026-05-04T03:00:00Z",
+         "wall_seconds": 1.0, "reviewers_succeeded": 2,
+         "reviewers_attempted": ["claude", "gemini"]},
+        {"schema_version": 2, "run_id": "deg2", "project": "p", "mode": "reference",
+         "pair_id": "pair-degraded", "timestamp": "2026-05-04T03:20:00Z",
+         "wall_seconds": 1.0, "reviewers_succeeded": 2,
+         "reviewers_attempted": ["claude", "gemini"]},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    md = render_experiments_markdown(log_path=log, reports_dir=tmp_path / "reports")
+    # Only the clean pair (reference-first by timestamp) counts.
+    assert "sessions_reference_first: 1" in md
+    assert "sessions_inline_first: 0" in md
+
+
+def test_v1_row_missing_telemetry_is_eligible(tmp_path):
+    """H10 legacy carve-out: schema_version=1 rows pre-date per-reviewer
+    telemetry. Grandfather them as eligible so historic comparison data
+    keeps appearing in counters."""
+    log = tmp_path / "runs.jsonl"
+    rows = [
+        {"schema_version": 1, "run_id": "v1a", "project": "p", "mode": "inline",
+         "pair_id": "pair-legacy", "timestamp": "2026-04-01T03:00:00Z",
+         "wall_seconds": 1.0, "reviewers_succeeded": 2,
+         "reviewers_attempted": ["claude", "gemini"]},
+        {"schema_version": 1, "run_id": "v1b", "project": "p", "mode": "reference",
+         "pair_id": "pair-legacy", "timestamp": "2026-04-01T03:20:00Z",
+         "wall_seconds": 1.0, "reviewers_succeeded": 2,
+         "reviewers_attempted": ["claude", "gemini"]},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    md = render_experiments_markdown(log_path=log, reports_dir=tmp_path / "reports")
+    assert "sessions_inline_first: 1" in md
+
+
+def test_compute_pair_eligible_v2_missing_telemetry_false():
+    """Pair-level: a v2 row missing usage_by_reviewer drops the pair."""
+    from multi_review.core.report import _compute_pair_eligible
+    rows = [
+        {"schema_version": 2, "pair_id": "p", "mode": "inline"},
+        {"schema_version": 2, "pair_id": "p", "mode": "reference",
+         "usage_by_reviewer": {"claude": {"comparison_eligible": True}}},
+    ]
+    assert _compute_pair_eligible(rows) is False
+
+
+def test_compute_pair_eligible_v1_carveout_true():
+    """Pair-level: v1 rows grandfathered eligible."""
+    from multi_review.core.report import _compute_pair_eligible
+    rows = [
+        {"schema_version": 1, "pair_id": "p", "mode": "inline"},
+        {"schema_version": 1, "pair_id": "p", "mode": "reference"},
+    ]
+    assert _compute_pair_eligible(rows) is True

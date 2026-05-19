@@ -28,13 +28,15 @@ def _row_sort_key(r: dict) -> str:
 def _is_pair_eligible(row: dict) -> bool:
     """Return True if every reviewer in usage_by_reviewer has comparison_eligible: True.
 
-    For v1 rows (no usage_by_reviewer field), treat as eligible so legacy data
-    continues to appear in counters unchanged.
+    schema_version==1 rows pre-date per-reviewer telemetry and are grandfathered
+    eligible. v2+ rows missing usage_by_reviewer are treated as ineligible —
+    a missing field on a current-schema row signals a degraded harvest or a
+    migrator that silently no-op'd, and counting those biases the
+    next_recommended_order recommendation.
     """
     ubr = row.get("usage_by_reviewer")
     if not ubr:
-        # v1 row — no per-reviewer telemetry; assume eligible
-        return True
+        return row.get("schema_version") == 1
     return all(v.get("comparison_eligible", True) for v in ubr.values())
 
 
@@ -342,8 +344,9 @@ def _compute_pair_eligible(pair_rows: list[dict]) -> bool:
     for row in pair_rows:
         ubr = row.get("usage_by_reviewer")
         if not ubr:
-            # v1 row — treat as eligible
-            continue
+            if row.get("schema_version") == 1:
+                continue
+            return False
         for rv in ubr.values():
             if not rv.get("comparison_eligible", True):
                 return False
