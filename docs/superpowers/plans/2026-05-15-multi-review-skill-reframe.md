@@ -3909,7 +3909,7 @@ This is supported; print a one-line acknowledgement: "Note: claude reviewer omit
 1. Build a prompt for reviewing `multi_review/core/paths.py` (or any small file).
 2. `/multi-review --prompt-files <yaml>` (mode: inline, reviewers: claude+gemini, synthesizer: claude).
 3. Verify:
-   - REVIEW.md written to `.multi-review/REVIEW-*.md`
+   - REVIEW.md written to `<cwd>/REVIEW-<slug>.md` (cwd root per spec §4.2 — NOT under `.multi-review/`); auto-suffix on collision.
    - Two `## <reviewer>` sections
    - Consensus Summary section
    - Filename derived from synth
@@ -3928,8 +3928,11 @@ This is supported; print a one-line acknowledgement: "Note: claude reviewer omit
 3. Verify:
    - Pass 1 completes; countdown appears.
    - Pass 2 runs automatically without drift prompt.
-   - Two REVIEW.md files (one per pass) with auto-suffix.
-   - paired-report written to `<CENTRAL_PATH>/reports/...md` (resolved from config.json).
+   - One `<cwd>/REVIEW-<slug>-<pass-1-mode>.md` at cwd root (e.g. `REVIEW-auth-review-reference.md`).
+   - One `<cwd>/REVIEW-<slug>-<pass-2-mode>.md` at cwd root (e.g. `REVIEW-auth-review-inline.md`).
+   - Both auto-suffixed independently on collision.
+   - No `REVIEW.md` remaining under `.multi-review/sessions/<run_id>/` for either pass (Step 12 cleanup; both files were promoted in Step 11).
+   - One paired report at `<CENTRAL_PATH>/reports/<project>-<date>-<pair-id>.md` (resolved from config.json).
    - EXPERIMENTS.md updated with both rows.
 ```
 
