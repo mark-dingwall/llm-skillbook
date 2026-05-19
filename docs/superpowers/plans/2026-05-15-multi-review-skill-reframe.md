@@ -856,7 +856,7 @@ git commit -m "refactor(core): extract fanout/runner separated from rich.Live"
 - Create: `tests/unit/test_synthesis.py`
 - Create: `tests/unit/test_aggregate.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_synthesis.py
@@ -932,12 +932,12 @@ def test_write_review_md_includes_failed_section(tmp_path):
     assert "failed" in body.lower() or "Failed" in body
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_synthesis.py tests/unit/test_aggregate.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Move into `multi_review/core/synthesis.py`:
 - `build_synthesis_input`, `_run_synthesis_attempt`, `run_synthesis`, `extract_filename_from_synthesis`, `strip_filename_prefix`, `sanitize_review_filename`, `suggest_filename_haiku` (lines 987–1227).
@@ -947,12 +947,12 @@ Move into `multi_review/core/aggregate.py`:
 
 `write_review_md` adds two new frontmatter fields wired in later tasks: `pair_id: str | None`, `prompt_file: str | None`. For this task: accept them as kwargs defaulting to `None` and emit them when non-null.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_synthesis.py tests/unit/test_aggregate.py -v`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/synthesis.py multi_review/core/aggregate.py multi_review.py \

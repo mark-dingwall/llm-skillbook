@@ -14,16 +14,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import html
 import json
 import os
 import re
-import secrets
-import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console
@@ -193,248 +189,27 @@ async def run_all_reviewers(
     return await run_task
 
 
-# -------- Synthesis --------
+# -------- Synthesis (extracted to multi_review/core/synthesis.py) --------
 
-def build_synthesis_input(results: list[ReviewerResult]) -> tuple[str, str]:
-    """Wrap each successful review in a nonce-tagged <review-NONCE> tag so the
-    synthesizer treats the reviewer output as data rather than instructions.
-    Returns (body, nonce) so the caller can build a matching preamble."""
-    successful = [r for r in results if r.ok]
-    nonce = secrets.token_hex(4)
-    while any(f"</review-{nonce}>" in r.text for r in successful):
-        nonce = secrets.token_hex(4)
-    open_tag = f"review-{nonce}"
-    close_tag = f"</review-{nonce}>"
-    parts = []
-    for r in successful:
-        reviewer = html.escape(r.cli, quote=True)
-        parts.append(f'<{open_tag} reviewer="{reviewer}">\n{r.text}\n{close_tag}\n')
-    return "\n".join(parts), nonce
+from multi_review.core.synthesis import (  # noqa: E402
+    build_synthesis_input,
+    _run_synthesis_attempt,
+    run_synthesis,
+    extract_filename_from_synthesis,
+    strip_filename_prefix,
+    sanitize_review_filename,
+    suggest_filename_haiku,
+    FILENAME_MAX_STEM,
+    HAIKU_PROMPT_CTX_CAP,
+)
 
+# -------- Aggregate (extracted to multi_review/core/aggregate.py) --------
 
-async def _run_synthesis_attempt(
-    cli: str,
-    review_body: str,
-    nonce: str,
-    model: str | None,
-    timeout: int | None,
-) -> tuple[bool, str, str, str | None]:
-    prompt = synthesis_prompt(nonce) + "\n\n---\n\n" + review_body
-    cmd = build_command(cli, model, streaming=False)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            limit=STREAM_BUFFER_LIMIT,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError as e:
-        return False, "", f"synthesizer not found: {e}", None
-    except Exception as e:
-        return False, "", f"synthesizer launch failed: {e}", None
-
-    try:
-        if timeout is None:
-            stdout_b, stderr_b = await proc.communicate(prompt.encode())
-        else:
-            stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(prompt.encode()),
-                timeout=timeout,
-            )
-    except asyncio.TimeoutError:
-        await kill_proc(proc)
-        return False, "", f"synthesis timeout after {timeout}s", None
-
-    text = stdout_b.decode("utf-8", errors="replace").strip()
-    err = stderr_b.decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
-    suggested = extract_filename_from_synthesis(text)
-    if suggested is not None:
-        text = strip_filename_prefix(text)
-    ok = proc.returncode == 0 and len(text.encode()) >= FAILURE_MIN_BYTES
-    return ok, text, err, suggested if ok else None
-
-
-async def run_synthesis(
-    cli: str,
-    review_body: str,
-    nonce: str,
-    model: str | None,
-    timeout: int | None,
-    *,
-    chain: list[str | None] | None = None,
-    capacity_pattern: "re.Pattern[str] | None" = None,
-) -> tuple[bool, str, str, str | None, list[str]]:
-    """Wraps `_run_synthesis_attempt` with a fallback chain. Returns
-    (ok, text, err, suggested_filename, attempts)."""
-    if chain is None:
-        chain = [model]
-    attempts: list[str] = []
-    last: tuple[bool, str, str, str | None] = (False, "", "no synthesis attempt", None)
-    for m in chain:
-        label = m if m is not None else "<default>"
-        attempts.append(label)
-        last = await _run_synthesis_attempt(cli, review_body, nonce, m, timeout)
-        ok, text, err, _ = last
-        if ok:
-            break
-        if capacity_pattern is None:
-            break
-        if not _is_capacity_failure(err, text, capacity_pattern):
-            break
-        if text and len(text.encode()) >= FAILURE_MIN_BYTES:
-            break
-    ok, text, err, suggested = last
-    return ok, text, err, suggested, attempts
-
-
-def extract_filename_from_synthesis(text: str) -> str | None:
-    """Look for `FILENAME: ...` on first non-blank line, return sanitized name."""
-    if not text:
-        return None
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        m = re.match(r"^FILENAME:\s*(.+)$", line, re.IGNORECASE)
-        if not m:
-            return None
-        return sanitize_review_filename(m.group(1))
-    return None
-
-
-def strip_filename_prefix(text: str) -> str:
-    """Remove leading FILENAME line (and an immediately-following `---` separator)."""
-    lines = text.splitlines()
-    out_idx = 0
-    seen_filename = False
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if not s and not seen_filename:
-            continue
-        if not seen_filename and re.match(r"^FILENAME:", s, re.IGNORECASE):
-            seen_filename = True
-            out_idx = i + 1
-            continue
-        if seen_filename:
-            if s == "---" or s == "":
-                out_idx = i + 1
-                if s == "---":
-                    break
-                continue
-            break
-    return "\n".join(lines[out_idx:]).lstrip()
-
-
-# -------- Filename suggestion + resolution --------
-
-FILENAME_MAX_STEM = 80
-HAIKU_PROMPT_CTX_CAP = 8 * 1024
-
-
-def sanitize_review_filename(raw: str) -> str | None:
-    """Sanitize untrusted model-suggested filename. Return None if unsalvageable."""
-    if not raw:
-        return None
-    s = raw.strip()
-    # strip code fences
-    s = re.sub(r"^```[a-zA-Z0-9]*\s*", "", s)
-    s = re.sub(r"\s*```$", "", s)
-    # strip surrounding quotes (single, double, backtick)
-    s = s.strip().strip("`'\"").strip()
-    # strip leading "FILENAME:" or "Filename:" labels (defensive — usually pre-stripped)
-    s = re.sub(r"^filename\s*[:\-]\s*", "", s, flags=re.IGNORECASE).strip()
-    # take first whitespace-delimited token (filenames don't have spaces)
-    s = s.split()[0] if s.split() else ""
-    if not s:
-        return None
-    # reject path traversal / separators / absolute paths outright
-    if "/" in s or "\\" in s or ".." in s or s.startswith("."):
-        # allow leading-dot-only-component reject; but `.md` extension is fine inside
-        if "/" in s or "\\" in s or ".." in s:
-            return None
-    # split off extension
-    base = s
-    if base.lower().endswith(".md"):
-        base = base[:-3]
-    elif "." in base:
-        # strip any other extension entirely
-        base = base.rsplit(".", 1)[0]
-    # strip REVIEW- prefix if present (any case) — we'll re-add canonical
-    base = re.sub(r"^review[-_]+", "", base, flags=re.IGNORECASE)
-    # replace disallowed chars with -
-    base = re.sub(r"[^A-Za-z0-9._-]+", "-", base)
-    # collapse repeats of - and _
-    base = re.sub(r"-{2,}", "-", base)
-    base = re.sub(r"_{2,}", "_", base)
-    # strip leading/trailing - and .
-    base = base.strip("-.")
-    # lowercase the slug
-    base = base.lower()
-    if not base:
-        return None
-    if len(base) > FILENAME_MAX_STEM:
-        base = base[:FILENAME_MAX_STEM].rstrip("-.")
-    if not base:
-        return None
-    return f"REVIEW-{base}.md"
-
-
-async def suggest_filename_haiku(prompt: str, timeout: int | None) -> str | None:
-    """One-shot non-streaming haiku call to suggest a filename. Never raises."""
-    if not shutil.which("claude"):
-        return None
-    instruction = (
-        "Suggest a short kebab-case filename describing the review request below. "
-        "Output ONLY the filename, nothing else. "
-        "Format: REVIEW-<short-kebab-stem>.md (max ~6 words in the stem, lowercase). "
-        "No prose, no quotes, no code fences, no explanation.\n\n"
-        "--- review request ---\n"
-    )
-    truncated = prompt[:HAIKU_PROMPT_CTX_CAP]
-    stdin_payload = (instruction + truncated).encode()
-    cmd = ["claude", "-p", "--model", "haiku", "--output-format", "json"]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            limit=STREAM_BUFFER_LIMIT,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except (FileNotFoundError, OSError):
-        return None
-    except Exception:
-        return None
-
-    try:
-        if timeout is None:
-            stdout_b, _ = await proc.communicate(stdin_payload)
-        else:
-            stdout_b, _ = await asyncio.wait_for(
-                proc.communicate(stdin_payload),
-                timeout=timeout,
-            )
-    except asyncio.TimeoutError:
-        await kill_proc(proc)
-        return None
-    except Exception:
-        await kill_proc(proc)
-        return None
-
-    if proc.returncode != 0:
-        return None
-    raw = stdout_b.decode("utf-8", errors="replace").strip()
-    if not raw:
-        return None
-    try:
-        obj = json.loads(raw)
-    except json.JSONDecodeError:
-        return sanitize_review_filename(raw)
-    result = obj.get("result") if isinstance(obj, dict) else None
-    if not isinstance(result, str):
-        return None
-    return sanitize_review_filename(result)
+from multi_review.core.aggregate import (  # noqa: E402
+    resolve_output_path as _resolve_output_path_new,
+    yaml_list,
+    write_review_md as _write_review_md_new,
+)
 
 
 def resolve_output_path(
@@ -442,7 +217,12 @@ def resolve_output_path(
     suggested: str | None,
     cwd: Path,
 ) -> tuple[Path, str]:
-    """Return (path, source) where source ∈ {'explicit','suggested','timestamp'}."""
+    """Return (path, source) where source ∈ {'explicit','suggested','timestamp'}.
+
+    Compat shim over the new core module's resolve_output_path which takes a
+    single candidate path. This shim resolves the candidate from args then
+    delegates collision-avoidance to the core function.
+    """
     if explicit is not None:
         candidate = explicit
         source = "explicit"
@@ -453,24 +233,7 @@ def resolve_output_path(
         ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
         candidate = cwd / f"REVIEW-{ts}.md"
         source = "timestamp"
-    if not candidate.exists():
-        return candidate, source
-    stem = candidate.stem
-    suffix = candidate.suffix
-    parent = candidate.parent
-    for n in range(2, 100):
-        c = parent / f"{stem}-{n}{suffix}"
-        if not c.exists():
-            return c, source
-    raise SystemExit(f"error: too many existing files matching {candidate}")
-
-
-# -------- REVIEW.md writer --------
-
-def yaml_list(items: list[str]) -> str:
-    if not items:
-        return "[]"
-    return "[" + ", ".join(json.dumps(i) for i in items) + "]"
+    return _resolve_output_path_new(candidate, force=False), source
 
 
 def write_review_md(
@@ -485,98 +248,20 @@ def write_review_md(
     mode: str,
     synthesis_attempts: list[str] | None = None,
 ) -> None:
-    succeeded = [r for r in results if r.ok]
-    failed = [r for r in results if not r.ok]
-    reviewed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    usage_block_lines = []
-    for r in results:
-        u = r.usage
-        usage_block_lines.append(
-            f"  {r.cli}: {{ input: {u.input_tokens}, output: {u.output_tokens}, "
-            f"cached: {u.cached_tokens}, tool_calls: {u.tool_calls}, elapsed_s: {r.elapsed:.1f} }}"
-        )
-
-    lines = ["---"]
-    lines.append(f"task: {task}")
-    lines.append(f"mode: {mode}")
-    lines.append(f"reviewers_succeeded: {yaml_list([r.cli for r in succeeded])}")
-    lines.append(f"reviewers_failed: {yaml_list([r.cli for r in failed])}")
-    lines.append(f"reviewed_at: {reviewed_at}")
-    lines.append(f"files: {yaml_list([str(f) for f in input_files])}")
-    if models:
-        lines.append("models:")
-        for k, v in models.items():
-            lines.append(f"  {k}: {json.dumps(v)}")
-    lines.append("usage:")
-    lines.extend(usage_block_lines)
-    if synthesizer and synthesized_at:
-        lines.append(f"synthesizer: {synthesizer}")
-        lines.append(f"synthesized_at: {synthesized_at}")
-
-    fallback_entries: list[tuple[str, list[str], str]] = []
-    for r in results:
-        if r.fallback_fired and r.attempts:
-            fallback_entries.append((r.cli, r.attempts, r.model_used or r.attempts[-1]))
-    synthesis_walked = synthesis_attempts and len(synthesis_attempts) > 1
-    if fallback_entries or synthesis_walked:
-        lines.append("fallbacks:")
-        for cli, attempts, used in fallback_entries:
-            lines.append(f"  {cli}:")
-            lines.append(f"    attempts: {yaml_list(attempts)}")
-            lines.append(f"    used: {json.dumps(used)}")
-        if synthesis_walked:
-            assert synthesis_attempts is not None
-            lines.append("  synthesis:")
-            lines.append(f"    attempts: {yaml_list(synthesis_attempts)}")
-            lines.append(f"    used: {json.dumps(synthesis_attempts[-1])}")
-    lines.append("---")
-    lines.append("")
-    lines.append("# Cross-AI Review")
-    lines.append("")
-
-    for r in results:
-        header = r.cli.capitalize() + " Review"
-        if not r.ok:
-            header += " (FAILED)"
-        lines.append(f"## {header}")
-        lines.append("")
-        if r.ok:
-            lines.append(r.text)
-        else:
-            lines.append(f"**Status:** failed — {r.error or 'unknown error'}")
-            lines.append("")
-            lines.append(f"Elapsed: {r.elapsed:.1f}s")
-            if r.stderr_tail.strip():
-                lines.append("")
-                lines.append("Stderr tail:")
-                lines.append("```")
-                lines.append(r.stderr_tail.strip())
-                lines.append("```")
-            if r.text.strip():
-                lines.append("")
-                lines.append("Partial output:")
-                lines.append("```")
-                lines.append(r.text.strip()[:1000])
-                lines.append("```")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-
-    lines.append("## Consensus Summary")
-    lines.append("")
-    if consensus_text:
-        lines.append(consensus_text.strip())
-    elif len(succeeded) < 2:
-        lines.append("_Consensus: n/a (insufficient reviewers — need ≥2 successful reviews)_")
-    else:
-        lines.append("_Consensus synthesis skipped (run without --no-synthesize to populate)._")
-    lines.append("")
-
-    try:
-        output.write_text("\n".join(lines))
-    except OSError as e:
-        raise SystemExit(f"Error writing {output}: {e}")
+    """Compat shim: delegates to core/aggregate.py write_review_md."""
+    _write_review_md_new(
+        path=output,
+        results=results,
+        synthesis_text=consensus_text,
+        mode=mode,
+        task=task,
+        reviewers_attempted=[r.cli for r in results],
+        input_files=input_files,
+        models=models,
+        synthesizer=synthesizer,
+        synthesized_at=synthesized_at,
+        synthesis_attempts=synthesis_attempts,
+    )
 
 
 # -------- Harvest + report --------
@@ -1021,7 +706,7 @@ async def async_main(args: argparse.Namespace) -> int:
 
     if args.synthesize and len(succeeded) >= 2:
         console.print(f"[dim]Synthesizing consensus with {args.synthesizer}...[/dim]")
-        synth_body, synth_nonce = build_synthesis_input(results)
+        synth_nonce, synth_body = build_synthesis_input(results)
         synth_chain = resolve_chain(
             args.synthesizer,
             explicit_model=models.get(args.synthesizer),
