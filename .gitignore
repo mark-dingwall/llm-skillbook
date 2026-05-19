@@ -14,6 +14,8 @@ REVIEW-*.md
 
 # Per-run harvest data (regenerable; EXPERIMENTS.md is generated from it)
 runs/runs.jsonl
+runs/runs.jsonl.bak
+runs/backup/
 
 # Spike samples (kept during development only)
 .spike-samples/

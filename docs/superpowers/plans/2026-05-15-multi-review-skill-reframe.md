@@ -4091,21 +4091,21 @@ git commit -m "feat(cli): mr-migrate-harvest — v1→v2 backfill"
 
 **Files:** (no new files; this is a guarded operational task with backup)
 
-- [ ] **Step 1: Stage backups**
+- [x] **Step 1: Stage backups**
 
 ```bash
 mkdir -p runs/backup
 cp runs/runs.jsonl runs/backup/runs.jsonl.pre-v2
 ```
 
-- [ ] **Step 2: Run harvest migration**
+- [x] **Step 2: Run harvest migration**
 
 Run: `uv run python -m multi_review.cli.migrate_harvest --log runs/runs.jsonl --backup runs/backup/runs.jsonl.pre-v2.dup`
 Expected: stdout `{"ok": true, ...}`; `runs.jsonl` rows now have `schema_version: 2`.
 
 Verify: `head -1 runs/runs.jsonl | python -c "import sys,json; r=json.loads(sys.stdin.read()); assert r['schema_version']==2; print('ok')"`
 
-- [ ] **Step 3: Migrate sidecars (interactive)**
+- [x] **Step 3: Migrate sidecars (interactive)**
 
 The migrator is purely interactive (spec §11.1) — no `--auto-apply`, no `--dry-run`. It surfaces row-grouped candidate pairs and prompts per-pair / per-sidecar:
 
@@ -4119,7 +4119,7 @@ uv run python -m multi_review.cli.migrate_sidecars \
 
 Confirm each candidate pair; assign each `runs/notes/*.md` to pair(s) or mark `legacy`. The migrator writes a `runs/runs.jsonl.bak` first, then rewrites `pair_id` onto matched legacy rows in place.
 
-- [ ] **Step 4: Verify outputs**
+- [x] **Step 4: Verify outputs**
 
 ```bash
 ls runs/reports/
@@ -4130,13 +4130,13 @@ ls runs/runs.jsonl.bak
 
 Inspect the migrator's printed summary for `pairs_confirmed` and surface any pairs classified `legacy/incomplete-telemetry` (skipped report emission). Final counts depend on the user's grouping decisions; there is no fixed pre-commitment (spec §11.1).
 
-- [ ] **Step 5: Regenerate EXPERIMENTS.md**
+- [x] **Step 5: Regenerate EXPERIMENTS.md**
 
 Run: `uv run python -m multi_review.cli.report regen --log runs/runs.jsonl --reports-dir runs/reports --output EXPERIMENTS.md`
 
 Verify diff against pre-migration EXPERIMENTS.md is sensible: same overall data, plus "Pre-schema-stabilisation narrative" section linking legacy files, plus paired-report sections per pair_id.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add runs/runs.jsonl runs/reports/ runs/notes/ EXPERIMENTS.md
