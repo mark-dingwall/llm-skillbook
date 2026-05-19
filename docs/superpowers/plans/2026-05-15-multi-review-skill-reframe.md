@@ -685,7 +685,7 @@ git commit -m "refactor(core): extract adapters module with fixture-replay tests
 - Modify: `multi_review.py:36-181, 571-634` → re-export
 - Create: `tests/unit/test_reviewers.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_reviewers.py
@@ -747,12 +747,12 @@ def test_make_adapter_dispatches_correct_class():
     assert isinstance(a, GeminiAdapter)
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_reviewers.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Move from `multi_review.py`:
 - `ALL_REVIEWERS` constant
@@ -764,17 +764,17 @@ into `multi_review/core/reviewers.py`. Update `make_adapter` to import from `mul
 
 Replace those in `multi_review.py` with imports from `multi_review.core.reviewers`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_reviewers.py -v`
 Expected: 9 passed.
 
-- [ ] **Step 5: Smoke**
+- [x] **Step 5: Smoke**
 
 Run: `uv run ./multi_review.py --list-reviewers`
 Expected: prints reviewer table.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/reviewers.py multi_review.py tests/unit/test_reviewers.py

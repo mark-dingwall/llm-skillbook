@@ -1,0 +1,57 @@
+# tests/unit/test_reviewers.py
+import os
+import pytest
+from multi_review.core.reviewers import (
+    detect_self, detect_available, resolve_reviewers,
+    CLI_SPEC, build_command, make_adapter, ALL_REVIEWERS,
+)
+
+def test_all_reviewers_known():
+    assert set(ALL_REVIEWERS) >= {"claude", "gemini", "codex", "opencode"}
+
+def test_cli_spec_has_every_reviewer():
+    for cli in ALL_REVIEWERS:
+        assert cli in CLI_SPEC
+        assert "base" in CLI_SPEC[cli]
+
+def test_detect_self_claude(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.delenv("ANTIGRAVITY_AGENT", raising=False)
+    assert detect_self() == "claude"
+
+def test_detect_self_antigravity_short_circuit(monkeypatch):
+    monkeypatch.setenv("ANTIGRAVITY_AGENT", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    assert detect_self() == "none"
+
+def test_resolve_reviewers_explicit_overrides_filter():
+    chosen = resolve_reviewers(
+        explicit=["claude", "gemini"], skip_self=True, self_cli="claude",
+        available={"claude", "gemini", "codex"},
+    )
+    assert chosen == ["claude", "gemini"]
+
+def test_resolve_reviewers_default_includes_self_unless_skip():
+    chosen = resolve_reviewers(
+        explicit=None, skip_self=False, self_cli="claude",
+        available={"claude", "gemini"},
+    )
+    assert "claude" in chosen
+
+def test_resolve_reviewers_skip_self_drops_host():
+    chosen = resolve_reviewers(
+        explicit=None, skip_self=True, self_cli="claude",
+        available={"claude", "gemini"},
+    )
+    assert "claude" not in chosen
+    assert "gemini" in chosen
+
+def test_build_command_prompt_not_in_argv():
+    argv = build_command("claude", model=None, streaming=True)
+    # Prompt must not appear in argv — it goes on stdin
+    assert all("<prompt>" not in tok for tok in argv)
+
+def test_make_adapter_dispatches_correct_class():
+    from multi_review.core.adapters import GeminiAdapter
+    a = make_adapter("gemini")
+    assert isinstance(a, GeminiAdapter)
