@@ -38,7 +38,7 @@ Storybloq (Storybloq/storybloq) demonstrates a viable pattern: a Claude Code ski
 ├── multi_review/
 │   ├── core/                       # importable library
 │   │   ├── prompt.py               # assembly (inline/reference modes, nonce tags); exports SUMMARY_HEADING_CONTRACT canonical string
-│   │   ├── reviewers.py            # CLI_SPEC, adapter logic; defines ClaudeBackend protocol (v0.2 impl: TaskSubagentBackend; future SubprocessCliBackend / DirectApiBackend slot in via config swap — see §14 escape seam)
+│   │   ├── reviewers.py            # CLI_SPEC, adapter logic; defines ClaudeTaskAdapter (v0.2: build_subagent_prompt(spec) → str + parse_subagent_result(text, metadata) → ReviewerResult). SKILL.md owns Task dispatch; this seam is payload/parse only. Subprocess- and direct-API alternative claude paths are deferred (§14) — they own dispatch, so they slot into the broader reviewer registry, not this adapter.
 │   │   ├── fanout.py               # subprocess spawn + JSONL stream parse
 │   │   ├── harvest.py              # JSONL row append + telemetry quality flags
 │   │   ├── snapshot.py             # snapshot dir mgmt + diff
@@ -48,11 +48,13 @@ Storybloq (Storybloq/storybloq) demonstrates a viable pattern: a Claude Code ski
 │       ├── prepare.py
 │       ├── spawn.py
 │       ├── aggregate.py
+│       ├── cooldown_notify.py
 │       ├── harvest_row.py
 │       ├── snapshot.py
 │       ├── report.py
 │       ├── validate_prompt.py
 │       ├── migrate_sidecars.py
+│       ├── pending.py
 │       └── setup.py
 ├── skills/multi-review/
 │   ├── SKILL.md
@@ -81,7 +83,7 @@ Storybloq (Storybloq/storybloq) demonstrates a viable pattern: a Claude Code ski
 ### 4.2 State directories
 
 - `<cwd>/` (cwd root)
-  - `REVIEW-<slug>.md` — final aggregated review output, auto-suffixed on collision. Lives at cwd root (not under `.multi-review/`) for visibility. **Not gitignored by default**; user opts in to commit or extends `.gitignore` per project. **Paired runs**: pass-1 REVIEW.md is staged under `.multi-review/sessions/<run-id>/REVIEW.md` during the pair and **only promoted to cwd root after the pair completes** — kills pass-1-leakage as a hidden-drift channel into pass 2's reference-mode tool reads.
+  - `REVIEW-<slug>.md` — final aggregated review output for single-pass runs, auto-suffixed on collision. Lives at cwd root (not under `.multi-review/`) for visibility. **Not gitignored by default**; user opts in to commit or extends `.gitignore` per project. **Paired runs**: pass-1 REVIEW.md is staged under `.multi-review/sessions/<pass-1-run-id>/REVIEW.md` during pass 2 fanout to kill pass-1-leakage as a hidden-drift channel into pass 2's reference-mode tool reads. On pair completion **both** outputs land at cwd root as `REVIEW-<slug>-<mode>.md` (e.g. `REVIEW-auth-review-reference.md` and `REVIEW-auth-review-inline.md`); auto-suffix on collision applies per file. Single-pass runs continue to emit `REVIEW-<slug>.md` with no mode suffix.
 - `<cwd>/.multi-review/` (per-project, gitignored on first use)
   - `prompts/<name>.yaml` — persistent user-authored prompt files.
   - `prompts/.tmp/<id>.yaml` — ephemeral build-prompt drafts.
@@ -94,7 +96,7 @@ Storybloq (Storybloq/storybloq) demonstrates a viable pattern: a Claude Code ski
   - Resolution order: (1) if running from a multi-review dev checkout, use `<repo>/runs/`; (2) else `$XDG_DATA_HOME/multi-review/` (Linux default `~/.local/share/multi-review/`); (3) macOS default `~/Library/Application Support/multi-review/`. Recorded in `~/.claude/skills/multi-review/config.json` at setup; SKILL.md reads from there. No hardcoded `~/kramtime/...` path.
   - Contents at resolved path:
     - `runs.jsonl` — append-only harvest log.
-    - `reports/<pair-id>.md` — auto-generated paired-run reports (format C).
+    - `reports/<project>-<date>-<pair-id>.md` — auto-generated paired-run reports (format C).
     - `notes/<topic>.md` — hand-written cumulative narrative notes.
     - `notes/legacy/<original-name>.md` — pre-schema-stabilisation sidecars; excluded from EXPERIMENTS.md auto-stitching.
 
@@ -150,7 +152,7 @@ Each is a thin argparse wrapper around `multi_review.core/`. Invoked by SKILL.md
 - **`prepare.py`** — assemble prompt from YAML, write to tmp file.
 - **`spawn.py`** — run one external CLI, stream JSONL through per-CLI adapter, write final review + state JSON.
 - **`aggregate.py`** — build REVIEW.md from per-reviewer outputs + optional synthesis.
-- **`harvest_row.py`** — append one JSONL row to central log (triggers session perm prompt).
+- **`harvest_row.py`** — append one JSONL row to central log (triggers session perm prompt). Also accepts `--flush-pending` to drain accumulated `<cwd>/.multi-review/pending-harvest/<run-id>.json` fallbacks into the central log (used after the user grants the allowlist mid-session, or as a periodic cleanup step).
 - **`snapshot.py`** — subcommands create/diff/cleanup.
 - **`report.py`** — regenerate EXPERIMENTS.md from central log + reports.
 - **`validate_prompt.py`** — validate YAML against schema, fill defaults.
@@ -189,7 +191,15 @@ save_as: null                         # promote ephemeral to persistent if set
 harvest: true
 ```
 
-**`fallback_models` default = pin.** Omitting a `fallback_models.<cli>` key (or setting it to `null`) means no fallback for that reviewer. An explicit chain is opt-in. Setting `models.X: Y` alone pins X to Y with no fallback — matches v0.1's `--model` semantics and preserves least-surprise. Empty list `fallback_models.X: []` and absent `fallback_models.X` are equivalent (both pin); the empty-list form is purely cosmetic. To opt back into the default chain after pinning, omit the explicit-pin block entirely; v0.2 ships a built-in default `fallback_models.gemini: ["gemini-3.1-flash", "gemini-2.5-pro"]` applied only when the user provides no `models.gemini` override (i.e. defaults-on-defaults).
+**`fallback_models` default = pin.** An explicit chain is opt-in; v0.2 ships a built-in default `fallback_models.gemini: ["gemini-3.1-flash", "gemini-2.5-pro"]` applied only when the user provides no `models.gemini` override (i.e. defaults-on-defaults). To opt back into the default chain after pinning, omit the explicit-pin block entirely.
+
+| `models.gemini`     | `fallback_models.gemini`  | Behavior                                                   |
+|---------------------|---------------------------|------------------------------------------------------------|
+| absent              | absent                    | default primary + built-in default chain                   |
+| `X`                 | absent / `null` / `[]`    | pin to `X`, no fallback                                    |
+| `X`                 | `[A, B]`                  | primary `X`, chain `[A, B]` on capacity-class failures     |
+
+Same shape applies to every reviewer; only gemini ships a non-empty built-in default chain in v0.2.
 
 **Server-side YAML validation (`validate_prompt.py`).** Cheap structural checks so a malformed prompt can't burn ~thousands of tokens × 4 reviewers downstream:
 - Type and required-field checks: `task`, `files`, `mode`, `reviewers`, `synthesizer` present and well-typed.
@@ -208,13 +218,13 @@ The §8.2 background `sleep <delay> && python -m multi_review.cli.cooldown_notif
 
 1. SKILL.md reads prompt YAML, validates via `validate_prompt.py`.
 2. `prepare.py` writes assembled prompt to `<cwd>/.multi-review/sessions/<run-id>/prompt.txt`.
-3. **Parallel fanout — explicit sequencing.** Task tool blocks the host turn until the subagent returns, so "fan out everything at once" requires care:
+3. **Parallel fanout — explicit sequencing.** Task tool blocks the host turn until the subagent returns, so "fan out everything at once" requires care. The Claude Code mechanics this sequencing depends on (Task blocking + concurrent background Bash interleaving, `TaskGet` semantics) are gated by the §14 preflight procedure (`tests/manual/preflight-v0.2.md`, plan Task 0) — a preflight block-fail invalidates this step's design.
    1. **First**, in one Claude message, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a `task_id` per reviewer).
    2. **Then**, in the same message, dispatch the claude reviewer via the Task tool (this call blocks until the subagent returns).
    3. **Join barrier**: step 4 only begins once both (a) the Task call returns AND (b) every backgrounded `spawn.py` task reports completion (polled via `TaskGet`/`TaskOutput`). Total wall ≈ max(Task-claude, max(other reviewers)) — same parallelism as v0.1's asyncio fanout for the common case where claude is the slowest leg.
 4. Per-reviewer outputs land in `<run-id>/reviews/<cli>.md`; state JSON in `<run-id>/state/<cli>.json`. (Pass-1 of a paired run: per §4.2, the final `REVIEW.md` is staged under `<run-id>/REVIEW.md` and only promoted to cwd root after the pair completes.)
 5. If synthesizer != none AND ≥2 reviewers succeeded: dispatch synthesis (Task subagent if claude, else `spawn.py --task synthesize` subprocess).
-6. `aggregate.py` writes final `<cwd>/REVIEW-<slug>.md` (auto-suffixed on collision; cwd root, not under `.multi-review/`, per §4.2 — staged location for pass 1 of a paired run).
+6. `aggregate.py` writes final `<cwd>/REVIEW-<slug>.md` (auto-suffixed on collision; cwd root, not under `.multi-review/`, per §4.2). Pass 1 of a paired run instead stages to `.multi-review/sessions/<pass-1-run-id>/REVIEW.md`; both halves are then promoted to cwd-root mode-suffixed names (`REVIEW-<slug>-<mode>.md`) on pair completion (§6.2 step 4).
 7. Request perm for central log write. `harvest_row.py` appends one JSONL row. **Perm-prompt fatigue mitigation**: setup.py (§4.3 step 5) prints a copy-pastable `~/.claude/settings.local.json` allowlist entry for the resolved `runs.jsonl` path. With the allowlist in place, this step is silent; without it, every run prompts. Documented trade-off — declining the allowlist means accepting per-run perm prompts.
 8. `report.py` regenerates `EXPERIMENTS.md`.
 9. Summary to user.
@@ -237,7 +247,7 @@ Pass order chosen from EXPERIMENTS.md ordering rule (`next_recommended_order`).
      - drifted + `ask` → AskUserQuestion proceed/abort/investigate. Investigate → `multi-review-investigate` Task subagent with diff + pass-1 REVIEW.md → verdict prose → AskUserQuestion again. **If the user chooses `proceed` after drift was detected, harvest sets `comparison_eligible: false` for that pair** regardless of fallback state — user explicitly accepted contamination, and we don't claim a clean comparison on top of accepted contamination. `proceed` is still a valid choice; it just disqualifies the pair from the inline-vs-reference signal.
    - If `if_drift == ignore`: no snapshot, no diff, proceed directly. Harvest will mark `drift_status: unchecked` and `comparison_eligible: false`.
    - Run pass 2 fanout.
-4. **Post-paired**: pass-1 staged `REVIEW.md` is promoted from `.multi-review/sessions/<pass-1-run-id>/REVIEW.md` to the cwd-root `REVIEW-<slug>.md` (per §4.2). `report.py --build-paired-report --pair-id` writes structured report to `<resolved central path>/reports/<pair-id>.md` (format C). `snapshot.py cleanup` removes pending dir. `report.py --regen` updates EXPERIMENTS.md.
+4. **Post-paired**: in one rename step, promote both halves to cwd root with mode-suffixed names — pass-1 staged `.multi-review/sessions/<pass-1-run-id>/REVIEW.md` → `<cwd>/REVIEW-<slug>-<pass-1-mode>.md`, and the pass-2 final REVIEW → `<cwd>/REVIEW-<slug>-<pass-2-mode>.md` (per §4.2; auto-suffix on collision applies per file). `report.py --build-paired-report --pair-id` writes structured report to `<resolved central path>/reports/<project>-<date>-<pair-id>.md` (format C). `snapshot.py cleanup` removes pending dir. `report.py --regen` updates EXPERIMENTS.md.
 
 ### 6.3 Multi-prompt batch
 
@@ -547,7 +557,8 @@ v0.1 has zero automated tests. v0.2 introduces a substantial uplift but takes a 
 
 ## 14. Out of scope (deferred)
 
-- **Alternative claude backends** (subprocess `claude -p` revival, direct Anthropic API adapter). The `ClaudeBackend` protocol seam is *built* in v0.2 (§4.1: defined in `core/reviewers.py`, sole impl is `TaskSubagentBackend`). Adding `SubprocessCliBackend` or `DirectApiBackend` is a config swap, not a rewrite. The seam is cheap belt-and-braces against Anthropic later restricting the interactive-subagent pattern; user assessment is that Anthropic flipping Task-subagent billing is genuinely low-probability (would cripple their own agent ecosystem and competitive position). *(Paired review C1 — escape seam built; alternative backend impls remain deferred.)*
+- **Preflight gate (required before implementation).** v0.2 implementation is blocked behind manual verification of four Claude Code mechanics — Task-subagent billing pool, Task-blocking + concurrent background Bash interleaving, `TaskStop` / `TaskGet` semantics, background Bash persistence across skill exit. Procedures and recorded verdicts live in `tests/manual/preflight-v0.2.md` (see plan Task 0). Until preflight passes, no code lands; a block-fail returns to brainstorming. Listed here for visibility, but it is **not** deferrable — it is the hard gate on the entire reframe.
+- **Alternative claude backends** (subprocess `claude -p` revival, direct Anthropic API adapter). v0.2 ships the `ClaudeTaskAdapter` seam (§4.1: defined in `core/reviewers.py`; payload/parse only — SKILL.md owns Task dispatch). Alternative backends *own* dispatch (they shell out via `asyncio.subprocess` or hit the Anthropic SDK directly), so they don't slot into `ClaudeTaskAdapter`; they slot into the broader reviewer registry alongside the subprocess CLIs. Adding them is a config-shaped extension of the existing subprocess path, not a rewrite of the Task adapter. Anthropic flipping Task-subagent billing is judged low-probability (would cripple their own agent ecosystem); these alternatives remain belt-and-braces. *(Paired review C1 — Task adapter built; alternative backend impls remain deferred.)*
 - **Aggregation contract for inline-vs-reference comparison** (metric, n-threshold, normalisation). v0.2 ships only mechanical eligibility flags (§7.1); cumulative claims continue to live in hand-authored `runs/notes/<topic>.md` per CLAUDE.md ≥5-paired-run rule. Building a defensible aggregator is its own milestone.
 - **Task-subagent timeout regression.** v0.1 supported `--timeout N` for subprocess reviewers. Claude Code's `Task` tool exposes no equivalent `Task --timeout` knob, so the claude reviewer in v0.2 has no opt-in deadline. Documented regression from v0.1; revisit if Claude Code exposes a per-Task timeout.
 - **Sandboxing of reference-mode Read tool surface.** Reference mode lets the reviewer Read arbitrary paths under the prompt's manifest. Real injection risk if a review subject contains adversarial content telling the reviewer to read elsewhere. Single-user internal tool reviewing user's own code; trust posture documented in spec. Path-allowlisting at the agent-tool level is the right long-term fix; out of scope at v0.2 scope.

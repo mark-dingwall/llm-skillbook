@@ -74,6 +74,55 @@
 
 ---
 
+## Phase -1 — Preflight gate (Task 0)
+
+### Task 0: Manual preflight verification
+
+**Goal:** falsify or confirm four Claude Code mechanics the v0.2 architecture rests on, before any code is written. The entire reframe premise = Task subagents bill against the interactive credit pool; if false, v0.2 is invalid before Task 1 lands.
+
+**Deliverable:** `tests/manual/preflight-v0.2.md` — procedures + recorded results + verdicts. Committed alongside the spec round-2 edits. Each procedure has a clear block-fail criterion; any block-fail returns to brainstorming before implementation continues.
+
+**Block on this task.** Task 1 (project skeleton) is gated until all four procedures are run and the result doc committed. Procedures 2, 3, and possibly 4 are mechanically executable by the assistant; procedure 1 requires user-visible billing data the assistant cannot read and must be run by the user.
+
+**Procedures (each ~5 minutes):**
+
+1. **Billing pool verification** (most important).
+   - Setup: dispatch one `multi-review-reviewer` Task subagent (or any trivial Task subagent) on a small input.
+   - Check: Anthropic dashboard / billing breakdown / `/cost` after the run.
+   - Pass: Task subagent usage burns against the *interactive* credit pool (same as host Claude session), not the `claude -p` subprocess pool.
+   - **Block-fail:** if Task subagents bill against the subprocess pool, **v0.2 reframe is invalid as designed**. Re-enter brainstorming.
+
+2. **Task blocking + concurrent background Bash interleaving.**
+   - Setup: in one assistant message, fire (a) `Bash` with `run_in_background: true` containing `sleep 30 && echo background-finished > /tmp/preflight-bg.txt`, and (b) `Task` subagent doing any trivial ~10-second task.
+   - Check: observe whether Task returns after ~10s while the background sleep continues independently, and whether `/tmp/preflight-bg.txt` materialises at the 30s mark.
+   - Pass: both run concurrently; the Task-blocking the host turn does *not* block the previously-scheduled background Bash.
+   - **Block-fail:** if `run_in_background` Bash tasks pause while Task is blocking, the spec §6.1 step 3 fanout sequencing is broken. Re-enter design.
+
+3. **`TaskStop` / `TaskGet` availability and behaviour.**
+   - Setup: schedule `Bash run_in_background sleep 600 && echo unwanted > /tmp/preflight-stop.txt` → returns a task id. Wait 3s.
+   - Check: call `TaskStop` against the task id. Verify (a) the call succeeds, (b) the underlying `sleep` process actually dies (no `/tmp/preflight-stop.txt` 10 minutes later — schedule a follow-up check or rely on confirmation that `TaskGet` reports the task as killed shortly after), and (c) `TaskGet` returned a meaningful status during the run.
+   - Pass: both tools exist, semantics match the spec §8.5 cooldown-cancellation flow.
+   - **Block-fail:** if `TaskStop` doesn't actually kill the process, spec §6.2 step 3 ("TaskStop the notification task if still alive") is unfounded.
+
+4. **Background Bash persistence across skill exit (but within session).**
+   - Setup: invoke a minimal `/multi-review` or test skill that schedules `Bash run_in_background sleep 60 && notify-send preflight-test` then returns to the user (skill ends; session continues).
+   - Check: 60s later, does the notification fire while the session is idle/awaiting user input?
+   - Pass: notification fires; background Bash survives skill exit so long as the parent Claude Code session is alive.
+   - **Soft-fail acceptable:** if background Bash dies on skill exit, spec §8.2 background-notify must be reworked to a foreground-only cooldown (and `delay_type: background` is dropped). Not a v0.2-blocker, just a feature loss.
+
+**Result format in `tests/manual/preflight-v0.2.md`:**
+
+```markdown
+## Procedure 1 — Billing pool verification
+- Run on: <date>
+- Setup commands: ...
+- Observed: ...
+- Verdict: PASS / BLOCK-FAIL / SOFT-FAIL
+- Evidence: <screenshots, /cost output excerpts, dashboard URLs>
+```
+
+After all four are run and the doc committed, Task 1 (project skeleton) is unblocked.
+
 ## Phase 0 — Scaffolding (Tasks 1–4)
 
 ### Task 1: Project skeleton + pyproject
