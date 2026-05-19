@@ -3525,7 +3525,7 @@ git commit -m "feat(agents): multi-review-build (sonnet high)"
 - Create: `agents/multi-review-investigate.md`
 - Create: `tests/manual/agent_investigate_smoke.md`
 
-- [ ] **Step 1: Write agent**
+- [x] **Step 1: Write agent**
 
 `agents/multi-review-investigate.md`:
 
@@ -3580,7 +3580,7 @@ For each diff hunk, classify as one of:
 - If diff is empty or only-whitespace: recommend proceed-with-pass-2 immediately.
 ```
 
-- [ ] **Step 2: Manual smoke**
+- [x] **Step 2: Manual smoke**
 
 `tests/manual/agent_investigate_smoke.md`:
 
@@ -3593,7 +3593,7 @@ For each diff hunk, classify as one of:
 4. Verify output has Verdict, Per-hunk classification, Recommendation, Rationale sections.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/multi-review-investigate.md tests/manual/agent_investigate_smoke.md
