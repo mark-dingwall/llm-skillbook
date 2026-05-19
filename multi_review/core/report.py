@@ -216,7 +216,7 @@ def build_paired_report(
     out_path: Path,
     headline: str | None,
     mode_divergence: str | None,
-    per_reviewer_notes: dict | None,
+    per_reviewer_notes: "str | dict | None",
 ) -> None:
     """Write a format-C paired-report file to out_path.
 
@@ -262,8 +262,11 @@ def build_paired_report(
 
     if per_reviewer_notes:
         body_parts.append("## Per-reviewer notes\n")
-        for cli, text in per_reviewer_notes.items():
-            body_parts.append(f"### {cli}\n\n{text}\n")
+        if isinstance(per_reviewer_notes, str):
+            body_parts.append(per_reviewer_notes)
+        else:
+            for cli, text in per_reviewer_notes.items():
+                body_parts.append(f"### {cli}\n\n{text}\n")
     else:
         body_parts.append(
             "## Per-reviewer notes\n\n_TBD — synthesizer will fill_\n"

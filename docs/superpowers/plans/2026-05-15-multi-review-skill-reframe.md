@@ -2571,7 +2571,7 @@ git commit -m "feat(cli): mr-snapshot create/diff/cleanup"
 - Create: `multi_review/cli/report.py`
 - Create: `tests/integration/test_cli_report.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_report.py
@@ -2637,9 +2637,9 @@ def test_build_paired_report(tmp_path):
     assert any(p.name.endswith("pair-x.md") for p in rep_dir.iterdir())
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/report.py
@@ -2695,11 +2695,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_report.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/report.py tests/integration/test_cli_report.py
