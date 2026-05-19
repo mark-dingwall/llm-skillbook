@@ -2325,7 +2325,7 @@ git commit -m "feat(cli): mr-aggregate"
 
 Spec cross-ref: §5.3 (harvest_row CLI contract), §12 (error-table row for "Harvest write perm denied" — denial path leaves pending files in place).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Two modes: single-row append (`--row-file`) and batched drain (`--flush-pending`). Modes are mutually exclusive at argparse.
 
@@ -2393,9 +2393,9 @@ def test_row_file_and_flush_pending_mutually_exclusive(tmp_path):
     assert r.returncode == 2
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/harvest_row.py
@@ -2445,12 +2445,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_harvest_row.py -v`
 Expected: 4 passed (append, flush drain, flush-with-unwritable-log, mutual-exclusion).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/harvest_row.py tests/integration/test_cli_harvest_row.py
