@@ -2463,7 +2463,7 @@ git commit -m "feat(cli): mr-harvest-row with --flush-pending"
 - Create: `multi_review/cli/snapshot.py`
 - Create: `tests/integration/test_cli_snapshot.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_snapshot.py
@@ -2505,9 +2505,9 @@ def test_cleanup_removes(tmp_path):
     assert not snap.exists()
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/snapshot.py
@@ -2554,11 +2554,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_snapshot.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/snapshot.py tests/integration/test_cli_snapshot.py
