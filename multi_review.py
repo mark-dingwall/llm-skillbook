@@ -29,7 +29,6 @@ from rich.text import Text
 
 __version__ = "0.1.0"
 
-HARVEST_SCHEMA_VERSION = 1
 DEFAULT_SYNTHESIZER = "claude"
 DEFAULT_OUTPUT = Path("REVIEW.md")
 STDERR_TAIL_CHARS = 2000
@@ -89,6 +88,22 @@ from multi_review.core.fanout import (  # noqa: E402
     resolve_chain,
     _is_capacity_failure,
 )
+
+# -------- Harvest module (extracted to multi_review/core/harvest.py) --------
+
+from multi_review.core.harvest import (  # noqa: E402
+    HARVEST_SCHEMA_VERSION,
+    TELEMETRY_QUALITY,
+    _iso_utc,
+    derive_project,
+    build_row,
+    harvest_run as _harvest_run_new,
+    legacy_harvest_run,
+)
+
+# Shim: keep the old bare name working for any code that calls harvest_run()
+# with the legacy kwargs. The v0.2 callsite below uses legacy_harvest_run().
+harvest_run = legacy_harvest_run
 
 
 # -------- Dashboard --------
@@ -264,86 +279,7 @@ def write_review_md(
     )
 
 
-# -------- Harvest + report --------
-
-def _iso_utc(t: float) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
-
-
-def derive_project(cwd: Path, override: str | None) -> str:
-    """Stable project key for harvest rows.
-
-    Precedence: explicit override > git remote origin basename > cwd basename.
-    Worktrees inherit the parent repo's origin, so paired runs from
-    `Guestflow-16.1/` and `Guestflow/` share one bucket.
-    """
-    if override:
-        return override
-    try:
-        out = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=cwd, capture_output=True, text=True,
-            timeout=2, check=False,
-        )
-        if out.returncode == 0 and out.stdout.strip():
-            url = out.stdout.strip()
-            if url.endswith(".git"):
-                url = url[:-4]
-            for sep in ("/", ":"):
-                if sep in url:
-                    return url.rsplit(sep, 1)[-1]
-            return url
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return cwd.name
-
-
-def harvest_run(
-    *,
-    started_at: float,
-    finished_at: float,
-    mode: str,
-    prompt_bytes: int,
-    reviewers_succeeded: list[str],
-    reviewers_failed: list[str],
-    usage_by_reviewer: dict[str, dict],
-    output_path: Path | None,
-    output_bytes: int,
-    fallback_attempts_by_reviewer: dict[str, list[str]],
-    cwd: Path,
-    invocation_argv: list[str],
-    project_tag: str | None = None,
-) -> None:
-    """Append one JSONL row of run metadata to runs/runs.jsonl.
-
-    Schema is flat for jq-friendly aggregation. Bump HARVEST_SCHEMA_VERSION
-    on field rename/removal; additions are safe.
-    """
-    runs_dir = Path(__file__).resolve().parent / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    target = runs_dir / "runs.jsonl"
-
-    row = {
-        "schema_version": HARVEST_SCHEMA_VERSION,
-        "started_at": _iso_utc(started_at),
-        "finished_at": _iso_utc(finished_at),
-        "wall_seconds": round(finished_at - started_at, 1),
-        "mode": mode,
-        "prompt_bytes": prompt_bytes,
-        "cwd": str(cwd),
-        "project": derive_project(cwd, project_tag),
-        "reviewers_succeeded": reviewers_succeeded,
-        "reviewers_failed": reviewers_failed,
-        "usage": usage_by_reviewer,
-        "output_path": str(output_path) if output_path else None,
-        "output_bytes": output_bytes,
-        "fallback_attempts": fallback_attempts_by_reviewer,
-        "argv": invocation_argv,
-    }
-
-    with target.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, separators=(",", ":")) + "\n")
-
+# -------- Report --------
 
 def _format_fallback_label(attempts: list[str] | None) -> str:
     if not attempts:

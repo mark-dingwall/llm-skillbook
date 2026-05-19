@@ -967,7 +967,7 @@ git commit -m "refactor(core): extract synthesis + aggregate modules"
 - Modify: `multi_review.py:1373-1456` → re-export
 - Create: `tests/unit/test_harvest.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_harvest.py
@@ -1047,12 +1047,12 @@ def test_derive_project_override_wins(tmp_path):
     assert derive_project(tmp_path, override="Custom") == "Custom"
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_harvest.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract + add v2 fields**
+- [x] **Step 3: Extract + add v2 fields**
 
 Move `multi_review.py:1373-1456` (functions `_iso_utc`, `derive_project`, `harvest_run`, `HARVEST_SCHEMA_VERSION`) into `multi_review/core/harvest.py`. Split `harvest_run` into `build_row(...) -> dict` (pure) + `harvest_run(log_path, row) -> None` (append-only writer). Bump `HARVEST_SCHEMA_VERSION = 2`.
 
@@ -1073,12 +1073,12 @@ TELEMETRY_QUALITY = {
 
 `comparison_eligible` per-reviewer: `True` iff `fallback_hops == 0`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_harvest.py -v`
 Expected: 6 passed (incl. `test_harvest_row_emits_both_usage_keys`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/harvest.py multi_review.py tests/unit/test_harvest.py
