@@ -605,7 +605,7 @@ git commit -m "refactor(core): extract prompt module from legacy script"
 - Modify: `multi_review.py:353-569` → re-export
 - Create: `tests/unit/test_adapters.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/unit/test_adapters.py
@@ -649,12 +649,12 @@ def test_opencode_adapter_success_fixture():
     assert a.text != ""
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_adapters.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Copy `multi_review.py:353-569` (the `ProgressAdapter` base + four subclasses + `Usage` dataclass if defined there; otherwise also lift the `Usage` definition) into `multi_review/core/adapters.py`. Preserve the existing comment at multi_review.py:351 about gemini delta-keying. Add a public `last_error: str | None` attribute on the base adapter (currently captured in subclass-specific state — promote it).
 
@@ -666,12 +666,12 @@ from multi_review.core.adapters import (
 )
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_adapters.py -v`
 Expected: 5 passed (skip per-CLI test if its real fixture is a placeholder; mark with `pytest.skip` based on `len(fixture.read_text()) < 50`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/adapters.py multi_review.py tests/unit/test_adapters.py
