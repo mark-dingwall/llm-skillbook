@@ -727,3 +727,74 @@ we have paired runs to compare.
 If sonnet-high holds up: switch the default agent to sonnet. Add `model: opus`
 override path via prompt-file `synthesizer_model` field for users who want it.
 If opus-high wins: document the cost-quality trade in README and keep default.
+
+## v0.2 pre-smoke triage deferrals (2026-05-19)
+
+Items surfaced during the pre-smoke 5-chunk code review pass (sonnet + codex)
+that were verified real but deferred from MVP because the tool is single-user
+internal and the failure modes don't gate v0.2 ship. Re-evaluate before v0.3
+or when external use is contemplated.
+
+### Quality / robustness
+
+- **stream backpressure on giant reviews**: `core/fanout.py` buffers entire
+  reviewer stdout into memory. A pathological reviewer streaming hundreds of
+  MB would OOM the host. Cap and truncate beyond `STREAM_BUFFER_LIMIT * N` or
+  add streaming-to-disk for review text. Not seen in practice.
+
+- **harvest write atomicity**: `core/harvest.py harvest_run` appends one line
+  at a time without an exclusive lock. Concurrent runs (rare — single-user)
+  could interleave bytes mid-line. Wrap append in `fcntl.flock` or write to
+  a tempfile + atomic rename + concat. Not seen.
+
+- **snapshot diff false-positives on EOL/encoding**: `core/snapshot.py` uses
+  byte-equal comparison. Files re-saved with CRLF↔LF or BOM toggles will read
+  as drifted even though semantically unchanged. Acceptable today because
+  pair-2 runs happen on the same machine within an hour, but warrants a hash
+  + normalisation pass for cross-machine resume.
+
+- **promptfile validator missing field roundtrip**: `core/promptfile.py` checks
+  shape but doesn't verify every YAML key it set defaults for survives the
+  load (e.g. setdefault-then-typed-dataclass mismatch is silent). Add a
+  full-roundtrip test fixture covering each optional field.
+
+- **`mr-spawn --task-mode synthesize` adapter telemetry**: synthesis path
+  writes `usage: null` always (state.json), so EXPERIMENTS counters lose
+  per-synth telemetry. Today the only synthesizer with telemetry would be
+  claude-via-Task (covered by `mr-write-task-result`), so this is empty real
+  estate for now; revisit if subprocess synth telemetry becomes load-bearing.
+
+### Security / hygiene
+
+- **untrusted promptfile path traversal**: prepare.py now resolves promptfile
+  relative paths against its parent (H13), but doesn't reject paths that
+  resolve outside an expected root. Internal tool → not a vuln today; would
+  matter if `mr-prepare` were ever exposed to untrusted YAML input.
+
+- **state.json schema validation**: aggregate.py reads state JSON with
+  best-effort `.get()` calls. A malformed state.json (e.g. wrong type for
+  `attempts`) crashes with an opaque TypeError. Add jsonschema or attrs-style
+  validation if state JSON ever flows from a non-spawn source.
+
+- **synthesizer-suggested filename trust**: `sanitize_review_filename` covers
+  the obvious cases but a determined adversary could still surface `aux.md`
+  or other Windows-reserved stems. We're on Linux, not a concern; flag if
+  ever shipped to a Windows-target user.
+
+### Documented gaps (no fix planned, deliberate)
+
+- **H8 — `resolve_chain` with explicit_model**: `--model gemini=X` PINS to X
+  with no fallback. `--fallback-model gemini=A,B,C` is the chain entry point.
+  Documented in CLAUDE.md invariants; codex review misread the contract.
+  Not a bug.
+
+- **H9 — Gemini JSONL error events bypass capacity fallback**: today the
+  capacity-fallback detector only inspects stderr regex matches. If gemini
+  ever emits a JSON-shaped capacity error on stdout instead of stderr, the
+  fallback chain won't engage. Theoretical — never observed. Fixture path:
+  `tests/fixtures/jsonl_streams/gemini_*.jsonl` for when a real example lands.
+
+- **M12 — snapshot diff skips new files**: by design. New files in the working
+  tree between pass 1 and pass 2 are not snapshot-drift, because the snapshot
+  set is scoped to declared `input_files + context_files` only (spec §9.1).
+  A new file the model didn't review can't change the review's validity.

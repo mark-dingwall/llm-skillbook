@@ -185,7 +185,7 @@ fallback_models:                      # ordered chain on capacity failure; absen
   gemini: ["gemini-3.1-flash", "gemini-2.5-pro"]
 delay: 1800                           # cooldown seconds (mode: both only)
 delay_type: background                # foreground | background
-if_drift: ask                         # ignore | abort | ask (mode: both only). Default `ask` keeps paired runs comparison-eligible (§7.1); `ignore` is the explicit opt-out for users who don't need comparison stats on that pair.
+if_drift: ignore                      # ignore | abort | ask (mode: both only). Default `ignore` for MVP — matches `core/promptfile.py:26`. Set `ask` (or `abort`) explicitly for paired runs that feed comparison stats (§7.1): under `ignore`, the harvest row records `drift_status: unchecked` and pair-level `comparison_eligible: false`. Default chosen as `ignore` because most ad-hoc paired runs are not load-bearing comparison data, and the `ask` flow demands a snapshot every time which is a foot-cannon for first-time users (decision recorded 2026-05-19).
 output_dir: null                      # default: <cwd>/.multi-review/sessions/<auto-slug>/
 save_as: null                         # promote ephemeral to persistent if set
 harvest: true
