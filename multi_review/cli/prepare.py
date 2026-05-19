@@ -21,11 +21,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "error": "prepare requires single mode (inline|reference), not both"}))
         return 2
 
+    base = args.prompt_file.parent.resolve()
+
+    def _norm(s: str) -> Path:
+        p = Path(s)
+        return p if p.is_absolute() else (base / p).resolve()
+
     nonce = secrets.token_hex(4)
     body = build_prompt(
         task=pf.task,
-        files=[Path(f) for f in pf.files],
-        context_files=[Path(f) for f in pf.context_files],
+        files=[_norm(f) for f in pf.files],
+        context_files=[_norm(f) for f in pf.context_files],
         custom_prompt=pf.custom_prompt,
         mode=mode,
         nonce=nonce,
