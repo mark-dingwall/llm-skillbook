@@ -1238,7 +1238,7 @@ git commit -m "feat(core): add snapshot module for paired-run drift detection"
 - Create: `multi_review/core/pending.py`
 - Create: `tests/unit/test_pending.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_pending.py
@@ -1304,12 +1304,12 @@ def test_sweep_expired_removes_old(tmp_path, monkeypatch):
     assert not (tmp_path / "pair-old").exists()
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_pending.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/core/pending.py
@@ -1402,12 +1402,12 @@ def sweep_expired(pending_root: Path, *, ttl_days: int = PENDING_TTL_DAYS) -> li
     return swept
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_pending.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Add `cli/pending.py` argparse wrapper**
+- [x] **Step 5: Add `cli/pending.py` argparse wrapper**
 
 Tiny CLI exposing the core functions for SKILL.md Bash calls. Subcommands `init`, `read`, `transition --to <status>`, `gc`. Stdout is JSON.
 
@@ -1444,7 +1444,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 6: Add `cli/cooldown_notify.py`**
+- [x] **Step 6: Add `cli/cooldown_notify.py`**
 
 Fired by the §8.2 background `sleep <delay> && python -m multi_review.cli.cooldown_notify --pair-id <id>` composition. Plain status read (no lock — `cooldown_notify` is the loser by construction if a manual resume slipped in first; spec §8.6). On `status == awaiting-pass-2`, dispatch platform notification; otherwise exit silently.
 
@@ -1483,12 +1483,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 7: Smoke + tests**
+- [x] **Step 7: Smoke + tests**
 
 Run: `uv run pytest tests/unit/test_pending.py -v`
 Expected: 4 passed (existing tests cover the core; CLI wrappers are thin enough to defer to manual smoke in tests/manual/cooldown_resume.md).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add multi_review/core/pending.py multi_review/cli/pending.py \
