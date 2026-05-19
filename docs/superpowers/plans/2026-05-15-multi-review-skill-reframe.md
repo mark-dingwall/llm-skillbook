@@ -2716,7 +2716,7 @@ git commit -m "feat(cli): mr-report regen + build-paired"
 - Create: `tests/unit/test_sidecar.py`
 - Create: `tests/integration/test_cli_migrate_sidecars.py`
 
-- [ ] **Step 1: Write failing unit tests for row-grouper**
+- [x] **Step 1: Write failing unit tests for row-grouper**
 
 ```python
 # tests/unit/test_sidecar.py
@@ -2771,11 +2771,11 @@ def test_rows_without_argv_are_unpairable(tmp_path):
     assert group_candidate_pairs(log, default_delay_s=1800) == []
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
 Run: `uv run pytest tests/unit/test_sidecar.py -v`
 
-- [ ] **Step 3: Implement `sidecar.py` row-grouper**
+- [x] **Step 3: Implement `sidecar.py` row-grouper**
 
 ```python
 # multi_review/core/sidecar.py
@@ -2845,9 +2845,9 @@ def group_candidate_pairs(log_path: Path, *, default_delay_s: int) -> list[Candi
     return pairs
 ```
 
-- [ ] **Step 4: Run unit tests, expect pass.**
+- [x] **Step 4: Run unit tests, expect pass.**
 
-- [ ] **Step 5: Write failing integration test for the CLI (interactive)**
+- [x] **Step 5: Write failing integration test for the CLI (interactive)**
 
 The migrator is interactive — no `--auto-apply` (per spec §11.1). Test feeds answers via stdin.
 
@@ -2897,9 +2897,9 @@ def test_migrate_row_driven_writes_paired_and_legacies(tmp_path):
     assert all(r["pair_id"] is not None for r in upgraded)
 ```
 
-- [ ] **Step 6: Run, expect failure.**
+- [x] **Step 6: Run, expect failure.**
 
-- [ ] **Step 7: Implement `migrate_sidecars.py` (row-driven, interactive)**
+- [x] **Step 7: Implement `migrate_sidecars.py` (row-driven, interactive)**
 
 ```python
 # multi_review/cli/migrate_sidecars.py
@@ -3020,7 +3020,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 8: Update `core/report.py` `build_paired_report` signature**
+- [x] **Step 8: Update `core/report.py` `build_paired_report` signature**
 
 Extend with the legacy-mode kwargs already wired in the migrator above:
 - `legacy_run_ids: list[str] | None = None`
@@ -3030,12 +3030,12 @@ Extend with the legacy-mode kwargs already wired in the migrator above:
 
 When `pair_id is None`: use `synth_pair_id` for the frontmatter `pair_id` field; derive runs/modes from `legacy_run_ids` rows in the log (matching by `CandidatePair.synth_run_id`).
 
-- [ ] **Step 9: Run integration test**
+- [x] **Step 9: Run integration test**
 
 Run: `uv run pytest tests/integration/test_cli_migrate_sidecars.py -v`
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add multi_review/core/sidecar.py multi_review/cli/migrate_sidecars.py multi_review/core/report.py \

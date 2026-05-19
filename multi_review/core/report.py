@@ -212,46 +212,93 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
 def build_paired_report(
     *,
     log_path: Path,
-    pair_id: str,
+    pair_id: "str | None",
     out_path: Path,
-    headline: str | None,
-    mode_divergence: str | None,
+    headline: "str | None",
+    mode_divergence: "str | None",
     per_reviewer_notes: "str | dict | None",
+    # Legacy-mode kwargs (used when pair_id is None — migrator path)
+    legacy_run_ids: "list[str] | None" = None,
+    project: "str | None" = None,
+    date: "str | None" = None,
+    synth_pair_id: "str | None" = None,
 ) -> None:
     """Write a format-C paired-report file to out_path.
 
-    Reads both pass rows for pair_id from log_path, computes pair-level
-    comparison_eligible flag, then writes YAML frontmatter + body sections.
+    Normal mode (pair_id is not None):
+      Reads both pass rows for pair_id from log_path, computes pair-level
+      comparison_eligible flag, then writes YAML frontmatter + body sections.
+
+    Legacy mode (pair_id is None):
+      Uses synth_pair_id for the frontmatter pair_id field.
+      Derives rows from legacy_run_ids matched against the log by synthetic
+      run-ID (CandidatePair.synth_run_id).
+
     out_path's parent directory must already exist.
     """
-    # Load rows for this pair
-    pair_rows: list[dict] = []
-    if log_path.exists():
-        for line in log_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if r.get("pair_id") == pair_id:
-                pair_rows.append(r)
+    if pair_id is None:
+        # Legacy / migration path
+        from multi_review.core.sidecar import CandidatePair  # local import avoids circular
 
-    # Compute pair-level comparison_eligible:
-    # all reviewers in ALL pass rows must have comparison_eligible: True
-    pair_eligible = _compute_pair_eligible(pair_rows)
+        all_rows: list[dict] = []
+        if log_path.exists():
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    all_rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
 
-    eligible_str = "true" if pair_eligible else "false"
+        pair_rows: list[dict] = []
+        if legacy_run_ids:
+            for row in all_rows:
+                if CandidatePair.synth_run_id(row) in legacy_run_ids:
+                    pair_rows.append(row)
 
-    frontmatter = (
-        "---\n"
-        f"report_format_version: {REPORT_FORMAT_VERSION}\n"
-        f"pair_id: {pair_id}\n"
-        f"pair_type: paired\n"
-        f"comparison_eligible: {eligible_str}\n"
-        "---\n"
-    )
+        pair_eligible = _compute_pair_eligible(pair_rows)
+        eligible_str = "true" if pair_eligible else "false"
+        effective_pair_id = synth_pair_id or "legacy-unknown"
+
+        frontmatter = (
+            "---\n"
+            f"report_format_version: {REPORT_FORMAT_VERSION}\n"
+            f"pair_id: {effective_pair_id}\n"
+            f"pair_type: paired\n"
+            f"comparison_eligible: {eligible_str}\n"
+            "---\n"
+        )
+    else:
+        # Normal path
+        # Load rows for this pair
+        pair_rows = []
+        if log_path.exists():
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get("pair_id") == pair_id:
+                    pair_rows.append(r)
+
+        # Compute pair-level comparison_eligible:
+        # all reviewers in ALL pass rows must have comparison_eligible: True
+        pair_eligible = _compute_pair_eligible(pair_rows)
+
+        eligible_str = "true" if pair_eligible else "false"
+
+        frontmatter = (
+            "---\n"
+            f"report_format_version: {REPORT_FORMAT_VERSION}\n"
+            f"pair_id: {pair_id}\n"
+            f"pair_type: paired\n"
+            f"comparison_eligible: {eligible_str}\n"
+            "---\n"
+        )
 
     headline_text = headline or "_TBD — synthesizer will fill_"
     mode_div_text = mode_divergence or "_TBD — synthesizer will fill_"
