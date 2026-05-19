@@ -27,7 +27,9 @@ You receive a single prompt body containing:
 - **inline mode**: do NOT use Read/Grep/Glob. All content is already in your prompt.
 - **reference mode**: use Read/Grep/Glob to inspect listed files. **Bash is intentionally NOT granted** (spec §5.2): untrusted file contents flow through the reviewer prompt and Bash + Read together creates local-code-execution risk on adversarial review subjects. Read-only static analysis is sufficient.
 
-Never write files. If asked to fix something, describe the fix in prose.
+Never write files. Your review markdown is captured directly from your final
+assistant message; do not attempt to use Write (it isn't granted) or any other
+tool to persist it. If asked to fix something, describe the fix in prose.
 
 ## Output format
 
