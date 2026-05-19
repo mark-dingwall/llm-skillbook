@@ -1846,6 +1846,15 @@ def test_build_paired_report_emits_format_c(tmp_path):
     assert "pair_type: paired" in body
     assert "comparison_eligible: true" in body or "comparison_eligible: True" in body
     assert "## Mode-divergence observations" in body
+
+def test_build_paired_report_filename_format(tmp_path):
+    """Filename contract: <project>-<date>-<pair-id>.md (spec §4.2 / §10.1)."""
+    from multi_review.core.report import paired_report_filename
+    assert paired_report_filename(
+        project="paralife",
+        date="2026-05-05",
+        pair_id="pair-20260505-0345-9f3a",
+    ) == "paralife-2026-05-05-pair-20260505-0345-9f3a.md"
 ```
 
 - [ ] **Step 2: Run, expect ImportError**
@@ -1865,6 +1874,8 @@ Add new function `build_paired_report(log_path, pair_id, out_path, headline, mod
 - Write format-C frontmatter + sections; section heading is `## Mode-divergence observations` (renamed from "Mode comparison" — spec §10.1 / §10.2). Defaults to placeholder strings if None; Task 25 wires synthesizer-authored content.
 - Constant `REPORT_FORMAT_VERSION = 1`
 - The synthesis prompt template (`skills/multi-review/templates/synthesizer_task.md`, written in Task 28) carries a clause **forbidding load-bearing comparative claims at the single-run level** per spec §10.2. Cross-update flag for Task 28.
+
+**Filename format-of-record** (spec §4.2 / §10.1): `<project>-<date>-<pair-id>.md`, joined under `<out_dir>/`. Auto-suffix on collision (`-2`, `-3`, …) applies via `resolve_output_path`. Expose the join as a tiny pure helper `paired_report_filename(project, date, pair_id) -> str` so the contract is unit-testable independently of disk I/O. `cli/report.py` (Task 21) passes `--project`, `--date`, `--pair-id`, `--out-dir`; this function owns the literal format.
 
 - [ ] **Step 4: Run tests**
 
