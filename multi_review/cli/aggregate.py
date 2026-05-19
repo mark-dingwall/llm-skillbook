@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 from multi_review.core.aggregate import write_review_md, resolve_output_path
 from multi_review.core.fanout import ReviewerResult
 from multi_review.core.adapters import Usage
+
+_SUMMARY_HEADING_RE = re.compile(
+    r"^#{1,3}\s+(summary|executive summary)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,12 +62,19 @@ def main(argv: list[str] | None = None) -> int:
         if state.get("usage"):
             usage = Usage(**state["usage"])
 
+        ok = state["ok"]
+        stderr_tail = state.get("stderr_tail", "")
+        if ok and _SUMMARY_HEADING_RE.search(review_text) is None:
+            ok = False
+            note = "no ## Summary heading in review body"
+            stderr_tail = f"{stderr_tail}\n{note}" if stderr_tail else note
+
         # Drift 2: state JSON uses "duration_seconds"; ReviewerResult field is "elapsed"
         results.append(ReviewerResult(
             cli=cli,
-            ok=state["ok"],
+            ok=ok,
             text=review_text,
-            stderr_tail=state.get("stderr_tail", ""),
+            stderr_tail=stderr_tail,
             attempts=state.get("attempts", []),
             usage=usage,
             elapsed=state.get("duration_seconds", 0.0),  # map JSON key → dataclass field
