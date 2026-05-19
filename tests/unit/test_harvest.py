@@ -51,6 +51,23 @@ def test_build_row_has_new_schema_fields():
     assert "final_model" in cur
 
 
+def test_comparison_eligible_factors_drift_status():
+    """drift_status of "drifted" or "unchecked" disqualifies per-reviewer
+    eligibility even when no fallback hops were walked. See spec §7.1."""
+    def _build(drift):
+        return build_row(
+            results=[_r("claude")], mode="inline", task="code", project="p",
+            wall_seconds=1.0, reviewers_attempted=["claude"],
+            synthesizer="none", synthesis_ok=False,
+            pair_id=None, prompt_file=None, prompt_format_version=1,
+            drift_status=drift, telemetry_notes=None,
+        )
+    assert _build("clean")["usage_by_reviewer"]["claude"]["comparison_eligible"] is True
+    assert _build("not_applicable")["usage_by_reviewer"]["claude"]["comparison_eligible"] is True
+    assert _build("drifted")["usage_by_reviewer"]["claude"]["comparison_eligible"] is False
+    assert _build("unchecked")["usage_by_reviewer"]["claude"]["comparison_eligible"] is False
+
+
 def test_comparison_eligible_false_on_fallback():
     row = build_row(
         results=[_r("gemini", fallback_hops=1, final_model="gemini-3.1-flash")],

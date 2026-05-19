@@ -95,6 +95,7 @@ def build_row(
     ``drift_status``         one of "clean", "drifted", "unchecked", "not_applicable".
     ``telemetry_notes``      freeform annotation for anomalous telemetry.
     """
+    drift_blocks_eligibility = drift_status in {"drifted", "unchecked"}
     usage_by_reviewer: dict[str, dict] = {}
     for r in results:
         fallback_hops = len(r.attempts) - 1 if r.attempts else 0
@@ -104,7 +105,7 @@ def build_row(
             "elapsed_s": round(r.elapsed, 1),
             # v2 additions
             "telemetry_quality": TELEMETRY_QUALITY.get(r.cli, "degraded"),
-            "comparison_eligible": fallback_hops == 0,
+            "comparison_eligible": fallback_hops == 0 and not drift_blocks_eligibility,
             "fallback_hops": fallback_hops,
             "final_model": final_model,
         }
