@@ -3343,7 +3343,7 @@ git commit -m "feat(agents): multi-review-reviewer (opus xhigh, no Bash, ## Summ
 - Create: `agents/multi-review-synthesizer.md`
 - Create: `tests/manual/agent_synthesizer_smoke.md`
 
-- [ ] **Step 1: Write agent**
+- [x] **Step 1: Write agent**
 
 `agents/multi-review-synthesizer.md`:
 
@@ -3403,7 +3403,7 @@ When invoked for a **paired-run report build**, the prompt will include both pas
 ```
 ```
 
-- [ ] **Step 2: Manual smoke procedure**
+- [x] **Step 2: Manual smoke procedure**
 
 `tests/manual/agent_synthesizer_smoke.md`:
 
@@ -3416,7 +3416,7 @@ When invoked for a **paired-run report build**, the prompt will include both pas
 4. Verify output has Consensus Summary, Agreed Strengths, Agreed Concerns, Divergent Views, filename suggestion in <filename> tags.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/multi-review-synthesizer.md tests/manual/agent_synthesizer_smoke.md
