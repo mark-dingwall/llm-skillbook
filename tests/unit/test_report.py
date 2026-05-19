@@ -37,6 +37,26 @@ def test_render_experiments_filters_ineligible_pairs(tmp_path):
     assert "pair-good" in md
     assert REPORT_FORMAT_VERSION >= 1
 
+def test_render_experiments_links_paired_reports(tmp_path):
+    """Plan §11.2 / Task 30 step 5: regen surfaces paired-report file links
+    under `runs/reports/` so the run-log table isn't the only entry point
+    into per-pair narrative."""
+    log = tmp_path / "runs.jsonl"
+    rows = [
+        _row(pair_id="pair-x", mode="reference", project="paralife",
+             timestamp="2026-05-05T03:00:00Z"),
+        _row(pair_id="pair-x", mode="inline", project="paralife",
+             timestamp="2026-05-05T03:20:00Z"),
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    report_file = reports_dir / "paralife-2026-05-05-pair-x.md"
+    report_file.write_text("# placeholder paired report\n")
+
+    md = render_experiments_markdown(log_path=log, reports_dir=reports_dir)
+    assert "paralife-2026-05-05-pair-x.md" in md, "regen must link paired reports"
+
 def test_build_paired_report_emits_format_c(tmp_path):
     log = tmp_path / "runs.jsonl"
     rows = [

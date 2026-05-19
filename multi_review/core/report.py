@@ -186,6 +186,15 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
             "context — they're stitched in here at report time._\n"
         )
 
+    if reports_dir.exists():
+        report_files = sorted(p for p in reports_dir.glob("*.md") if p.is_file())
+        if report_files:
+            parts.append("## Paired reports\n")
+            for f in report_files:
+                rel = f"reports/{f.name}"
+                parts.append(f"- [{f.stem}]({rel})")
+            parts.append("")
+
     parts.append("## Open questions\n")
     parts.append(
         "- Is the gemini-quota-cascade real or perceived? Need a session "
