@@ -135,7 +135,7 @@ After all four are run and the doc committed, Task 1 (project skeleton) is unblo
 - Create: `tests/__init__.py`
 - Create: `tests/conftest.py`
 
-- [ ] **Step 1: Create `pyproject.toml`**
+- [x] **Step 1: Create `pyproject.toml`**
 
 ```toml
 [project]
@@ -181,7 +181,7 @@ strict = true
 files = ["multi_review/core"]
 ```
 
-- [ ] **Step 2: Create empty `__init__.py` and `conftest.py`**
+- [x] **Step 2: Create empty `__init__.py` and `conftest.py`**
 
 ```python
 # multi_review/__init__.py
@@ -207,7 +207,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 ```
 
-- [ ] **Step 3: Verify package importable**
+- [x] **Step 3: Verify package importable**
 
 Run: `uv run python -c "import multi_review; print(multi_review.__version__)"`
 Expected: `0.2.0a0`
