@@ -22,7 +22,13 @@ def pending_pair_dir(cwd: Path, pair_id: str) -> Path:
 
 
 def _dev_checkout_runs() -> Path | None:
-    """If invoked from a multi-review dev checkout, return <repo>/runs."""
+    """If invoked from a multi-review dev checkout, return <repo>/runs.
+
+    Set MULTI_REVIEW_NO_DEV_CHECKOUT=1 to skip this branch (used in tests
+    that monkeypatch HOME/XDG_DATA_HOME and need XDG resolution to win).
+    """
+    if os.environ.get("MULTI_REVIEW_NO_DEV_CHECKOUT") == "1":
+        return None
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / "multi_review" / "core" / "paths.py").exists() and (parent / "runs").exists():

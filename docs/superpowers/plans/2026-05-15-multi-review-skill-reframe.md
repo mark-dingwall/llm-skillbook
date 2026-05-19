@@ -3049,7 +3049,7 @@ git commit -m "feat: row-driven sidecar migrator with interactive pair assignmen
 - Create: `multi_review/cli/setup.py`
 - Create: `tests/integration/test_cli_setup.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_setup.py
@@ -3095,9 +3095,9 @@ def test_setup_dev_mode_symlinks(tmp_path, monkeypatch):
     assert (tmp_path / ".claude" / "skills" / "multi-review").is_symlink()
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/setup.py
@@ -3218,12 +3218,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_setup.py -v`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/setup.py tests/integration/test_cli_setup.py

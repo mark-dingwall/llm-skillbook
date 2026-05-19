@@ -31,3 +31,6 @@ runs/runs.jsonl
 # Multi-review v0.2 state
 .multi-review/
 *.egg-info/
+
+# Skill install artifacts (config.json written by mr-setup; not checked in)
+skills/multi-review/config.json
