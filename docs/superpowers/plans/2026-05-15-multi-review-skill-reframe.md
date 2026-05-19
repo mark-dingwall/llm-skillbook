@@ -4259,13 +4259,13 @@ git commit -m "docs: CLAUDE.md — codify v0.2 skill-bug testing rule"
 **Files:**
 - Modify: `BACKLOG.md`
 
-- [ ] **Step 1: Strike-through or move v0.2 items**
+- [x] **Step 1: Strike-through or move v0.2 items**
 
 Locate items in BACKLOG.md that the v0.2 work has shipped (paired-pass automation, snapshot/drift, sidecar restructure, harvest schema bump). Mark as `(SHIPPED in v0.2 — <YYYY-MM-DD>)` rather than deleting, so the history stays auditable.
 
 Leave open: BYO-API-key, multi-runtime, per-invocation effort override, pre-flight quota probe, spread-across-days limiter, snapshot-based strict pass 2, full option-B sidecar split, synthesizer model A/B.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add BACKLOG.md
