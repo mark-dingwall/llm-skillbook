@@ -1,0 +1,13 @@
+prompt_format_version: 1
+task: code
+files: ["sample_subject.py"]
+mode: reference
+synthesizer: claude
+reviewers: ["claude", "gemini"]
+models:
+  claude: claude-opus-4-7
+  gemini: gemini-3.1-pro
+delay: 1800
+delay_type: background
+if_drift: ignore
+harvest: true

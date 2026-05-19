@@ -1505,7 +1505,7 @@ git commit -m "feat(core+cli): pending-pair atomic transitions + cooldown_notify
 - Create: `tests/fixtures/prompts/custom_task_missing_body.yaml`
 - Create: `tests/unit/test_promptfile.py`
 
-- [ ] **Step 1: Write fixtures**
+- [x] **Step 1: Write fixtures**
 
 Fixtures reference paths relative to the YAML file's own dir (see `_resolve_path` below). Create a sibling stand-in file so the existence check passes for the valid fixture:
 
@@ -1547,7 +1547,7 @@ files: ["sample_subject.py"]
 mode: inline
 ```
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 ```python
 # tests/unit/test_promptfile.py
@@ -1650,12 +1650,12 @@ def test_unknown_reviewer_in_models_rejected(tmp_path):
         load_promptfile(p)
 ```
 
-- [ ] **Step 3: Run, expect ImportError**
+- [x] **Step 3: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_promptfile.py -v`
 Expected: fail.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 ```python
 # multi_review/core/promptfile.py
@@ -1767,12 +1767,12 @@ def load_promptfile(path: Path) -> PromptFile:
     return pf
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `uv run pytest tests/unit/test_promptfile.py -v`
 Expected: 12 passed (5 original + pin-without-fallback + 6 structural-rejection cases).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/promptfile.py tests/fixtures/prompts/ tests/unit/test_promptfile.py
