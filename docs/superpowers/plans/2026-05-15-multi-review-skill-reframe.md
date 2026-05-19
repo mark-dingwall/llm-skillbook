@@ -2083,7 +2083,7 @@ git commit -m "feat(cli): mr-prepare"
 - Create: `multi_review/cli/spawn.py`
 - Create: `tests/integration/test_cli_spawn.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Since `spawn.py` actually invokes external CLIs, the test uses a fake binary on PATH that echoes a canned JSONL stream from a fixture.
 
@@ -2124,12 +2124,12 @@ def test_spawn_writes_review_and_state(tmp_path, monkeypatch):
     assert state["ok"] in (True, False)
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/integration/test_cli_spawn.py -v`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/spawn.py
@@ -2197,12 +2197,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_spawn.py -v`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/spawn.py tests/integration/test_cli_spawn.py
