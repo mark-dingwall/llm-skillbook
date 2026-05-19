@@ -4148,7 +4148,7 @@ git commit -m "chore(migration): apply schema v2 backfill + sidecar reorg"
 **Files:**
 - Modify: `multi_review.py` (full replacement with banner)
 
-- [ ] **Step 1: Replace contents**
+- [x] **Step 1: Replace contents**
 
 Overwrite `multi_review.py` with:
 
@@ -4183,12 +4183,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `./multi_review.py file.py`
 Expected: prints banner, exits 1.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add multi_review.py
