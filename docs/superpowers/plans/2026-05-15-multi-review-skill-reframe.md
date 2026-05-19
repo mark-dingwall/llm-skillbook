@@ -3673,15 +3673,26 @@ If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` 
 
 **Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<run_id>/reviews/<cli>.md` against the canonical regex `^#{1,3}\s+(summary|executive summary)\b` (case-insensitive — see `SUMMARY_HEADING_CONTRACT` and spec §5.2). Any reviewer whose output fails to match is demoted to `ok: false` and its body moved to `partial` in the state JSON. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
 
-```
-uv run python -m multi_review.cli.aggregate \
-  --reviews-dir <run_id>/reviews --output <cwd>/.multi-review/REVIEW-<slug>.md \
-  --mode <pass1_mode> --task <task> \
-  --synthesis-text-file <synth_output> \
-  --pair-id <pair_id_or_omit> --prompt-file <yaml_path>
-```
+**Output path branches by mode** (spec §4.2):
 
-Report the actual output path to the user (auto-suffix may have applied).
+- **Single-pass** (`mode != both`): write to cwd root.
+  ```
+  uv run python -m multi_review.cli.aggregate \
+    --reviews-dir <run_id>/reviews --output <cwd>/REVIEW-<slug>.md \
+    --mode <pass1_mode> --task <task> \
+    --synthesis-text-file <synth_output> \
+    --pair-id <pair_id_or_omit> --prompt-file <yaml_path>
+  ```
+- **Paired** (both passes; `mode == both`): write to the staged session dir; Step 11 promotes to cwd root with mode-suffixed names.
+  ```
+  uv run python -m multi_review.cli.aggregate \
+    --reviews-dir <run_id>/reviews --output <cwd>/.multi-review/sessions/<run_id>/REVIEW.md \
+    --mode <passN_mode> --task <task> \
+    --synthesis-text-file <synth_output> \
+    --pair-id <pair_id> --prompt-file <yaml_path>
+  ```
+
+Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies only to cwd-root paths (single-pass here, paired after Step 11 promotion); staged session-dir paths are unique per `run_id` so cannot collide.
 
 ### Step 8 — Build harvest row + (deferred) write
 
@@ -3724,6 +3735,19 @@ e. Build pass 2 harvest row (pending).
 
 `<CENTRAL_PATH>` was resolved in Step 1 from `~/.claude/skills/multi-review/config.json`. Use it instead of any hardcoded `~/kramtime/...` path.
 
+**Promote staged REVIEW.md files to cwd root with mode suffixes** (spec §4.2, §6.2 step 4). For each of the two passes, rename:
+
+```
+mv <cwd>/.multi-review/sessions/<pass-1-run-id>/REVIEW.md \
+   <cwd>/REVIEW-<slug>-<pass-1-mode>.md
+mv <cwd>/.multi-review/sessions/<pass-2-run-id>/REVIEW.md \
+   <cwd>/REVIEW-<slug>-<pass-2-mode>.md
+```
+
+Example: pass 1 mode `reference`, slug `auth-review` → `<cwd>/REVIEW-auth-review-reference.md`. Auto-suffix (`-2`, `-3`, …) applies per file independently on collision at the destination. Report both final paths to the user.
+
+Then build the long-form paired report. Filename is fixed by the builder as `<project>-<date>-<pair-id>.md` (spec §4.2 / §10.1):
+
 ```
 uv run python -m multi_review.cli.report build-paired \
   --log <CENTRAL_PATH>/runs.jsonl \
@@ -3741,12 +3765,19 @@ The mode_divergence / per_reviewer_notes blocks come from a final synthesis pass
 `mr-snapshot cleanup --snapshot-dir <pending/<pair_id>/files>`
 Remove `.multi-review/pending/<pair_id>/`.
 
+Step 11 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<run_id>/`, so the session directories now contain only ephemeral artifacts (per-reviewer state/.md, synthesis input/output, prepared prompt). Cleaning or pruning these directories will not lose user-visible output.
+
 ### Step 13 — Batch end: harvest flush + regen
 
-For every `.multi-review/pending-harvest/<run_id>.json`:
+Flush all queued harvest rows in one batched invocation (spec §5.3):
+
 - Tell user: "Writing N harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
-- On approval: `mr-harvest-row --row-file <path> --log <CENTRAL_PATH>/runs.jsonl` for each, then delete the pending file.
-- On denial: leave pending files in place; print resume command.
+- On approval:
+  ```
+  uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
+  ```
+  The flag scans `<cwd>/.multi-review/pending-harvest/*.json`, appends each row, and deletes each pending file only after successful write.
+- On denial: pending files stay in place (spec §12 error-table behaviour); print the resume command.
 
 After harvest:
 ```
