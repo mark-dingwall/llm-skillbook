@@ -1,0 +1,4 @@
+{"type":"init","timestamp":"2026-05-19T07:07:23.464Z","session_id":"fc8aa841-0899-483f-815f-ce5d726143b7","model":"gemini-3.1-pro-preview"}
+{"type":"message","timestamp":"2026-05-19T07:07:23.465Z","role":"user","content":"Say: hello world\n"}
+{"type":"message","timestamp":"2026-05-19T07:07:43.254Z","role":"assistant","content":"Hello world!","delta":true}
+{"type":"result","timestamp":"2026-05-19T07:07:43.316Z","status":"success","stats":{"total_tokens":9995,"input_tokens":9948,"output_tokens":3,"cached":0,"input":9948,"duration_ms":19852,"tool_calls":0,"models":{"gemini-3.1-pro-preview":{"total_tokens":9995,"input_tokens":9948,"output_tokens":3,"cached":0,"input":9948}}}}

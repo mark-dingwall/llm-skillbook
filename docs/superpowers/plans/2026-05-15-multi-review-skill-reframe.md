@@ -397,7 +397,7 @@ git commit -m "feat(core): add paths module + state-dir layout"
 - Create: `tests/fixtures/streams/opencode/success.jsonl`
 - Create: `tests/fixtures/streams/README.md`
 
-- [ ] **Step 1: Document fixture capture procedure**
+- [x] **Step 1: Document fixture capture procedure**
 
 Write `tests/fixtures/streams/README.md`:
 
@@ -434,7 +434,7 @@ known failure modes.
 Re-capture on every release prep to catch upstream schema drift.
 ````
 
-- [ ] **Step 2: Write synthetic fixtures**
+- [x] **Step 2: Write synthetic fixtures**
 
 `tests/fixtures/streams/gemini/capacity_429.jsonl`:
 ```
@@ -447,13 +447,13 @@ Re-capture on every release prep to catch upstream schema drift.
 {"type":"result","subtype":"success","result":"","total_cost_usd":0.0,"usage":{"input_tokens":0,"output_tokens":0}}
 ```
 
-- [ ] **Step 3: Capture real fixtures**
+- [x] **Step 3: Capture real fixtures**
 
 Run the commands in `tests/fixtures/streams/README.md` against installed CLIs.
 If a CLI is unavailable, create a one-line synthetic placeholder matching its current schema (see `multi_review.py:371-569` per-adapter event names).
 Expected: at least `success.jsonl` for every CLI exists and is non-empty.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/fixtures/streams/
