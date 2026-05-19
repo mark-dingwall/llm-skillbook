@@ -3429,7 +3429,7 @@ git commit -m "feat(agents): multi-review-synthesizer (opus high)"
 - Create: `agents/multi-review-build.md`
 - Create: `tests/manual/agent_build_smoke.md`
 
-- [ ] **Step 1: Write agent**
+- [x] **Step 1: Write agent**
 
 `agents/multi-review-build.md`:
 
@@ -3499,7 +3499,7 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 - Validate fields against the schema before writing. If invalid, AskUserQuestion to correct.
 ```
 
-- [ ] **Step 2: Manual smoke**
+- [x] **Step 2: Manual smoke**
 
 `tests/manual/agent_build_smoke.md`:
 
@@ -3512,7 +3512,7 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 4. Autonomous: `Task(subagent_type="multi-review-build", prompt="mode: autonomous; seed: review session.ts")` and verify yaml written with no AskUserQuestion calls.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/multi-review-build.md tests/manual/agent_build_smoke.md
