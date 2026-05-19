@@ -1534,7 +1534,7 @@ async def async_main(args: argparse.Namespace) -> int:
         custom_prompt=args.prompt,
         prompt_file=args.prompt_file,
         context_files=args.context,
-        input_files=input_files,
+        files=input_files,
         allow_missing=args.allow_missing,
         mode=args.mode,
     )
@@ -1698,7 +1698,7 @@ def main(argv: list[str] | None = None) -> int:
             custom_prompt=args.prompt,
             prompt_file=args.prompt_file,
             context_files=args.context,
-            input_files=input_files,
+            files=input_files,
             allow_missing=args.allow_missing,
             mode=args.mode,
         )

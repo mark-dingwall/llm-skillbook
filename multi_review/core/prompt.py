@@ -195,8 +195,6 @@ def build_prompt(
     allow_missing: bool = False,
     mode: Literal["inline", "reference"] = "inline",
     nonce: str | None = None,
-    # Legacy compat: accept input_files as alias for files
-    input_files: list[Path] | None = None,
 ) -> str:
     """Assemble a reviewer prompt.
 
@@ -212,11 +210,9 @@ def build_prompt(
     mode:          ``"inline"`` embeds file contents; ``"reference"`` emits a
                    manifest of absolute paths only.
     nonce:         Override the random nonce (for deterministic tests).
-    input_files:   Deprecated alias for ``files`` (legacy call sites).
     """
-    # Resolve aliased param
     if files is None:
-        files = input_files if input_files is not None else []
+        files = []
     if context_files is None:
         context_files = []
 
