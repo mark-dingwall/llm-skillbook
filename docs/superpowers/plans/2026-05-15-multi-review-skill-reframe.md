@@ -1091,7 +1091,7 @@ git commit -m "feat(core): extract harvest + schema v2 (additive fields)"
 - Create: `multi_review/core/snapshot.py`
 - Create: `tests/unit/test_snapshot.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_snapshot.py
@@ -1157,12 +1157,12 @@ def test_cleanup_removes_dir(tmp_path):
     assert not snap_dir.exists()
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_snapshot.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/core/snapshot.py
@@ -1220,12 +1220,12 @@ def cleanup_snapshot(snapshot_dir: Path) -> None:
         shutil.rmtree(snapshot_dir)
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_snapshot.py -v`
 Expected: 6 passed (incl. `test_snapshot_includes_context_files`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/snapshot.py tests/unit/test_snapshot.py
