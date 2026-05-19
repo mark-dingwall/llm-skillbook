@@ -500,7 +500,7 @@ Each extraction task moves code from `multi_review.py` into a focused module, ad
 - Modify: `multi_review.py:182-352` → re-export from new module
 - Create: `tests/unit/test_prompt.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_prompt.py
@@ -562,12 +562,12 @@ def test_summary_contract_exported():
     assert "## Summary" in SUMMARY_HEADING_CONTRACT
 ```
 
-- [ ] **Step 2: Run, expect import failure**
+- [x] **Step 2: Run, expect import failure**
 
 Run: `uv run pytest tests/unit/test_prompt.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Copy `multi_review.py:182-352` (functions `injection_preamble`, `reference_preamble`, `synthesis_prompt`, `build_prompt` plus any module-level constants they reference like `INJECTION_PREAMBLE`, `TASK_TEMPLATES`) into `multi_review/core/prompt.py`. Adjust imports to remove rich/asyncio references. `build_prompt` must accept `files: list[Path]`, `context_files: list[Path]`, `mode: Literal["inline","reference"]`.
 
@@ -581,17 +581,17 @@ from multi_review.core.prompt import (
 )
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_prompt.py -v`
 Expected: 7 passed (6 prompt tests + `test_summary_contract_exported`).
 
-- [ ] **Step 5: Run legacy script smoke**
+- [x] **Step 5: Run legacy script smoke**
 
 Run: `uv run ./multi_review.py --dry-run --task code multi_review.py 2>&1 | head -5`
 Expected: prints assembled prompt, no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/prompt.py multi_review.py tests/unit/test_prompt.py
