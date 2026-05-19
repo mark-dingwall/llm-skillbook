@@ -379,7 +379,7 @@ __pycache__/
 .venv/
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/paths.py tests/unit/test_paths.py .gitignore
