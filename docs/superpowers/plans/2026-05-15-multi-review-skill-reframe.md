@@ -3615,7 +3615,7 @@ git commit -m "feat(agents): multi-review-investigate (sonnet high)"
 - Create: `tests/manual/drift_ask.md`
 - Create: `tests/manual/cooldown_resume.md`
 
-- [ ] **Step 1: Write reviewer task template**
+- [x] **Step 1: Write reviewer task template**
 
 `skills/multi-review/templates/reviewer_task.md`:
 
@@ -3647,7 +3647,7 @@ Produce the Consensus Summary per your agent definition. Write to:
 Use the Write tool ONCE at the very end.
 ```
 
-- [ ] **Step 2: Write SKILL.md**
+- [x] **Step 2: Write SKILL.md**
 
 `skills/multi-review/SKILL.md`:
 
@@ -3899,7 +3899,7 @@ If the user's prompt file has `reviewers` without `claude`:
 This is supported; print a one-line acknowledgement: "Note: claude reviewer omitted; synthesis still via Task subagent."
 ````
 
-- [ ] **Step 3: Manual smoke procedures**
+- [x] **Step 3: Manual smoke procedures**
 
 `tests/manual/single_pass.md`:
 
@@ -3971,7 +3971,7 @@ Run setup (Task 23 already installed; rerun if SKILL.md changed): `uv run python
 
 Then from inside Claude Code TUI, execute `tests/manual/single_pass.md`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/multi-review/ tests/manual/single_pass.md tests/manual/paired_pass.md \

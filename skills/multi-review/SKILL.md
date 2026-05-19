@@ -1,5 +1,245 @@
-# multi-review skill
+---
+name: multi-review
+description: Fan out a code review across claude/gemini/codex/opencode, aggregate into REVIEW.md, optionally synthesize. Supports inline + reference modes including automated paired-pass runs with drift detection.
+---
 
-<!-- TASK 28 will replace this with the real orchestrator SKILL.md -->
+# multi-review
 
-Placeholder until Task 28 writes the real orchestrator.
+Orchestrate a multi-model code review.
+
+## Invocation forms
+
+- `/multi-review` — interactive prompt build
+- `/multi-review "text"` — interactive build with seed
+- `/multi-review --use-defaults "text"` — autonomous build, no prompts
+- `/multi-review --prompt-files A.yaml,B.yaml` — run one or more pre-written prompt files
+- `/multi-review --resume-pair <pair-id>` — resume pass 2 of a paired run
+- `/multi-review --report` — regenerate EXPERIMENTS.md from harvest log
+
+## Procedure
+
+### Step 1 — Parse args
+
+Extract: prompt-files list (or build), resume-pair id, `--report`, `--use-defaults` seed, `--list-reviewers`.
+
+If `--list-reviewers`: probe each known CLI via `shutil.which <cli>` + `<cli> --version`; print availability, detected default models, and the host backend (Task subagent for claude in v0.2). Exit. (Replaces v0.1's flag with a skill-local procedure per spec §5.1.)
+
+**Resolve central path:** read `~/.claude/skills/multi-review/config.json` `central_path` field. Stash it as `CENTRAL_PATH` for use by later steps. Fail with a setup hint if config.json absent.
+
+### Step 2 — Build prompts (if needed)
+
+Determine prompt files:
+- If `--prompt-files` given: use them as-is.
+- If `--resume-pair`: skip build; read pending meta.
+- If `--report`: skip build.
+- Otherwise: dispatch `multi-review-build` Task subagent:
+  - With seed text and (interactive | autonomous) mode flag.
+  - Receive list of YAML paths.
+
+Validate every YAML via Bash:
+```
+uv run python -m multi_review.cli.validate_prompt <path>
+```
+Abort batch if any invalid (print specific field error to user).
+
+### Step 3 — Sweep expired pending pairs
+
+Before any per-prompt work, sweep:
+```
+uv run python -m multi_review.cli.pending gc --pending-dir <cwd>/.multi-review/pending
+```
+
+### Step 4 — Per prompt: determine pass order + drift posture
+
+For each validated prompt file:
+
+a. Generate `run_id` (`uv run python -c "from multi_review.core.paths import generate_run_id; print(generate_run_id())"`).
+
+b. If `mode == both`:
+   - Generate `pair_id` (same helper, `generate_pair_id`).
+   - Determine pass-1 mode from EXPERIMENTS.md `next_recommended_order` — if absent or stale, default to reference first.
+   - If `if_drift != ignore`: plan a snapshot before pass 1 fanout.
+
+c. If `mode != both`: single pass.
+
+### Step 5 — Pass 1 fanout
+
+Prepare prompt:
+```
+uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <cwd>/.multi-review/sessions/<run_id> --mode-override <pass1_mode>
+```
+
+If snapshotting (per spec §9.1 — input files AND context files):
+```
+uv run python -m multi_review.cli.snapshot create \
+  --snapshot-dir <cwd>/.multi-review/pending/<pair_id>/files \
+  --file <file1> --file <file2> ... \
+  --context-file <ctx1> --context-file <ctx2> ...
+```
+
+**Fanout sequencing — Task tool blocks the host turn (spec §6.2 step 3).** In a single assistant message:
+1. **First**, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer):
+   ```
+   uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
+     --out-dir <run_id>/reviews --model <models[cli]> \
+     --fallback-chain "<comma-separated or empty>" --effort <model_effort[cli]>
+   ```
+2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
+3. **Join barrier**: continue once (a) the Task call returns AND (b) every backgrounded `spawn.py` task reports completion (poll via `TaskGet`/`TaskOutput`). Total wall ≈ max(claude Task, max(other reviewers)).
+
+If `claude` is not in `reviewers`, skip the Task dispatch; the join barrier reduces to the background-task polling.
+
+### Step 6 — Synthesis
+
+If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` fields):
+- If `synthesizer == "claude"`: build synthesis input file, dispatch `multi-review-synthesizer` via Task.
+- Else: `mr-spawn --task-mode synthesize --cli <synthesizer> ...`
+- Read synthesis text from output file.
+
+### Step 7 — Aggregate
+
+**Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<run_id>/reviews/<cli>.md` against the canonical regex `^#{1,3}\s+(summary|executive summary)\b` (case-insensitive — see `SUMMARY_HEADING_CONTRACT` and spec §5.2). Any reviewer whose output fails to match is demoted to `ok: false` and its body moved to `partial` in the state JSON. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
+
+**Output path branches by mode** (spec §4.2):
+
+- **Single-pass** (`mode != both`): write to cwd root.
+  ```
+  uv run python -m multi_review.cli.aggregate \
+    --reviews-dir <run_id>/reviews --output <cwd>/REVIEW-<slug>.md \
+    --mode <pass1_mode> --task <task> \
+    --synthesis-text-file <synth_output> \
+    --pair-id <pair_id_or_omit> --prompt-file <yaml_path>
+  ```
+- **Paired** (both passes; `mode == both`): write to the staged session dir; Step 11 promotes to cwd root with mode-suffixed names.
+  ```
+  uv run python -m multi_review.cli.aggregate \
+    --reviews-dir <run_id>/reviews --output <cwd>/.multi-review/sessions/<run_id>/REVIEW.md \
+    --mode <passN_mode> --task <task> \
+    --synthesis-text-file <synth_output> \
+    --pair-id <pair_id> --prompt-file <yaml_path>
+  ```
+
+Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies only to cwd-root paths (single-pass here, paired after Step 11 promotion); staged session-dir paths are unique per `run_id` so cannot collide.
+
+### Step 8 — Build harvest row + (deferred) write
+
+Build the row payload as a JSON file under `<cwd>/.multi-review/pending-harvest/<run_id>.json`.
+
+### Step 9 — Decide on cooldown
+
+If `mode == both` and pass 1 had a gemini fallback (check gemini state.json `fallback_hops > 0`):
+- Write pending meta: `mr-pending write` with status `awaiting-pass-2`, modes, `delay_type`, etc.
+- If `delay_type == background`:
+  - Spawn Bash background: `sleep <delay> && python -c "<resume check + notify-send invocation>"`
+  - Print resume command to user: "Resume manually with: `/multi-review --resume-pair <pair-id>`"
+  - **Stop processing further prompts in batch until resumed.**
+- If `delay_type == foreground`:
+  - Bash with countdown: `for i in $(seq <delay> -1 1); do echo -ne "\rPass 2 in ${i}s..."; sleep 1; done`.
+  - Auto-fire pass 2 after.
+
+If pass 1 had no fallback OR `mode != both`: proceed immediately. **Tie-break:** when EXPERIMENTS counters tie at 0 (post-reset reality + every fresh codebase), default pass-1 mode is `reference` (spec §11.3).
+
+### Step 10 — Pass 2 (paired only)
+
+Triggered either by foreground wait completion or `--resume-pair <id>` invocation.
+
+a. Atomic status transition: read pending meta, refuse if `status != awaiting-pass-2`, set to `resuming`.
+
+b. TaskStop the notification task if still alive.
+
+c. If `if_drift != ignore`:
+   - `mr-snapshot diff --snapshot-dir <pending/<pair_id>/files> --file <each>`
+   - Branch on `status`:
+     - `clean` → proceed.
+     - `drifted` + `if_drift == abort` → write pending meta `status: aborted`, harvest row marks `drift_status: drifted`, skip pass 2, continue.
+     - `drifted` + `if_drift == ask` → AskUserQuestion(proceed | abort | investigate). On investigate: dispatch `multi-review-investigate` with the diff + pass-1 REVIEW.md → re-ask with verdict.
+
+d. Run pass 2 fanout, synthesis, aggregate — same as steps 5–7, with `mode_override` = pass 2 mode, `pair-id` flag passed through.
+
+e. Build pass 2 harvest row (pending).
+
+### Step 11 — Post-paired report
+
+`<CENTRAL_PATH>` was resolved in Step 1 from `~/.claude/skills/multi-review/config.json`. Use it instead of any hardcoded `~/kramtime/...` path.
+
+**Promote staged REVIEW.md files to cwd root with mode suffixes** (spec §4.2, §6.2 step 4). For each of the two passes, rename:
+
+```
+mv <cwd>/.multi-review/sessions/<pass-1-run-id>/REVIEW.md \
+   <cwd>/REVIEW-<slug>-<pass-1-mode>.md
+mv <cwd>/.multi-review/sessions/<pass-2-run-id>/REVIEW.md \
+   <cwd>/REVIEW-<slug>-<pass-2-mode>.md
+```
+
+Example: pass 1 mode `reference`, slug `auth-review` → `<cwd>/REVIEW-auth-review-reference.md`. Auto-suffix (`-2`, `-3`, …) applies per file independently on collision at the destination. Report both final paths to the user.
+
+Then build the long-form paired report. Filename is fixed by the builder as `<project>-<date>-<pair-id>.md` (spec §4.2 / §10.1):
+
+```
+uv run python -m multi_review.cli.report build-paired \
+  --log <CENTRAL_PATH>/runs.jsonl \
+  --pair-id <pair_id> --out-dir <CENTRAL_PATH>/reports \
+  --project <project> --date <YYYY-MM-DD> \
+  --headline-file <synth_pass2_output_pair_section> \
+  --mode-divergence-file ... \
+  --per-reviewer-notes-file ...
+```
+
+The mode_divergence / per_reviewer_notes blocks come from a final synthesis pass scoped to the pair: dispatch `multi-review-synthesizer` with both REVIEW.md files in `<pass-1>` and `<pass-2>` blocks. The synthesizer prompt template forbids load-bearing comparative claims at single-run level (spec §10.2).
+
+### Step 12 — Cleanup
+
+`mr-snapshot cleanup --snapshot-dir <pending/<pair_id>/files>`
+Remove `.multi-review/pending/<pair_id>/`.
+
+Step 11 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<run_id>/`, so the session directories now contain only ephemeral artifacts (per-reviewer state/.md, synthesis input/output, prepared prompt). Cleaning or pruning these directories will not lose user-visible output.
+
+### Step 13 — Batch end: harvest flush + regen
+
+Flush all queued harvest rows in one batched invocation (spec §5.3):
+
+- Tell user: "Writing N harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
+- On approval:
+  ```
+  uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
+  ```
+  The flag scans `<cwd>/.multi-review/pending-harvest/*.json`, appends each row, and deletes each pending file only after successful write.
+- On denial: pending files stay in place (spec §12 error-table behaviour); print the resume command.
+
+After harvest:
+```
+uv run python -m multi_review.cli.report regen \
+  --log <CENTRAL_PATH>/runs.jsonl \
+  --reports-dir <CENTRAL_PATH>/reports \
+  --output <CENTRAL_PATH>/EXPERIMENTS.md
+```
+
+### Step 14 — Final summary
+
+Print per-prompt: REVIEW.md path, reviewer pass/fail counts, fallback events, comparison eligibility (paired only), pending pair status if applicable.
+
+## Notes on early resume + late notification (mode: both, delay: background)
+
+If the user triggers `--resume-pair <id>` before the background timer fires:
+- The atomic status transition (step 10a) flips meta to `resuming`.
+- TaskStop kills the bg task if still alive (belt and braces).
+- If somehow the bg sleep does fire after the status flip, its own first action is to re-check status; on seeing `!= awaiting-pass-2`, it exits silently with no notification.
+
+This double-guard prevents double-fire. **Do not** infer pass 2 timing from the timer alone; always use the status transition.
+
+## Notes on `mode: both` + `if_drift: ignore`
+
+When both conditions hold:
+- **Skip** snapshot creation in step 5.
+- **Skip** drift diff and investigate logic in step 10c entirely.
+- Harvest row records `drift_status: unchecked` and pair-level `comparison_eligible: false`.
+
+The investigate subagent is never dispatched in this configuration.
+
+## Notes on `claude` not in reviewers
+
+If the user's prompt file has `reviewers` without `claude`:
+- The reviewer fanout in step 5 dispatches no Task subagent; all reviewers are subprocess.
+- The synthesizer path in step 6 still uses `multi-review-synthesizer` Task IF `synthesizer == "claude"`. Otherwise subprocess synthesis via `mr-spawn`.
+
+This is supported; print a one-line acknowledgement: "Note: claude reviewer omitted; synthesis still via Task subagent."
