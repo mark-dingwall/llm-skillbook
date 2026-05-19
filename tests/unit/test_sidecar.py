@@ -47,3 +47,31 @@ def test_rows_without_argv_are_unpairable(tmp_path):
     rows = [_row(argv=None), _row(mode="reference", started_at="2026-05-05T03:20:00Z")]
     log.write_text("\n".join(json.dumps(r) for r in rows))
     assert group_candidate_pairs(log, default_delay_s=1800) == []
+
+def test_group_pairs_ignores_mode_and_output_flag_differences(tmp_path):
+    """Paired runs always differ by --mode {inline,reference} and --output
+    paths that embed the mode substring. Comparator must normalize both out
+    before testing argv equality, otherwise real pairs never match."""
+    log = tmp_path / "runs.jsonl"
+    inline_argv = [
+        "./multi_review.py", "--task", "code",
+        "--mode", "inline",
+        "--output", "out/REVIEW-inline.md",
+        "--reviewers", "claude,gemini",
+        "src/auth.ts",
+    ]
+    ref_argv = [
+        "./multi_review.py", "--task", "code",
+        "--mode", "reference",
+        "--output", "out/REVIEW-reference.md",
+        "--reviewers", "claude,gemini",
+        "src/auth.ts",
+    ]
+    rows = [
+        _row(mode="inline", argv=inline_argv, started_at="2026-05-05T03:00:00Z"),
+        _row(mode="reference", argv=ref_argv, started_at="2026-05-05T03:20:00Z"),
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    pairs = group_candidate_pairs(log, default_delay_s=1800)
+    assert len(pairs) == 1, "real-world paired argvs should still group"
+    assert {r["mode"] for r in pairs[0].rows} == {"inline", "reference"}

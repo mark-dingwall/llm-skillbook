@@ -38,6 +38,24 @@ def _ts(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+_PAIR_DIFFERING_FLAGS = ("--mode", "--output")
+
+
+def _argv_for_pair_compare(argv: list[str]) -> list[str]:
+    """Strip flag-value pairs that legitimately differ between inline↔reference
+    runs (--mode + --output, since output paths embed mode names). Everything
+    else — prompt, reviewers, context files, input files — must match byte-for-byte."""
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        if argv[i] in _PAIR_DIFFERING_FLAGS and i + 1 < len(argv):
+            i += 2
+            continue
+        out.append(argv[i])
+        i += 1
+    return out
+
+
 def group_candidate_pairs(log_path: Path, *, default_delay_s: int) -> list[CandidatePair]:
     """Group JSONL rows into candidate inline↔reference pairs per spec §11.1.
 
@@ -62,7 +80,7 @@ def group_candidate_pairs(log_path: Path, *, default_delay_s: int) -> list[Candi
                 continue
             if {a["mode"], b["mode"]} != {"inline", "reference"}:
                 continue
-            if sorted(a["argv"]) != sorted(b["argv"]):
+            if sorted(_argv_for_pair_compare(a["argv"])) != sorted(_argv_for_pair_compare(b["argv"])):
                 continue
             dt = abs((_ts(a["started_at"]) - _ts(b["started_at"])).total_seconds())
             if dt > window_s:
