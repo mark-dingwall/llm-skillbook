@@ -1983,7 +1983,7 @@ git commit -m "feat(cli): mr-validate-prompt"
 - Create: `multi_review/cli/prepare.py`
 - Create: `tests/integration/test_cli_prepare.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_prepare.py
@@ -2015,12 +2015,12 @@ mode: inline
     assert "print('hi')" in body
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/integration/test_cli_prepare.py -v`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/prepare.py
@@ -2065,12 +2065,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_prepare.py -v`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/prepare.py tests/integration/test_cli_prepare.py
