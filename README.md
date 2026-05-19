@@ -1,294 +1,248 @@
 # multi-review
 
-Run the same review prompt through multiple AI CLIs in parallel, then aggregate their
-output into a single `REVIEW.md` (with an optional consensus-synthesis pass).
+Fan out a code review across multiple AI models in parallel, aggregate results into a `REVIEW.md`, and optionally run a consensus-synthesis pass. Supports inline and reference prompt modes, automated paired runs with drift detection, and harvest-based comparison tracking.
 
-Different models catch different blind spots. A prompt, plan, or piece of code that
-survives independent review from 2–3 AI CLIs is more robust than one that only
-passes a single pair of eyes.
-
-Single-file Python script. Run via `uv`. No packaging, no install step.
+**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (gemini, codex, opencode) continue as subprocesses.
 
 ## Requirements
 
-- Python 3.11+
-- [`uv`](https://docs.astral.sh/uv/) — handles the `rich` dependency automatically via PEP 723 inline metadata.
-- One or more of the supported AI CLIs on `PATH`:
+- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
+- Claude Code (TUI) — required for Task subagent dispatch
+- One or more of the supported reviewer CLIs on `PATH`:
   - [`claude`](https://github.com/anthropics/claude-code)
   - [`gemini`](https://github.com/google-gemini/gemini-cli)
   - [`codex`](https://github.com/openai/codex)
-  - [`opencode`](https://opencode.ai) _(optional — uses `--format json` event stream; token usage best-effort, depends on upstream schema)_
+  - [`opencode`](https://opencode.ai)
 
 ## Install
 
-```bash
-git clone https://github.com/mark-dingwall/multi-review ~/tools/multi-review
-ln -s ~/tools/multi-review/multi_review.py ~/.local/bin/multi-review
-```
-
-Or run it directly:
+Run setup once from the cloned repository:
 
 ```bash
-~/tools/multi-review/multi_review.py --list-reviewers
+uv run python -m multi_review.cli.setup --source-repo $(pwd)
 ```
 
-The script's shebang (`#!/usr/bin/env -S uv run --script`) lets `uv` resolve dependencies on first run.
+Setup copies `skills/multi-review/` and `agents/*.md` into `~/.claude/`, resolves the central state path (see §4.2 of spec), and writes `~/.claude/skills/multi-review/config.json`.
 
-## Quickstart
+To avoid a per-run permission prompt for harvest row writes, pass `--write-allowlist` to have setup insert the resolved `runs.jsonl` path into `~/.claude/settings.local.json`:
 
 ```bash
-# Review one file with the default "generic" prompt
-multi-review src/auth.ts
-
-# Code-focused review across multiple files
-multi-review --task code src/auth.ts src/session.ts
-
-# Security audit with extra context
-multi-review --task security --context docs/threat-model.md api/handlers/*.py
-
-# Review a plan document with a custom prompt
-multi-review --prompt "Focus on dependency ordering and rollback paths" plan.md
-
-# Skip the consensus synthesis pass
-multi-review --task code --no-synthesize file.py
-
-# Use a different synthesizer
-multi-review --task plan --synthesizer gemini PLAN.md
-
-# Per-reviewer model override
-multi-review --model claude=claude-opus-4-7 --model codex=gpt-5 file.py
+uv run python -m multi_review.cli.setup --source-repo $(pwd) --write-allowlist
 ```
 
-## How it works
+Without `--write-allowlist`, a Bash permission prompt fires once per run. The allowlist entry is the only write that setup makes to your Claude settings.
 
-1. Builds one prompt (task preset or custom) and wraps the reviewed files in nonce-tagged `<file-NONCE>` tags with a prompt-injection defense preamble.
-2. Launches all available reviewer CLIs in parallel via `asyncio`.
-3. Streams each CLI's JSONL event output through a per-CLI `ProgressAdapter` that tracks token counts, tool calls, and elapsed time — all rendered in a live `rich` dashboard.
-4. Captures each CLI's response and writes `REVIEW.md` with YAML frontmatter (reviewers, usage, models) + one Markdown section per reviewer.
-5. If ≥2 reviewers succeeded and `--synthesize` is on (default), pipes the aggregated `REVIEW.md` through the synthesizer CLI to fill a "Consensus Summary" section (Agreed Strengths / Agreed Concerns / Divergent Views).
-
-## Self-skip (opt-in)
-
-When `multi-review` is launched **from inside an AI CLI** (e.g. you're using Claude
-Code and you run `multi-review` in its terminal), that CLI is the "host". By default
-the host is still included as a reviewer — the spawned subprocess has its own
-context window with no prior reasoning carried over, so it remains a useful
-independent voice. Pass `--skip-self` to drop the host from the auto-resolved
-reviewer set.
-
-When launched from a plain shell, no host is detected and `--skip-self` is a no-op.
-
-Detection is env-var-based — host is whichever of these the parent CLI sets:
-
-| Env var                  | Detected host | Reviewer dropped under `--skip-self` |
-| ------------------------ | ------------- | ------------------------------------- |
-| `CLAUDE_CODE_ENTRYPOINT` | Claude Code   | `claude`                              |
-| `GEMINI_CLI`             | Gemini CLI    | `gemini`                              |
-| `CODEX_ENV`              | Codex CLI     | `codex`                               |
-| `OPENCODE`               | opencode      | `opencode`                            |
-| `ANTIGRAVITY_AGENT=1`    | Antigravity   | _(none — host detection skipped)_     |
-
-`--skip-self` only affects the auto-resolved reviewer list. An explicit
-`--reviewers claude,gemini` runs exactly that set even with `--skip-self`.
-
-Check detection:
+For iterating on the skill itself, `--dev` symlinks instead of copying so edits take effect without re-running setup:
 
 ```bash
-multi-review --list-reviewers              # shows host + effective set
-multi-review --list-reviewers --skip-self  # preview the dropped set
+uv run python -m multi_review.cli.setup --source-repo $(pwd) --dev
 ```
 
-## Progress signals per reviewer
+## Usage
 
-Each CLI exposes different telemetry during a run. The dashboard shows what's available:
+Invoke from inside a Claude Code session:
 
-| Reviewer   | In/out tokens | Tool calls | Bytes read | Phase label |
-| ---------- | ------------- | ---------- | ---------- | ----------- |
-| `claude`   | live (per-message)           | yes  | yes | yes (`running`, `tool:<name>`, `done`) |
-| `gemini`   | final-only (in `result`)     | final-only | yes | coarse (`running`, `done`) |
-| `codex`    | final-only (in `turn.completed`) | yes  | yes | yes (`running`, `tool:<name>`, `done`) |
-| `opencode` | best-effort (in `step_finish`) | yes | yes | yes (`running`, `tool:<name>`, `done`, `error:<name>`) |
+```
+/multi-review
+```
 
-`opencode` now emits a structured event stream via `--format json`. Token counts are best-effort: they appear if the CLI surfaces them in `step_finish`, otherwise `0`. Bytes read is still tracked for all reviewers.
+### Invocation forms
 
-## Consensus synthesis (and the double-weighting caveat)
+| Form | Behaviour |
+|------|-----------|
+| `/multi-review` | Interactive prompt build — `multi-review-build` subagent asks questions, authors a YAML prompt file, then runs it |
+| `/multi-review "seed text"` | Interactive build with seed — subagent skips discovery questions, starts from your seed |
+| `/multi-review --use-defaults "seed text"` | Autonomous build — subagent does a shallow cwd scan, infers defaults, writes YAML without prompting |
+| `/multi-review --prompt-files A.yaml,B.yaml` | Run one or more pre-written prompt files directly (skips build subagent) |
+| `/multi-review --resume-pair <pair-id>` | Resume pass 2 of a background-cooldown paired run |
+| `/multi-review --report` | Regenerate `EXPERIMENTS.md` from harvest log, then exit |
+| `/multi-review --list-reviewers` | Probe each CLI via `shutil.which` + `<cli> --version`, print availability and detected models |
 
-By default, once all reviewers have responded, the aggregated `REVIEW.md` is piped
-through `--synthesizer` (default: `claude`) with a fixed synthesis prompt instructing
-it to treat all reviews as peer input.
+## Prompt YAML schema
 
-**Caveat:** when the synthesizer is also a reviewer, that model's view is effectively
-double-weighted (once as reviewer, once as synthesizer). For the most independent
-consensus, pick a synthesizer that is _not_ in the reviewer set, e.g.:
+Reviews are driven by YAML prompt files. The `multi-review-build` subagent authors these interactively; you can also write them by hand and pass them with `--prompt-files`.
+
+```yaml
+prompt_format_version: 1
+
+# Task preset. One of: code | plan | security | generic | custom
+task: code
+
+# Files to review (required)
+files:
+  - src/auth.ts
+  - src/session.ts
+
+# Extra context — always inlined regardless of mode (optional)
+context_files:
+  - docs/threat-model.md
+
+# Free-form prompt override. Only used when task == custom
+custom_prompt: |
+  Focus on dependency ordering and rollback paths
+
+# Prompt shape. One of: inline | reference | both
+# inline  — file contents embedded in <file-NONCE> tags
+# reference — manifest of absolute paths; reviewer reads via its own tools
+# both — run once in each mode (paired run for comparison)
+mode: reference
+
+# Synthesis pass. One of: claude | gemini | codex | opencode | none
+synthesizer: claude
+
+# Reviewer set
+reviewers:
+  - claude
+  - gemini
+  - codex
+  - opencode
+
+# Primary model per reviewer (optional — omit for defaults)
+models:
+  claude: claude-opus-4-7
+  gemini: gemini-3.1-pro
+  codex: gpt-5
+  opencode: openrouter/deepseek/deepseek-v4-pro
+
+# Effort hint per reviewer — silently ignored where unsupported
+# claude effort is pinned in the agent definition (xhigh); this field
+# is ignored for claude
+model_effort:
+  codex: high
+
+# Fallback chain on capacity failure. See "Pinning vs fallback" below.
+fallback_models:
+  gemini:
+    - gemini-3.1-flash
+    - gemini-2.5-pro
+
+# Cooldown between pass 1 and pass 2 (mode: both only), in seconds
+delay: 1800
+
+# How to wait: foreground (countdown) | background (exit + notify + resume)
+delay_type: background
+
+# Drift policy between passes (mode: both only)
+# ignore — no snapshot, no diff; pair flagged comparison_eligible: false
+# abort  — abort pass 2 on any drift
+# ask    — AskUserQuestion: proceed | abort | investigate
+if_drift: ask
+
+# Optional overrides
+output_dir: null    # default: <cwd>/.multi-review/sessions/<auto-slug>/
+save_as: null       # promote ephemeral YAML to persistent name if set
+harvest: true       # write harvest row to central runs.jsonl
+```
+
+### Field reference
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `prompt_format_version` | int | — | Required. Currently `1`. |
+| `task` | enum | — | Required. `code \| plan \| security \| generic \| custom`. |
+| `files` | list[path] | — | Required. Paths must exist on disk at validation time. |
+| `context_files` | list[path] | `[]` | Always inlined (both modes). Also snapshotted for drift detection. |
+| `custom_prompt` | string | — | Required when `task == custom`. |
+| `mode` | enum | — | Required. `inline \| reference \| both`. |
+| `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
+| `reviewers` | list[enum] | all detected | Subset of `claude \| gemini \| codex \| opencode`. |
+| `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
+| `model_effort` | map | `{}` | Effort hint per reviewer. Silently ignored where unsupported. |
+| `fallback_models` | map | see below | Capacity-failure fallback chain per reviewer. See "Pinning vs fallback". |
+| `delay` | int (seconds) | `1800` | Cooldown before pass 2. `mode: both` only. Must be ≤ 86400. |
+| `delay_type` | enum | `background` | `foreground \| background`. Background is overridden to foreground inside a multi-prompt batch. |
+| `if_drift` | enum | `ask` | `ignore \| abort \| ask`. `ask` keeps the pair comparison-eligible unless the user chooses to proceed after drift. |
+| `output_dir` | path\|null | auto | Override staging directory for session files. |
+| `save_as` | string\|null | null | Name to promote the ephemeral YAML to a persistent prompt file. |
+| `harvest` | bool | `true` | Write a harvest row to `runs.jsonl`. |
+
+Validate a YAML file without running a review:
 
 ```bash
-multi-review --task code --skip-self --synthesizer claude src/*.py   # claude only as synthesizer
-multi-review --task code --reviewers gemini,codex --synthesizer claude src/*.py
+uv run python -m multi_review.cli.validate_prompt prompt.yaml
 ```
 
-Synthesis is skipped automatically when fewer than 2 reviewers succeed; the Consensus
-section will read `Consensus: n/a (insufficient reviewers)`.
+## Pinning vs fallback
 
-Disable it entirely with `--no-synthesize`.
+Setting `models.X: <model>` **pins** reviewer X to that model with **no fallback**. This matches v0.1 `--model X=Y` behaviour.
 
-## Prompt-injection defense
+To opt into a fallback chain after pinning, supply `fallback_models.X` explicitly:
 
-Every file passed to `multi-review` is wrapped in
-`<file-NONCE path="...">...</file-NONCE>` tags using a fresh 8-hex per-run nonce
-(synthesis input wraps each review in `<review-NONCE reviewer="...">` the same way),
-and the prompt opens with an explicit instruction that content inside those tags is
-review data, not instructions. The nonce prevents a reviewed file from forging the
-closing tag and breaking out of the data block. This does not remove the risk of
-injection — it only raises the floor. Don't use `multi-review` to review
-attacker-controlled input without additional sandboxing.
-
-## Capacity-aware fallback (gemini)
-
-Gemini's frontier models hit `429 MODEL_CAPACITY_EXHAUSTED` opaquely. Every
-gemini run is **capacity-resilient by default**: a 3-deep model chain is
-walked on capacity-class stderr matches (regex over `RESOURCE_EXHAUSTED`,
-`MODEL_CAPACITY_EXHAUSTED`, `Quota exceeded`, `429`, `UNAVAILABLE`,
-`model is overloaded`), stopping at the first success.
-
-Default chain (top-to-bottom precedence):
-
-```
-gemini-3.1-pro-preview
-gemini-3-flash-preview
-gemini-2.5-pro
+```yaml
+models:
+  gemini: gemini-3.1-pro-preview
+fallback_models:
+  gemini:
+    - gemini-3.1-flash
+    - gemini-2.5-pro
 ```
 
-Knobs:
+The built-in default gemini chain (`gemini-3.1-flash`, `gemini-2.5-pro`) fires **only** when `models.gemini` is absent (i.e. defaults-on-defaults). Once you set `models.gemini`, you get exactly what you set — an empty `fallback_models.gemini: []` and an absent `fallback_models.gemini` are equivalent (both mean no fallback).
 
-- `--no-fallback` — disable fallback entirely (single attempt only).
-- `--fallback-model gemini=A,B,C` — override the chain.
-- `--model gemini=X` — **pins** to X and **disables fallback** for gemini.
-  Use `--fallback-model` if you want both an override and a chain.
+| `models.gemini` | `fallback_models.gemini` | Behaviour |
+|-----------------|--------------------------|-----------|
+| absent | absent | default primary + built-in default chain |
+| `X` | absent or `[]` | pin to `X`, no fallback |
+| `X` | `[A, B]` | primary `X`, chain `[A, B]` on capacity-class failures |
 
-Real failures (auth, network, prompt-too-large) do **not** burn the chain —
-only capacity-class matches trigger the next hop. Mid-stream 429s that
-already produced ≥50 bytes of usable output are kept as-is (no retry).
+Other CLIs (claude, codex, opencode) have no built-in fallback chain and no fallback behaviour today.
 
-Surfacing:
+## Paired runs, drift, and cooldown
 
-- The dashboard shows a **Model** column. When fallback fires you get an
-  `*N` marker (N = attempts).
-- `REVIEW.md` frontmatter gains a `fallbacks:` block when ≥2 hops were
-  walked, naming `attempts` and the `used` model. Synthesis pass tracked
-  the same way under `fallbacks.synthesis`.
-- A `[yellow]Fallback fired …[/yellow]` console line per reviewer (and for
-  synthesis) prints the stderr tail — capture these for tuning the regex.
+`mode: both` runs the same prompt twice — once inline, once reference — for inline-vs-reference comparison.
 
-Cost note: a stuck-capacity gemini can spend up to 6× the prompt cost on a
-single review. Fallback firing is visible (dashboard + frontmatter +
-console line) so the cost stays attributable, but watch for it on large
-prompts. Use `--no-fallback` if you'd rather fail fast.
+**Pass order** is read from `EXPERIMENTS.md`'s `next_recommended_order` field. When counters tie (including every fresh codebase), the default is `reference` first.
 
-Other CLIs (claude, codex, opencode) have no fallback today — their
-capacity patterns and chains are unset.
+**Drift detection** (`if_drift: ask` default) snapshots `files` and `context_files` before pass 1 and diffs them before pass 2. On drift, the skill asks whether to proceed, abort, or investigate (dispatches `multi-review-investigate` subagent to classify each changed file against pass-1 findings).
 
-## Inline vs reference mode
+**Cooldown** triggers when pass 1 burned the gemini fallback chain, to improve the odds that pass 2 lands on the primary model. With `delay_type: background`, the skill exits after pass 1 and prints a resume command; a background timer fires a desktop notification when the cooldown expires.
 
-By default (`--mode inline`), every input file's contents are embedded into the
-prompt inside `<file-NONCE>` tags. Front-loading 100k+ tokens of source can
-dilute model attention and surface fewer findings than a same-prompt interactive
-run where the model reads files iteratively as it reasons.
+Resume a background-cooldown pair:
 
-`--mode reference` instead emits a manifest of absolute paths and instructs the
-model to read each file via its own file-reading tools. Context files (`--context`)
-are still inline-wrapped regardless of mode — they're framing material the model
-needs before any tool call.
+```
+/multi-review --resume-pair <pair-id>
+```
+
+Manual smoke procedures:
+- `tests/manual/paired_pass.md` — full paired-run procedure
+- `tests/manual/drift_ask.md` — drift-ask flow
+- `tests/manual/cooldown_resume.md` — background cooldown + resume
+
+## Comparison eligibility
+
+A paired run contributes to `sessions_reference_first` / `sessions_inline_first` counters in `EXPERIMENTS.md` only when:
+
+- **Per-reviewer**: `fallback_hops == 0` AND default model used AND reviewer finished `ok`
+- **Pair-level**: both passes satisfy the per-reviewer check for every reviewer; `if_drift` was not `ignore`; and the user did not choose "proceed" after drift was detected
+
+Runs that fail any check are harvested (so the data is preserved) but are excluded from comparison stats. Legacy v1 rows with null eligibility fields are excluded by design.
+
+## Limitations
+
+- **Drift detection covers explicitly-submitted files only.** Files the pass-1 reviewer happened to read via tools (reference mode) but are not listed in `files` or `context_files` are not tracked. Untracked-tool-read drift is a documented v0.2 gap.
+- **Gemini-only fallback chain.** Other CLIs (claude, codex, opencode) have no built-in fallback chain today.
+- **v0.1 standalone CLI removed.** `./multi_review.py file.ts` prints a deprecation banner and exits 1. The v0.1 entry script will be removed entirely in v0.3.
+- **Task-subagent timeout.** Claude Code's `Task` tool exposes no per-Task timeout knob; the claude reviewer has no opt-in deadline in v0.2. Other reviewers still support `--timeout` via the YAML schema (tracked in BACKLOG).
+- **claude token telemetry is null.** Task subagents do not surface JSONL-level usage; `input_tokens` / `output_tokens` / `cached_tokens` for the claude reviewer are `null` in all harvest rows. Comparisons needing claude token data should filter on `telemetry_quality == "reliable"` (will return zero rows until a future path adds reliable telemetry).
+
+## Testing discipline
+
+See `CLAUDE.md` — every bugfix in an untested path backfills the test that would have caught it. Skill-level interactive flows that genuinely cannot be automated → document a manual smoke step in `tests/manual/` instead.
+
+## Migrating from v0.1
+
+Two helper CLIs handle the migration:
+
+- **`mr-migrate-harvest`** (`multi_review.cli.migrate_harvest`) — backfills v1 harvest rows to schema v2 (`usage` → `usage_by_reviewer`, new nullable fields). Interactive, row-by-row; groups candidate pairs by project + input-file set + mode-flip + time window. Takes a `.bak` copy of `runs.jsonl` before any rewrite.
+
+- **`mr-migrate-sidecars`** (`multi_review.cli.migrate_sidecars`) — interactive sidecar reorganisation. Maps existing `runs/notes/*.md` sidecars to candidate pairs or marks them legacy. Emits format-C reports to the resolved central `reports/` directory.
 
 ```bash
-multi-review --mode reference --task code src/auth.ts src/session.ts
+uv run python -m multi_review.cli.migrate_harvest
+uv run python -m multi_review.cli.migrate_sidecars
 ```
 
-When to prefer reference:
-
-- Large file sets where front-loaded context dilutes attention.
-- Reviewer CLIs whose models have strong file-reading / search discipline.
-
-Caveats:
-
-- The reviewer CLI must have its file-read tool enabled. Permission prompts
-  mid-stream are still possible (Phase 2 of this work will add an opt-in
-  `--bypass-perms` + bwrap sandbox combo to suppress prompts safely).
-- Models with poor read-as-you-reason habits may underperform inline. If a
-  reviewer comes back light on findings, swap modes and compare.
-
-## Thorough mode (optional)
-
-For high-stakes reviews — design contracts, ship/no-ship decisions,
-cross-checking an internal review verdict — consider running multi-review
-**twice** against the same inputs, once with `--mode inline` and once with
-`--mode reference`. Early evidence suggests the two prompt shapes elicit
-different reviewer behaviour: some reviewers tool-read deeper in reference
-mode, others surface findings only when content is inlined. The two runs
-together cover signal a single mode misses.
-
-Cost: ~2× wall time, more model quota burned, more bytes on the wire for
-inline. Worth it for important reviews; overkill for small drive-by passes.
-
-If you're a coding agent invoked with "build a prompt for multi-review at
-/path/to/it", **relay this option to your user** — many will pick it for
-important reviews if asked.
-
-Each run automatically writes a metadata row to `runs/runs.jsonl`
-(opt out with `--no-harvest`). Run `multi_review.py --report` to regenerate
-`EXPERIMENTS.md` from the accumulated data; that file recommends which
-order to run in next to keep the dataset balanced.
-
-(Diversity-of-findings claim is currently n=4 runs across two projects —
-early signal, not robust. See `EXPERIMENTS.md` for raw comparison data.)
-
-## Exit codes
-
-- `0` — at least one reviewer succeeded and wrote a review.
-- `1` — all reviewers failed, or no reviewers were available after filtering.
-- `2` — argument error.
-
-A response is classified as a failure when the CLI exits non-zero OR when the
-captured response is under 50 bytes.
-
-Partial failures still produce a `REVIEW.md`; failed reviewers get their own
-section with an `error:` line and a tail of their captured stderr.
-
-## CLI surface
-
-```
-multi-review [file ...]
-  --task                   {code,plan,design,security,generic}  (default: generic)
-  --prompt TEXT            # custom prompt, overrides --task
-  --prompt-file PATH       # read custom prompt from file
-  --context PATH           # extra context (repeatable)
-  --reviewers csv          # explicit reviewer list
-  --output PATH            # default: ./REVIEW.md; auto-suffixes -2/-3/... if target exists
-  --timeout SEC            # default: no timeout (run to completion or Ctrl+C)
-  --no-synthesize          # disable consensus pass
-  --synthesizer CLI        # default: claude
-  --model cli=model-id     # per-reviewer model override; pins + disables fallback.
-  --fallback-model cli=A,B,C  # override the built-in fallback chain (repeatable)
-  --no-fallback            # disable capacity-aware fallback (gemini default chain)
-  --mode {inline,reference} # inline: file contents embedded (default).
-                            # reference: manifest of absolute paths only.
-  --allow-missing          # warn-and-skip missing input/context files (default: error)
-  --dry-run                # print assembled prompt, exit
-  --list-reviewers         # show detected CLIs + self-detection
-  --no-harvest             # skip writing per-run metadata row to runs/runs.jsonl
-  --project-tag NAME       # partition harvest rows by phase or arbitrary label
-                           # (default: git origin basename, fallback cwd basename)
-  --report                 # regenerate EXPERIMENTS.md from runs/runs.jsonl, exit
-  --version
-  -h, --help
-```
-
-## Not in v0.1
-
-- Retries / exponential backoff.
-- `coderabbit`, `qwen`, `cursor` adapters (happy to add — open an issue).
-- `--output-format json`.
-- Cost budgets / `--max-budget`.
-- Automated tests (one manual smoke test only).
+Both are one-shot and idempotent if re-run. Run harvest migration first, then sidecar migration.
 
 ## License
 

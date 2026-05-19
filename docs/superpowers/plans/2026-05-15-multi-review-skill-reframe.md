@@ -4200,7 +4200,7 @@ git commit -m "feat: retire v0.1 CLI behind deprecation banner"
 **Files:**
 - Modify: `README.md` (full rewrite)
 
-- [ ] **Step 1: Rewrite**
+- [x] **Step 1: Rewrite**
 
 Sections to include:
 - What it is (skill, not CLI, post-June-15 2026 billing rationale)
@@ -4214,12 +4214,12 @@ Sections to include:
 - Testing discipline pointer (CLAUDE.md)
 - Migrating from v0.1: link to `cli/migrate_harvest.py` + `cli/migrate_sidecars.py`
 
-- [ ] **Step 2: Smoke read**
+- [x] **Step 2: Smoke read**
 
 Run: `grep -E "skill|YAML|pair-id|claude-opus-4-7|fallback_models" README.md | head -20`
 Expected: matches per the section list above.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md
