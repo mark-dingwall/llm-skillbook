@@ -2215,7 +2215,7 @@ git commit -m "feat(cli): mr-spawn — single-reviewer subprocess runner"
 - Create: `multi_review/cli/aggregate.py`
 - Create: `tests/integration/test_cli_aggregate.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_aggregate.py
@@ -2247,11 +2247,11 @@ def test_aggregate_writes_review_md(tmp_path):
     assert "claude says it's fine" in body
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
 Run: `uv run pytest tests/integration/test_cli_aggregate.py -v`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/aggregate.py
@@ -2306,11 +2306,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_aggregate.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/aggregate.py tests/integration/test_cli_aggregate.py
