@@ -23,6 +23,7 @@ from pathlib import Path
 
 from multi_review.core.fanout import ReviewerState, ReviewerResult, resolve_chain, run_reviewer, CAPACITY_PATTERNS
 from multi_review.core.reviewers import ALL_REVIEWERS, make_adapter
+from multi_review.core.synthesis import run_synthesis
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,7 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--timeout", type=int, default=None,
                    help="Seconds before killing reviewer subprocess.")
     p.add_argument("--task-mode", choices=["review", "synthesize"], default="review")
+    p.add_argument("--input-nonce", default=None,
+                   help="Nonce token used in the synthesis review-body tags "
+                        "(required with --task-mode synthesize).")
     args = p.parse_args(argv)
+
+    if args.task_mode == "synthesize":
+        if not args.input_nonce:
+            print("error: --input-nonce is required with --task-mode synthesize", file=sys.stderr)
+            return 2
+        return _run_synthesize(args)
 
     if args.effort is not None:
         print(
@@ -114,6 +124,62 @@ def main(argv: list[str] | None = None) -> int:
         "state_path": str(state_path),
     }))
     return 0 if result.ok else 1
+
+
+def _run_synthesize(args) -> int:
+    review_body = args.prompt_file.read_text()
+
+    fallback_disabled = False
+    override_chain: list[str] | None = None
+    if args.fallback_chain is not None:
+        if args.fallback_chain == "":
+            fallback_disabled = True
+        else:
+            override_chain = args.fallback_chain.split(",")
+    chain = resolve_chain(
+        args.cli,
+        explicit_model=args.model,
+        fallback_disabled=fallback_disabled,
+        override_chain=override_chain,
+    )
+    capacity_pattern = CAPACITY_PATTERNS.get(args.cli)
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
+    ok, text, err, suggested, attempts = asyncio.run(
+        run_synthesis(
+            args.cli,
+            review_body,
+            args.input_nonce,
+            args.model,
+            args.timeout,
+            chain=chain,
+            capacity_pattern=capacity_pattern,
+        )
+    )
+    duration = time.monotonic() - start
+
+    synth_path = args.out_dir / "synth.txt"
+    synth_path.write_text(text or "")
+    state_path = args.out_dir / "synth.state.json"
+    state_path.write_text(json.dumps({
+        "cli": args.cli,
+        "ok": ok,
+        "duration_seconds": duration,
+        "attempts": attempts,
+        "stderr_tail": err,
+        "usage": None,
+        "fallback_hops": max(0, len(attempts) - 1),
+        "final_model": attempts[-1] if attempts else None,
+        "suggested_filename": suggested,
+    }, indent=2))
+
+    print(json.dumps({
+        "ok": ok,
+        "synth_path": str(synth_path),
+        "state_path": str(state_path),
+    }))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
