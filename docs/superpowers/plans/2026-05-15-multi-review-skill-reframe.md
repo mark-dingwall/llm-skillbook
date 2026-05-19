@@ -226,7 +226,7 @@ git commit -m "feat: scaffold multi_review package + pyproject"
 - Create: `multi_review/core/paths.py`
 - Create: `tests/unit/test_paths.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/unit/test_paths.py
@@ -280,12 +280,12 @@ def test_slugify():
     assert slugify("  multiple   spaces  ") == "multiple-spaces"
 ```
 
-- [ ] **Step 2: Run test, expect failure**
+- [x] **Step 2: Run test, expect failure**
 
 Run: `uv run pytest tests/unit/test_paths.py -v`
 Expected: ImportError / module not found.
 
-- [ ] **Step 3: Implement `paths.py`**
+- [x] **Step 3: Implement `paths.py`**
 
 ```python
 # multi_review/core/paths.py
@@ -361,12 +361,12 @@ def slugify(s: str) -> str:
     return s.strip("-")
 ```
 
-- [ ] **Step 4: Run tests, expect pass**
+- [x] **Step 4: Run tests, expect pass**
 
 Run: `uv run pytest tests/unit/test_paths.py -v`
 Expected: 7 passed (config-honoured + XDG-fallback test pair replaces the bare shape check).
 
-- [ ] **Step 5: Update `.gitignore`**
+- [x] **Step 5: Update `.gitignore`**
 
 ```
 # Multi-review v0.2 state

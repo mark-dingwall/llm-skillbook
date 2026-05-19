@@ -27,3 +27,7 @@ runs/runs.jsonl
 # LLM files
 .claude/
 .codex
+
+# Multi-review v0.2 state
+.multi-review/
+*.egg-info/
