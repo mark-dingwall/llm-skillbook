@@ -212,7 +212,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 Run: `uv run python -c "import multi_review; print(multi_review.__version__)"`
 Expected: `0.2.0a0`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add pyproject.toml multi_review/ tests/__init__.py tests/conftest.py
