@@ -1786,7 +1786,7 @@ git commit -m "feat(core): YAML prompt schema with cheap structural validation"
 - Modify: `multi_review.py:1458-1622` → re-export
 - Create: `tests/unit/test_report.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_report.py
@@ -1857,12 +1857,12 @@ def test_build_paired_report_filename_format(tmp_path):
     ) == "paralife-2026-05-05-pair-20260505-0345-9f3a.md"
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_report.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract + extend**
+- [x] **Step 3: Extract + extend**
 
 Move `multi_review.py:1458-1622` (`_format_fallback_label`, `render_experiments_markdown`) into `multi_review/core/report.py`.
 
@@ -1877,12 +1877,12 @@ Add new function `build_paired_report(log_path, pair_id, out_path, headline, mod
 
 **Filename format-of-record** (spec §4.2 / §10.1): `<project>-<date>-<pair-id>.md`, joined under `<out_dir>/`. Auto-suffix on collision (`-2`, `-3`, …) applies via `resolve_output_path`. Expose the join as a tiny pure helper `paired_report_filename(project, date, pair_id) -> str` so the contract is unit-testable independently of disk I/O. `cli/report.py` (Task 21) passes `--project`, `--date`, `--pair-id`, `--out-dir`; this function owns the literal format.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_report.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/report.py multi_review.py tests/unit/test_report.py
