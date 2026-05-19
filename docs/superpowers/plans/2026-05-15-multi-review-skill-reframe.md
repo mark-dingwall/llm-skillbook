@@ -3989,7 +3989,7 @@ git commit -m "feat(skill): SKILL.md orchestrator + templates + manual smoke pro
 - Create: `multi_review/cli/migrate_harvest.py`
 - Create: `tests/integration/test_cli_migrate_harvest.py`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 # tests/integration/test_cli_migrate_harvest.py
@@ -4026,9 +4026,9 @@ def test_migrate_backfills_v1_rows(tmp_path):
             assert "final_model" in ub
 ```
 
-- [ ] **Step 2: Run, expect ModuleNotFoundError.**
+- [x] **Step 2: Run, expect ModuleNotFoundError.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/migrate_harvest.py
@@ -4076,11 +4076,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_migrate_harvest.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/migrate_harvest.py tests/integration/test_cli_migrate_harvest.py
