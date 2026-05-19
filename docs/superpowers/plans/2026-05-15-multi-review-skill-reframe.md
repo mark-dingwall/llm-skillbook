@@ -3240,7 +3240,7 @@ git commit -m "feat(cli): mr-setup — install skill + agents + run dirs"
 - Create: `agents/multi-review-reviewer.md`
 - Create: `tests/manual/agent_reviewer_smoke.md`
 
-- [ ] **Step 1: Write agent definition**
+- [x] **Step 1: Write agent definition**
 
 `agents/multi-review-reviewer.md`:
 
@@ -3305,7 +3305,7 @@ Use file:line citations where you can: `auth.ts:42`. Cite line numbers from the 
 Be specific. "Edge case not handled" is useless; "if the user logs in with no email set, `session.email.toLowerCase()` throws at session.ts:128" is useful.
 ```
 
-- [ ] **Step 2: Write manual smoke procedure**
+- [x] **Step 2: Write manual smoke procedure**
 
 `tests/manual/agent_reviewer_smoke.md`:
 
@@ -3321,16 +3321,16 @@ Be specific. "Edge case not handled" is useless; "if the user logs in with no em
 4. Verify file:line citations present.
 ```
 
-- [ ] **Step 3: Verify `## Summary` heading contract interpolation**
+- [x] **Step 3: Verify `## Summary` heading contract interpolation**
 
 The `<!-- SUMMARY_CONTRACT -->` sentinel inside the frontmatter block is substituted at install time by `setup.py` (Task 23) with the `SUMMARY_HEADING_CONTRACT` string exported from `multi_review.core.prompt` (Task 5). Single source of truth: the same constant is interpolated into subprocess reviewer prompts by `prepare.py` (Task 16). Editing the contract means editing the constant.
 
-- [ ] **Step 4: Install + verify**
+- [x] **Step 4: Install + verify**
 
 Run: `uv run python -m multi_review.cli.setup --source-repo $(pwd) --no-prompt`
 Expected: `~/.claude/agents/multi-review-reviewer.md` exists; `## Summary` clause from `SUMMARY_HEADING_CONTRACT` is substituted in place of the `<!-- SUMMARY_CONTRACT -->` sentinel; `tools:` frontmatter does NOT include `Bash`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add agents/multi-review-reviewer.md tests/manual/agent_reviewer_smoke.md
