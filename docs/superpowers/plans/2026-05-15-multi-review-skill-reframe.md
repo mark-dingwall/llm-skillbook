@@ -788,7 +788,7 @@ git commit -m "refactor(core): extract reviewers + CLI_SPEC + build_command"
 - Modify: `multi_review.py:635-986` → keep `build_table`/`rich.Live` glue in legacy script only; export pure async runners
 - Create: `tests/unit/test_fanout.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_fanout.py
@@ -820,12 +820,12 @@ def test_resolve_chain_override_chain_used():
     assert chain == ["a", "b"]
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_fanout.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Move into `multi_review/core/fanout.py`:
 - `ReviewerState`, `ReviewerResult` dataclasses
@@ -835,12 +835,12 @@ Keep `build_table` in `multi_review.py` (legacy-only — the new architecture re
 
 `run_all_reviewers` signature in core/fanout.py should NOT take a `console` argument; it returns `list[ReviewerResult]` and emits state updates via an optional `state_callback`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_fanout.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/fanout.py multi_review.py tests/unit/test_fanout.py

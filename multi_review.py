@@ -34,7 +34,6 @@ from rich.text import Text
 __version__ = "0.1.0"
 
 HARVEST_SCHEMA_VERSION = 1
-FAILURE_MIN_BYTES = 50
 DEFAULT_SYNTHESIZER = "claude"
 DEFAULT_OUTPUT = Path("REVIEW.md")
 STDERR_TAIL_CHARS = 2000
@@ -81,238 +80,19 @@ from multi_review.core.adapters import (  # noqa: E402
     ADAPTER_FOR,
 )
 
+# -------- Fanout module (extracted to multi_review/core/fanout.py) --------
 
-
-def _is_capacity_failure(stderr_tail: str, text: str, pattern: "re.Pattern[str]") -> bool:
-    """Capacity-class match against stderr (primary) and accumulated text
-    (fallback for CLIs that surface 429 inside their event stream)."""
-    if pattern.search(stderr_tail or ""):
-        return True
-    if text and pattern.search(text):
-        return True
-    return False
-
-
-def resolve_chain(
-    cli: str,
-    model_override: str | None,
-    fallback_override: list[str] | None,
-    no_fallback: bool,
-) -> list[str | None]:
-    """Compute the model chain for a reviewer.
-
-    - --model REVIEWER=X pins to [X] (no fallback).
-    - --no-fallback truncates to the first hop only.
-    - --fallback-model REVIEWER=A,B,C overrides the built-in chain.
-    - Default: built-in CLI_SPEC[cli]["fallback_chain"], or [None] when empty
-      (None = no model flag, CLI uses its own default).
-    """
-    if model_override is not None:
-        return [model_override]
-    chain: list[str | None]
-    if fallback_override:
-        chain = list(fallback_override)
-    else:
-        spec_chain = CLI_SPEC[cli].get("fallback_chain") or []
-        chain = list(spec_chain) if spec_chain else [None]
-    if no_fallback and len(chain) > 1:
-        chain = chain[:1]
-    return chain
-
-
-# -------- Reviewer runner --------
-
-@dataclass
-class ReviewerResult:
-    cli: str
-    ok: bool
-    text: str
-    stderr_tail: str
-    usage: Usage
-    elapsed: float
-    error: str | None = None
-    model_used: str | None = None
-    attempts: list[str] = field(default_factory=list)
-    fallback_fired: bool = False
-
-
-@dataclass
-class ReviewerState:
-    cli: str
-    adapter: ProgressAdapter
-    status: str = "queued"
-    started_at: float = 0.0
-    finished_at: float = 0.0
-    result: ReviewerResult | None = None
-    error: str | None = None
-    current_model: str | None = None
-    attempts: list[str] = field(default_factory=list)
-
-    @property
-    def elapsed(self) -> float:
-        if self.started_at == 0:
-            return 0.0
-        end = self.finished_at or time.time()
-        return end - self.started_at
-
-
-async def kill_proc(proc: asyncio.subprocess.Process) -> None:
-    try:
-        proc.kill()
-        await proc.wait()
-    except ProcessLookupError:
-        pass
-
-
-async def _run_reviewer_attempt(
-    cli: str,
-    prompt: str,
-    model: str | None,
-    timeout: int | None,
-    state: ReviewerState,
-) -> ReviewerResult:
-    adapter = state.adapter
-    cmd = build_command(cli, model, streaming=True)
-    state.status = "starting"
-    state.started_at = time.time()
-    state.finished_at = 0.0
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            limit=STREAM_BUFFER_LIMIT,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError as e:
-        state.status = "error"
-        state.finished_at = time.time()
-        return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=f"CLI not found: {e}")
-    except Exception as e:
-        state.status = "error"
-        state.finished_at = time.time()
-        return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=str(e))
-
-    state.status = "running"
-
-    if proc.stdin is not None:
-        try:
-            proc.stdin.write(prompt.encode())
-            await proc.stdin.drain()
-            proc.stdin.close()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-
-    stderr_chunks: list[bytes] = []
-
-    async def drain_stdout() -> None:
-        assert proc.stdout is not None
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                return
-            try:
-                decoded = line.decode("utf-8", errors="replace")
-            except Exception:
-                continue
-            adapter.feed_line(decoded)
-
-    async def drain_stderr() -> None:
-        assert proc.stderr is not None
-        while True:
-            chunk = await proc.stderr.read(4096)
-            if not chunk:
-                return
-            stderr_chunks.append(chunk)
-
-    try:
-        if timeout is None:
-            await asyncio.gather(drain_stdout(), drain_stderr(), proc.wait())
-        else:
-            await asyncio.wait_for(
-                asyncio.gather(drain_stdout(), drain_stderr(), proc.wait()),
-                timeout=timeout,
-            )
-    except asyncio.TimeoutError:
-        await kill_proc(proc)
-        state.status = "timeout"
-        state.finished_at = time.time()
-        stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
-        return ReviewerResult(
-            cli, False, adapter.get_response_text(), stderr_tail,
-            adapter.usage, state.elapsed,
-            error=f"timeout after {timeout}s",
-        )
-    except asyncio.CancelledError:
-        await kill_proc(proc)
-        raise
-    except Exception as exc:
-        await kill_proc(proc)
-        state.status = "failed"
-        state.finished_at = time.time()
-        stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
-        return ReviewerResult(
-            cli, False, adapter.get_response_text(), stderr_tail,
-            adapter.usage, state.elapsed,
-            error=f"{type(exc).__name__}: {exc}",
-        )
-
-    state.finished_at = time.time()
-    rc = proc.returncode
-    stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
-    text = adapter.get_response_text()
-    ok = (rc == 0) and (len(text.encode()) >= FAILURE_MIN_BYTES)
-    state.status = "done" if ok else "failed"
-    err = None
-    if not ok:
-        if rc != 0:
-            err = f"exit {rc}"
-        elif len(text.encode()) < FAILURE_MIN_BYTES:
-            err = f"empty output (<{FAILURE_MIN_BYTES} bytes)"
-    return ReviewerResult(
-        cli, ok, text, stderr_tail, adapter.usage,
-        state.elapsed, error=err,
-    )
-
-
-async def run_reviewer(
-    cli: str,
-    prompt: str,
-    timeout: int | None,
-    state: ReviewerState,
-    *,
-    chain: list[str | None],
-    capacity_pattern: "re.Pattern[str] | None",
-) -> ReviewerResult:
-    """Walk the model chain. One spawn per hop. Stops on success, on a
-    non-capacity failure, or after the chain is exhausted. capacity_pattern=
-    None disables fallback semantics (single attempt only)."""
-    attempts: list[str] = []
-    last: ReviewerResult | None = None
-    for m in chain:
-        label = m if m is not None else "<default>"
-        attempts.append(label)
-        state.attempts = list(attempts)
-        state.current_model = label
-        # Fresh adapter per hop so usage/text don't leak across attempts.
-        state.adapter = make_adapter(cli)
-        last = await _run_reviewer_attempt(cli, prompt, m, timeout, state)
-        last.model_used = label
-        last.attempts = list(attempts)
-        if last.ok:
-            last.fallback_fired = len(attempts) > 1
-            return last
-        if capacity_pattern is None:
-            break
-        if not _is_capacity_failure(last.stderr_tail, last.text, capacity_pattern):
-            break  # real failure (auth/network/prompt) — don't burn the chain
-        if last.text and len(last.text.encode()) >= FAILURE_MIN_BYTES:
-            break  # mid-stream 429 with usable partial — keep it
-    if last is not None:
-        last.attempts = list(attempts)
-        last.fallback_fired = len(attempts) > 1
-    return last  # type: ignore[return-value]
+from multi_review.core.fanout import (  # noqa: E402
+    FAILURE_MIN_BYTES,
+    ReviewerResult,
+    ReviewerState,
+    kill_proc,
+    _run_reviewer_attempt,
+    run_reviewer,
+    run_all_reviewers as _run_all_reviewers_core,
+    resolve_chain,
+    _is_capacity_failure,
+)
 
 
 # -------- Dashboard --------
@@ -372,65 +152,45 @@ async def run_all_reviewers(
     fallback_overrides: dict[str, list[str]] | None = None,
     no_fallback: bool = False,
 ) -> list[ReviewerResult]:
-    states = [ReviewerState(cli=c, adapter=ADAPTER_FOR[c]()) for c in reviewers]
-    fb = fallback_overrides or {}
+    """Legacy wrapper: delegates to core fanout, drives rich.Live via state_callback."""
+    # Keep a local index of states so the callback and Live loop share the same
+    # objects that the core module mutates as tasks progress.
+    states_by_cli: dict[str, ReviewerState] = {}
 
-    chains: dict[str, list[str | None]] = {}
-    patterns: dict[str, "re.Pattern[str] | None"] = {}
-    for c in reviewers:
-        chain = resolve_chain(c, models.get(c), fb.get(c), no_fallback)
-        chains[c] = chain
-        head = chain[0]
-        head_label = head if head is not None else "<default>"
-        for s in states:
-            if s.cli == c:
-                s.current_model = head_label
-                break
-        if no_fallback or len(chain) == 1:
-            patterns[c] = None
-        else:
-            patterns[c] = CAPACITY_PATTERNS.get(c)
+    live_ref: list["Live"] = []  # mutable cell so the callback can reach Live
 
-    async def runner_for(state: ReviewerState) -> ReviewerResult:
-        return await run_reviewer(
-            state.cli, prompt, timeout, state,
-            chain=chains[state.cli],
-            capacity_pattern=patterns[state.cli],
+    def _state_callback(cli: str, state: ReviewerState) -> None:
+        states_by_cli[cli] = state
+        if live_ref:
+            live_ref[0].update(build_table(list(states_by_cli.values())))
+
+    done_event = asyncio.Event()
+
+    async def _run() -> list[ReviewerResult]:
+        result = await _run_all_reviewers_core(
+            reviewers, prompt, models, timeout,
+            fallback_overrides=fallback_overrides,
+            no_fallback=no_fallback,
+            state_callback=_state_callback,
         )
+        done_event.set()
+        return result
 
-    tasks = [asyncio.create_task(runner_for(s)) for s in states]
+    run_task = asyncio.create_task(_run())
 
     try:
-        with Live(build_table(states), console=console, refresh_per_second=6) as live:
-            while not all(t.done() for t in tasks):
-                live.update(build_table(states))
+        with Live(build_table([]), console=console, refresh_per_second=6) as live:
+            live_ref.append(live)
+            while not done_event.is_set():
+                live.update(build_table(list(states_by_cli.values())))
                 await asyncio.sleep(0.15)
-            live.update(build_table(states))
+            live.update(build_table(list(states_by_cli.values())))
     except (asyncio.CancelledError, KeyboardInterrupt):
-        for t in tasks:
-            if not t.done():
-                t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        run_task.cancel()
+        await asyncio.gather(run_task, return_exceptions=True)
         raise
 
-    results = []
-    for s, t in zip(states, tasks):
-        try:
-            res = t.result()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            s.status = "error"
-            if not s.finished_at:
-                s.finished_at = time.time()
-            res = ReviewerResult(
-                cli=s.cli, ok=False, text=s.adapter.get_response_text(),
-                stderr_tail="", usage=s.adapter.usage, elapsed=s.elapsed,
-                error=f"unhandled {type(exc).__name__}: {exc}",
-            )
-        s.result = res
-        results.append(res)
-    return results
+    return await run_task
 
 
 # -------- Synthesis --------
@@ -1263,8 +1023,10 @@ async def async_main(args: argparse.Namespace) -> int:
         console.print(f"[dim]Synthesizing consensus with {args.synthesizer}...[/dim]")
         synth_body, synth_nonce = build_synthesis_input(results)
         synth_chain = resolve_chain(
-            args.synthesizer, models.get(args.synthesizer),
-            fallbacks.get(args.synthesizer), args.no_fallback,
+            args.synthesizer,
+            explicit_model=models.get(args.synthesizer),
+            override_chain=fallbacks.get(args.synthesizer),
+            fallback_disabled=args.no_fallback,
         )
         synth_pattern = (
             None if (args.no_fallback or len(synth_chain) == 1)
@@ -1406,7 +1168,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Models:     {models or '<defaults>'}")
         print(f"Fallback:   {'OFF' if args.no_fallback else 'ON'}")
         for c in reviewers:
-            chain = resolve_chain(c, models.get(c), fallbacks.get(c), args.no_fallback)
+            chain = resolve_chain(
+                c,
+                explicit_model=models.get(c),
+                override_chain=fallbacks.get(c),
+                fallback_disabled=args.no_fallback,
+            )
             label = ", ".join(m if m is not None else "<default>" for m in chain)
             print(f"  {c}: {label}")
         print(f"Prompt:     {len(prompt)} bytes")
