@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 
 from multi_review.core.adapters import ProgressAdapter, Usage
 from multi_review.core.reviewers import (
-    CLI_SPEC,
     build_command,
     make_adapter,
 )
@@ -68,32 +67,6 @@ class ReviewerState:
             return 0.0
         end = self.finished_at or time.time()
         return end - self.started_at
-
-
-# -------- Chain resolution (kept for spawn.py until B4) --------
-
-def resolve_chain(
-    cli: str,
-    *,
-    explicit_model: str | None = None,
-    fallback_disabled: bool = False,
-    override_chain: list[str] | None = None,
-) -> list[str | None]:
-    """Compute the model chain for a reviewer.
-
-    Kept for backwards-compat with cli/spawn.py until B4 lands.
-    """
-    if explicit_model is not None:
-        return [explicit_model]
-    chain: list[str | None]
-    if override_chain:
-        chain = list(override_chain)
-    else:
-        spec_chain = CLI_SPEC[cli].get("fallback_chain") or []
-        chain = list(spec_chain) if spec_chain else [None]
-    if fallback_disabled and len(chain) > 1:
-        chain = chain[:1]
-    return chain
 
 
 # -------- Process helpers --------

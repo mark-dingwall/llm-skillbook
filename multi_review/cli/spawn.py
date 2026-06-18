@@ -21,7 +21,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from multi_review.core.fanout import ReviewerState, ReviewerResult, resolve_chain, run_reviewer, CAPACITY_PATTERNS
+from multi_review.core.fanout import ReviewerState, ReviewerResult, run_reviewer
 from multi_review.core.reviewers import ALL_REVIEWERS, make_adapter
 from multi_review.core.synthesis import run_synthesis
 
@@ -34,9 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--prompt-file", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--model", default=None,
-                   help="Pin to a specific model (disables fallback chain).")
-    p.add_argument("--fallback-chain", default=None,
-                   help="Comma-separated model list; empty string disables fallback.")
+                   help="Pin to a specific model; absent = CLI default.")
     p.add_argument("--effort", default=None,
                    help="Effort hint (accepted but no-op until wired through CLI_SPEC).")
     p.add_argument("--timeout", type=int, default=None,
@@ -45,7 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--input-nonce", default=None,
                    help="Nonce token used in the synthesis review-body tags "
                         "(required with --task-mode synthesize).")
-    args = p.parse_args(argv)
+    try:
+        args = p.parse_args(argv)
+    except SystemExit as e:
+        return int(e.code) if e.code is not None else 2
 
     if args.task_mode == "synthesize":
         if not args.input_nonce:
@@ -61,30 +62,10 @@ def main(argv: list[str] | None = None) -> int:
 
     prompt = args.prompt_file.read_text()
 
-    # Resolve fallback chain from flags (Drift 1 correction: use resolve_chain)
-    fallback_disabled = False
-    override_chain: list[str] | None = None
-    if args.fallback_chain is not None:
-        if args.fallback_chain == "":
-            fallback_disabled = True
-        else:
-            override_chain = args.fallback_chain.split(",")
-
-    chain = resolve_chain(
-        args.cli,
-        explicit_model=args.model,
-        fallback_disabled=fallback_disabled,
-        override_chain=override_chain,
-    )
-
-    # Build ReviewerState with correct fields (Drift 3: inspect fanout.ReviewerState)
     state = ReviewerState(
         cli=args.cli,
         adapter=make_adapter(args.cli),
     )
-
-    # Pull capacity pattern for the CLI
-    capacity_pattern = CAPACITY_PATTERNS.get(args.cli)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
@@ -93,10 +74,9 @@ def main(argv: list[str] | None = None) -> int:
         run_reviewer(
             args.cli,
             prompt,
-            args.timeout,
-            state,
-            chain=chain,
-            capacity_pattern=capacity_pattern,
+            model=args.model,
+            timeout=args.timeout,
+            state=state,
             state_callback=None,
         )
     )
@@ -129,21 +109,6 @@ def main(argv: list[str] | None = None) -> int:
 def _run_synthesize(args) -> int:
     review_body = args.prompt_file.read_text()
 
-    fallback_disabled = False
-    override_chain: list[str] | None = None
-    if args.fallback_chain is not None:
-        if args.fallback_chain == "":
-            fallback_disabled = True
-        else:
-            override_chain = args.fallback_chain.split(",")
-    chain = resolve_chain(
-        args.cli,
-        explicit_model=args.model,
-        fallback_disabled=fallback_disabled,
-        override_chain=override_chain,
-    )
-    capacity_pattern = CAPACITY_PATTERNS.get(args.cli)
-
     args.out_dir.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     ok, text, err, suggested, attempts = asyncio.run(
@@ -153,8 +118,6 @@ def _run_synthesize(args) -> int:
             args.input_nonce,
             args.model,
             args.timeout,
-            chain=chain,
-            capacity_pattern=capacity_pattern,
         )
     )
     duration = time.monotonic() - start

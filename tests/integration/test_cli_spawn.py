@@ -78,6 +78,21 @@ def test_spawn_synthesize_writes_synth_files(tmp_path):
     assert "fallback_hops" in state
 
 
+def test_spawn_no_fallback_flags(tmp_path):
+    from multi_review.cli.spawn import main
+    rc = main(["--cli", "claude", "--prompt-file", "/nonexistent",
+               "--out-dir", str(tmp_path), "--fallback-chain", "a,b,c"])
+    # argparse error: unrecognized arg
+    assert rc == 2
+
+
+def test_spawn_no_no_fallback_flag(tmp_path):
+    from multi_review.cli.spawn import main
+    rc = main(["--cli", "claude", "--prompt-file", "/nonexistent",
+               "--out-dir", str(tmp_path), "--no-fallback"])
+    assert rc == 2
+
+
 def test_spawn_review_mode_unchanged(tmp_path):
     """--task-mode review (default) keeps writing <cli>.md + <cli>.state.json."""
     fixture = Path(__file__).parent.parent / "fixtures" / "streams" / "claude" / "success.jsonl"

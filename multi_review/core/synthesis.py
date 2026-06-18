@@ -99,13 +99,8 @@ async def run_synthesis(
     nonce: str,
     model: str | None,
     timeout: int | None,
-    *,
-    chain: list[str | None] | None = None,
-    capacity_pattern: "re.Pattern[str] | None" = None,
 ) -> tuple[bool, str, str, str | None, list[str]]:
-    """Single synthesis attempt. chain/capacity_pattern accepted but ignored
-    (fallback removed in B3; kept in signature for spawn.py compat until B4).
-    Returns (ok, text, err, suggested_filename, attempts)."""
+    """Single synthesis attempt. Returns (ok, text, err, suggested_filename, attempts)."""
     label = model if model is not None else "<default>"
     ok, text, err, suggested = await _run_synthesis_attempt(cli, review_body, nonce, model, timeout)
     return ok, text, err, suggested, [label]
