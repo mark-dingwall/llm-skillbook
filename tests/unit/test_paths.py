@@ -1,7 +1,7 @@
 # tests/unit/test_paths.py
 from pathlib import Path
 from multi_review.core.paths import (
-    project_state_dir, run_dir, pending_pair_dir,
+    project_state_dir, run_dir,
     central_runs_dir, generate_run_id, generate_pair_id, slugify,
 )
 
@@ -11,10 +11,6 @@ def test_project_state_dir(tmp_path):
 def test_run_dir(tmp_path):
     rid = "run-20260515-1200-abcd"
     assert run_dir(tmp_path, rid) == tmp_path / ".multi-review" / "sessions" / rid
-
-def test_pending_pair_dir(tmp_path):
-    pid = "pair-20260515-1200-abcd"
-    assert pending_pair_dir(tmp_path, pid) == tmp_path / ".multi-review" / "pending" / pid
 
 def test_central_runs_dir_honours_config(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
