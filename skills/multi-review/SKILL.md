@@ -137,6 +137,11 @@ uv run python -m multi_review.cli.build_synth_input \
     --input-nonce $(cat <SESSION_DIR>/synth-nonce.txt) \
     --out-dir <SESSION_DIR>/synth/
   ```
+  Then extract the synthesis body to the canonical location Step 7 expects:
+  ```
+  cp <SESSION_DIR>/synth/synth.txt <SESSION_DIR>/synth.txt
+  ```
+  (`spawn --task-mode synthesize` writes `<out-dir>/synth.txt`; this copy normalises the path so both branches converge at `<SESSION_DIR>/synth.txt`.)
 - Read synthesis text from `<SESSION_DIR>/synth.txt` for Step 7's `--synthesis-text-file`.
 
 ### Step 7 — Aggregate
