@@ -45,7 +45,7 @@ def build_synthesis_input(results: list[ReviewerResult]) -> tuple[str, str]:
     for r in successful:
         reviewer = html.escape(r.cli, quote=True)
         parts.append(f'<{open_tag} reviewer="{reviewer}">\n{r.text}\n{close_tag}\n')
-    return nonce, "\n".join(parts)
+    return "\n".join(parts), nonce
 
 
 # -------- Synthesis runner --------

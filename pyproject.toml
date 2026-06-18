@@ -28,6 +28,7 @@ mr-migrate-harvest   = "multi_review.cli.migrate_harvest:main"
 mr-setup             = "multi_review.cli.setup:main"
 mr-write-task-result = "multi_review.cli.write_task_result:main"
 mr-write-harvest-row = "multi_review.cli.write_harvest_row:main"
+mr-build-synth-input = "multi_review.cli.build_synth_input:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -14,7 +14,7 @@ def _r(cli: str, text: str) -> ReviewerResult:
 
 
 def test_build_synthesis_input_wraps_each_review():
-    nonce, body = build_synthesis_input([_r("claude", "A"), _r("gemini", "B")])
+    body, nonce = build_synthesis_input([_r("claude", "A"), _r("gemini", "B")])
     assert nonce in body
     assert "<review" in body
     assert "reviewer=" in body

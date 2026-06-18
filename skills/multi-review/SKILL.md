@@ -110,7 +110,16 @@ If `claude` is not in `reviewers`, skip the Task dispatch and the `mr-write-task
 ### Step 6 — Synthesis
 
 If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` fields):
-- If `synthesizer == "claude"`: build the synthesis input file under `<SESSION_DIR>`, dispatch `multi-review-synthesizer` via Task, record wall time as `<synth_duration>`. The agent is read-only (`tools: Read`); CAPTURE the Task return value as a string, write it to `<SESSION_DIR>/synth.txt` via a Bash heredoc, then invoke:
+
+First, build the synthesis prompt (both branches):
+```
+uv run python -m multi_review.cli.build_synth_input \
+  --state-dir <REVIEWS_DIR> \
+  --out-prompt-file <SESSION_DIR>/synth-prompt.md \
+  --out-nonce-file <SESSION_DIR>/synth-nonce.txt
+```
+
+- If `synthesizer == "claude"`: dispatch `multi-review-synthesizer` via Task with the synthesizer prompt at `<SESSION_DIR>/synth-prompt.md` and nonce from `<SESSION_DIR>/synth-nonce.txt`. Record wall time as `<synth_duration>`. The agent is read-only (`tools: Read`); CAPTURE the Task return value as a string, write it to `<SESSION_DIR>/synth.txt` via a Bash heredoc, then invoke:
   ```
   uv run python -m multi_review.cli.write_task_result \
     --cli claude --out-dir <SESSION_DIR> \
@@ -119,7 +128,15 @@ If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` 
     --task-mode synthesize --model claude-opus-4-7
   ```
   This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
-- Else: `uv run python -m multi_review.cli.spawn --task-mode synthesize --cli <synthesizer> --out-dir <SESSION_DIR> ...`
+- Else:
+  ```
+  uv run python -m multi_review.cli.spawn \
+    --cli <synthesizer> \
+    --prompt-file <SESSION_DIR>/synth-prompt.md \
+    --task-mode synthesize \
+    --input-nonce $(cat <SESSION_DIR>/synth-nonce.txt) \
+    --out-dir <SESSION_DIR>/synth/
+  ```
 - Read synthesis text from `<SESSION_DIR>/synth.txt` for Step 7's `--synthesis-text-file`.
 
 ### Step 7 — Aggregate
