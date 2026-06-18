@@ -58,3 +58,19 @@ def test_build_paired_report(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     assert any(p.name.endswith("pair-x.md") for p in rep_dir.iterdir())
+
+def test_report_auto_suffixes_on_collision(tmp_path):
+    log = _rows(tmp_path)
+    rep_dir = tmp_path / "reports"
+    rep_dir.mkdir()
+    existing = rep_dir / "p-2026-05-05-pair-x.md"
+    existing.write_text("existing")
+    r = subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.report",
+         "build-paired", "--log", str(log), "--pair-id", "pair-x",
+         "--out-dir", str(rep_dir), "--project", "p", "--date", "2026-05-05"],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert existing.read_text() == "existing"
+    assert (rep_dir / "p-2026-05-05-pair-x-2.md").exists()

@@ -14,6 +14,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from multi_review.core.aggregate import resolve_output_path
 from multi_review.core.sidecar import CandidatePair, group_candidate_pairs
 from multi_review.core.report import build_paired_report
 
@@ -88,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             if cp in assigned_pairs:
                 prose.append(Path(side_path).read_text())
         date = cp.rows[0]["started_at"][:10]
-        out_path = args.reports_dir / f"{cp.project}-{date}-{cp.synth_pair_id}.md"
+        out_path = resolve_output_path(args.reports_dir / f"{cp.project}-{date}-{cp.synth_pair_id}.md")
         build_paired_report(
             log_path=args.log, pair_id=None,
             out_path=out_path, headline=None, mode_divergence=None,

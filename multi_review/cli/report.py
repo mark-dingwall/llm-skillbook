@@ -3,6 +3,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from multi_review.core.aggregate import resolve_output_path
 from multi_review.core.report import render_experiments_markdown, build_paired_report
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "build-paired":
         args.out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = args.out_dir / f"{args.project}-{args.date}-{args.pair_id}.md"
+        out_path = resolve_output_path(args.out_dir / f"{args.project}-{args.date}-{args.pair_id}.md")
         def _read(p): return p.read_text() if p else None
         build_paired_report(
             log_path=args.log, pair_id=args.pair_id, out_path=out_path,
