@@ -14,12 +14,6 @@ from pathlib import Path
 REPORT_FORMAT_VERSION = 1
 
 
-def _format_fallback_label(attempts: list[str] | None) -> str:
-    if not attempts:
-        return "0"
-    return f"{len(attempts)} hops → {attempts[-1]}"
-
-
 def _row_sort_key(r: dict) -> str:
     """Sort key: prefer started_at, fall back to timestamp."""
     return r.get("started_at", "") or r.get("timestamp", "") or ""
@@ -119,9 +113,6 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
     parts.append(
         "For a clean comparison run:\n"
         "- Run BOTH modes against identical inputs in the recommended order.\n"
-        "- Wait at least 30 minutes between modes if gemini fallback fired in "
-        "the first run (quota cooldown — exhaustion in run 1 cascades into "
-        "run 2 and confounds the comparison).\n"
         "- Run from separate sessions when possible so cache state doesn't "
         "bias claude's tool-call behaviour.\n"
         "- The harness writes one row to `runs/runs.jsonl` per run "
@@ -131,9 +122,9 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
     parts.append("## Run log\n")
     parts.append(
         "| Date | Project | Mode | Pair ID | Order | Prompt bytes | Wall | "
-        "Gemini fallback | Output bytes | OK / Total | Notes |\n"
+        "Output bytes | OK / Total | Notes |\n"
         "|------|---------|------|---------|-------|--------------|------|"
-        "-----------------|--------------|------------|-------|"
+        "--------------|------------|-------|"
     )
     for r in rows:
         date = _row_sort_key(r)[:10] or "n/a"
@@ -145,8 +136,6 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
         prompt_bytes = f"{pb:,}" if isinstance(pb, int) and pb > 0 else "n/a"
         wall_s = r.get("wall_seconds")
         wall = f"{wall_s:.1f}s" if isinstance(wall_s, (int, float)) else "n/a"
-        gem_fb = (r.get("fallback_attempts") or {}).get("gemini")
-        fb_label = _format_fallback_label(gem_fb)
         ob = r.get("output_bytes")
         output_bytes = f"{ob:,}" if isinstance(ob, int) and ob > 0 else "n/a"
         # reviewers_succeeded can be int (v2) or list (v1)
@@ -160,7 +149,7 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
         pair_display = (pair_id or "").replace("|", "\\|")
         parts.append(
             f"| {date} | {project} | {mode} | {pair_display} | {order} | {prompt_bytes} | "
-            f"{wall} | {fb_label} | {output_bytes} | {ok}/{total} | {notes} |"
+            f"{wall} | {output_bytes} | {ok}/{total} | {notes} |"
         )
     parts.append("")
 

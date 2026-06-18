@@ -40,7 +40,6 @@ def test_migrate_backfills_v1_rows(tmp_path):
             assert "input_tokens" in ub, "v1 token fields must survive rename"
             assert "telemetry_quality" in ub
             assert "comparison_eligible" in ub
-            assert "fallback_hops" in ub
             assert "final_model" in ub
 
 
@@ -54,12 +53,10 @@ def test_migrate_idempotent_on_already_v2(tmp_path):
         "usage_by_reviewer": {"claude": {"input_tokens": 1, "output_tokens": 2,
                                           "telemetry_quality": "reliable",
                                           "comparison_eligible": True,
-                                          "fallback_hops": 0,
                                           "final_model": None}},
         "usage": {"claude": {"input_tokens": 1, "output_tokens": 2,
                               "telemetry_quality": "reliable",
                               "comparison_eligible": True,
-                              "fallback_hops": 0,
                               "final_model": None}},
     }
     log.write_text(json.dumps(v2_row))

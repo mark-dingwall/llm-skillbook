@@ -45,7 +45,6 @@ def test_write_task_result_review_mode(tmp_path):
         "attempts": ["claude-opus-4-7"],
         "stderr_tail": "",
         "usage": None,
-        "fallback_hops": 0,
         "final_model": "claude-opus-4-7",
     }
 
@@ -100,7 +99,6 @@ def test_write_task_result_synthesize_mode(tmp_path):
         "attempts": ["claude-opus-4-7"],
         "stderr_tail": "",
         "usage": None,
-        "fallback_hops": 0,
         "final_model": "claude-opus-4-7",
         "suggested_filename": None,
     }

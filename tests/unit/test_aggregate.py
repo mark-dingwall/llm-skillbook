@@ -6,7 +6,7 @@ from multi_review.core.fanout import ReviewerResult
 
 def _r(cli, ok=True, text="content"):
     return ReviewerResult(cli=cli, ok=ok, text=text, stderr_tail="",
-                          attempts=[], usage=None, elapsed=1.0)
+                          usage=None, elapsed=1.0)
 
 
 def test_resolve_output_path_auto_suffix(tmp_path):
@@ -42,3 +42,15 @@ def test_write_review_md_includes_failed_section(tmp_path):
     )
     body = out.read_text()
     assert "failed" in body.lower() or "Failed" in body
+
+
+def test_aggregate_no_fallbacks_frontmatter(tmp_path):
+    """REVIEW.md frontmatter must never contain a `fallbacks:` block after B5."""
+    out = tmp_path / "REVIEW.md"
+    write_review_md(
+        path=out, results=[_r("claude"), _r("gemini")],
+        synthesis_text=None, mode="inline", task="code",
+        reviewers_attempted=["claude", "gemini"],
+    )
+    body = out.read_text()
+    assert "fallbacks:" not in body

@@ -21,7 +21,7 @@ def test_aggregate_writes_review_md(tmp_path):
         "cli": "claude", "ok": True, "duration_seconds": 2.0,
         "attempts": ["claude-opus-4-7"],
         "stderr_tail": "", "usage": None,
-        "fallback_hops": 0, "final_model": "claude-opus-4-7",
+        "final_model": "claude-opus-4-7",
     }))
     out = tmp_path / "REVIEW.md"
     r = subprocess.run(
@@ -48,7 +48,7 @@ def test_aggregate_demotes_reviewer_missing_summary_heading(tmp_path):
         "cli": "claude", "ok": True, "duration_seconds": 1.0,
         "attempts": ["claude-opus-4-7"],
         "stderr_tail": "", "usage": None,
-        "fallback_hops": 0, "final_model": "claude-opus-4-7",
+        "final_model": "claude-opus-4-7",
     }))
     out = tmp_path / "REVIEW.md"
     r = subprocess.run(
@@ -78,7 +78,7 @@ def test_aggregate_accepts_reviewer_with_summary_heading(tmp_path):
         "cli": "claude", "ok": True, "duration_seconds": 1.0,
         "attempts": ["claude-opus-4-7"],
         "stderr_tail": "", "usage": None,
-        "fallback_hops": 0, "final_model": "claude-opus-4-7",
+        "final_model": "claude-opus-4-7",
     }))
     out = tmp_path / "REVIEW.md"
     r = _run_aggregate(rdir, out)
@@ -89,26 +89,3 @@ def test_aggregate_accepts_reviewer_with_summary_heading(tmp_path):
     assert 'reviewers_succeeded: ["claude"]' in body
 
 
-def test_aggregate_surfaces_fallback_chain_in_frontmatter(tmp_path):
-    """spawn.py writes fallback_hops + final_model into state.json; aggregate
-    must forward those to ReviewerResult so the `fallbacks:` frontmatter
-    block is emitted when gemini walked its chain."""
-    rdir = tmp_path / "reviews"
-    rdir.mkdir()
-    body_md = "## Summary\n\nFallback case. " + ("filler " * 10) + "\n"
-    (rdir / "gemini.md").write_text(body_md)
-    (rdir / "gemini.state.json").write_text(json.dumps({
-        "cli": "gemini", "ok": True, "duration_seconds": 4.2,
-        "attempts": ["gemini-3.1-pro-preview", "gemini-3.1-pro", "gemini-3.1-flash"],
-        "stderr_tail": "", "usage": None,
-        "fallback_hops": 2, "final_model": "gemini-3.1-flash",
-    }))
-    out = tmp_path / "REVIEW.md"
-    r = _run_aggregate(rdir, out)
-    assert r.returncode == 0, r.stderr
-    body = Path(json.loads(r.stdout)["output_path"]).read_text()
-    assert "fallbacks:" in body
-    assert "gemini:" in body
-    assert "gemini-3.1-pro-preview" in body
-    assert "gemini-3.1-flash" in body
-    assert 'used: "gemini-3.1-flash"' in body

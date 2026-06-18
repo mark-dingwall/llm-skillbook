@@ -69,20 +69,15 @@ def main(argv: list[str] | None = None) -> int:
             note = "no ## Summary heading in review body"
             stderr_tail = f"{stderr_tail}\n{note}" if stderr_tail else note
 
-        fallback_hops = state.get("fallback_hops", 0)
-        final_model = state.get("final_model")
-
         # Drift 2: state JSON uses "duration_seconds"; ReviewerResult field is "elapsed"
         results.append(ReviewerResult(
             cli=cli,
             ok=ok,
             text=review_text,
             stderr_tail=stderr_tail,
-            attempts=state.get("attempts", []),
             usage=usage,
             elapsed=state.get("duration_seconds", 0.0),  # map JSON key → dataclass field
-            fallback_fired=fallback_hops > 0,
-            model_used=final_model,
+            model_used=state.get("final_model"),
         ))
 
     synthesis_text: str | None = None

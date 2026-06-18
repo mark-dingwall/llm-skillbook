@@ -9,7 +9,7 @@ v2  Alias-preserving rename: ``usage_by_reviewer`` is the canonical key;
     cycle. New top-level fields: ``pair_id``, ``prompt_file``,
     ``prompt_format_version``, ``drift_status``, ``telemetry_notes``.
     Per-reviewer sub-dict gains: ``telemetry_quality``, ``comparison_eligible``,
-    ``fallback_hops``, ``final_model``.
+    ``final_model``.
     **Remove ``usage`` alias in v3** — the alias is only kept for tooling
     that reads runs/runs.jsonl directly and hasn't migrated yet.
 """
@@ -98,15 +98,13 @@ def build_row(
     drift_blocks_eligibility = drift_status in {"drifted", "unchecked"}
     usage_by_reviewer: dict[str, dict] = {}
     for r in results:
-        fallback_hops = len(r.attempts) - 1 if r.attempts else 0
-        final_model = r.attempts[-1] if r.attempts else r.model_used
+        final_model = r.model_used
         per_rev = {
             **r.usage.as_dict(),
             "elapsed_s": round(r.elapsed, 1),
             # v2 additions
             "telemetry_quality": TELEMETRY_QUALITY.get(r.cli, "degraded"),
-            "comparison_eligible": fallback_hops == 0 and not drift_blocks_eligibility,
-            "fallback_hops": fallback_hops,
+            "comparison_eligible": not drift_blocks_eligibility,
             "final_model": final_model,
         }
         usage_by_reviewer[r.cli] = per_rev
@@ -157,7 +155,6 @@ def legacy_harvest_run(
     usage_by_reviewer: dict[str, dict],
     output_path: "Path | None",
     output_bytes: int,
-    fallback_attempts_by_reviewer: dict[str, list[str]],
     cwd: Path,
     invocation_argv: list[str],
     project_tag: str | None = None,
@@ -179,19 +176,12 @@ def legacy_harvest_run(
     # The legacy caller already aggregated token data into usage_by_reviewer;
     # we need to add the new per-reviewer v2 fields.
     enriched: dict[str, dict] = {}
-    all_clis = list(usage_by_reviewer.keys())
     for cli, u in usage_by_reviewer.items():
-        attempts = fallback_attempts_by_reviewer.get(cli, [])
-        fallback_hops = len(attempts)
-        # In the legacy path, attempts in the fallback dict are the *extra*
-        # hops walked (not including the initial attempt), so final_model is
-        # the last element when present, else None.
-        final_model = attempts[-1] if attempts else u.get("final_model")
+        final_model = u.get("final_model")
         enriched[cli] = {
             **u,
             "telemetry_quality": TELEMETRY_QUALITY.get(cli, "degraded"),
-            "comparison_eligible": fallback_hops == 0,
-            "fallback_hops": fallback_hops,
+            "comparison_eligible": True,
             "final_model": final_model,
         }
 
@@ -208,7 +198,6 @@ def legacy_harvest_run(
         "reviewers_failed": reviewers_failed,
         "output_path": str(output_path) if output_path else None,
         "output_bytes": output_bytes,
-        "fallback_attempts": fallback_attempts_by_reviewer,
         "argv": invocation_argv,
         # v2 new top-level fields (not available in legacy path)
         "pair_id": None,

@@ -91,11 +91,9 @@ def main(argv: list[str] | None = None) -> int:
         "cli": result.cli,
         "ok": result.ok,
         "duration_seconds": duration,          # JSON key contract: aggregate reads this
-        "attempts": result.attempts,
         "stderr_tail": result.stderr_tail,
         "usage": asdict(result.usage) if result.usage else None,
-        "fallback_hops": max(0, len(result.attempts) - 1),
-        "final_model": result.attempts[-1] if result.attempts else None,
+        "final_model": result.model_used,
     }, indent=2))
 
     print(json.dumps({
@@ -129,10 +127,8 @@ def _run_synthesize(args) -> int:
         "cli": args.cli,
         "ok": ok,
         "duration_seconds": duration,
-        "attempts": attempts,
         "stderr_tail": err,
         "usage": None,
-        "fallback_hops": max(0, len(attempts) - 1),
         "final_model": attempts[-1] if attempts else None,
         "suggested_filename": suggested,
     }, indent=2))

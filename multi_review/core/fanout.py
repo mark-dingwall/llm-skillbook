@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from multi_review.core.adapters import ProgressAdapter, Usage
 from multi_review.core.reviewers import (
@@ -46,8 +46,6 @@ class ReviewerResult:
     elapsed: float
     error: str | None = None
     model_used: str | None = None
-    attempts: list[str] = field(default_factory=list)
-    fallback_fired: bool = False
 
 
 @dataclass

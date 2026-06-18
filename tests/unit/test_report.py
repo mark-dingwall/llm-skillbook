@@ -10,9 +10,9 @@ def _row(**kw):
         "wall_seconds": 1.0, "reviewers_succeeded": 2, "reviewers_attempted": ["claude", "gemini"],
         "usage_by_reviewer": {
             "claude": {"telemetry_quality": "known-issues", "comparison_eligible": True,
-                       "fallback_hops": 0, "final_model": "claude-opus-4-7"},
+                       "final_model": "claude-opus-4-7"},
             "gemini": {"telemetry_quality": "reliable", "comparison_eligible": True,
-                       "fallback_hops": 0, "final_model": "gemini-3.1-pro"},
+                       "final_model": "gemini-3.1-pro"},
         },
         "pair_id": None, "prompt_file": None, "prompt_format_version": 1,
         "drift_status": "not_applicable", "telemetry_notes": None,
@@ -29,7 +29,6 @@ def test_render_experiments_filters_ineligible_pairs(tmp_path):
         _row(pair_id="pair-bad", mode="inline",
              usage_by_reviewer={"gemini": {"telemetry_quality": "reliable",
                                             "comparison_eligible": False,
-                                            "fallback_hops": 1,
                                             "final_model": "gemini-3.1-flash"}}),
     ]
     log.write_text("\n".join(json.dumps(r) for r in rows))
@@ -153,3 +152,13 @@ def test_compute_pair_eligible_v1_carveout_true():
         {"schema_version": 1, "pair_id": "p", "mode": "reference"},
     ]
     assert _compute_pair_eligible(rows) is True
+
+
+def test_experiments_table_has_no_fallback_column(tmp_path):
+    """EXPERIMENTS table must not contain a 'Gemini fallback' column after B5."""
+    log = tmp_path / "runs.jsonl"
+    rows = [_row(pair_id="pair-a", mode="inline"), _row(pair_id="pair-a", mode="reference")]
+    log.write_text("\n".join(json.dumps(r) for r in rows))
+    md = render_experiments_markdown(log_path=log, reports_dir=tmp_path / "reports")
+    assert "Gemini fallback" not in md
+    assert "fallback" not in md.lower()

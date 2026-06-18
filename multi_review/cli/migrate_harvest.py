@@ -23,9 +23,8 @@ def _upgrade_row(row: dict) -> dict:
         row["usage_by_reviewer"] = row["usage"]
     for cli, ub in (row.get("usage_by_reviewer") or {}).items():
         ub.setdefault("telemetry_quality", TELEMETRY_QUALITY.get(cli, "degraded"))
-        ub.setdefault("fallback_hops", 0)
         ub.setdefault("final_model", None)
-        ub.setdefault("comparison_eligible", ub["fallback_hops"] == 0)
+        ub.setdefault("comparison_eligible", True)
     # Re-point the alias to the (now-backfilled) canonical dict so both keys
     # share the same data. Mirrors harvest.build_row line 131-133.
     if "usage_by_reviewer" in row:

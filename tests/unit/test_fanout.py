@@ -26,5 +26,3 @@ def test_run_reviewer_no_chain_walk(tmp_path, monkeypatch):
         run_reviewer("claude", "x", model=None, timeout=None, state=state)
     )
     assert result.ok is False
-    # Single attempt — fallback_fired must be False (no second hop)
-    assert result.fallback_fired is False

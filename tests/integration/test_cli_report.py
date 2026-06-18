@@ -10,9 +10,9 @@ def _rows(tmp_path):
          "reviewers_attempted": ["claude", "gemini"],
          "usage_by_reviewer": {
              "claude": {"telemetry_quality": "known-issues", "comparison_eligible": True,
-                        "fallback_hops": 0, "final_model": "claude-opus-4-7"},
+                        "final_model": "claude-opus-4-7"},
              "gemini": {"telemetry_quality": "reliable", "comparison_eligible": True,
-                        "fallback_hops": 0, "final_model": "gemini-3.1-pro"},
+                        "final_model": "gemini-3.1-pro"},
          },
          "pair_id": "pair-x", "prompt_file": None, "prompt_format_version": 1,
          "drift_status": "clean", "telemetry_notes": None,
@@ -22,9 +22,9 @@ def _rows(tmp_path):
          "reviewers_attempted": ["claude", "gemini"],
          "usage_by_reviewer": {
              "claude": {"telemetry_quality": "known-issues", "comparison_eligible": True,
-                        "fallback_hops": 0, "final_model": "claude-opus-4-7"},
+                        "final_model": "claude-opus-4-7"},
              "gemini": {"telemetry_quality": "reliable", "comparison_eligible": True,
-                        "fallback_hops": 0, "final_model": "gemini-3.1-pro"},
+                        "final_model": "gemini-3.1-pro"},
          },
          "pair_id": "pair-x", "prompt_file": None, "prompt_format_version": 1,
          "drift_status": "clean", "telemetry_notes": None,

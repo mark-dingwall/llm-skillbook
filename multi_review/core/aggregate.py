@@ -61,7 +61,6 @@ def write_review_md(
     models: dict[str, str] | None = None,
     synthesizer: str | None = None,
     synthesized_at: str | None = None,
-    synthesis_attempts: list[str] | None = None,
     pair_id: str | None = None,
     prompt_file: str | None = None,
 ) -> None:
@@ -110,22 +109,6 @@ def write_review_md(
         lines.append(f"synthesizer: {synthesizer}")
         lines.append(f"synthesized_at: {synthesized_at}")
 
-    fallback_entries: list[tuple[str, list[str], str]] = []
-    for r in results:
-        if r.fallback_fired and r.attempts:
-            fallback_entries.append((r.cli, r.attempts, r.model_used or r.attempts[-1]))
-    synthesis_walked = synthesis_attempts and len(synthesis_attempts) > 1
-    if fallback_entries or synthesis_walked:
-        lines.append("fallbacks:")
-        for cli, attempts, used in fallback_entries:
-            lines.append(f"  {cli}:")
-            lines.append(f"    attempts: {yaml_list(attempts)}")
-            lines.append(f"    used: {json.dumps(used)}")
-        if synthesis_walked:
-            assert synthesis_attempts is not None
-            lines.append("  synthesis:")
-            lines.append(f"    attempts: {yaml_list(synthesis_attempts)}")
-            lines.append(f"    used: {json.dumps(synthesis_attempts[-1])}")
     lines.append("---")
     lines.append("")
     lines.append("# Cross-AI Review")

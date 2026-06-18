@@ -74,8 +74,6 @@ def test_spawn_synthesize_writes_synth_files(tmp_path):
     state = json.loads(Path(j["state_path"]).read_text())
     assert state["cli"] == "claude"
     assert "duration_seconds" in state
-    assert "attempts" in state
-    assert "fallback_hops" in state
 
 
 def test_spawn_no_fallback_flags(tmp_path):

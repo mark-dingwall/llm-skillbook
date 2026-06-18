@@ -8,7 +8,7 @@ def _row(**kw):
         "finished_at": "2026-05-05T03:10:00Z",
         "mode": "inline", "argv": ["src/auth.ts", "src/session.ts"],
         "cwd": "/home/x/paralife", "pair_id": None,
-        "usage_by_reviewer": {"claude": {"comparison_eligible": True, "fallback_hops": 0}},
+        "usage_by_reviewer": {"claude": {"comparison_eligible": True}},
     }
     base.update(kw)
     return base

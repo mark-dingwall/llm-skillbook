@@ -14,12 +14,12 @@ def _seed(tmp_path: Path):
          "argv": ["src/auth.ts"], "cwd": "/home/x/paralife", "pair_id": None,
          "prompt_bytes": 1000, "output_bytes": 2000,
          "usage": {"input_tokens": 1, "output_tokens": 1},
-         "usage_by_reviewer": {"claude": {"comparison_eligible": True, "fallback_hops": 0}}},
+         "usage_by_reviewer": {"claude": {"comparison_eligible": True}}},
         {"project": "paralife", "mode": "reference", "started_at": "2026-05-05T03:35:00Z",
          "argv": ["src/auth.ts"], "cwd": "/home/x/paralife", "pair_id": None,
          "prompt_bytes": 1000, "output_bytes": 2000,
          "usage": {"input_tokens": 1, "output_tokens": 1},
-         "usage_by_reviewer": {"claude": {"comparison_eligible": True, "fallback_hops": 0}}},
+         "usage_by_reviewer": {"claude": {"comparison_eligible": True}}},
     ]
     log.write_text("\n".join(json.dumps(r) for r in rows))
     return notes, log, tmp_path / "reports", notes / "legacy"

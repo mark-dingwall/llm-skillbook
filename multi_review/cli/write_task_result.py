@@ -47,7 +47,6 @@ def main(argv: list[str] | None = None) -> int:
             "attempts": [model_attempt],
             "stderr_tail": "",
             "usage": None,
-            "fallback_hops": 0,
             "final_model": args.model,
         }, indent=2))
         print(json.dumps({
@@ -67,7 +66,6 @@ def main(argv: list[str] | None = None) -> int:
         "attempts": [model_attempt],
         "stderr_tail": "",
         "usage": None,
-        "fallback_hops": 0,
         "final_model": args.model,
         "suggested_filename": None,
     }, indent=2))

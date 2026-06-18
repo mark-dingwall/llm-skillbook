@@ -13,21 +13,13 @@ def test_schema_version_is_2():
     assert HARVEST_SCHEMA_VERSION == 2
 
 
-def _r(cli, fallback_hops=0, final_model="m"):
-    """Build a ReviewerResult. fallback_hops maps to len(attempts)-1."""
-    # attempts: [fallback_hops intermediate models..., final_model]
-    if fallback_hops == 0:
-        attempts = [final_model]
-    else:
-        # fill intermediate slots with a placeholder, final slot = final_model
-        attempts = [f"model-hop-{i}" for i in range(fallback_hops)] + [final_model]
+def _r(cli, final_model="m"):
+    """Build a ReviewerResult."""
     return ReviewerResult(
         cli=cli, ok=True, text="x" * 200, stderr_tail="",
         usage=Usage(input_tokens=10, output_tokens=20),
         elapsed=1.0,
         model_used=final_model,
-        attempts=attempts,
-        fallback_fired=fallback_hops > 0,
     )
 
 
@@ -47,7 +39,6 @@ def test_build_row_has_new_schema_fields():
     cur = row["usage_by_reviewer"]["claude"]
     assert "telemetry_quality" in cur
     assert "comparison_eligible" in cur
-    assert "fallback_hops" in cur
     assert "final_model" in cur
 
 
@@ -68,15 +59,6 @@ def test_comparison_eligible_factors_drift_status():
     assert _build("unchecked")["usage_by_reviewer"]["claude"]["comparison_eligible"] is False
 
 
-def test_comparison_eligible_false_on_fallback():
-    row = build_row(
-        results=[_r("gemini", fallback_hops=1, final_model="gemini-3.1-flash")],
-        mode="inline", task="code", project="p", wall_seconds=1.0,
-        reviewers_attempted=["gemini"], synthesizer="none", synthesis_ok=False,
-        pair_id=None, prompt_file=None, prompt_format_version=1,
-        drift_status="not_applicable", telemetry_notes=None,
-    )
-    assert row["usage_by_reviewer"]["gemini"]["comparison_eligible"] is False
 
 
 def test_harvest_row_emits_both_usage_keys():
@@ -108,3 +90,19 @@ def test_harvest_run_appends_jsonl(tmp_path):
 
 def test_derive_project_override_wins(tmp_path):
     assert derive_project(tmp_path, override="Custom") == "Custom"
+
+
+def test_harvest_row_no_fallback_fields(tmp_path):
+    """fallback_hops must not appear in per-reviewer dicts; fallback_attempts
+    must not appear at the top level. Both were stripped in B5."""
+    row = build_row(
+        results=[_r("claude"), _r("gemini")],
+        mode="inline", task="code", project="p",
+        wall_seconds=2.0, reviewers_attempted=["claude", "gemini"],
+        synthesizer="claude", synthesis_ok=True,
+        pair_id=None, prompt_file=None, prompt_format_version=1,
+        drift_status="not_applicable", telemetry_notes=None,
+    )
+    assert "fallback_attempts" not in row
+    for ubr in row["usage_by_reviewer"].values():
+        assert "fallback_hops" not in ubr
