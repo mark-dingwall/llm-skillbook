@@ -17,9 +17,6 @@ def run_dir(cwd: Path, run_id: str) -> Path:
     return project_state_dir(cwd) / "sessions" / run_id
 
 
-def pending_pair_dir(cwd: Path, pair_id: str) -> Path:
-    return project_state_dir(cwd) / "pending" / pair_id
-
 
 def _dev_checkout_runs() -> Path | None:
     """If invoked from a multi-review dev checkout, return <repo>/runs.
