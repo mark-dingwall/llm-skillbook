@@ -9,7 +9,7 @@ from multi_review.core.fanout import ReviewerResult
 def _r(cli: str, text: str) -> ReviewerResult:
     return ReviewerResult(
         cli=cli, ok=True, text=text, stderr_tail="",
-        attempts=[], usage=None, elapsed=0.0,
+        usage=None, elapsed=0.0,
     )
 
 

@@ -24,7 +24,6 @@ from multi_review.core.fanout import (
     STREAM_BUFFER_LIMIT,
     ReviewerResult,
     kill_proc,
-    _is_capacity_failure,
 )
 from multi_review.core.prompt import synthesis_prompt
 from multi_review.core.reviewers import build_command
@@ -104,27 +103,12 @@ async def run_synthesis(
     chain: list[str | None] | None = None,
     capacity_pattern: "re.Pattern[str] | None" = None,
 ) -> tuple[bool, str, str, str | None, list[str]]:
-    """Wraps `_run_synthesis_attempt` with a fallback chain. Returns
-    (ok, text, err, suggested_filename, attempts)."""
-    if chain is None:
-        chain = [model]
-    attempts: list[str] = []
-    last: tuple[bool, str, str, str | None] = (False, "", "no synthesis attempt", None)
-    for m in chain:
-        label = m if m is not None else "<default>"
-        attempts.append(label)
-        last = await _run_synthesis_attempt(cli, review_body, nonce, m, timeout)
-        ok, text, err, _ = last
-        if ok:
-            break
-        if capacity_pattern is None:
-            break
-        if not _is_capacity_failure(err, text, capacity_pattern):
-            break
-        if text and len(text.encode()) >= FAILURE_MIN_BYTES:
-            break
-    ok, text, err, suggested = last
-    return ok, text, err, suggested, attempts
+    """Single synthesis attempt. chain/capacity_pattern accepted but ignored
+    (fallback removed in B3; kept in signature for spawn.py compat until B4).
+    Returns (ok, text, err, suggested_filename, attempts)."""
+    label = model if model is not None else "<default>"
+    ok, text, err, suggested = await _run_synthesis_attempt(cli, review_body, nonce, model, timeout)
+    return ok, text, err, suggested, [label]
 
 
 # -------- Filename extraction + sanitisation --------
