@@ -52,9 +52,9 @@ def test_build_command_prompt_not_in_argv():
     assert all("<prompt>" not in tok for tok in argv)
 
 def test_make_adapter_dispatches_correct_class():
-    from multi_review.core.adapters import GeminiAdapter
-    a = make_adapter("gemini")
-    assert isinstance(a, GeminiAdapter)
+    from multi_review.core.adapters import AgyAdapter
+    a = make_adapter("agy")
+    assert isinstance(a, AgyAdapter)
 
 def test_cli_spec_has_no_fallback_chain_key():
     from multi_review.core.reviewers import CLI_SPEC

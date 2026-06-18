@@ -99,43 +99,20 @@ class ClaudeAdapter(ProgressAdapter):
                 self.text_parts = [result]
 
 
-# Verified against gemini stream-json: assistant messages carry "delta": true
-# and must be concatenated. If a future gemini version emits cumulative messages
-# (no delta flag), the else-branch replaces to avoid dupes. Watch for schema
-# drift here — the delta keying has changed before.
-class GeminiAdapter(ProgressAdapter):
+class AgyAdapter(ProgressAdapter):
+    """Plain-text buffer for agy --print (no event stream).
+
+    agy does not expose a JSONL --output-format. The whole stdout is the
+    review body. Token telemetry is not available via --print; usage stays
+    zero. v0.2.1 may probe --log-file for recoverable counters (BACKLOG).
+    """
     def feed_line(self, line: str) -> None:
         super().feed_line(line)
-        line = line.strip()
         if not line:
             return
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
-            return
-        t = ev.get("type")
-        if t == "init":
+        if self.phase == "starting":
             self.phase = "running"
-        elif t == "message" and ev.get("role") == "assistant":
-            content = ev.get("content", "")
-            if not content:
-                return
-            if ev.get("delta"):
-                self.text_parts.append(content)
-            else:
-                self.text_parts = [content]
-        elif t == "result":
-            self.phase = "done"
-            stats = ev.get("stats", {})
-            self.usage.input_tokens = stats.get("input_tokens", 0)
-            self.usage.output_tokens = stats.get("output_tokens", 0)
-            self.usage.cached_tokens = stats.get("cached", 0)
-            self.usage.tool_calls = stats.get("tool_calls", 0)
-        elif t == "error":
-            err = ev.get("error") or {}
-            msg = err.get("message") or str(err)
-            self.last_error = msg
-            self.phase = f"error"
+        self.text_parts.append(line + "\n")
 
 
 class CodexAdapter(ProgressAdapter):
@@ -220,7 +197,7 @@ class OpenCodeAdapter(ProgressAdapter):
 
 ADAPTER_FOR = {
     "claude": ClaudeAdapter,
-    "gemini": GeminiAdapter,
+    "agy": AgyAdapter,
     "codex": CodexAdapter,
     "opencode": OpenCodeAdapter,
 }
@@ -229,7 +206,7 @@ __all__ = [
     "Usage",
     "ProgressAdapter",
     "ClaudeAdapter",
-    "GeminiAdapter",
+    "AgyAdapter",
     "CodexAdapter",
     "OpenCodeAdapter",
     "ADAPTER_FOR",

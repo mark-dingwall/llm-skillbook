@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 from multi_review.core.adapters import (
+    AgyAdapter,
     ClaudeAdapter,
     CodexAdapter,
-    GeminiAdapter,
     OpenCodeAdapter,
     ProgressAdapter,
 )
@@ -35,11 +35,34 @@ def test_claude_adapter_empty_fixture_yields_empty_text():
     assert a.text == ""
 
 
-def test_gemini_adapter_capacity_failure_captures_error():
-    a = GeminiAdapter()
-    _feed(a, FIX / "gemini" / "capacity_429.jsonl")
-    assert a.last_error is not None
-    assert "429" in a.last_error or "quota" in a.last_error.lower()
+def test_agy_adapter_buffers_plain_text():
+    from multi_review.core.adapters import AgyAdapter
+    a = AgyAdapter()
+    a.feed_line("Hi, Gemini here.")
+    a.feed_line("Second line.")
+    assert "".join(a.text_parts) == "Hi, Gemini here.\nSecond line.\n" or \
+           "".join(a.text_parts) == "Hi, Gemini here.Second line." or \
+           "Gemini here" in "".join(a.text_parts)
+    assert a.usage.input_tokens == 0
+    assert a.usage.output_tokens == 0
+    assert a.phase in ("running", "done")
+
+
+def test_agy_fixture_round_trip():
+    from multi_review.core.adapters import AgyAdapter
+    a = AgyAdapter()
+    fixture = Path("tests/fixtures/streams/agy/success.txt").read_text()
+    for line in fixture.splitlines():
+        a.feed_line(line)
+    body = "".join(a.text_parts)
+    assert len(body) >= 50
+
+
+def test_no_gemini_adapter_export():
+    import multi_review.core.adapters as m
+    assert not hasattr(m, "GeminiAdapter")
+    assert "gemini" not in m.ADAPTER_FOR
+    assert m.ADAPTER_FOR["agy"] is m.AgyAdapter
 
 
 def test_codex_adapter_success_fixture():
