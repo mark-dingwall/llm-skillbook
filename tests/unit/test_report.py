@@ -154,6 +154,21 @@ def test_compute_pair_eligible_v1_carveout_true():
     assert _compute_pair_eligible(rows) is True
 
 
+def test_pair_eligible_collapses_to_drift_only():
+    """comparison_eligible should be True for a clean pair with no drift,
+    regardless of whether fallback_hops is absent or 0."""
+    from multi_review.core.report import _compute_pair_eligible
+    row_pass1 = {
+        "schema_version": 2, "pair_id": "p", "mode": "reference",
+        "usage_by_reviewer": {"claude": {"comparison_eligible": True}},
+    }
+    row_pass2 = {
+        "schema_version": 2, "pair_id": "p", "mode": "inline",
+        "usage_by_reviewer": {"claude": {"comparison_eligible": True}},
+    }
+    assert _compute_pair_eligible([row_pass1, row_pass2]) is True
+
+
 def test_experiments_table_has_no_fallback_column(tmp_path):
     """EXPERIMENTS table must not contain a 'Gemini fallback' column after B5."""
     log = tmp_path / "runs.jsonl"

@@ -62,7 +62,7 @@ b. If `mode == both`:
 
 c. If `mode != both`: single pass.
 
-d. If `mode == both`: generate `pass2_run_id` (same helper). Pending meta carries both ids so Step 10 can stage pass 2 in a distinct session directory. For `mode != both`, `pass2_run_id` is unused.
+d. If `mode == both`: generate `pass2_run_id` (same helper). For `mode != both`, `pass2_run_id` is unused.
 
 **Path constants used by Steps 5–11** (resolved per active pass — substitute `pass1_run_id` during pass 1, `pass2_run_id` during pass 2):
 
@@ -136,7 +136,7 @@ If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` 
     --synthesis-text-file <synth_output> \
     --pair-id <pair_id_or_omit> --prompt-file <yaml_path>
   ```
-- **Paired** (both passes; `mode == both`): write to the staged session dir; Step 11 promotes to cwd root with mode-suffixed names.
+- **Paired** (both passes; `mode == both`): write to the staged session dir; Step 10 promotes to cwd root with mode-suffixed names.
   ```
   uv run python -m multi_review.cli.aggregate \
     --reviews-dir <REVIEWS_DIR> --output <SESSION_DIR>/REVIEW.md \
@@ -145,66 +145,39 @@ If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` 
     --pair-id <pair_id> --prompt-file <yaml_path>
   ```
 
-Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies only to cwd-root paths (single-pass here, paired after Step 11 promotion); staged session-dir paths are unique per `run_id` so cannot collide.
+Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies only to cwd-root paths (single-pass here, paired after Step 10 promotion); staged session-dir paths are unique per `run_id` so cannot collide.
 
 ### Step 8 — Build harvest row + (deferred) write
 
 Build the row payload as a JSON file under `<cwd>/.multi-review/pending-harvest/<run_id>.json`.
 
-### Step 9 — Persist pending meta + decide on cooldown
+### Step 9 — Pass 2 + flush harvest rows (paired only)
 
-If `mode != both`: nothing to persist; proceed immediately to Step 11 (single-pass runs skip Steps 10–10.5). **Tie-break:** when EXPERIMENTS counters tie at 0 (post-reset reality + every fresh codebase), default pass-1 mode is `reference` (spec §11.3).
+If `mode != both`: nothing to do here; skip to Step 10. **Tie-break:** when EXPERIMENTS counters tie at 0 (post-reset reality + every fresh codebase), default pass-1 mode is `reference` (spec §11.3).
 
 If `mode == both`:
 
-1. **Always** write pending meta — Step 10a's atomic status transition requires `awaiting-pass-2` regardless of whether a cooldown fires:
-   ```
-   uv run python -m multi_review.cli.pending write --meta-file <json>
-   ```
-   The JSON carries `status: awaiting-pass-2`, `pair_id`, `pass1_run_id`, `pass2_run_id`, `modes`, `delay_type`, etc.
-2. Then branch on whether pass 1 hit a gemini fallback (gemini state.json `fallback_hops > 0`):
-   - **No fallback** → proceed immediately to Step 10.
-   - **Fallback fired** + `delay_type == background`:
-     - Spawn Bash background: `sleep <delay> && python -c "<resume check + notify-send invocation>"`
-     - Print resume command to user: "Resume manually with: `/multi-review --resume-pair <pair-id>`"
-     - **Stop processing further prompts in batch until resumed.**
-   - **Fallback fired** + `delay_type == foreground`:
-     - Bash with countdown: `for i in $(seq <delay> -1 1); do echo -ne "\rPass 2 in ${i}s..."; sleep 1; done`.
-     - Auto-fire pass 2 after.
-
-### Step 10 — Pass 2 (paired only)
-
-Triggered either by foreground wait completion or `--resume-pair <id>` invocation.
-
-a. Atomic status transition: read pending meta, refuse if `status != awaiting-pass-2`, set to `resuming`.
-
-b. TaskStop the notification task if still alive.
-
-c. If `if_drift != ignore`:
+a. If `if_drift != ignore`:
    - `mr-snapshot diff --snapshot-dir <pending/<pair_id>/files> --file <each>`
    - Branch on `status`:
      - `clean` → proceed.
-     - `drifted` + `if_drift == abort` → write pending meta `status: aborted`, harvest row marks `drift_status: drifted`, skip pass 2, continue.
+     - `drifted` + `if_drift == abort` → harvest row marks `drift_status: drifted`, skip pass 2, continue.
      - `drifted` + `if_drift == ask` → AskUserQuestion(proceed | abort | investigate). On investigate: dispatch `multi-review-investigate` with the diff + pass-1 REVIEW.md → re-ask with verdict.
 
-d. Run pass 2 fanout, synthesis, aggregate — same as Steps 5–7 with `mode_override` = pass 2 mode and `pair-id` flag passed through, **but resolve `SESSION_DIR` and `REVIEWS_DIR` against `pass2_run_id`** (not the pass-1 id). All prepare / fanout / aggregate invocations during pass 2 use `<cwd>/.multi-review/sessions/<pass2_run_id>` so pass-2 artifacts never collide with pass-1's.
+b. Run pass 2 fanout, synthesis, aggregate — same as Steps 5–7 with `mode_override` = pass 2 mode and `pair-id` flag passed through, **but resolve `SESSION_DIR` and `REVIEWS_DIR` against `pass2_run_id`** (not the pass-1 id). All prepare / fanout / aggregate invocations during pass 2 use `<cwd>/.multi-review/sessions/<pass2_run_id>` so pass-2 artifacts never collide with pass-1's.
 
-e. Build pass 2 harvest row (pending).
+c. Build pass 2 harvest row (pending).
 
-### Step 10.5 — Flush this pair's harvest rows (paired only)
+d. Flush both pass rows so the Step 10 report sees current data:
 
-The Step 11 paired-report build reads `<CENTRAL_PATH>/runs.jsonl`. The pair's two pass rows are still staged under `<cwd>/.multi-review/pending-harvest/*.json` from Step 8 / Step 10e; flush them now so the report sees current data.
+   - Tell user: "Writing this pair's 2 harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if the user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
+   - On approval:
+     ```
+     uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
+     ```
+   - On denial: rows stay pending; skip Step 10's report build for this pair and print the resume command. Step 12's batched flush still runs at batch end as a backstop.
 
-- Tell user: "Writing this pair's 2 harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if the user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
-- On approval:
-  ```
-  uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
-  ```
-- On denial: rows stay pending; skip Step 11's report build for this pair and print the resume command. Step 13's flush still runs at batch end as a backstop.
-
-For `mode != both`, skip Step 10.5 — Step 13's batched flush is sufficient.
-
-### Step 11 — Post-paired report
+### Step 10 — Post-paired report
 
 `<CENTRAL_PATH>` was resolved in Step 1 from `~/.claude/skills/multi-review/config.json`. Use it instead of any hardcoded `~/kramtime/...` path.
 
@@ -237,16 +210,16 @@ uv run python -m multi_review.cli.report build-paired \
 
 The mode_divergence / per_reviewer_notes blocks come from a final synthesis pass scoped to the pair: dispatch `multi-review-synthesizer` with both REVIEW.md files in `<pass-1>` and `<pass-2>` blocks. The synthesizer prompt template forbids load-bearing comparative claims at single-run level (spec §10.2).
 
-### Step 12 — Cleanup
+### Step 11 — Cleanup
 
 `mr-snapshot cleanup --snapshot-dir <pending/<pair_id>/files>`
 Remove `.multi-review/pending/<pair_id>/`.
 
-Step 11 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<run_id>/`, so the session directories now contain only ephemeral artifacts (per-reviewer state/.md, synthesis input/output, prepared prompt). Cleaning or pruning these directories will not lose user-visible output.
+Step 10 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<run_id>/`, so the session directories now contain only ephemeral artifacts (per-reviewer state/.md, synthesis input/output, prepared prompt). Cleaning or pruning these directories will not lose user-visible output.
 
-### Step 13 — Batch end: harvest flush + regen
+### Step 12 — Batch end: harvest flush + regen
 
-Flush any still-pending harvest rows (spec §5.3). For paired runs Step 10.5 already flushed each pair eagerly, so this pass is a no-op when only paired prompts ran; it still matters for single-pass prompts in a batch, or paired pairs whose Step 10.5 flush the user denied.
+Flush any still-pending harvest rows (spec §5.3). For paired runs Step 9 already flushed each pair eagerly, so this pass is a no-op when only paired prompts ran; it still matters for single-pass prompts in a batch, or paired pairs whose Step 9 flush the user denied.
 
 - Tell user: "Writing N harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
 - On approval:
@@ -264,24 +237,15 @@ uv run python -m multi_review.cli.report regen \
   --output <CENTRAL_PATH>/EXPERIMENTS.md
 ```
 
-### Step 14 — Final summary
+### Step 13 — Final summary
 
-Print per-prompt: REVIEW.md path, reviewer pass/fail counts, fallback events, comparison eligibility (paired only), pending pair status if applicable.
-
-## Notes on early resume + late notification (mode: both, delay: background)
-
-If the user triggers `--resume-pair <id>` before the background timer fires:
-- The atomic status transition (step 10a) flips meta to `resuming`.
-- TaskStop kills the bg task if still alive (belt and braces).
-- If somehow the bg sleep does fire after the status flip, its own first action is to re-check status; on seeing `!= awaiting-pass-2`, it exits silently with no notification.
-
-This double-guard prevents double-fire. **Do not** infer pass 2 timing from the timer alone; always use the status transition.
+Print per-prompt: REVIEW.md path, reviewer pass/fail counts, comparison eligibility (paired only).
 
 ## Notes on `mode: both` + `if_drift: ignore`
 
 When both conditions hold:
 - **Skip** snapshot creation in step 5.
-- **Skip** drift diff and investigate logic in step 10c entirely.
+- **Skip** drift diff and investigate logic in step 9a entirely.
 - Harvest row records `drift_status: unchecked` and pair-level `comparison_eligible: false`.
 
 The investigate subagent is never dispatched in this configuration.
