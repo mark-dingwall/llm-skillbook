@@ -11,7 +11,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("create", "diff"):
         sp = sub.add_parser(name)
         sp.add_argument("--snapshot-dir", type=Path, required=True)
-        sp.add_argument("--file", type=Path, action="append", default=[], required=True)
+        sp.add_argument("--file", type=Path, action="append", default=[], required=(name == "diff"))
         sp.add_argument("--context-file", type=Path, action="append", default=[])
     cu = sub.add_parser("cleanup")
     cu.add_argument("--snapshot-dir", type=Path, required=True)

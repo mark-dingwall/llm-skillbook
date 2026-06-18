@@ -34,3 +34,9 @@ def test_cleanup_removes(tmp_path):
     r = _run("cleanup", "--snapshot-dir", str(snap))
     assert r.returncode == 0
     assert not snap.exists()
+
+def test_snapshot_create_no_files(tmp_path):
+    snap = tmp_path / "snap"
+    r = _run("create", "--snapshot-dir", str(snap))
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["ok"] is True
