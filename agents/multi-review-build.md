@@ -46,8 +46,8 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 - if_drift: ignore
 - models.claude: claude-opus-4-7
 - models.agy: (unset — agy picks its default model)
-- models.codex: gpt-5
-- models.opencode: openrouter/deepseek/deepseek-v4-pro
+- models.codex: (unset — codex picks its default model; set explicitly only for reproducibility)
+- models.opencode: (unset — opencode picks its default model; set explicitly only for reproducibility)
 - model_effort.codex: high
 
 **agy permission posture.** `agy --print` defaults often refuse reads outside the current working directory. When you prepare a prompt that targets files outside cwd, scope the review to cwd OR copy the target tree to cwd / a `/tmp/<scratch>/` directory first (omit `node_modules`, `.git`, `dist`, `build`, `.venv`, `__pycache__`, vendor dirs). Don't pass `--dangerously-skip-permissions` blindly — read-only reviews don't need it.

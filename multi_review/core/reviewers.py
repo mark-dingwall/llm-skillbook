@@ -107,15 +107,14 @@ CLI_SPEC: dict[str, dict] = {
         "base": ["codex", "exec", "--skip-git-repo-check"],
         "stream_flags": ["--json"],
         "model_flag": "--model",
-        "default_args": ["--model", "gpt-5.5",
-                         "-c", 'model_reasoning_effort="high"'],
+        "default_args": ["-c", 'model_reasoning_effort="high"'],
         "stdin_sentinel": "-",
     },
     "opencode": {
         "base": ["opencode", "run"],
         "stream_flags": ["--format", "json"],
         "model_flag": "--model",
-        "default_args": ["--model", "openrouter/deepseek/deepseek-v4-pro"],
+        "default_args": [],
         "stdin_sentinel": "-",
     },
 }

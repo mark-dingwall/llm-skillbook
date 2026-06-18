@@ -115,3 +115,21 @@ def test_detect_self_antigravity_still_shortcircuits(monkeypatch):
     monkeypatch.setenv("ANTIGRAVITY_AGENT", "1")
     from multi_review.core.reviewers import detect_self
     assert detect_self() == "none"
+
+def test_build_command_codex_no_default_model():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("codex", model=None, streaming=True)
+    assert "--model" not in cmd
+    assert "-c" in cmd
+    assert 'model_reasoning_effort="high"' in cmd
+
+def test_build_command_opencode_no_default_model():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("opencode", model=None, streaming=True)
+    assert "--model" not in cmd
+
+def test_build_command_codex_pinned_still_works():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("codex", model="gpt-5.5", streaming=True)
+    assert "--model" in cmd
+    assert "gpt-5.5" in cmd
