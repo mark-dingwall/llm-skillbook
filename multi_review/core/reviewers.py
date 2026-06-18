@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 # -------- Reviewer list --------
 
-ALL_REVIEWERS: list[str] = ["claude", "gemini", "codex", "opencode"]
+ALL_REVIEWERS: list[str] = ["claude", "agy", "codex", "opencode"]
 
 # -------- CLI detection + self-skip --------
 
@@ -85,7 +85,6 @@ def resolve_reviewers(
 # --model/-m override (or default_args when no override) + optional stdin
 # sentinel. Prompt is always written to the child's stdin (see run_reviewer)
 # so it never appears in /proc/PID/cmdline.
-# gemini's -p requires a value; "" lets it take the whole prompt from stdin.
 CLI_SPEC: dict[str, dict] = {
     "claude": {
         "base": ["claude", "-p"],
@@ -95,10 +94,14 @@ CLI_SPEC: dict[str, dict] = {
         "default_args": ["--model", "opus", "--effort", "xhigh"],
         "stdin_sentinel": None,
     },
-    "gemini": {
-        "base": ["gemini", "-p", ""],
-        "stream_flags": ["-o", "stream-json"],
-        "model_flag": "-m",
+    "agy": {
+        "base": ["agy", "--print"],
+        "stream_flags": [],
+        "model_flag": "--model",
+        # default_args=[] — let agy pick its default model. v0.2.1 model-config
+        # feature will read user-specified model from TOML. Verified working
+        # values for explicit pinning: "Gemini 3.1 Pro (High)" (default-ish),
+        # "Gemini 3.5 Flash (Low|Medium|High)" (cheaper variants).
         "default_args": [],
         "stdin_sentinel": None,
     },

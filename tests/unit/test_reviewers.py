@@ -7,7 +7,7 @@ from multi_review.core.reviewers import (
 )
 
 def test_all_reviewers_known():
-    assert set(ALL_REVIEWERS) >= {"claude", "gemini", "codex", "opencode"}
+    assert set(ALL_REVIEWERS) >= {"claude", "agy", "codex", "opencode"}
 
 def test_cli_spec_has_every_reviewer():
     for cli in ALL_REVIEWERS:
@@ -26,25 +26,25 @@ def test_detect_self_antigravity_short_circuit(monkeypatch):
 
 def test_resolve_reviewers_explicit_overrides_filter():
     chosen = resolve_reviewers(
-        explicit=["claude", "gemini"], skip_self=True, self_cli="claude",
-        available={"claude", "gemini", "codex"},
+        explicit=["claude", "agy"], skip_self=True, self_cli="claude",
+        available={"claude", "agy", "codex"},
     )
-    assert chosen == ["claude", "gemini"]
+    assert chosen == ["claude", "agy"]
 
 def test_resolve_reviewers_default_includes_self_unless_skip():
     chosen = resolve_reviewers(
         explicit=None, skip_self=False, self_cli="claude",
-        available={"claude", "gemini"},
+        available={"claude", "agy"},
     )
     assert "claude" in chosen
 
 def test_resolve_reviewers_skip_self_drops_host():
     chosen = resolve_reviewers(
         explicit=None, skip_self=True, self_cli="claude",
-        available={"claude", "gemini"},
+        available={"claude", "agy"},
     )
     assert "claude" not in chosen
-    assert "gemini" in chosen
+    assert "agy" in chosen
 
 def test_build_command_prompt_not_in_argv():
     argv = build_command("claude", model=None, streaming=True)
@@ -72,3 +72,32 @@ def test_build_command_no_chain_branch():
     cmd = build_command("claude", model=None, streaming=True)
     assert "--model" in cmd
     assert "opus" in cmd
+
+def test_all_reviewers_contains_agy_not_gemini():
+    from multi_review.core.reviewers import ALL_REVIEWERS
+    assert "agy" in ALL_REVIEWERS
+    assert "gemini" not in ALL_REVIEWERS
+
+def test_cli_spec_agy_shape():
+    from multi_review.core.reviewers import CLI_SPEC
+    s = CLI_SPEC["agy"]
+    assert s["base"] == ["agy", "--print"]
+    assert s["model_flag"] == "--model"
+    assert s["stdin_sentinel"] is None
+    assert s["stream_flags"] == []
+    assert s["default_args"] == []
+
+def test_cli_spec_no_gemini_entry():
+    from multi_review.core.reviewers import CLI_SPEC
+    assert "gemini" not in CLI_SPEC
+
+def test_build_command_agy_with_default():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("agy", model=None, streaming=True)
+    assert cmd == ["agy", "--print"]
+
+def test_build_command_agy_pinned():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("agy", model="Gemini 3.1 Pro (High)", streaming=True)
+    assert "--model" in cmd
+    assert "Gemini 3.1 Pro (High)" in cmd
