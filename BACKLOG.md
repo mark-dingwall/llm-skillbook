@@ -2,6 +2,22 @@
 
 Forward-looking work, not committed to a milestone. Edit freely.
 
+## v0.2.1 deferred cluster (2026-06-19)
+
+Items deferred from Bundle B Phase 1. Re-evaluate before v0.3 or when the relevant pain surfaces.
+
+### model-config feature
+
+TOML config file (`~/.config/multi-review/config.toml` or per-project `.multi-review/config.toml`) for default model overrides. Adds `mr-config edit` command to open in `$EDITOR`. Two-channel injection: CLI flag (`--model`) wins over config file, config file wins over hardcoded defaults. Motivation: per-project model pinning without repeating `models:` in every YAML prompt file.
+
+### agy telemetry recovery
+
+Probe `--log-file` (or equivalent) for parseable token usage data. The agy adapter currently records `telemetry_quality: degraded` and null token counts. If the CLI writes structured usage to a log file, parse it post-run and backfill the harvest row. Prerequisite: verify `--log-file` output schema against a real run.
+
+### quota-proximity probe
+
+Avoid burning quota in the first place. Before dispatching a reviewer, probe the CLI for remaining quota / rate-limit headroom (if the CLI exposes it). If quota is near-exhausted, warn the user or skip that reviewer rather than let the run fail mid-stream. This is the cleaner alternative to the fallback chain deleted in Bundle B (2026-06-19).
+
 ## Reference mode + bwrap sandbox + per-CLI bypass-perms
 
 ### Motivation
@@ -339,7 +355,9 @@ failures.
    why reference mode is structurally unsuitable, suggests `--mode
    inline`.
 
-## Capacity-aware reviewer fallback
+## Capacity-aware reviewer fallback — DROPPED (2026-06-19)
+
+> Fallback subsystem deleted in Bundle B Phase 1. See v0.2.1 quota-proximity probe above for the replacement approach.
 
 **Status (2026-04-29):** Shipped for **gemini**. 6-deep default chain
 (`GEMINI_FALLBACK_CHAIN`) walked on capacity-class stderr, stops at first
@@ -583,9 +601,11 @@ assignment to localise the cost.
   than wall-clock timeout. Could surface as `--idle-timeout` later.
   Not v1.
 
-## Streaming output → crash-resume across model fallback
+## Streaming output → crash-resume across model fallback — DROPPED (2026-06-19)
 
-### Motivation
+> Fallback subsystem deleted in Bundle B Phase 1. No fallback hops to resume across.
+
+### Motivation (historical)
 
 When a reviewer (today: gemini fallback chain) hops models, the in-flight
 stream is lost. We restart from token zero on the next model. Two costs:
@@ -788,13 +808,70 @@ or when external use is contemplated.
   Documented in CLAUDE.md invariants; codex review misread the contract.
   Not a bug.
 
-- **H9 — Gemini JSONL error events bypass capacity fallback**: today the
-  capacity-fallback detector only inspects stderr regex matches. If gemini
-  ever emits a JSON-shaped capacity error on stdout instead of stderr, the
-  fallback chain won't engage. Theoretical — never observed. Fixture path:
-  `tests/fixtures/jsonl_streams/gemini_*.jsonl` for when a real example lands.
+- **H9 — Gemini JSONL error events bypass capacity fallback**: moot — fallback subsystem dropped 2026-06-19.
 
 - **M12 — snapshot diff skips new files**: by design. New files in the working
   tree between pass 1 and pass 2 are not snapshot-drift, because the snapshot
   set is scoped to declared `input_files + context_files` only (spec §9.1).
   A new file the model didn't review can't change the review's validity.
+
+## Convergence churn at MEDIUM+ threshold (2026-06-06)
+
+### Problem
+
+Guestflow quote-pricing PLAN review loop ran 8 rounds at "no new post-triage
+MEDIUM+" before converging. The threshold itself wasn't wrong (payments
+surface warranted MEDIUM+), but later rounds kept resetting the loop with
+findings that were noise in three recognisable shapes:
+
+1. **Rehash** — reviewers re-flag already-triaged items in new words, or
+   re-litigate settled decisions (an EPSILON-rounding debate resurfaced
+   round after round until the plan grew an explicit "do not re-litigate"
+   block).
+2. **Late discoveries on stable content** — round-5 MEDIUM on lines unchanged
+   since round 1. Reviewers had N looks; late-MEDIUM-on-stable is noise more
+   often than signal, and *fixing* it creates fresh diff = fresh review
+   surface = more churn.
+3. **Improvement-vs-defect blur** — MEDIUM bar invites taste findings
+   ("could be clearer", "consider extracting"). Each one fixed = new surface.
+
+Second-order driver: orchestrator fix style. Refactors / comment-polish
+sweeps in response to findings are next round's churn fuel.
+
+### Mitigations (proven in-session 2026-06-06; candidate v-next features)
+
+Amended stop condition: loop until a round produces **no new post-triage
+MEDIUM+ findings that are (a) novel vs ledger, (b) defect-with-failure-
+scenario, (c) on changed code — or HIGH+ anywhere**. Hard stop unchanged.
+
+- **Novelty ledger**: every triaged finding (fixed/backlogged/dropped +
+  rationale) carried forward into each round's context as "known — do not
+  re-flag". Triage maps new findings against the ledger FIRST; rehash =
+  non-novel = doesn't reset the loop. (Skill prose already hints this;
+  make it mechanical — tool could emit/consume the ledger artifact.)
+- **Stable-code ratchet**: from round 3 on, a finding on lines unchanged
+  since round 1 must be HIGH+ to reset the loop. MEDIUM on stable code →
+  verify, then backlog (or fix without resetting if one-liner). Safety:
+  ratcheted items are backlogged, never dropped — nothing vanishes, just
+  doesn't block ship.
+- **Defect test**: MEDIUM+ counts toward non-convergence only with a
+  concrete failure scenario on this codebase (wrong money, wrong row,
+  crash, 502). Improvements without a failure mode → backlog regardless
+  of reviewer's severity tag.
+- **Surgical-fix discipline** (orchestrator-side): minimal diffs between
+  rounds; no refactors or polish sweeps in response to findings.
+
+What this does NOT relax: HIGH+ anywhere, any round, any code — always
+resets. The conditions only filter MEDIUM noise.
+
+### Tool-support candidates for v-next
+
+- First-class ledger: `--ledger <file>` consumed into the prompt with
+  do-not-re-flag framing; synthesizer dedupes new findings against it and
+  tags rehash explicitly.
+- Per-finding metadata in REVIEW.md output: novel-vs-ledger, on-changed-
+  lines (needs the diff range), has-failure-scenario — so triage can apply
+  the amended stop condition mechanically instead of by hand.
+- Round-aware convergence report: which findings reset the loop and under
+  which clause, so 8-round forensics doesn't require re-reading every
+  REVIEW file.
