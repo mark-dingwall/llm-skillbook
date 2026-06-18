@@ -4,13 +4,11 @@ Single source of truth for:
   - ALL_REVIEWERS list
   - detect_self / detect_available / resolve_reviewers
   - CLI_SPEC table (invocation recipes)
-  - GEMINI_FALLBACK_CHAIN, CAPACITY_PATTERNS
   - build_command, make_adapter
 """
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from typing import TYPE_CHECKING
 
@@ -83,31 +81,10 @@ def resolve_reviewers(
 
 # -------- Invocation commands --------
 
-# Default fallback chain for gemini, walked top-to-bottom on capacity-class
-# failures (see CAPACITY_PATTERNS). chain[0] is also the default model when no
-# --model override is supplied.
-GEMINI_FALLBACK_CHAIN = [
-    "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-]
-
-# Best-effort regex per CLI for capacity-class failures (429 / quota /
-# overloaded). Stderr scraping — these WILL rot as upstream messages drift
-# (mirrors the GeminiAdapter `delta` caution near multi_review.py:431).
-# Add real-world stderr samples here as they're observed.
-CAPACITY_PATTERNS: dict[str, re.Pattern[str]] = {
-    "gemini": re.compile(
-        r"MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|Quota exceeded|"
-        r"\b429\b|UNAVAILABLE|model is overloaded",
-        re.IGNORECASE,
-    ),
-}
-
 # Per-CLI invocation recipe. "base" + optional stream_flags + optional
-# --model/-m override (or default_args / fallback_chain[0] when no override) +
-# optional stdin sentinel. Prompt is always written to the child's stdin (see
-# run_reviewer) so it never appears in /proc/PID/cmdline.
+# --model/-m override (or default_args when no override) + optional stdin
+# sentinel. Prompt is always written to the child's stdin (see run_reviewer)
+# so it never appears in /proc/PID/cmdline.
 # gemini's -p requires a value; "" lets it take the whole prompt from stdin.
 CLI_SPEC: dict[str, dict] = {
     "claude": {
@@ -116,16 +93,13 @@ CLI_SPEC: dict[str, dict] = {
                          "--include-partial-messages", "--verbose"],
         "model_flag": "--model",
         "default_args": ["--model", "opus", "--effort", "xhigh"],
-        "fallback_chain": [],
         "stdin_sentinel": None,
     },
     "gemini": {
         "base": ["gemini", "-p", ""],
         "stream_flags": ["-o", "stream-json"],
         "model_flag": "-m",
-        # Default model now sourced from fallback_chain[0] when no override.
         "default_args": [],
-        "fallback_chain": GEMINI_FALLBACK_CHAIN,
         "stdin_sentinel": None,
     },
     "codex": {
@@ -134,7 +108,6 @@ CLI_SPEC: dict[str, dict] = {
         "model_flag": "--model",
         "default_args": ["--model", "gpt-5.5",
                          "-c", 'model_reasoning_effort="high"'],
-        "fallback_chain": [],
         "stdin_sentinel": "-",
     },
     "opencode": {
@@ -142,7 +115,6 @@ CLI_SPEC: dict[str, dict] = {
         "stream_flags": ["--format", "json"],
         "model_flag": "--model",
         "default_args": ["--model", "openrouter/deepseek/deepseek-v4-pro"],
-        "fallback_chain": [],
         "stdin_sentinel": "-",
     },
 }
@@ -159,11 +131,7 @@ def build_command(cli: str, model: str | None, *, streaming: bool) -> list[str]:
     if model:
         cmd += [spec["model_flag"], model]
     else:
-        chain = spec.get("fallback_chain") or []
-        if chain:
-            cmd += [spec["model_flag"], chain[0]]
-        else:
-            cmd += spec.get("default_args", [])
+        cmd += spec.get("default_args", [])
     if spec["stdin_sentinel"]:
         cmd.append(spec["stdin_sentinel"])
     return cmd

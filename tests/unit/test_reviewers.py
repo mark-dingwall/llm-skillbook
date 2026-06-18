@@ -55,3 +55,20 @@ def test_make_adapter_dispatches_correct_class():
     from multi_review.core.adapters import GeminiAdapter
     a = make_adapter("gemini")
     assert isinstance(a, GeminiAdapter)
+
+def test_cli_spec_has_no_fallback_chain_key():
+    from multi_review.core.reviewers import CLI_SPEC
+    for cli, spec in CLI_SPEC.items():
+        assert "fallback_chain" not in spec, f"{cli} still has fallback_chain"
+
+def test_no_capacity_patterns_export():
+    import multi_review.core.reviewers as r
+    assert not hasattr(r, "CAPACITY_PATTERNS")
+    assert not hasattr(r, "GEMINI_FALLBACK_CHAIN")
+    assert not hasattr(r, "resolve_chain")
+
+def test_build_command_no_chain_branch():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("claude", model=None, streaming=True)
+    assert "--model" in cmd
+    assert "opus" in cmd
