@@ -13,8 +13,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
+
+FILENAME_TAG_RE = re.compile(r"<filename>(.+?)</filename>\s*$", re.DOTALL)
+
+
+def _split_filename(text: str) -> tuple[str, str | None]:
+    m = FILENAME_TAG_RE.search(text)
+    if not m:
+        return text, None
+    body = text[:m.start()].rstrip()
+    return body, m.group(1).strip()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,8 +65,9 @@ def main(argv: list[str] | None = None) -> int:
         }))
         return 0
 
+    body, suggested_filename = _split_filename(text)
     synth_path = args.out_dir / "synth.txt"
-    synth_path.write_text(text)
+    synth_path.write_text(body)
     state_path = args.out_dir / "synth.state.json"
     state_path.write_text(json.dumps({
         "cli": args.cli,
@@ -64,7 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         "stderr_tail": "",
         "usage": None,
         "final_model": args.model,
-        "suggested_filename": None,
+        "body": body,
+        "suggested_filename": suggested_filename,
     }, indent=2))
     print(json.dumps({
         "ok": True,

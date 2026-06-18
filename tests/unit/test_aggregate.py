@@ -4,6 +4,19 @@ from multi_review.core.aggregate import write_review_md, resolve_output_path
 from multi_review.core.fanout import ReviewerResult
 
 
+def _write_and_read(tmp_path, synthesis_text):
+    out = tmp_path / "REVIEW.md"
+    write_review_md(
+        path=out,
+        results=[_r("claude"), _r("gemini")],
+        synthesis_text=synthesis_text,
+        mode="inline",
+        task="code",
+        reviewers_attempted=["claude", "gemini"],
+    )
+    return out.read_text()
+
+
 def _r(cli, ok=True, text="content"):
     return ReviewerResult(cli=cli, ok=ok, text=text, stderr_tail="",
                           usage=None, elapsed=1.0)
@@ -54,3 +67,17 @@ def test_aggregate_no_fallbacks_frontmatter(tmp_path):
     )
     body = out.read_text()
     assert "fallbacks:" not in body
+
+
+def test_aggregate_no_double_consensus_heading(tmp_path):
+    body = "Both reviewers flagged the auth race.\n\nFix: use <=.\n"
+    out = _write_and_read(tmp_path, synthesis_text=body)
+    headings = [l for l in out.splitlines() if l.strip() == "## Consensus Summary"]
+    assert len(headings) == 1
+
+
+def test_aggregate_synthesis_already_has_heading_no_double(tmp_path):
+    body = "## Consensus Summary\n\nBoth reviewers flagged the auth race.\n"
+    out = _write_and_read(tmp_path, synthesis_text=body)
+    headings = [l for l in out.splitlines() if l.strip() == "## Consensus Summary"]
+    assert len(headings) == 1

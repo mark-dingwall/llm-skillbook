@@ -142,13 +142,18 @@ def write_review_md(
         lines.append("---")
         lines.append("")
 
-    lines.append("## Consensus Summary")
-    lines.append("")
     if synthesis_text:
-        lines.append(synthesis_text.strip())
+        body = synthesis_text.strip()
+        if not body.lstrip().startswith("## Consensus Summary"):
+            body = "## Consensus Summary\n\n" + body.lstrip()
+        lines.append(body)
     elif len(succeeded) < 2:
+        lines.append("## Consensus Summary")
+        lines.append("")
         lines.append("_Consensus: n/a (insufficient reviewers — need ≥2 successful reviews)_")
     else:
+        lines.append("## Consensus Summary")
+        lines.append("")
         lines.append("_Consensus synthesis skipped (run without --no-synthesize to populate)._")
     lines.append("")
 

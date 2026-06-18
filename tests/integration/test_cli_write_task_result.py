@@ -68,7 +68,7 @@ def test_write_task_result_review_mode_no_model_defaults_attempt(tmp_path):
 
 def test_write_task_result_synthesize_mode(tmp_path):
     text_file = tmp_path / "synth.txt"
-    synth_text = "## Consensus Summary\n### Headline\nLooks fine.\n"
+    synth_text = "### Headline\nLooks fine.\n"
     text_file.write_text(synth_text)
     out_dir = tmp_path / "session"
 
@@ -98,5 +98,49 @@ def test_write_task_result_synthesize_mode(tmp_path):
         "stderr_tail": "",
         "usage": None,
         "final_model": "claude-opus-4-7",
+        "body": synth_text,
         "suggested_filename": None,
     }
+
+
+def test_write_task_result_parses_filename(tmp_path):
+    text = "Some headline.\n\nBody text.\n\n<filename>auth-review.md</filename>\n"
+    text_file = tmp_path / "raw.txt"
+    text_file.write_text(text)
+    out_dir = tmp_path / "session"
+
+    r = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "5.0",
+        "--task-mode", "synthesize",
+    ])
+    assert r.returncode == 0, r.stderr
+
+    state = json.loads((out_dir / "synth.state.json").read_text())
+    assert state["body"] == "Some headline.\n\nBody text."
+    assert state["suggested_filename"] == "auth-review.md"
+
+    synth_path = out_dir / "synth.txt"
+    assert synth_path.read_text() == "Some headline.\n\nBody text."
+
+
+def test_write_task_result_no_filename_tag(tmp_path):
+    text = "Some headline.\n\nBody text.\n"
+    text_file = tmp_path / "raw.txt"
+    text_file.write_text(text)
+    out_dir = tmp_path / "session"
+
+    r = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "5.0",
+        "--task-mode", "synthesize",
+    ])
+    assert r.returncode == 0, r.stderr
+
+    state = json.loads((out_dir / "synth.state.json").read_text())
+    assert state["body"] == text
+    assert state["suggested_filename"] is None
