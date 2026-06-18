@@ -26,8 +26,6 @@ def detect_self() -> str:
         return "none"
     if os.environ.get("CLAUDE_CODE_ENTRYPOINT"):
         return "claude"
-    if os.environ.get("GEMINI_CLI"):
-        return "gemini"
     if os.environ.get("CODEX_ENV"):
         return "codex"
     # opencode sets OPENCODE=1 in the child env of every shell/agent invocation.

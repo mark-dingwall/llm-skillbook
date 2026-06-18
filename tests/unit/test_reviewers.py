@@ -101,3 +101,17 @@ def test_build_command_agy_pinned():
     cmd = build_command("agy", model="Gemini 3.1 Pro (High)", streaming=True)
     assert "--model" in cmd
     assert "Gemini 3.1 Pro (High)" in cmd
+
+def test_detect_self_no_gemini_branch(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.delenv("CODEX_ENV", raising=False)
+    monkeypatch.delenv("OPENCODE", raising=False)
+    monkeypatch.delenv("ANTIGRAVITY_AGENT", raising=False)
+    monkeypatch.setenv("GEMINI_CLI", "1")
+    from multi_review.core.reviewers import detect_self
+    assert detect_self() == ""  # GEMINI_CLI no longer recognised; falls through to unknown host
+
+def test_detect_self_antigravity_still_shortcircuits(monkeypatch):
+    monkeypatch.setenv("ANTIGRAVITY_AGENT", "1")
+    from multi_review.core.reviewers import detect_self
+    assert detect_self() == "none"
