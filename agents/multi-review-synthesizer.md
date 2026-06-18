@@ -41,10 +41,10 @@ Your output is body only (plain prose). Optional inner `### Headline` is fine.
 
 - (item where reviewers disagree — describe both sides)
 
-<filename>some-short-kebab-case-name</filename>
+<filename>some-short-kebab-case-name.md</filename>
 ```
 
-Append a single trailing `<filename>suggested-name.md</filename>` line (no `### Filename suggestion` heading). Filename: 2-5 kebab-case words capturing the review subject, no `REVIEW-` prefix, no extension. Used as a hint by the aggregator.
+Append a single trailing `<filename>suggested-name.md</filename>` line (no `### Filename suggestion` heading). Filename: 2-5 kebab-case words capturing the review subject, no `REVIEW-` prefix, with `.md` extension. Used as a hint by the aggregator.
 
 When invoked for a **paired-run report build**, the prompt will include both pass-1 and pass-2 REVIEW.md as separate `<pass-1 …>` and `<pass-2 …>` blocks. In that case, your output also includes:
 

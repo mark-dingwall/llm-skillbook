@@ -51,7 +51,7 @@ def test_agy_adapter_buffers_plain_text():
 def test_agy_fixture_round_trip():
     from multi_review.core.adapters import AgyAdapter
     a = AgyAdapter()
-    fixture = Path("tests/fixtures/streams/agy/success.txt").read_text()
+    fixture = (FIX / "agy" / "success.txt").read_text()
     for line in fixture.splitlines():
         a.feed_line(line)
     body = "".join(a.text_parts)

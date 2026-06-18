@@ -100,3 +100,18 @@ def test_aggregate_frontmatter_parity(tmp_path):
     assert "models:" in body
     assert "mode: reference" in body
     assert "if_drift: ignore" in body
+
+
+def test_aggregate_frontmatter_empty_models(tmp_path):
+    """models: key is always emitted even when no models dict is passed (aggregate CLI path)."""
+    out = tmp_path / "REVIEW.md"
+    write_review_md(
+        path=out,
+        results=[_r("claude")],
+        synthesis_text=None,
+        mode="inline",
+        task="code",
+        reviewers_attempted=["claude"],
+    )
+    body = out.read_text()
+    assert "models:" in body

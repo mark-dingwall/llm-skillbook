@@ -84,7 +84,7 @@ def build_row(
     mode: str,
     task: str,
     project: str,
-    wall_seconds: float,
+    wall_seconds: float | None,
     reviewers_attempted: list[str],
     synthesizer: str | None,
     synthesis_ok: bool,
