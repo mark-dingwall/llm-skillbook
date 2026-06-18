@@ -1,8 +1,6 @@
 """report.py — EXPERIMENTS.md regeneration + paired-report builder.
 
-Moved from multi_review.py legacy functions _format_fallback_label and
-render_experiments_markdown, then extended with build_paired_report and
-paired_report_filename per spec §10.1 / Task 14.
+Extended with build_paired_report and paired_report_filename per spec §10.1 / Task 14.
 """
 
 from __future__ import annotations

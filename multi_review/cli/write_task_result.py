@@ -34,7 +34,6 @@ def main(argv: list[str] | None = None) -> int:
 
     text = args.text_file.read_text()
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    model_attempt = args.model or "<default>"
 
     if args.task_mode == "review":
         review_path = args.out_dir / f"{args.cli}.md"
@@ -44,7 +43,6 @@ def main(argv: list[str] | None = None) -> int:
             "cli": args.cli,
             "ok": True,
             "duration_seconds": args.duration_seconds,
-            "attempts": [model_attempt],
             "stderr_tail": "",
             "usage": None,
             "final_model": args.model,
@@ -63,7 +61,6 @@ def main(argv: list[str] | None = None) -> int:
         "cli": args.cli,
         "ok": True,
         "duration_seconds": args.duration_seconds,
-        "attempts": [model_attempt],
         "stderr_tail": "",
         "usage": None,
         "final_model": args.model,

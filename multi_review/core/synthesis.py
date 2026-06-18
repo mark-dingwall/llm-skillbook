@@ -3,7 +3,7 @@
 Contains:
 - build_synthesis_input: wrap reviewer outputs for the synthesizer prompt
 - _run_synthesis_attempt: single async synthesis attempt
-- run_synthesis: fallback-chain wrapper around _run_synthesis_attempt
+- run_synthesis: single synthesis attempt wrapper around _run_synthesis_attempt
 - extract_filename_from_synthesis: parse FILENAME: prefix from synthesizer output
 - strip_filename_prefix: remove FILENAME: line (and separator) from text
 - sanitize_review_filename: validate/sanitise model-suggested filenames

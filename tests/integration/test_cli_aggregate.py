@@ -19,7 +19,6 @@ def test_aggregate_writes_review_md(tmp_path):
     (rdir / "claude.md").write_text("claude says it's fine")
     (rdir / "claude.state.json").write_text(json.dumps({
         "cli": "claude", "ok": True, "duration_seconds": 2.0,
-        "attempts": ["claude-opus-4-7"],
         "stderr_tail": "", "usage": None,
         "final_model": "claude-opus-4-7",
     }))
@@ -46,7 +45,6 @@ def test_aggregate_demotes_reviewer_missing_summary_heading(tmp_path):
     (rdir / "claude.md").write_text(refusal)
     (rdir / "claude.state.json").write_text(json.dumps({
         "cli": "claude", "ok": True, "duration_seconds": 1.0,
-        "attempts": ["claude-opus-4-7"],
         "stderr_tail": "", "usage": None,
         "final_model": "claude-opus-4-7",
     }))
@@ -76,7 +74,6 @@ def test_aggregate_accepts_reviewer_with_summary_heading(tmp_path):
     (rdir / "claude.md").write_text(body_md)
     (rdir / "claude.state.json").write_text(json.dumps({
         "cli": "claude", "ok": True, "duration_seconds": 1.0,
-        "attempts": ["claude-opus-4-7"],
         "stderr_tail": "", "usage": None,
         "final_model": "claude-opus-4-7",
     }))

@@ -277,6 +277,8 @@ Per-reviewer block in harvest:
 
 Free-form `telemetry_notes` field per row for human-flagged anomalies (e.g., "claude reported 0 output_tokens but the review is non-empty"). Captured at run time; queryable later.
 
+## 8. (Removed — fallback / cooldown / pending-pair subsystem scrapped 2026-06-19, see CLAUDE.md)
+
 ## 9. Drift handling
 
 ### 9.1 Detection

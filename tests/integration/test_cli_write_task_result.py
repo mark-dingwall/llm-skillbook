@@ -42,7 +42,6 @@ def test_write_task_result_review_mode(tmp_path):
         "cli": "claude",
         "ok": True,
         "duration_seconds": 3.5,
-        "attempts": ["claude-opus-4-7"],
         "stderr_tail": "",
         "usage": None,
         "final_model": "claude-opus-4-7",
@@ -63,7 +62,7 @@ def test_write_task_result_review_mode_no_model_defaults_attempt(tmp_path):
     ])
     assert r.returncode == 0, r.stderr
     state = json.loads((out_dir / "claude.state.json").read_text())
-    assert state["attempts"] == ["<default>"]
+    assert "attempts" not in state
     assert state["final_model"] is None
 
 
@@ -96,7 +95,6 @@ def test_write_task_result_synthesize_mode(tmp_path):
         "cli": "claude",
         "ok": True,
         "duration_seconds": 8.1,
-        "attempts": ["claude-opus-4-7"],
         "stderr_tail": "",
         "usage": None,
         "final_model": "claude-opus-4-7",

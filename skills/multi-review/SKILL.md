@@ -64,7 +64,7 @@ c. If `mode != both`: single pass.
 
 d. If `mode == both`: generate `pass2_run_id` (same helper). For `mode != both`, `pass2_run_id` is unused.
 
-**Path constants used by Steps 5–11** (resolved per active pass — substitute `pass1_run_id` during pass 1, `pass2_run_id` during pass 2):
+**Path constants used by Steps 5–10** (resolved per active pass — substitute `pass1_run_id` during pass 1, `pass2_run_id` during pass 2):
 
 - `SESSION_DIR = <cwd>/.multi-review/sessions/<run_id>`
 - `REVIEWS_DIR = <SESSION_DIR>/reviews`
