@@ -27,6 +27,7 @@ mr-migrate-sidecars  = "multi_review.cli.migrate_sidecars:main"
 mr-migrate-harvest   = "multi_review.cli.migrate_harvest:main"
 mr-setup             = "multi_review.cli.setup:main"
 mr-write-task-result = "multi_review.cli.write_task_result:main"
+mr-write-harvest-row = "multi_review.cli.write_harvest_row:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

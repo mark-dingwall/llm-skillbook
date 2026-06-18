@@ -71,6 +71,13 @@ def derive_project(cwd: Path, override: str | None) -> str:
     return cwd.name
 
 
+def _usage_dict(r: ReviewerResult) -> dict:
+    u = getattr(r, "usage", None)
+    if u is None:
+        return {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "tool_calls": 0}
+    return u.as_dict()
+
+
 def build_row(
     *,
     results: list[ReviewerResult],
@@ -79,13 +86,21 @@ def build_row(
     project: str,
     wall_seconds: float,
     reviewers_attempted: list[str],
-    synthesizer: str,
+    synthesizer: str | None,
     synthesis_ok: bool,
     pair_id: str | None,
     prompt_file: str | None,
     prompt_format_version: int | None,
     drift_status: str,
-    telemetry_notes: str | None,
+    telemetry_notes: list[str] | str | None,
+    # New fields added in B14:
+    run_id: str | None = None,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    cwd: str | None = None,
+    argv: list[str] | None = None,
+    prompt_bytes: int | None = None,
+    output_bytes: int | None = None,
 ) -> dict:
     """Build a v2 harvest row dict (pure — no I/O).
 
@@ -100,7 +115,7 @@ def build_row(
     for r in results:
         final_model = r.model_used
         per_rev = {
-            **r.usage.as_dict(),
+            **_usage_dict(r),
             "elapsed_s": round(r.elapsed, 1),
             # v2 additions
             "telemetry_quality": TELEMETRY_QUALITY.get(r.cli, "degraded"),
@@ -111,10 +126,17 @@ def build_row(
 
     row = {
         "schema_version": HARVEST_SCHEMA_VERSION,
+        "run_id": run_id,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "wall_seconds": round(wall_seconds, 1),
+        "cwd": cwd,
         "mode": mode,
         "task": task,
         "project": project,
-        "wall_seconds": round(wall_seconds, 1),
+        "argv": argv,
+        "prompt_bytes": prompt_bytes,
+        "output_bytes": output_bytes,
         "reviewers_attempted": reviewers_attempted,
         "reviewers_succeeded": [r.cli for r in results if r.ok],
         "reviewers_failed": [r.cli for r in results if not r.ok],

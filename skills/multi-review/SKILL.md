@@ -149,7 +149,18 @@ Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies
 
 ### Step 8 — Build harvest row + (deferred) write
 
-Build the row payload as a JSON file under `<cwd>/.multi-review/pending-harvest/<run_id>.json`.
+```bash
+uv run python -m multi_review.cli.write_harvest_row \
+  --state-dir <SESSION_DIR>/reviews/ \
+  --out-review <REVIEW_PATH> \
+  --prompt-file <PROMPT_FILE> \
+  --run-id <RUN_ID> \
+  --log <CENTRAL_PATH>/runs.jsonl \
+  --mode <MODE> \
+  --project <PROJECT> \
+  --task <TASK> \
+  --drift-status <DRIFT_STATUS>
+```
 
 ### Step 9 — Pass 2 + flush harvest rows (paired only)
 

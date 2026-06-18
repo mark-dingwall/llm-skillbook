@@ -106,3 +106,57 @@ def test_harvest_row_no_fallback_fields(tmp_path):
     assert "fallback_attempts" not in row
     for ubr in row["usage_by_reviewer"].values():
         assert "fallback_hops" not in ubr
+
+
+def test_build_row_includes_new_fields():
+    row = build_row(
+        results=[_r("claude")],
+        run_id="r1",
+        started_at="2026-06-19T10:00:00Z",
+        finished_at="2026-06-19T10:01:30Z",
+        cwd="/tmp/proj",
+        argv=["spawn", "--cli", "claude"],
+        prompt_bytes=1234,
+        output_bytes=5678,
+        mode="inline", task="code", project="proj",
+        wall_seconds=90.0,
+        reviewers_attempted=["claude"],
+        synthesizer=None, synthesis_ok=False,
+        pair_id=None, prompt_file="p.md", prompt_format_version=1,
+        drift_status="clean", telemetry_notes=[],
+    )
+    assert row["run_id"] == "r1"
+    assert row["started_at"] == "2026-06-19T10:00:00Z"
+    assert row["finished_at"] == "2026-06-19T10:01:30Z"
+    assert row["cwd"] == "/tmp/proj"
+    assert row["argv"] == ["spawn", "--cli", "claude"]
+    assert row["prompt_bytes"] == 1234
+    assert row["output_bytes"] == 5678
+
+
+def test_build_row_guards_usage_none():
+    """build_row must not crash when a ReviewerResult.usage is None."""
+    rr_no_usage = ReviewerResult(
+        cli="claude", ok=True, text="x" * 200, stderr_tail="",
+        usage=None,
+        elapsed=1.0,
+        model_used="m",
+    )
+    row = build_row(
+        results=[rr_no_usage],
+        run_id="r2",
+        started_at="2026-06-19T10:00:00Z",
+        finished_at="2026-06-19T10:01:00Z",
+        cwd="/tmp/proj",
+        argv=[],
+        prompt_bytes=100,
+        output_bytes=200,
+        mode="inline", task="code", project="p",
+        wall_seconds=60.0,
+        reviewers_attempted=["claude"],
+        synthesizer=None, synthesis_ok=False,
+        pair_id=None, prompt_file=None, prompt_format_version=1,
+        drift_status="clean", telemetry_notes=[],
+    )
+    assert row["usage_by_reviewer"]["claude"]["input_tokens"] == 0
+    assert row["usage_by_reviewer"]["claude"]["output_tokens"] == 0
