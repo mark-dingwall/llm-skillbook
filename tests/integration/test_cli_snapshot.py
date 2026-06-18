@@ -40,3 +40,17 @@ def test_snapshot_create_no_files(tmp_path):
     r = _run("create", "--snapshot-dir", str(snap))
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["ok"] is True
+
+def test_context_file_drift_detected(tmp_path):
+    f = tmp_path / "src.py"
+    f.write_text("code\n")
+    ctx = tmp_path / "threat_model.md"
+    ctx.write_text("threats v1\n")
+    snap = tmp_path / "snap"
+    _run("create", "--snapshot-dir", str(snap), "--file", str(f), "--context-file", str(ctx))
+    ctx.write_text("threats v2\n")
+    r = _run("diff", "--snapshot-dir", str(snap), "--file", str(f), "--context-file", str(ctx))
+    assert r.returncode == 0
+    data = json.loads(r.stdout)
+    assert data["status"] == "drifted"
+    assert any(str(ctx.resolve()) == p for p in data["changed_files"])

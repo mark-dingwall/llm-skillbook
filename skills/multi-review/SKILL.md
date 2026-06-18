@@ -208,7 +208,7 @@ If `mode != both`: nothing to do here; skip to Step 10. **Tie-break:** when EXPE
 If `mode == both`:
 
 a. If `if_drift != ignore`:
-   - `mr-snapshot diff --snapshot-dir <pending/<pair_id>/files> --file <each>`
+   - `mr-snapshot diff --snapshot-dir <pending/<pair_id>/files> --file <each input file> --context-file <each context file>`
    - Branch on `status`:
      - `clean` → proceed.
      - `drifted` + `if_drift == abort` → harvest row marks `drift_status: drifted`, skip pass 2, continue.
