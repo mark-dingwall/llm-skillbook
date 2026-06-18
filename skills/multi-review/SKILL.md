@@ -103,9 +103,26 @@ uv run python -m multi_review.cli.snapshot create \
    ```
    This produces `<REVIEWS_DIR>/claude.md` + `<REVIEWS_DIR>/claude.state.json` matching the shape `spawn.py` would emit. The Step 7 aggregator's `## Summary` heading check (M13) still applies and will demote a Task-subagent return that lacks the heading.
 
-3. **Join barrier**: continue once (a) the Task call returns AND (b) every backgrounded `spawn.py` task reports completion (poll via `TaskGet`/`TaskOutput`). Total wall ≈ max(claude Task, max(other reviewers)).
+### Join barrier
 
-If `claude` is not in `reviewers`, skip the Task dispatch and the `mr-write-task-result` invocation; the join barrier reduces to the background-task polling.
+Wait until all reviewers have finished. The mechanism depends on how each
+was dispatched:
+
+- **`claude` reviewer** (Task tool, `multi-review-reviewer` subagent):
+  `TaskGet <task_id>` returns its status; poll until `status == "complete"`.
+  Read the final state via the state.json the reviewer writes (or via
+  `TaskOutput` for the agent's return text — but state.json is authoritative).
+- **External reviewers** (`agy`, `codex`, `opencode`, dispatched via
+  `Bash run_in_background` running `multi_review.cli.spawn`):
+  `BashOutput <bash_id>` returns the latest stdout/stderr lines + an `exited`
+  flag. Poll until `exited: true` for every external bash_id.
+
+Don't mix the two: `TaskGet` against a Bash background id will fail; vice
+versa. Track the dispatch type for each reviewer when you launch them.
+
+Total wall ≈ max(claude Task, max(other reviewers)).
+
+If `claude` is not in `reviewers`, skip the Task dispatch and the `mr-write-task-result` invocation; the join barrier reduces to BashOutput polling on each external bash_id.
 
 ### Step 6 — Synthesis
 
