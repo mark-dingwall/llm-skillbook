@@ -177,19 +177,25 @@ class OpenCodeAdapter(ProgressAdapter):
                 self.phase = "running"
             else:
                 self.phase = "done"
-            # Defensive: opencode usage may appear on step_finish, step_start,
-            # or top-level event depending on version. Accumulate from any.
-            u = part.get("usage") or ev.get("usage") or {}
-            if u:
-                self.usage.input_tokens += u.get(
-                    "input_tokens", u.get("input", 0)
-                )
-                self.usage.output_tokens += u.get(
-                    "output_tokens", u.get("output", 0)
-                )
-                self.usage.cached_tokens += u.get(
-                    "cached_tokens", u.get("cached", 0)
-                )
+            # opencode emits usage under part.tokens, part.usage, or ev.usage
+            # depending on version; part.tokens uses {input, output, cache.read}.
+            tok = part.get("tokens")
+            if tok:
+                self.usage.input_tokens += tok.get("input", 0)
+                self.usage.output_tokens += tok.get("output", 0)
+                self.usage.cached_tokens += (tok.get("cache") or {}).get("read", 0)
+            else:
+                u = part.get("usage") or ev.get("usage") or {}
+                if u:
+                    self.usage.input_tokens += u.get(
+                        "input_tokens", u.get("input", 0)
+                    )
+                    self.usage.output_tokens += u.get(
+                        "output_tokens", u.get("output", 0)
+                    )
+                    self.usage.cached_tokens += u.get(
+                        "cached_tokens", u.get("cached", 0)
+                    )
         elif t == "error":
             err = ev.get("error") or {}
             self.phase = f"error:{err.get('name', 'error')}"

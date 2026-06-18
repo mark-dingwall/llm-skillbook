@@ -59,6 +59,7 @@ def write_review_md(
     reviewers_attempted: list[str],
     input_files: list[Path] | None = None,
     models: dict[str, str] | None = None,
+    if_drift: str | None = None,
     synthesizer: str | None = None,
     synthesized_at: str | None = None,
     pair_id: str | None = None,
@@ -99,10 +100,11 @@ def write_review_md(
         lines.append(f"pair_id: {pair_id}")
     if prompt_file is not None:
         lines.append(f"prompt_file: {prompt_file}")
-    if models:
-        lines.append("models:")
-        for k, v in models.items():
-            lines.append(f"  {k}: {json.dumps(v)}")
+    lines.append("models:")
+    for k, v in (models or {}).items():
+        lines.append(f"  {k}: {json.dumps(v)}")
+    if if_drift is not None:
+        lines.append(f"if_drift: {if_drift}")
     lines.append("usage:")
     lines.extend(usage_block_lines)
     if synthesizer and synthesized_at:

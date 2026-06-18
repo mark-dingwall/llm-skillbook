@@ -81,3 +81,22 @@ def test_aggregate_synthesis_already_has_heading_no_double(tmp_path):
     out = _write_and_read(tmp_path, synthesis_text=body)
     headings = [l for l in out.splitlines() if l.strip() == "## Consensus Summary"]
     assert len(headings) == 1
+
+
+def test_aggregate_frontmatter_parity(tmp_path):
+    """Frontmatter must emit models:, mode:, and if_drift: per build-agent template."""
+    out = tmp_path / "REVIEW.md"
+    write_review_md(
+        path=out,
+        results=[_r("claude")],
+        synthesis_text=None,
+        mode="reference",
+        task="code",
+        reviewers_attempted=["claude"],
+        models={"claude": "claude-opus-4-7"},
+        if_drift="ignore",
+    )
+    body = out.read_text()
+    assert "models:" in body
+    assert "mode: reference" in body
+    assert "if_drift: ignore" in body

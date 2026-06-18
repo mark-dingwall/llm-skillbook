@@ -43,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="Pair identifier for paired-run tracking.")
     p.add_argument("--prompt-file", default=None,
                    help="Path of the prompt file used — written to frontmatter.")
+    p.add_argument("--if-drift", default=None,
+                   help="if_drift value (ignore / abort / ask) — written to frontmatter.")
     p.add_argument("--force", action="store_true",
                    help="Overwrite output file if it exists (default: auto-suffix).")
     args = p.parse_args(argv)
@@ -94,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         reviewers_attempted=reviewers_attempted,
         pair_id=args.pair_id,
         prompt_file=args.prompt_file,
+        if_drift=args.if_drift,
     )
 
     print(json.dumps({"ok": True, "output_path": str(target)}))

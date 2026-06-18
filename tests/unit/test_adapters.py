@@ -75,3 +75,16 @@ def test_opencode_adapter_success_fixture():
     a = OpenCodeAdapter()
     _feed(a, FIX / "opencode" / "success.jsonl")
     assert a.text != ""
+
+
+def test_opencode_adapter_reads_part_tokens():
+    import json
+    a = OpenCodeAdapter()
+    a.feed_line(json.dumps({
+        "type": "step_finish",
+        "part": {"tokens": {"input": 100, "output": 50, "total": 150,
+                            "reasoning": 0, "cache": {"write": 0, "read": 10}}},
+    }))
+    assert a.usage.input_tokens == 100
+    assert a.usage.output_tokens == 50
+    assert a.usage.cached_tokens == 10

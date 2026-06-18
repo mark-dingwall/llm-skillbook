@@ -10,6 +10,7 @@ class SnapshotDiff:
     status: Literal["clean", "drifted"]
     changed_files: list[str] = field(default_factory=list)
     deleted_files: list[str] = field(default_factory=list)
+    added_files: list[str] = field(default_factory=list)
     unified_diffs: dict[str, str] = field(default_factory=dict)
 
 def _snap_path(snapshot_dir: Path, source: Path) -> Path:
@@ -40,9 +41,13 @@ def diff_snapshot(
     if context_files is None:
         context_files = []
     diff = SnapshotDiff(status="clean")
-    for f in [*files, *context_files]:
+    all_files = [*files, *context_files]
+    for f in all_files:
         target = _snap_path(snapshot_dir, f)
         if not target.exists():
+            if f.exists():
+                diff.added_files.append(str(f.resolve()))
+                diff.status = "drifted"
             continue
         if not f.exists():
             diff.deleted_files.append(str(f.resolve()))

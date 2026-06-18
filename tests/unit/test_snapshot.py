@@ -53,6 +53,19 @@ def test_diff_detects_deleted(tmp_path):
     diff = diff_snapshot(files=[src], snapshot_dir=snap_dir)
     assert diff.status == "drifted"
 
+def test_diff_snapshot_detects_added(tmp_path):
+    a = tmp_path / "a.py"
+    a.write_text("v1\n")
+    snap_dir = tmp_path / "snap"
+    create_snapshot(files=[a], snapshot_dir=snap_dir)
+    # b.py appears after snapshot — should be reported as added
+    b = tmp_path / "b.py"
+    b.write_text("new\n")
+    diff = diff_snapshot(files=[a, b], snapshot_dir=snap_dir)
+    assert diff.status == "drifted"
+    assert str(b.resolve()) in diff.added_files
+
+
 def test_cleanup_removes_dir(tmp_path):
     snap_dir = tmp_path / "snap"
     snap_dir.mkdir()
