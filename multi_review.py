@@ -35,6 +35,15 @@ __version__ = "0.1.0"
 
 HARVEST_SCHEMA_VERSION = 1
 ALL_REVIEWERS = ["claude", "gemini", "codex", "opencode"]
+# Retired reviewers: never spawned (reviewer or synthesizer). Their REVIEW.md
+# section carries GEMINI_SUNSET_MESSAGE in place of any findings. The gemini
+# plumbing below (CLI_SPEC, fallback chain, GeminiAdapter, docs) is now dead
+# but kept pending the next version — WIP at ~/kramtime/multi-review.
+DEFUNCT_REVIEWERS = {"gemini"}
+GEMINI_SUNSET_MESSAGE = (
+    "Gemini has been officially sunset and is now defunct. "
+    "New version of 'multi-review' with alternate option coming soon."
+)
 FAILURE_MIN_BYTES = 50
 DEFAULT_SYNTHESIZER = "claude"
 DEFAULT_OUTPUT = Path("REVIEW.md")
@@ -683,6 +692,7 @@ class ReviewerResult:
     model_used: str | None = None
     attempts: list[str] = field(default_factory=list)
     fallback_fired: bool = False
+    defunct: bool = False
 
 
 @dataclass
@@ -837,6 +847,17 @@ async def run_reviewer(
     """Walk the model chain. One spawn per hop. Stops on success, on a
     non-capacity failure, or after the chain is exhausted. capacity_pattern=
     None disables fallback semantics (single attempt only)."""
+    if cli in DEFUNCT_REVIEWERS:
+        # Retired reviewer — never spawned. Emit the sunset notice as its
+        # section body instead of running a review.
+        state.current_model = "defunct"
+        state.started_at = state.started_at or time.time()
+        state.finished_at = time.time()
+        state.status = "done"
+        return ReviewerResult(
+            cli, True, GEMINI_SUNSET_MESSAGE, "", Usage(), state.elapsed,
+            model_used="defunct", defunct=True,
+        )
     attempts: list[str] = []
     last: ReviewerResult | None = None
     for m in chain:
@@ -988,7 +1009,7 @@ def build_synthesis_input(results: list[ReviewerResult]) -> tuple[str, str]:
     """Wrap each successful review in a nonce-tagged <review-NONCE> tag so the
     synthesizer treats the reviewer output as data rather than instructions.
     Returns (body, nonce) so the caller can build a matching preamble."""
-    successful = [r for r in results if r.ok]
+    successful = [r for r in results if r.ok and not r.defunct]
     nonce = secrets.token_hex(4)
     while any(f"</review-{nonce}>" in r.text for r in successful):
         nonce = secrets.token_hex(4)
@@ -1008,6 +1029,9 @@ async def _run_synthesis_attempt(
     model: str | None,
     timeout: int | None,
 ) -> tuple[bool, str, str, str | None]:
+    if cli in DEFUNCT_REVIEWERS:
+        # Retired reviewer — never spawned, even as synthesizer.
+        return False, "", GEMINI_SUNSET_MESSAGE, None
     prompt = synthesis_prompt(nonce) + "\n\n---\n\n" + review_body
     cmd = build_command(cli, model, streaming=False)
     try:
@@ -1274,7 +1298,9 @@ def write_review_md(
     mode: str,
     synthesis_attempts: list[str] | None = None,
 ) -> None:
-    succeeded = [r for r in results if r.ok]
+    # defunct reviewers (gemini) carry a notice, not a review — they count as
+    # neither succeeded nor failed for frontmatter / consensus gating.
+    succeeded = [r for r in results if r.ok and not r.defunct]
     failed = [r for r in results if not r.ok]
     reviewed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -1720,15 +1746,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _fmt_reviewers(reviewers: list[str]) -> str:
+    if not reviewers:
+        return "<none>"
+    return ", ".join(
+        f"{c} (defunct)" if c in DEFUNCT_REVIEWERS else c for c in reviewers
+    )
+
+
 def cmd_list_reviewers(skip_self: bool = False) -> int:
     self_cli = detect_self()
     available = detect_available()
-    print(f"Supported: {', '.join(ALL_REVIEWERS)}")
-    print(f"Available: {', '.join(available) if available else '<none>'}")
+    print(f"Supported: {_fmt_reviewers(ALL_REVIEWERS)}")
+    print(f"Available: {_fmt_reviewers(available)}")
     print(f"Self:      {self_cli or '<unknown>'}")
     print(f"Skip-self: {'on' if skip_self else 'off'}")
     effective = resolve_reviewers(None, self_cli, skip_self=skip_self)
-    print(f"Effective: {', '.join(effective) if effective else '<none>'}")
+    print(f"Effective: {_fmt_reviewers(effective)}")
     return 0
 
 
@@ -1794,7 +1828,9 @@ async def async_main(args: argparse.Namespace) -> int:
                 f"Stderr tail (capture for tuning): {r.stderr_tail.strip()[:200]}[/yellow]"
             )
 
-    succeeded = [r for r in results if r.ok]
+    # Exclude defunct (gemini) — its notice isn't a real review, so it must not
+    # trip the >=2 synthesis gate, inflate the success count, or pollute harvest.
+    succeeded = [r for r in results if r.ok and not r.defunct]
     consensus_text: str | None = None
     synthesizer_used: str | None = None
     synthesized_at: str | None = None

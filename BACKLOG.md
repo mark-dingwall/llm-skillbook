@@ -2,6 +2,16 @@
 
 Forward-looking work, not committed to a milestone. Edit freely.
 
+## Next version (WIP)
+
+A new version of multi-review is in progress at `~/kramtime/multi-review`. It
+replaces the now-retired `gemini` reviewer with an alternate option. In this
+version gemini is hard-disabled (`DEFUNCT_REVIEWERS`): never spawned, its
+REVIEW.md section carries a sunset notice. The gemini plumbing here (CLI_SPEC
+entry, `GEMINI_FALLBACK_CHAIN`, `CAPACITY_PATTERNS["gemini"]`, `GeminiAdapter`,
+README/CLAUDE.md sections) is now dead code, left in place pending the rewrite
+rather than torn out.
+
 ## Reference mode + bwrap sandbox + per-CLI bypass-perms
 
 ### Motivation
