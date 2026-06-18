@@ -12,6 +12,12 @@ from pathlib import Path
 REPORT_FORMAT_VERSION = 1
 
 
+def _read(p):
+    if not p or not p.exists():
+        return None
+    return p.read_text()
+
+
 def _row_sort_key(r: dict) -> str:
     """Sort key: prefer started_at, fall back to timestamp."""
     return r.get("started_at", "") or r.get("timestamp", "") or ""

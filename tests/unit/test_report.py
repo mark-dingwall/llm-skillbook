@@ -177,3 +177,8 @@ def test_experiments_table_has_no_fallback_column(tmp_path):
     md = render_experiments_markdown(log_path=log, reports_dir=tmp_path / "reports")
     assert "Gemini fallback" not in md
     assert "fallback" not in md.lower()
+
+
+def test_read_handles_missing_path(tmp_path):
+    from multi_review.core.report import _read
+    assert _read(tmp_path / "absent") is None
