@@ -98,9 +98,10 @@ def build_row(
     started_at: str | None = None,
     finished_at: str | None = None,
     cwd: str | None = None,
-    argv: list[str] | None = None,
     prompt_bytes: int | None = None,
     output_bytes: int | None = None,
+    # argv omitted: sys.argv inside write_harvest_row is the CLI's own argv, not
+    # the SKILL's. Deferred to v0.2.1 alongside proper --argv plumbing.
 ) -> dict:
     """Build a v2 harvest row dict (pure — no I/O).
 
@@ -129,12 +130,11 @@ def build_row(
         "run_id": run_id,
         "started_at": started_at,
         "finished_at": finished_at,
-        "wall_seconds": round(wall_seconds, 1),
+        "wall_seconds": round(wall_seconds, 1) if wall_seconds is not None else None,
         "cwd": cwd,
         "mode": mode,
         "task": task,
         "project": project,
-        "argv": argv,
         "prompt_bytes": prompt_bytes,
         "output_bytes": output_bytes,
         "reviewers_attempted": reviewers_attempted,

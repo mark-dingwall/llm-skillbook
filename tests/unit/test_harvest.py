@@ -115,7 +115,6 @@ def test_build_row_includes_new_fields():
         started_at="2026-06-19T10:00:00Z",
         finished_at="2026-06-19T10:01:30Z",
         cwd="/tmp/proj",
-        argv=["spawn", "--cli", "claude"],
         prompt_bytes=1234,
         output_bytes=5678,
         mode="inline", task="code", project="proj",
@@ -129,7 +128,7 @@ def test_build_row_includes_new_fields():
     assert row["started_at"] == "2026-06-19T10:00:00Z"
     assert row["finished_at"] == "2026-06-19T10:01:30Z"
     assert row["cwd"] == "/tmp/proj"
-    assert row["argv"] == ["spawn", "--cli", "claude"]
+    assert "argv" not in row
     assert row["prompt_bytes"] == 1234
     assert row["output_bytes"] == 5678
 
@@ -148,7 +147,6 @@ def test_build_row_guards_usage_none():
         started_at="2026-06-19T10:00:00Z",
         finished_at="2026-06-19T10:01:00Z",
         cwd="/tmp/proj",
-        argv=[],
         prompt_bytes=100,
         output_bytes=200,
         mode="inline", task="code", project="p",

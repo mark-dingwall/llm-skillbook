@@ -3,18 +3,14 @@ build a v2 harvest row, append to --log (or fall back to pending-harvest)."""
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
-import time
 from pathlib import Path
 
 from multi_review.core.adapters import Usage
 from multi_review.core.fanout import ReviewerResult
 from multi_review.core.harvest import build_row, derive_project
-
-
-def _iso_utc(t: float) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
 
 
 def _state_to_result(state: dict) -> ReviewerResult:
@@ -66,40 +62,32 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"warning: skipping malformed {sf}: {e}", file=sys.stderr)
 
-    # Derive timestamps: prefer started_at/finished_at fields written into state
-    # by the SKILL; fall back to state-file mtime.
+    # Derive timestamps from explicit ISO fields written by the SKILL.
+    # spawn.py and write_task_result.py do not write started_at/finished_at today,
+    # so these will be None for most runs. mtime fallback was removed (it produced
+    # wrong data — mtime reflects reviewer finish time, not start time).
+    # v0.2.1 will plumb proper argv + timestamps via dedicated CLI args.
+    def _parse_iso(s: str) -> float:
+        return datetime.datetime.fromisoformat(s.rstrip("Z")).replace(
+            tzinfo=datetime.timezone.utc
+        ).timestamp()
+
     started_ts: float | None = None
     finished_ts: float | None = None
-    for sf in sorted(args.state_dir.glob("*.state.json")):
-        try:
-            s = json.loads(sf.read_text())
-        except Exception:
-            continue
-        # Prefer explicit ISO fields; fall back to file mtime.
+    for s in states:
         if "started_at" in s:
-            import datetime
-            t = datetime.datetime.fromisoformat(s["started_at"].rstrip("Z")).replace(
-                tzinfo=datetime.timezone.utc
-            ).timestamp()
+            t = _parse_iso(s["started_at"])
             started_ts = min(started_ts, t) if started_ts is not None else t
-        else:
-            mtime = sf.stat().st_mtime
-            started_ts = min(started_ts, mtime) if started_ts is not None else mtime
-
         if "finished_at" in s:
-            import datetime
-            t = datetime.datetime.fromisoformat(s["finished_at"].rstrip("Z")).replace(
-                tzinfo=datetime.timezone.utc
-            ).timestamp()
+            t = _parse_iso(s["finished_at"])
             finished_ts = max(finished_ts, t) if finished_ts is not None else t
-        else:
-            mtime = sf.stat().st_mtime
-            finished_ts = max(finished_ts, mtime) if finished_ts is not None else mtime
 
-    now = time.time()
-    started_at_iso = _iso_utc(started_ts) if started_ts is not None else _iso_utc(now)
-    finished_at_iso = _iso_utc(finished_ts) if finished_ts is not None else _iso_utc(now)
-    wall_seconds = (finished_ts - started_ts) if (started_ts is not None and finished_ts is not None) else 0.0
+    def _to_iso(ts: float) -> str:
+        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    started_at_iso = _to_iso(started_ts) if started_ts is not None else None
+    finished_at_iso = _to_iso(finished_ts) if finished_ts is not None else None
+    wall_seconds = (finished_ts - started_ts) if (started_ts is not None and finished_ts is not None) else None
 
     results = [_state_to_result(s) for s in states if "cli" in s and not s.get("cli") == "synth"]
 
@@ -115,7 +103,6 @@ def main(argv: list[str] | None = None) -> int:
         finished_at=finished_at_iso,
         wall_seconds=wall_seconds,
         cwd=str(Path.cwd()),
-        argv=sys.argv,
         prompt_bytes=prompt_bytes,
         output_bytes=output_bytes,
         mode=args.mode,

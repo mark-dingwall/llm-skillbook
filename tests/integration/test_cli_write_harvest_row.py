@@ -120,6 +120,39 @@ def test_write_harvest_row_usage_none_state(tmp_path):
     assert row["usage_by_reviewer"]["claude"]["input_tokens"] == 0
 
 
+def test_write_harvest_row_no_timestamps_gives_none(tmp_path):
+    """State without started_at/finished_at → row timestamps None, wall_seconds None, no argv."""
+    state_dir = tmp_path / "states"
+    state_dir.mkdir()
+    # Write state without any timestamp fields
+    (state_dir / "claude.state.json").write_text(json.dumps({
+        "cli": "claude", "ok": True, "duration_seconds": 5.0,
+        "stderr_tail": "", "usage": None, "final_model": None,
+    }))
+    review = tmp_path / "REVIEW.md"
+    review.write_text("content")
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("prompt")
+    log = tmp_path / "runs.jsonl"
+
+    rc = main([
+        "--state-dir", str(state_dir),
+        "--out-review", str(review),
+        "--prompt-file", str(prompt),
+        "--run-id", "r-notimestamp",
+        "--log", str(log),
+        "--mode", "inline",
+        "--project", "p",
+        "--task", "code",
+    ])
+    assert rc == 0
+    row = json.loads(log.read_text().splitlines()[0])
+    assert row["started_at"] is None
+    assert row["finished_at"] is None
+    assert row["wall_seconds"] is None
+    assert "argv" not in row
+
+
 def test_write_harvest_row_falls_back_to_pending_on_perm_denied(tmp_path, monkeypatch):
     """PermissionError on --log path falls back to pending-harvest, returns 0."""
     state_dir = tmp_path / "states"
