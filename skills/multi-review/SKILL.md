@@ -1,6 +1,6 @@
 ---
 name: multi-review
-description: Fan out a code review across claude/gemini/codex/opencode, aggregate into REVIEW.md, optionally synthesize. Supports inline + reference modes including automated paired-pass runs with drift detection.
+description: Fan out a code review across claude/agy/codex/opencode, aggregate into REVIEW.md, optionally synthesize. Supports inline + reference modes including automated paired-pass runs with drift detection.
 ---
 
 # multi-review
