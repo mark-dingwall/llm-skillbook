@@ -33,7 +33,7 @@ HARVEST_SCHEMA_VERSION = 2  # Remove `usage` deprecated alias in v3.
 # "degraded"     — counts not available or structurally broken.
 TELEMETRY_QUALITY: dict[str, str] = {
     "claude": "known-issues",   # input/output token under-reporting observed
-    "gemini": "reliable",
+    "agy": "degraded",          # plain-text output, no token telemetry (Usage stays zero)
     "codex": "reliable",
     "opencode": "known-issues",
 }

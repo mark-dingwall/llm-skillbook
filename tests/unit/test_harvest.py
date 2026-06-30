@@ -13,6 +13,14 @@ def test_schema_version_is_2():
     assert HARVEST_SCHEMA_VERSION == 2
 
 
+def test_telemetry_quality_agy_not_gemini():
+    """agy replaced gemini and emits plain text with no token telemetry, so its
+    quality tier is the lowest (degraded), not the old gemini 'reliable'."""
+    from multi_review.core.harvest import TELEMETRY_QUALITY
+    assert "gemini" not in TELEMETRY_QUALITY
+    assert TELEMETRY_QUALITY["agy"] == "degraded"
+
+
 def _r(cli, final_model="m"):
     """Build a ReviewerResult."""
     return ReviewerResult(
