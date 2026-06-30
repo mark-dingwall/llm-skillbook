@@ -44,9 +44,15 @@ Abort batch if any invalid (print specific field error to user).
 
 ### Step 3 — Sweep expired pending pairs
 
-Before any per-prompt work, sweep:
+Before any per-prompt work, remove stale pending-pair dirs left behind by paired
+runs that were abandoned or denied at the Step 9/10 flush (a clean paired run
+self-cleans in Step 11; only interrupted ones linger). There is no dedicated GC
+CLI — sweep inline, dropping anything older than 7 days so an in-flight
+`--resume-pair` is never clobbered:
 ```
-uv run python -m multi_review.cli.pending gc --pending-dir <cwd>/.multi-review/pending
+[ -d <cwd>/.multi-review/pending ] && \
+  find <cwd>/.multi-review/pending -mindepth 1 -maxdepth 1 -type d -mtime +7 \
+    -exec rm -rf {} + || true
 ```
 
 ### Step 4 — Per prompt: determine pass order + drift posture
@@ -88,8 +94,7 @@ uv run python -m multi_review.cli.snapshot create \
 1. **First**, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer):
    ```
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
-     --out-dir <REVIEWS_DIR> --model <models[cli]> \
-     --fallback-chain "<comma-separated or empty>" --effort <model_effort[cli]>
+     --out-dir <REVIEWS_DIR> --model <models[cli]> --effort <model_effort[cli]>
    ```
 2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
 
