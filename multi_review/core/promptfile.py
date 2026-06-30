@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Literal
 import yaml
 
+from multi_review.core.reviewers import ALL_REVIEWERS
+
 class ValidationError(Exception):
     pass
 
@@ -17,12 +19,9 @@ class PromptFile:
     custom_prompt: str | None = None
     mode: Literal["inline", "reference", "both"] = "inline"
     synthesizer: str = "claude"
-    reviewers: list[str] = field(default_factory=lambda: ["claude", "gemini", "codex", "opencode"])
+    reviewers: list[str] = field(default_factory=lambda: list(ALL_REVIEWERS))
     models: dict[str, str] = field(default_factory=dict)
     model_effort: dict[str, str] = field(default_factory=dict)
-    fallback_models: dict[str, list[str]] = field(default_factory=dict)
-    delay: int = 1800
-    delay_type: Literal["foreground", "background"] = "background"
     if_drift: Literal["ignore", "abort", "ask"] = "ignore"
     output_dir: str | None = None
     save_as: str | None = None
@@ -31,10 +30,8 @@ class PromptFile:
 _VALID_TASKS = {"code", "plan", "security", "generic", "custom"}
 _VALID_MODES = {"inline", "reference", "both"}
 _VALID_IF_DRIFT = {"ignore", "abort", "ask"}
-_VALID_DELAY_TYPES = {"foreground", "background"}
-_KNOWN_REVIEWERS = {"claude", "gemini", "codex", "opencode"}
+_KNOWN_REVIEWERS = set(ALL_REVIEWERS)  # canonical source: reviewers.ALL_REVIEWERS
 _VALID_SYNTHESIZERS = _KNOWN_REVIEWERS | {"none"}
-_MAX_DELAY_SECONDS = 86400
 
 _REQUIRED_FIELDS = {"prompt_format_version", "task", "files"}
 
@@ -47,12 +44,9 @@ def fill_defaults(raw: dict) -> PromptFile:
     raw.setdefault("custom_prompt", None)
     raw.setdefault("mode", "inline")
     raw.setdefault("synthesizer", "claude")
-    raw.setdefault("reviewers", ["claude", "gemini", "codex", "opencode"])
+    raw.setdefault("reviewers", list(ALL_REVIEWERS))
     raw.setdefault("models", {})
     raw.setdefault("model_effort", {})
-    raw.setdefault("fallback_models", {})
-    raw.setdefault("delay", 1800)
-    raw.setdefault("delay_type", "background")
     raw.setdefault("if_drift", "ignore")
     raw.setdefault("output_dir", None)
     raw.setdefault("save_as", None)
@@ -76,14 +70,8 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         raise ValidationError(f"mode must be one of {_VALID_MODES}, got {pf.mode!r}")
     if pf.if_drift not in _VALID_IF_DRIFT:
         raise ValidationError(f"if_drift must be one of {_VALID_IF_DRIFT}")
-    if pf.delay_type not in _VALID_DELAY_TYPES:
-        raise ValidationError(f"delay_type must be one of {_VALID_DELAY_TYPES}")
     if pf.synthesizer not in _VALID_SYNTHESIZERS:
         raise ValidationError(f"synthesizer must be one of {_VALID_SYNTHESIZERS}, got {pf.synthesizer!r}")
-    if not isinstance(pf.delay, int) or pf.delay < 0:
-        raise ValidationError(f"delay must be a non-negative integer, got {pf.delay!r}")
-    if pf.delay > _MAX_DELAY_SECONDS:
-        raise ValidationError(f"delay must be ≤ {_MAX_DELAY_SECONDS}s (24h sanity bound)")
     if not pf.files:
         raise ValidationError("files: must list at least one path")
     if pf.task == "custom" and not pf.custom_prompt:
