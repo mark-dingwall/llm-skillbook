@@ -96,6 +96,7 @@ uv run python -m multi_review.cli.snapshot create \
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
      --out-dir <REVIEWS_DIR> --model <models[cli]> --effort <model_effort[cli]>
    ```
+   Omit `--model` / `--effort` entirely when `models[cli]` / `model_effort[cli]` is unset — `spawn.py` defaults both to `None`; never pass an empty `--model ""` (would hand agy a blank model string). agy/codex/opencode ship unset by default.
 2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
 
    The agent definition is read-only (`tools: Read, Grep, Glob` — no Write per spec §5.2). Claude Code's Task tool returns the agent's final assistant message as a string; the host CAPTURES that string and persists it. Record wall time around the Task call as `<claude_duration>`. Then in a Bash heredoc write the captured text to `<REVIEWS_DIR>/claude.txt` and invoke the host-side writer:
