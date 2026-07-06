@@ -11,18 +11,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 from multi_review.core.aggregate import write_review_md, resolve_output_path
 from multi_review.core.fanout import ReviewerResult
 from multi_review.core.adapters import Usage
-
-_SUMMARY_HEADING_RE = re.compile(
-    r"^#{1,3}\s+(summary|executive summary)\b",
-    re.IGNORECASE | re.MULTILINE,
-)
+from multi_review.core.prompt import classify_review_ok
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,7 +50,19 @@ def main(argv: list[str] | None = None) -> int:
     for state_path in sorted(args.reviews_dir.glob("*.state.json")):
         cli = state_path.name.removesuffix(".state.json")
         reviewers_attempted.append(cli)
-        state = json.loads(state_path.read_text())
+        try:
+            state = json.loads(state_path.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            # A reviewer killed mid write_text leaves truncated JSON. Skip it
+            # with a warning rather than aborting — the good reviewers' work
+            # must still produce a REVIEW.md. Record it as a failed reviewer.
+            print(f"warning: skipping malformed {state_path}: {e}", file=sys.stderr)
+            results.append(ReviewerResult(
+                cli=cli, ok=False, text="",
+                stderr_tail=f"malformed state file: {e}",
+                usage=None, elapsed=0.0, model_used=None,
+            ))
+            continue
 
         review_md = args.reviews_dir / f"{cli}.md"
         review_text = review_md.read_text() if review_md.exists() else ""
@@ -64,21 +71,23 @@ def main(argv: list[str] | None = None) -> int:
         if state.get("usage"):
             usage = Usage(**state["usage"])
 
-        ok = state["ok"]
+        # Shared classifier: single source of truth for the success decision,
+        # identical to write_harvest_row. state may lack "ok" → default False.
+        ok, note = classify_review_ok(state.get("ok", False), review_text)
         stderr_tail = state.get("stderr_tail", "")
-        if ok and _SUMMARY_HEADING_RE.search(review_text) is None:
-            ok = False
-            note = "no ## Summary heading in review body"
+        if note:
             stderr_tail = f"{stderr_tail}\n{note}" if stderr_tail else note
 
-        # Drift 2: state JSON uses "duration_seconds"; ReviewerResult field is "elapsed"
+        # Drift 2: state JSON uses "duration_seconds"; ReviewerResult field is "elapsed".
+        # `or 0.0` guards explicit JSON null (absent-key default alone would let
+        # null through to the {r.elapsed:.1f} render path → TypeError).
         results.append(ReviewerResult(
             cli=cli,
             ok=ok,
             text=review_text,
             stderr_tail=stderr_tail,
             usage=usage,
-            elapsed=state.get("duration_seconds", 0.0),  # map JSON key → dataclass field
+            elapsed=state.get("duration_seconds") or 0.0,  # map JSON key → dataclass field
             model_used=state.get("final_model"),
         ))
 

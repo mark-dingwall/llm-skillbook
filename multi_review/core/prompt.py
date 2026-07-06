@@ -6,13 +6,14 @@ clause instructing every reviewer to emit a ## Summary section.
 from __future__ import annotations
 
 import html
+import re
 import secrets
 import sys
 from pathlib import Path
 from typing import Literal
 
 # ---------------------------------------------------------------------------
-# Reviewer prompt output contract
+# Reviewer prompt output contract + shared success classifier
 # ---------------------------------------------------------------------------
 
 SUMMARY_HEADING_CONTRACT: str = (
@@ -21,6 +22,33 @@ SUMMARY_HEADING_CONTRACT: str = (
     "will be classified as a failed review."
 )
 
+# Canonical structural sentinel. A compliant review body contains a markdown
+# heading `## Summary` (or `# Summary` / `### Summary`, or `Executive Summary`).
+# Single source of truth for the check applied by BOTH aggregate (REVIEW.md)
+# and write_harvest_row (runs.jsonl) via classify_review_ok — they can never
+# disagree about a reviewer's success. Kept in lock-step with the TEMPLATES
+# above (each template leads with `## Summary`) by
+# test_templates_lead_with_summary_heading_matching_sentinel.
+SUMMARY_HEADING_RE = re.compile(
+    r"^#{1,3}\s+(summary|executive summary)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def classify_review_ok(raw_ok: bool, review_text: str) -> tuple[bool, str | None]:
+    """Decide whether a review body counts as a successful review.
+
+    ``raw_ok`` is the reviewer subprocess/Task success flag (rc == 0 and
+    output over the byte floor). A review that succeeded upstream is still
+    demoted to failed if its body lacks the ``## Summary`` structural sentinel.
+
+    Returns ``(effective_ok, note)``. ``note`` is None when nothing changed,
+    otherwise a short demotion reason to surface in the artifact.
+    """
+    if raw_ok and SUMMARY_HEADING_RE.search(review_text) is None:
+        return False, "no ## Summary heading in review body"
+    return bool(raw_ok), None
+
 # ---------------------------------------------------------------------------
 # Task templates
 # ---------------------------------------------------------------------------
@@ -28,13 +56,23 @@ SUMMARY_HEADING_CONTRACT: str = (
 TEMPLATES: dict[str, str] = {
     "code": f"""You are reviewing source code for quality, correctness, and security.
 
-Analyze the provided files and produce:
+Analyze the provided files and produce your response using these markdown
+headings, in this order:
 
-1. **Summary** — One-paragraph assessment of overall code quality.
-2. **Critical Issues** — Bugs, security vulnerabilities, data loss risks. Severity: HIGH.
-3. **Warnings** — Poor practices, maintainability issues, unclear logic. Severity: MEDIUM.
-4. **Suggestions** — Style, readability, minor improvements. Severity: LOW.
-5. **Risk Assessment** — Overall risk level (LOW/MEDIUM/HIGH) with justification.
+## Summary
+One-paragraph assessment of overall code quality.
+
+## Critical Issues
+Bugs, security vulnerabilities, data loss risks. Severity: HIGH.
+
+## Warnings
+Poor practices, maintainability issues, unclear logic. Severity: MEDIUM.
+
+## Suggestions
+Style, readability, minor improvements. Severity: LOW.
+
+## Risk Assessment
+Overall risk level (LOW/MEDIUM/HIGH) with justification.
 
 Focus on:
 - Bugs, off-by-one errors, null/undefined handling
@@ -50,13 +88,23 @@ Cite specific file:line when possible. Output in Markdown.
 
     "plan": f"""You are reviewing an implementation plan or design document.
 
-Analyze the plan and produce:
+Analyze the plan and produce your response using these markdown headings, in
+this order:
 
-1. **Summary** — One-paragraph assessment.
-2. **Strengths** — What is well-designed (bullet points).
-3. **Concerns** — Potential issues, gaps, risks (bullets with severity HIGH/MEDIUM/LOW).
-4. **Suggestions** — Specific improvements.
-5. **Risk Assessment** — Overall risk (LOW/MEDIUM/HIGH) with justification.
+## Summary
+One-paragraph assessment.
+
+## Strengths
+What is well-designed (bullet points).
+
+## Concerns
+Potential issues, gaps, risks (bullets with severity HIGH/MEDIUM/LOW).
+
+## Suggestions
+Specific improvements.
+
+## Risk Assessment
+Overall risk (LOW/MEDIUM/HIGH) with justification.
 
 Focus on:
 - Missing edge cases or error handling
@@ -72,13 +120,22 @@ Output in Markdown.
 
     "design": f"""You are reviewing a design/architecture document.
 
-Analyze and produce:
+Analyze and produce your response using these markdown headings, in this order:
 
-1. **Summary** — Overall assessment.
-2. **Strengths** — Sound design decisions.
-3. **Concerns** — Architectural risks, coupling issues, scalability gaps (severity HIGH/MEDIUM/LOW).
-4. **Alternatives** — Approaches the author may not have considered.
-5. **Risk Assessment** — Overall risk with justification.
+## Summary
+Overall assessment.
+
+## Strengths
+Sound design decisions.
+
+## Concerns
+Architectural risks, coupling issues, scalability gaps (severity HIGH/MEDIUM/LOW).
+
+## Alternatives
+Approaches the author may not have considered.
+
+## Risk Assessment
+Overall risk with justification.
 
 Focus on:
 - Coupling and cohesion
@@ -94,14 +151,26 @@ Output in Markdown.
 
     "security": f"""You are performing a security review.
 
-Analyze the provided artifacts and produce:
+Analyze the provided artifacts and produce your response using these markdown
+headings, in this order:
 
-1. **Summary** — Overall security posture.
-2. **Critical Findings** — Exploitable vulnerabilities, data exposure. Severity: CRITICAL.
-3. **High-Risk Findings** — Weak controls, auth/authz gaps. Severity: HIGH.
-4. **Medium/Low Findings** — Defense-in-depth gaps, hardening opportunities.
-5. **Threat Model Gaps** — Attack vectors the design does not consider.
-6. **Recommendations** — Prioritized remediation.
+## Summary
+Overall security posture.
+
+## Critical Findings
+Exploitable vulnerabilities, data exposure. Severity: CRITICAL.
+
+## High-Risk Findings
+Weak controls, auth/authz gaps. Severity: HIGH.
+
+## Medium/Low Findings
+Defense-in-depth gaps, hardening opportunities.
+
+## Threat Model Gaps
+Attack vectors the design does not consider.
+
+## Recommendations
+Prioritized remediation.
 
 Apply STRIDE (Spoofing, Tampering, Repudiation, Info Disclosure, DoS, Elevation of Privilege).
 Consider OWASP Top 10 where applicable.
@@ -112,13 +181,22 @@ Cite specific file:line when possible. Output in Markdown.
 
     "generic": f"""You are performing an independent review of the provided materials.
 
-Produce:
+Produce your response using these markdown headings, in this order:
 
-1. **Summary** — One-paragraph assessment.
-2. **Strengths** — What is well-executed (bullets).
-3. **Concerns** — Issues, gaps, risks (bullets with severity HIGH/MEDIUM/LOW).
-4. **Suggestions** — Specific improvements.
-5. **Risk Assessment** — Overall risk (LOW/MEDIUM/HIGH) with justification.
+## Summary
+One-paragraph assessment.
+
+## Strengths
+What is well-executed (bullets).
+
+## Concerns
+Issues, gaps, risks (bullets with severity HIGH/MEDIUM/LOW).
+
+## Suggestions
+Specific improvements.
+
+## Risk Assessment
+Overall risk (LOW/MEDIUM/HIGH) with justification.
 
 Output in Markdown.
 

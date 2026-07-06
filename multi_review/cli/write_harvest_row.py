@@ -11,9 +11,10 @@ from pathlib import Path
 from multi_review.core.adapters import Usage
 from multi_review.core.fanout import ReviewerResult
 from multi_review.core.harvest import build_row, derive_project
+from multi_review.core.prompt import classify_review_ok
 
 
-def _state_to_result(state: dict) -> ReviewerResult:
+def _state_to_result(state: dict, review_text: str = "") -> ReviewerResult:
     usage_raw = state.get("usage")
     if usage_raw is not None:
         usage = Usage(
@@ -24,13 +25,16 @@ def _state_to_result(state: dict) -> ReviewerResult:
         )
     else:
         usage = None
+    # Shared classifier — same success decision aggregate applies, so runs.jsonl
+    # and REVIEW.md can never disagree about a reviewer's success (I2).
+    ok, _ = classify_review_ok(state.get("ok", False), review_text)
     return ReviewerResult(
         cli=state["cli"],
-        ok=state.get("ok", False),
+        ok=ok,
         text="",
         stderr_tail=state.get("stderr_tail", ""),
         usage=usage,
-        elapsed=state.get("duration_seconds", 0.0),
+        elapsed=state.get("duration_seconds") or 0.0,
         model_used=state.get("final_model"),
     )
 
@@ -89,7 +93,14 @@ def main(argv: list[str] | None = None) -> int:
     finished_at_iso = _to_iso(finished_ts) if finished_ts is not None else None
     wall_seconds = (finished_ts - started_ts) if (started_ts is not None and finished_ts is not None) else None
 
-    results = [_state_to_result(s) for s in states if "cli" in s and not s.get("cli") == "synth"]
+    def _review_text(cli: str) -> str:
+        md = args.state_dir / f"{cli}.md"
+        return md.read_text() if md.exists() else ""
+
+    results = [
+        _state_to_result(s, _review_text(s["cli"]))
+        for s in states if "cli" in s and not s.get("cli") == "synth"
+    ]
 
     prompt_bytes = len(args.prompt_file.read_bytes()) if args.prompt_file.exists() else 0
     output_bytes = len(args.out_review.read_bytes()) if args.out_review.exists() else 0

@@ -2,6 +2,7 @@
 import json
 import os
 import stat
+import subprocess
 from pathlib import Path
 
 from multi_review.cli.write_harvest_row import main
@@ -151,6 +152,79 @@ def test_write_harvest_row_no_timestamps_gives_none(tmp_path):
     assert row["finished_at"] is None
     assert row["wall_seconds"] is None
     assert "argv" not in row
+
+
+def _reviews_dir_with_body(tmp_path: Path, body_md: str) -> Path:
+    """Build a reviews dir with one reviewer whose state says ok=True but whose
+    .md body is `body_md`. The success verdict must depend on the body via the
+    shared classifier, so aggregate and harvest can be compared for parity."""
+    rdir = tmp_path / "reviews"
+    rdir.mkdir()
+    (rdir / "claude.md").write_text(body_md)
+    (rdir / "claude.state.json").write_text(json.dumps({
+        "cli": "claude", "ok": True, "duration_seconds": 2.0,
+        "stderr_tail": "", "usage": None, "final_model": "m",
+    }))
+    return rdir
+
+
+def _harvest_succeeded(rdir: Path, tmp_path: Path) -> list:
+    review = tmp_path / "REVIEW.md"
+    review.write_text("x")
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("prompt")
+    log = tmp_path / "runs.jsonl"
+    rc = main([
+        "--state-dir", str(rdir),
+        "--out-review", str(review),
+        "--prompt-file", str(prompt),
+        "--run-id", "r1",
+        "--log", str(log),
+        "--mode", "inline",
+        "--project", "p",
+        "--task", "code",
+    ])
+    assert rc == 0
+    row = json.loads(log.read_text().splitlines()[0])
+    return row["reviewers_succeeded"]
+
+
+def _aggregate_succeeded(rdir: Path, tmp_path: Path) -> bool:
+    out = tmp_path / "AGG.md"
+    r = subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.aggregate",
+         "--reviews-dir", str(rdir), "--mode", "inline", "--task", "code",
+         "--output", str(out)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    body = Path(json.loads(r.stdout)["output_path"]).read_text()
+    return 'reviewers_succeeded: ["claude"]' in body
+
+
+def test_aggregate_and_harvest_agree_missing_heading(tmp_path):
+    """I2: with a body missing `## Summary`, aggregate demotes to failed AND
+    harvest records it as failed — the two artifacts must not disagree."""
+    body = "This review has no summary heading. " * 4 + "\n"
+    rdir = tmp_path / "a"
+    rdir.mkdir()
+    rdir = _reviews_dir_with_body(rdir, body)
+    agg_ok = _aggregate_succeeded(rdir, tmp_path)
+    harvest_succeeded = _harvest_succeeded(rdir, tmp_path)
+    assert agg_ok is False
+    assert "claude" not in harvest_succeeded
+
+
+def test_aggregate_and_harvest_agree_with_heading(tmp_path):
+    """I2: with a compliant `## Summary` body, both artifacts count success."""
+    body = "## Summary\n\nAll good. " + ("filler " * 8) + "\n"
+    rdir = tmp_path / "b"
+    rdir.mkdir()
+    rdir = _reviews_dir_with_body(rdir, body)
+    agg_ok = _aggregate_succeeded(rdir, tmp_path)
+    harvest_succeeded = _harvest_succeeded(rdir, tmp_path)
+    assert agg_ok is True
+    assert "claude" in harvest_succeeded
 
 
 def test_write_harvest_row_falls_back_to_pending_on_perm_denied(tmp_path, monkeypatch):
