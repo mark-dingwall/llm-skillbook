@@ -91,12 +91,14 @@ uv run python -m multi_review.cli.snapshot create \
 ```
 
 **Fanout sequencing — Task tool blocks the host turn (spec §6.2 step 3).** In a single assistant message:
-1. **First**, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer):
+1. **First**, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer). Build argv by appending each optional flag ONLY when its value is set — `<MODEL_FLAG>` and `<EFFORT_FLAG>` below are conditional tokens, not literals:
+   - `<MODEL_FLAG>`  = `--model <models[cli]>`         if `models[cli]` is set, else **nothing** (no token at all)
+   - `<EFFORT_FLAG>` = `--effort <model_effort[cli]>`  if `model_effort[cli]` is set, else **nothing**
    ```
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
-     --out-dir <REVIEWS_DIR> --model <models[cli]> --effort <model_effort[cli]>
+     --out-dir <REVIEWS_DIR> <MODEL_FLAG> <EFFORT_FLAG>
    ```
-   Omit `--model` / `--effort` entirely when `models[cli]` / `model_effort[cli]` is unset — `spawn.py` defaults both to `None`; never pass an empty `--model ""` (would hand agy a blank model string). agy/codex/opencode ship unset by default.
+   An unset value emits NO token — never `--model ""` (a blank string would hand agy an empty model). `spawn.py` defaults both to `None`; agy/codex/opencode ship unset by default, so their command is just the base argv with neither flag.
 2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
 
    The agent definition is read-only (`tools: Read, Grep, Glob` — no Write per spec §5.2). Claude Code's Task tool returns the agent's final assistant message as a string; the host CAPTURES that string and persists it. Record wall time around the Task call as `<claude_duration>`. Then in a Bash heredoc write the captured text to `<REVIEWS_DIR>/claude.txt` and invoke the host-side writer:
