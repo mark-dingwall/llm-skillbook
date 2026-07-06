@@ -338,8 +338,12 @@ def build_prompt(
 
     if nonce is None:
         nonce = secrets.token_hex(4)
-        while any(f"</file-{nonce}>" in body for _, _, body in bodies):
-            nonce = secrets.token_hex(4)
+    # Collision guard runs for both generated AND explicit nonces: if any file
+    # body contains the close tag for the chosen nonce it could prematurely
+    # close its own <file> wrapper, breaking the injection boundary. A passed
+    # nonce is only regenerated when it actually collides with file content.
+    while any(f"</file-{nonce}>" in body for _, _, body in bodies):
+        nonce = secrets.token_hex(4)
 
     parts = [injection_preamble(nonce)]
     if mode == "reference":

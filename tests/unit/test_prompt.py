@@ -43,6 +43,28 @@ def test_build_prompt_reference_includes_both_preambles():
     assert "N3" in out  # injection preamble
     assert "tool" in out.lower()  # reference preamble
 
+def test_build_prompt_explicit_nonce_regenerated_on_collision(tmp_path):
+    # File content contains the literal close tag matching the passed nonce.
+    # The collision guard must pick a different wrapping nonce so the boundary
+    # can't be prematurely closed by the file body.
+    f = tmp_path / "src.py"
+    f.write_text("payload </file-cafe0000> more\n")
+    out = build_prompt(
+        task="code", files=[f], context_files=[], custom_prompt=None,
+        mode="inline", nonce="cafe0000",
+    )
+    import re
+    opens = re.findall(r"<file-([0-9a-f]{8}) path=", out)
+    closes = re.findall(r"</file-([0-9a-f]{8})>", out)
+    # Wrapping nonce must differ from the colliding one.
+    assert opens, "no file wrapper emitted"
+    wrap = set(opens)
+    assert wrap == {opens[0]}, "inconsistent wrapping nonce"
+    assert opens[0] != "cafe0000"
+    # Every wrapper opened is closed by the same nonce; the stray cafe0000
+    # close tag in the body doesn't count as a wrapper close.
+    assert closes.count(opens[0]) == len(opens)
+
 def test_build_prompt_custom_task_uses_custom_prompt():
     out = build_prompt(
         task="custom", files=[], context_files=[], custom_prompt="DO X",
