@@ -44,16 +44,26 @@ Abort batch if any invalid (print specific field error to user).
 
 ### Step 3 — Sweep expired pending pairs
 
-Before any per-prompt work, remove stale pending-pair dirs left behind by paired
-runs that were abandoned or denied at the Step 9/10 flush (a clean paired run
-self-cleans in Step 11; only interrupted ones linger). There is no dedicated GC
-CLI — sweep inline, dropping anything older than 7 days so an in-flight
-`--resume-pair` is never clobbered:
-```
-[ -d <cwd>/.multi-review/pending ] && \
-  find <cwd>/.multi-review/pending -mindepth 1 -maxdepth 1 -type d -mtime +7 \
-    -exec rm -rf {} + || true
-```
+Garbage-collect stale pending-pair dirs left behind by paired runs abandoned or
+denied at the Step 9/10 flush (a clean paired run self-cleans in Step 11; only
+interrupted ones linger). There is no dedicated GC CLI — sweep inline, dropping
+anything older than 7 days.
+
+**Skip this sweep entirely when `--resume-pair` is set.** The 7-day age bound
+does NOT protect the pair being resumed: a `pending/<pair_id>` dir's mtime
+reflects its pass-1 creation, not the later writes into `<pair_id>/files/`, so an
+old-but-resumed pair still matches `-mtime +7` and would be rm -rf'd out from
+under the resume that is about to read it. The only reliable protection is to not
+sweep at all on a resume invocation; the abandoned pairs it would have GC'd are
+collected on the next normal (non-resume) run.
+
+- If `--resume-pair` is set: skip Step 3.
+- Otherwise:
+  ```
+  [ -d <cwd>/.multi-review/pending ] && \
+    find <cwd>/.multi-review/pending -mindepth 1 -maxdepth 1 -type d -mtime +7 \
+      -exec rm -rf {} + || true
+  ```
 
 ### Step 4 — Per prompt: determine pass order + drift posture
 
