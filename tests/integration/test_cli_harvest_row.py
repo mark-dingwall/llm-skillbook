@@ -55,6 +55,22 @@ def test_flush_pending_unwritable_log_keeps_pending(tmp_path):
     finally:
         ro_parent.chmod(0o700)
 
+def test_flush_pending_skips_corrupt_file(tmp_path):
+    pending = tmp_path / ".multi-review" / "pending-harvest"
+    pending.mkdir(parents=True)
+    (pending / "r1.json").write_text(json.dumps({
+        "schema_version": 2, "run_id": "r1", "project": "p", "mode": "inline",
+    }))
+    corrupt = pending / "bad.json"
+    corrupt.write_text("{not json")
+    log = tmp_path / "runs.jsonl"
+    r = _run("--flush-pending", "--log", str(log), "--pending-dir", str(pending))
+    assert r.returncode == 0, r.stderr
+    rows = [json.loads(l) for l in log.read_text().splitlines()]
+    assert [row["run_id"] for row in rows] == ["r1"]
+    # corrupt file left in place for inspection
+    assert corrupt.exists()
+
 def test_row_file_and_flush_pending_mutually_exclusive(tmp_path):
     r = _run("--row-file", "x.json", "--flush-pending", "--log", "l.jsonl")
     assert r.returncode == 2

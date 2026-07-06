@@ -21,7 +21,14 @@ def main(argv: list[str] | None = None) -> int:
         files = sorted(args.pending_dir.glob("*.json")) if args.pending_dir.exists() else []
         flushed = 0
         for f in files:
-            row = json.loads(f.read_text())
+            try:
+                row = json.loads(f.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                # Skip a corrupt/unreadable pending file; leave it in place for
+                # inspection and don't count it flushed. One bad file must not
+                # wedge the still-valid rows.
+                print(f"Warning: skipping corrupt pending file {f}: {e}", file=sys.stderr)
+                continue
             try:
                 harvest_run(log_path=args.log, row=row)
             except OSError as e:
