@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 1. Resolve central path per spec §4.2 BEFORE skill/config setup,
     # so the path is available to write into config.json.
-    central = central_runs_dir()
+    central = central_runs_dir(ignore_config=True)
     central.mkdir(parents=True, exist_ok=True)
     (central / "reports").mkdir(parents=True, exist_ok=True)
     (central / "notes" / "legacy").mkdir(parents=True, exist_ok=True)

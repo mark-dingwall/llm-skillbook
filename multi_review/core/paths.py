@@ -33,17 +33,21 @@ def _dev_checkout_runs() -> Path | None:
     return None
 
 
-def central_runs_dir() -> Path:
+def central_runs_dir(*, ignore_config: bool = False) -> Path:
     """Resolution order per spec §4.2:
     1. ~/.claude/skills/multi-review/config.json `central_path`.
     2. Dev checkout `<repo>/runs/`.
     3. $XDG_DATA_HOME/multi-review/ (Linux).
     4. ~/Library/Application Support/multi-review/ (macOS).
     5. ~/.local/share/multi-review/ (Linux fallback).
+
+    ignore_config=True skips step 1 and starts at the dev-checkout step, so a
+    caller can recompute the canonical path fresh (setup uses this to heal a
+    stale central_path instead of re-reading and rewriting it).
     """
     home = Path(os.path.expanduser("~"))
     cfg = home / ".claude" / "skills" / "multi-review" / "config.json"
-    if cfg.exists():
+    if not ignore_config and cfg.exists():
         try:
             data = json.loads(cfg.read_text())
             if data.get("central_path"):

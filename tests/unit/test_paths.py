@@ -32,6 +32,18 @@ def test_central_runs_dir_falls_back_to_xdg(tmp_path, monkeypatch):
     p = central_runs_dir()
     assert p == tmp_path / "xdg" / "multi-review"
 
+def test_central_runs_dir_ignore_config_skips_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("MULTI_REVIEW_NO_DEV_CHECKOUT", "1")
+    cfg = tmp_path / ".claude" / "skills" / "multi-review" / "config.json"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('{"central_path": "/tmp/bogus-stale/multi-review"}')
+    # Default honours config.
+    assert central_runs_dir() == Path("/tmp/bogus-stale/multi-review")
+    # ignore_config=True skips config.json and falls to XDG.
+    assert central_runs_dir(ignore_config=True) == tmp_path / "xdg" / "multi-review"
+
 def test_generate_run_id_format():
     rid = generate_run_id()
     assert rid.startswith("run-")
