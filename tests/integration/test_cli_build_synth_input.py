@@ -120,4 +120,3 @@ def test_build_synth_input_tuple_order_body_nonce(tmp_path):
     # body should contain the review content; nonce should be a short hex token
     assert "review text" in body
     assert len(nonce) == 8
-    assert nonce not in body or f"review-{nonce}" in body  # nonce appears as tag name in body

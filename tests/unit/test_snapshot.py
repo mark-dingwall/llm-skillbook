@@ -10,7 +10,8 @@ def test_create_snapshot_copies_files(tmp_path):
     snap_dir = tmp_path / "snap"
     create_snapshot(files=[src], context_files=[], snapshot_dir=snap_dir)
     snapped = snap_dir / src.resolve().relative_to(src.resolve().anchor)
-    assert snapped.exists() or any(snap_dir.rglob("src.py"))
+    assert snapped.exists()
+    assert snapped.read_text() == "v1\n"
 
 def test_snapshot_includes_context_files(tmp_path):
     src = tmp_path / "src.py"

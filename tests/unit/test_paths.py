@@ -26,9 +26,11 @@ def test_central_runs_dir_falls_back_to_xdg(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     monkeypatch.delenv("HOME_RUNS_OVERRIDE", raising=False)
-    # No config.json; no dev-checkout marker either.
+    # Suppress dev-checkout detection so XDG resolution actually wins.
+    monkeypatch.setenv("MULTI_REVIEW_NO_DEV_CHECKOUT", "1")
+    # No config.json under the fake HOME, so resolution falls through to XDG.
     p = central_runs_dir()
-    assert p.parent == tmp_path / "xdg" / "multi-review" or p.exists() or p.parent.exists()
+    assert p == tmp_path / "xdg" / "multi-review"
 
 def test_generate_run_id_format():
     rid = generate_run_id()

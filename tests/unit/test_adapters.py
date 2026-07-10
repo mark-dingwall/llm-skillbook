@@ -38,11 +38,9 @@ def test_claude_adapter_empty_fixture_yields_empty_text():
 def test_agy_adapter_buffers_plain_text():
     from multi_review.core.adapters import AgyAdapter
     a = AgyAdapter()
-    a.feed_line("Hi, Gemini here.")
+    a.feed_line("Hi from agy.")
     a.feed_line("Second line.")
-    assert "".join(a.text_parts) == "Hi, Gemini here.\nSecond line.\n" or \
-           "".join(a.text_parts) == "Hi, Gemini here.Second line." or \
-           "Gemini here" in "".join(a.text_parts)
+    assert "".join(a.text_parts) == "Hi from agy.\nSecond line.\n"
     assert a.usage.input_tokens == 0
     assert a.usage.output_tokens == 0
     assert a.phase in ("running", "done")
@@ -55,7 +53,8 @@ def test_agy_fixture_round_trip():
     for line in fixture.splitlines():
         a.feed_line(line)
     body = "".join(a.text_parts)
-    assert len(body) >= 50
+    assert "The auth middleware in `src/auth.py:42`" in body
+    assert "LEEWAY_SECONDS = 1" in body
 
 
 def test_no_gemini_adapter_export():

@@ -31,7 +31,7 @@ def test_spawn_writes_review_and_state(tmp_path, monkeypatch):
     assert Path(j["state_path"]).exists()
     state = json.loads(Path(j["state_path"]).read_text())
     assert state["cli"] == "claude"
-    assert state["ok"] in (True, False)
+    assert state["ok"] is True
 
 
 def test_spawn_synthesize_writes_synth_files(tmp_path):
