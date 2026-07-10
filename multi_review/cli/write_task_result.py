@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 
+from multi_review.core.prompt import SUMMARY_HEADING_RE
+
 FILENAME_TAG_RE = re.compile(r"<filename>(.+?)</filename>\s*$", re.DOTALL)
 
 
@@ -47,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.task_mode == "review":
+        m = SUMMARY_HEADING_RE.search(text)
+        if m:
+            text = text[m.start():].strip()
         review_path = args.out_dir / f"{args.cli}.md"
         review_path.write_text(text)
         state_path = args.out_dir / f"{args.cli}.state.json"

@@ -35,7 +35,7 @@ def test_write_task_result_review_mode(tmp_path):
     state_path = Path(payload["state_path"])
     assert review_path == out_dir / "claude.md"
     assert state_path == out_dir / "claude.state.json"
-    assert review_path.read_text() == REVIEW_TEXT
+    assert review_path.read_text() == REVIEW_TEXT.strip()
 
     state = json.loads(state_path.read_text())
     assert state == {
@@ -144,3 +144,70 @@ def test_write_task_result_no_filename_tag(tmp_path):
     state = json.loads((out_dir / "synth.state.json").read_text())
     assert state["body"] == text
     assert state["suggested_filename"] is None
+
+
+def test_review_trims_preamble_to_summary(tmp_path):
+    text = (
+        "I will read the file at /x.\nLet me reason first.\n\n"
+        "## Summary\nThe code is fine.\n\n## Warnings\n- something\n"
+    )
+    text_file = tmp_path / "claude.txt"
+    text_file.write_text(text)
+    out_dir = tmp_path / "reviews"
+
+    r = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "2.0",
+        "--task-mode", "review",
+    ])
+    assert r.returncode == 0, r.stderr
+
+    body = (out_dir / "claude.md").read_text()
+    assert body.startswith("## Summary")
+    assert "I will read the file" not in body
+
+
+def test_review_without_summary_kept_raw(tmp_path):
+    text = "No heading here, just prose about the code."
+    text_file = tmp_path / "claude.txt"
+    text_file.write_text(text)
+    out_dir = tmp_path / "reviews"
+
+    r = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "2.0",
+        "--task-mode", "review",
+    ])
+    assert r.returncode == 0, r.stderr
+
+    body = (out_dir / "claude.md").read_text()
+    assert "No heading here" in body
+
+
+def test_synthesize_output_not_trimmed(tmp_path):
+    text = (
+        "## Headline\nBoth reviewers agree.\n\n## Agreed Concerns\n- x\n\n"
+        "<filename>foo.md</filename>\n"
+    )
+    text_file = tmp_path / "synth.txt"
+    text_file.write_text(text)
+    out_dir = tmp_path / "session"
+
+    r = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "2.0",
+        "--task-mode", "synthesize",
+    ])
+    assert r.returncode == 0, r.stderr
+
+    body = (out_dir / "synth.txt").read_text()
+    assert body.startswith("## Headline")
+
+    state = json.loads((out_dir / "synth.state.json").read_text())
+    assert state["suggested_filename"] == "foo.md"
