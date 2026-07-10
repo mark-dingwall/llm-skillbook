@@ -1,0 +1,4 @@
+prompt_format_version: 1
+task: custom
+files: ["sample_subject.py"]
+mode: inline

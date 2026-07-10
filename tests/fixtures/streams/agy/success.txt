@@ -1,0 +1,13 @@
+# Review
+
+The auth middleware in `src/auth.py:42` uses `<` instead of `<=` for token
+expiry. This causes a 1-second race window where the token is treated as
+expired but still accepted on retry.
+
+## Recommendation
+
+Use `<=` and add a leeway constant `LEEWAY_SECONDS = 1`.
+
+## Severity
+
+Medium — race exists but window is tiny.

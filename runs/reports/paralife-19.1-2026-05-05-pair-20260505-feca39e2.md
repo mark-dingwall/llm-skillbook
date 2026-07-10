@@ -1,3 +1,21 @@
+---
+report_format_version: 1
+pair_id: pair-20260505-feca39e2
+pair_type: paired
+comparison_eligible: true
+---
+
+
+## Headline
+
+_TBD — synthesizer will fill_
+
+## Mode-divergence observations
+
+_TBD — synthesizer will fill_
+
+## Per-reviewer notes
+
 ## paralife — Phase 19.1 fix-verification cross-AI review (2026-05-05)
 
 Paired ref-vs-inline on paralife-19.1 (the *fix* phase — closes P19 pass-4 F1/F2/F3 plus D-04..D-18 reinforcements). 26 files (10 main + 16 test), 3 context docs (CONTEXT, VERIFICATION, CLAUDE.md), prompt-file `19.1-MULTI-REVIEW-PROMPT.md` enumerating 18 decisions (D-01..D-18). Synthesizer = claude both runs. Distinct outputs (`-ref.md` / `-inl.md`) — no clobber.

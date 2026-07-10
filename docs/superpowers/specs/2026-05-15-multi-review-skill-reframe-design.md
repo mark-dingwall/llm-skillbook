@@ -42,19 +42,16 @@ Storybloq (Storybloq/storybloq) demonstrates a viable pattern: a Claude Code ski
 │   │   ├── fanout.py               # subprocess spawn + JSONL stream parse
 │   │   ├── harvest.py              # JSONL row append + telemetry quality flags
 │   │   ├── snapshot.py             # snapshot dir mgmt + diff
-│   │   ├── report.py               # EXPERIMENTS.md regeneration
-│   │   └── pending.py              # pending-pair record read/write
+│   │   └── report.py               # EXPERIMENTS.md regeneration
 │   └── cli/                        # skill-internal helper CLIs
 │       ├── prepare.py
 │       ├── spawn.py
 │       ├── aggregate.py
-│       ├── cooldown_notify.py
 │       ├── harvest_row.py
 │       ├── snapshot.py
 │       ├── report.py
 │       ├── validate_prompt.py
 │       ├── migrate_sidecars.py
-│       ├── pending.py
 │       └── setup.py
 ├── skills/multi-review/
 │   ├── SKILL.md
@@ -87,9 +84,6 @@ Storybloq (Storybloq/storybloq) demonstrates a viable pattern: a Claude Code ski
 - `<cwd>/.multi-review/` (per-project, gitignored on first use)
   - `prompts/<name>.yaml` — persistent user-authored prompt files.
   - `prompts/.tmp/<id>.yaml` — ephemeral build-prompt drafts.
-  - `pending/<pair-id>/meta.yaml` — pending-pair metadata.
-  - `pending/<pair-id>/.status.lock` — ephemeral O_EXCL sentinel for atomic state transitions (see §8.6); present only during a transition.
-  - `pending/<pair-id>/files/` — snapshot copies (only when `mode: both` AND `if_drift != ignore`).
   - `sessions/<run-id>/` — per-run working dir (per-reviewer outputs, prompt-as-sent, state files; pass-1 staged REVIEW.md during paired runs). Renamed from `runs/` to disambiguate from the central `runs/` namespace.
   - `pending-harvest/<run-id>.json` — fallback for harvest rows when central log write is denied.
 - **Central state location** (resolved at setup time, requires session perm to write)
@@ -121,9 +115,9 @@ Procedural markdown auto-loaded on `/multi-review` invocation. Pure instructions
 Responsibilities:
 1. Parse args (`/multi-review`, `/multi-review "text"`, `/multi-review --use-defaults "text"`, `/multi-review --prompt-files A.yaml,B.yaml`, `/multi-review --resume-pair <id>`, `/multi-review --report`, `/multi-review --list-reviewers`, etc.).
 2. Dispatch `multi-review-build` Task subagent for prompt construction when needed.
-3. For each validated prompt file: orchestrate snapshot (conditional), reviewer fanout (parallel Task + Bash), aggregation, harvest, optional cooldown, optional pass 2, optional Investigate flow, paired-report generation, EXPERIMENTS.md regen.
+3. For each validated prompt file: orchestrate snapshot (conditional), reviewer fanout (parallel Task + Bash), aggregation, harvest, optional pass 2, optional Investigate flow, paired-report generation, EXPERIMENTS.md regen.
 4. Handle perm prompts for central log writes.
-5. Surface final summary to user (paths to outputs, fail/pass counts, fallback events).
+5. Surface final summary to user (paths to outputs, fail/pass counts).
 6. **`--list-reviewers` diagnostic**: SKILL.md procedure that probes each known CLI via `shutil.which` + `<cli> --version`, prints availability + detected default models, and prints the host-detected backend (Task subagent for claude in v0.2). Replaces v0.1's `--list-reviewers` flag with a skill-local procedure.
 
 ### 5.2 Custom agents
@@ -157,8 +151,6 @@ Each is a thin argparse wrapper around `multi_review.core/`. Invoked by SKILL.md
 - **`report.py`** — regenerate EXPERIMENTS.md from central log + reports.
 - **`validate_prompt.py`** — validate YAML against schema, fill defaults.
 - **`migrate_sidecars.py`** — one-shot historical migration.
-- **`pending.py`** — pending-pair state-machine: subcommands `init` / `read` / `transition` / `gc`. Transitions are atomic via an `O_EXCL` sentinel file (`.status.lock`) and `os.rename` (see §8.6). Invoked from §6.2 step 3, §8.3, §8.4, §8.5.
-- **`cooldown_notify.py`** — fired by the background `sleep` script (§8.2). Reads pending meta via `pending.py read` (plain read, no lock needed); exits silently if status ≠ `awaiting-pass-2`; else dispatches platform notification (`notify-send` / `osascript` / `wsl-notify-send`). Status-gated so manual `--resume-pair` before the timer fires suppresses the late notification.
 - **`setup.py`** — install/upgrade.
 
 ### 5.4 Prompt file format (YAML)
@@ -181,34 +173,17 @@ models:                               # primary model per reviewer
 model_effort:                         # optional; silently ignored where unsupported
   codex: high
   # claude effort pinned in agent definition (xhigh)
-fallback_models:                      # ordered chain on capacity failure; absent key = pin (no fallback)
-  gemini: ["gemini-3.1-flash", "gemini-2.5-pro"]
-delay: 1800                           # cooldown seconds (mode: both only)
-delay_type: background                # foreground | background
-if_drift: ask                         # ignore | abort | ask (mode: both only). Default `ask` keeps paired runs comparison-eligible (§7.1); `ignore` is the explicit opt-out for users who don't need comparison stats on that pair.
+if_drift: ignore                      # ignore | abort | ask (mode: both only). Default `ignore` for MVP — matches `core/promptfile.py:26`. Set `ask` (or `abort`) explicitly for paired runs that feed comparison stats (§7.1): under `ignore`, the harvest row records `drift_status: unchecked` and pair-level `comparison_eligible: false`. Default chosen as `ignore` because most ad-hoc paired runs are not load-bearing comparison data, and the `ask` flow demands a snapshot every time which is a foot-cannon for first-time users (decision recorded 2026-05-19).
 output_dir: null                      # default: <cwd>/.multi-review/sessions/<auto-slug>/
 save_as: null                         # promote ephemeral to persistent if set
 harvest: true
 ```
 
-**`fallback_models` default = pin.** An explicit chain is opt-in; v0.2 ships a built-in default `fallback_models.gemini: ["gemini-3.1-flash", "gemini-2.5-pro"]` applied only when the user provides no `models.gemini` override (i.e. defaults-on-defaults). To opt back into the default chain after pinning, omit the explicit-pin block entirely.
-
-| `models.gemini`     | `fallback_models.gemini`  | Behavior                                                   |
-|---------------------|---------------------------|------------------------------------------------------------|
-| absent              | absent                    | default primary + built-in default chain                   |
-| `X`                 | absent / `null` / `[]`    | pin to `X`, no fallback                                    |
-| `X`                 | `[A, B]`                  | primary `X`, chain `[A, B]` on capacity-class failures     |
-
-Same shape applies to every reviewer; only gemini ships a non-empty built-in default chain in v0.2.
-
 **Server-side YAML validation (`validate_prompt.py`).** Cheap structural checks so a malformed prompt can't burn ~thousands of tokens × 4 reviewers downstream:
 - Type and required-field checks: `task`, `files`, `mode`, `reviewers`, `synthesizer` present and well-typed.
-- Enum validation: `task`, `mode`, `synthesizer`, every entry in `reviewers`, `delay_type`, `if_drift` against the closed value sets.
-- `delay`: positive integer ≤ 86400 (24h sanity bound).
+- Enum validation: `task`, `mode`, `synthesizer`, every entry in `reviewers`, `if_drift` against the closed value sets.
 - `files` and `context_files`: every listed path must exist on disk.
 - `models.<cli>` keys: must be members of the known-reviewer set.
-
-The §8.2 background `sleep <delay> && python -m multi_review.cli.cooldown_notify --pair-id <id>` shell composition is safe because (a) `delay` is int-validated above, and (b) `pair_id` originates from `paths.generate_pair_id()` internally, not user-supplied YAML. Trust boundary is build-agent output validated by these structural checks; heavy regex enforcement is unnecessary at single-user scale.
 
 **Snapshot consequence of context files.** Since `context_files` are inline-wrapped under `<file-NONCE>` tags in both `mode: inline` and `mode: reference` (they're framing material the model must see *before* any tool call), they are also included in the snapshot/diff set for paired runs (`if_drift != ignore`) — see §9.1. This kills a hidden-drift hole where context files (e.g. threat-model docs) could change between pass 1 and pass 2 unnoticed.
 
@@ -233,18 +208,13 @@ The §8.2 background `sleep <delay> && python -m multi_review.cli.cooldown_notif
 
 Pass order chosen from EXPERIMENTS.md ordering rule (`next_recommended_order`).
 
-1. **Pass 1**: single-pass flow with the chosen mode. **Snapshot** (`snapshot.py create`) of input files + context files **only if `if_drift != ignore`** (context files in the snapshot set per §5.4 / §9.1). Pending meta records modes, timestamps, git ref, `notification_task_id` if cooldown.
-2. **Pass-2 trigger** — branches on whether pass 1 burned the gemini fallback chain:
-   - **Clean path** (no gemini fallback in pass 1): pass 2 fires **immediately in the same turn** after pass 1's join barrier resolves. No cooldown, no `awaiting-pass-2` state, no background task. `next_recommended_order` (§11.3) defaults to `reference` first when counters tie at zero.
-   - **Fallback fired AND `delay_type: foreground`**: skill waits visibly in the same turn with countdown; pending meta still flips to `awaiting-pass-2` for the duration so the O_EXCL transition discipline in §8.6 applies to any concurrent `--resume-pair`.
-   - **Fallback fired AND `delay_type: background`**: schedule background notification, pending meta `awaiting-pass-2`, skill exits cleanly with resume command. Pass 2 fires on `--resume-pair` or auto-fire after the user wakes the skill.
-3. **Pass 2** (executes per the branch above):
-   - Atomic transition via `pending.py transition --to resuming` (O_EXCL sentinel per §8.6). If current status is not `awaiting-pass-2`, helper refuses with `already resuming` / `already complete` / `expired` and pass 2 aborts. (Clean-path same-turn pass 2 skips this since meta never entered `awaiting-pass-2`.)
-   - TaskStop the notification task if still alive.
+1. **Pass 1**: single-pass flow with the chosen mode. **Snapshot** (`snapshot.py create`) of input files + context files **only if `if_drift != ignore`** (context files in the snapshot set per §5.4 / §9.1).
+2. **Pass-2 trigger**: pass 2 fires immediately in the same turn after pass 1's join barrier resolves. `next_recommended_order` (§11.3) defaults to `reference` first when counters tie at zero.
+3. **Pass 2**:
    - If `if_drift != ignore`: run `snapshot.py diff`. Branch on result:
      - clean → proceed.
      - drifted + `abort` → emit warning, skip pass 2, mark pair aborted, continue to next prompt.
-     - drifted + `ask` → AskUserQuestion proceed/abort/investigate. Investigate → `multi-review-investigate` Task subagent with diff + pass-1 REVIEW.md → verdict prose → AskUserQuestion again. **If the user chooses `proceed` after drift was detected, harvest sets `comparison_eligible: false` for that pair** regardless of fallback state — user explicitly accepted contamination, and we don't claim a clean comparison on top of accepted contamination. `proceed` is still a valid choice; it just disqualifies the pair from the inline-vs-reference signal.
+     - drifted + `ask` → AskUserQuestion proceed/abort/investigate. Investigate → `multi-review-investigate` Task subagent with diff + pass-1 REVIEW.md → verdict prose → AskUserQuestion again. **If the user chooses `proceed` after drift was detected, harvest sets `comparison_eligible: false` for that pair** — user explicitly accepted contamination, and we don't claim a clean comparison on top of accepted contamination. `proceed` is still a valid choice; it just disqualifies the pair from the inline-vs-reference signal.
    - If `if_drift == ignore`: no snapshot, no diff, proceed directly. Harvest will mark `drift_status: unchecked` and `comparison_eligible: false`.
    - Run pass 2 fanout.
 4. **Post-paired**: in one rename step, promote both halves to cwd root with mode-suffixed names — pass-1 staged `.multi-review/sessions/<pass-1-run-id>/REVIEW.md` → `<cwd>/REVIEW-<slug>-<pass-1-mode>.md`, and the pass-2 final REVIEW → `<cwd>/REVIEW-<slug>-<pass-2-mode>.md` (per §4.2; auto-suffix on collision applies per file). `report.py --build-paired-report --pair-id` writes structured report to `<resolved central path>/reports/<project>-<date>-<pair-id>.md` (format C). `snapshot.py cleanup` removes pending dir. `report.py --regen` updates EXPERIMENTS.md.
@@ -253,7 +223,6 @@ Pass order chosen from EXPERIMENTS.md ordering rule (`next_recommended_order`).
 
 Sequential. Per-prompt failures don't abort the batch. Batch-end: single perm prompt for harvest writes (batched), single EXPERIMENTS.md regen.
 
-**`delay_type: background` is overridden to `foreground` inside a batch.** Background cooldown means "skill exits, user resumes later via `--resume-pair`" — that semantics is incompatible with "skill stays alive to run the next prompt in the batch". `validate_prompt.py` silently rewrites `delay_type: background → foreground` when the prompt is loaded as part of a batch (single-prompt invocations keep background semantics). The skill stays alive through each pair's cooldown then advances to the next prompt. **No batch-id, no orphan-queue state file, no `--resume-batch` flag** — keeps the state surface flat. Overnight-queue use case (the reason batch exists) is unaffected: the user wants the whole batch to run start-to-finish unattended, and foreground cooldown inside a batch matches that. Documented in §5.4 schema notes for `delay_type`.
 
 ### 6.4 Build flow
 
@@ -271,10 +240,9 @@ SKILL.md continues with single/paired flow per generated file.
 
 **Scope:** v0.2 ships only the **mechanical eligibility flags** below — they are a *necessary but not sufficient* gate. The downstream aggregation contract (which metric? what `n` threshold before a claim is load-bearing? how to normalise across reviewers and codebases?) is **out of scope for v0.2** and tracked as a deferred item in §14. Until then, cumulative comparative claims continue to live in hand-authored `runs/notes/<topic>.md` per CLAUDE.md's ≥5-paired-run rule. v0.2 does not claim its filter alone produces a comparison signal; it claims the filter cleanly excludes runs that *cannot* contribute.
 
-- **Row-level** (each run): based **only on multi_review-measured fields** — `wall_seconds` non-null, `reviewers_succeeded ≥ 2`. CLI-reported usage telemetry is **never** an eligibility gate. (Prior-run quota cascade is captured downstream by the per-reviewer fallback rule below; no separate confound flag needed.)
-- **Per-reviewer** (within a row): `comparison_eligible: false` for any reviewer that ran on a non-default fallback model (`fallback_hops > 0`).
-- **Pair-level** (derived at report time): for paired comparison stats, a pair is `<reviewer>_comparable` only if **both** halves have that reviewer marked `comparison_eligible: true`. This catches the model-mismatch case (gemini-3.1-pro inline vs gemini-flash-lite reference is incomparable; the model difference dwarfs the mode difference).
-- **`if_drift: ignore` pairs**: `comparison_eligible: false` at the pair level regardless of fallback state. User opted out of drift detection; we can't claim clean comparison.
+- **Row-level** (each run): based **only on multi_review-measured fields** — `wall_seconds` non-null, `reviewers_succeeded ≥ 2`. CLI-reported usage telemetry is **never** an eligibility gate.
+- **Pair-level** (derived at report time): for paired comparison stats, a pair is `<reviewer>_comparable` only if **both** halves have that reviewer marked `comparison_eligible: true`.
+- **`if_drift: ignore` pairs**: `comparison_eligible: false` at the pair level. User opted out of drift detection; we can't claim clean comparison.
 - **`if_drift: ask` with proceed-after-drift**: `comparison_eligible: false` at the pair level. User explicitly accepted contamination (§6.2 step 3). Same reasoning as `ignore`.
 
 ### 7.2 Telemetry quality
@@ -289,7 +257,6 @@ Per-reviewer block in harvest:
     "tool_calls": 22,
     "telemetry_quality": "reliable",   // reliable | known-issues | degraded
     "comparison_eligible": true,
-    "fallback_hops": 0,
     "final_model": "gemini-3.1-pro"
   },
   "claude": {
@@ -299,7 +266,6 @@ Per-reviewer block in harvest:
     "tool_calls": 12,                  // captured from Task metadata when available, else null
     "telemetry_quality": "degraded",
     "comparison_eligible": true,
-    "fallback_hops": 0,
     "final_model": "claude-opus-4-7"
   }
 }
@@ -311,54 +277,7 @@ Per-reviewer block in harvest:
 
 Free-form `telemetry_notes` field per row for human-flagged anomalies (e.g., "claude reported 0 output_tokens but the review is non-empty"). Captured at run time; queryable later.
 
-## 8. Cooldown
-
-### 8.1 Trigger and purpose
-
-Gemini fallback fired in pass 1 → cooldown for pass 2. Other reviewers don't have fallback chains today, so cooldown is gemini-specific in v0.2.
-
-**Purpose:** Pass-1 gemini fallback indicates quota was hit, which makes it likely an immediate pass 2 would also fall back. Cooldown improves the odds that **pass 2 lands on the primary model so pass 2 produces a useful review** — *not* because waiting changes pass 1's eligibility. Pass 1's `<reviewer>_comparable: false` for gemini is already locked in once fallback fired; no amount of delay rescues it (the pair-level comparison eligibility on that reviewer is already lost, per §7.1). A pre-flight quota-proximity probe (avoid burning fallback in pass 1 in the first place) is the cleaner intervention and is deferred to §14.
-
-### 8.2 Behaviour by `delay_type`
-
-- **`background`** (default): spawn Bash `run_in_background` with:
-  ```
-  sleep <delay> && \
-    python -m multi_review.cli.cooldown_notify --pair-id <id>
-  ```
-  `cooldown_notify` reads pending meta via `pending.py`, **exits silently if status ≠ `awaiting-pass-2`** (manual resume already happened), else fires platform notification. Skill exits cleanly. Print resume command. Pending meta records `notification_task_id`. The status guard is the load-bearing piece — a bare `sleep && notify-send` would fire spurious notifications after manual resume.
-- **`foreground`**: skill waits visibly with countdown. Ctrl+C aborts pair.
-
-### 8.3 Resume
-
-`/multi-review --resume-pair <id>` (manual; works whether timer fired or not):
-
-1. Atomic transition via `pending.py transition --to resuming` (O_EXCL sentinel, see §8.6). Helper refuses if current status ≠ `awaiting-pass-2`.
-2. TaskStop the notification task if alive.
-3. Run drift check (if applicable).
-4. Continue pass 2.
-
-### 8.4 Early resume + late notification
-
-If user resumes manually before timer fires:
-- Step 1's atomic transition flips status to `resuming` first. When the bg `sleep` finally wakes, `cooldown_notify` reads status, sees `≠ awaiting-pass-2`, and exits silently — no spurious notification.
-- Step 2 kills the bg task as belt-and-braces.
-
-### 8.5 Expired pairs
-
-GC: pending dirs older than `PENDING_TTL_DAYS` (hardcoded 7 in v0.2; future config) are swept on next skill invocation via `pending.py gc`. `--resume-pair` against expired pair: warn, refuse by default, `--force` override. GC runs at skill start, not at end-of-run, so a long-running batch can't sweep a pair it's actively using.
-
-### 8.6 Concurrency — pending-meta atomic transitions
-
-Pending-meta state transitions (`init` → `awaiting-pass-2` → `resuming` → `complete` / `aborted`) are race-prone: two concurrent `--resume-pair <id>` invocations could both observe `awaiting-pass-2` on plain reads and both proceed.
-
-**Property:** one transition wins; concurrent callers see a structured `already resuming` / `already complete` / `expired` error.
-
-**Implementation (in `pending.py`):** an `O_EXCL` sentinel file (`.status.lock`) inside the pending dir provides mutual exclusion. `os.open(..., O_CREAT | O_EXCL | O_WRONLY)` succeeds for exactly one caller; losers receive `FileExistsError` and return `False` (no block-and-retry). The winner reads `meta.yaml`, validates the transition is legal, writes the new meta via `os.rename` (atomic on POSIX), and removes the sentinel.
-
-`cooldown_notify` reads status with a plain read. If a manual resume has already flipped the status, `cooldown_notify` sees `≠ awaiting-pass-2` and exits silently on its next status check — same end behaviour, no lock needed for the read path.
-
-All call sites — §6.2 step 3, §8.3, §8.4, §8.5 — go through `pending.py` subcommands. No ad-hoc meta writes elsewhere.
+## 8. (Removed — fallback / cooldown / pending-pair subsystem scrapped 2026-06-19, see CLAUDE.md)
 
 ## 9. Drift handling
 
@@ -413,7 +332,6 @@ codex_comparable: true
 claude_comparable: true
 opencode_comparable: true
 synthesizer: claude
-fallback_events: []
 confound: false
 comparison_eligible: true
 ---
@@ -439,7 +357,7 @@ comparison_eligible: true
 
 After paired run completes, SKILL.md invokes a post-run synthesis pass that reads both REVIEW.md outputs + per-reviewer state and produces three sections:
 
-- **Headline** — descriptive one-paragraph summary of what happened this run (counts, fail/pass, fallback events).
+- **Headline** — descriptive one-paragraph summary of what happened this run (counts, fail/pass).
 - **Mode-divergence observations** — strictly descriptive notes: which findings appeared in one mode and not the other, where reviewer rankings flipped, anomalies (e.g. one reviewer hallucinated a fix as present). No evaluative claims about which mode is "better".
 - **Per-reviewer notes** — per-reviewer behavioural and telemetry observations.
 
@@ -459,7 +377,7 @@ User reviews and commits. **Cumulative cross-pair comparative claims live in `ru
 
 Step-by-step:
 
-1. **Row-group first.** Tool reads `runs/runs.jsonl` and groups rows into **candidate pairs** by (`project`, identical input-file set from `argv`, mode-flip inline↔reference, both rows within a time window). **Window: `max(60 min, configured delay + 10 min slack)`** — the previous 30-minute default equalled the default cooldown and produced off-by-one drops of legitimate pairs. Pairs that hit the window boundary always surface for user confirmation rather than silently dropping. The row run-id (synthesised at migration time from `started_at` + `cwd`) is the primary key, not project+date.
+1. **Row-group first.** Tool reads `runs/runs.jsonl` and groups rows into **candidate pairs** by (`project`, identical input-file set from `argv`, mode-flip inline↔reference, both rows within a 60-minute window). Pairs that hit the window boundary always surface for user confirmation rather than silently dropping. The row run-id (synthesised at migration time from `started_at` + `cwd`) is the primary key, not project+date.
 2. **Sidecar matching is interactive.** For each `runs/notes/*.md`, tool shows: "this sidecar mentions dates X / projects Y; the row-grouper found these candidate pairs: …". User picks per-sidecar:
    - assign sidecar to pair P (single-pair narrative)
    - split sidecar across pairs P1 + P2 (multi-pair narrative — tool prompts for split criterion)
@@ -482,12 +400,11 @@ New fields (all **nullable**; legacy v1 rows backfill to `null`):
 - `prompt_format_version: int | null`
 - `usage_by_reviewer.<cli>.telemetry_quality: string | null`
 - `usage_by_reviewer.<cli>.comparison_eligible: bool | null`
-- `usage_by_reviewer.<cli>.fallback_hops: int | null`
 - `usage_by_reviewer.<cli>.final_model: string | null`
 - `drift_status: string | null`
 - `telemetry_notes: string | null`
 
-**Nullability discipline.** Every v2-new field is explicitly nullable in the schema. Legacy v1 rows materialise `null` for all of them. §11.3's eligibility filter rejects rows where any of `comparison_eligible`, `fallback_hops`, or `final_model` is null for the relevant reviewer, which means **legacy rows cannot leak into trust counters** — they're cleanly excluded, not silently treated as `true` / `0` / `unknown`. This is intentional: pre-stabilisation rows simply don't contribute to the comparison signal.
+**Nullability discipline.** Every v2-new field is explicitly nullable in the schema. Legacy v1 rows materialise `null` for all of them. §11.3's eligibility filter rejects rows where `comparison_eligible` or `final_model` is null for the relevant reviewer, which means **legacy rows cannot leak into trust counters** — they're cleanly excluded, not silently treated as `true` / `unknown`. This is intentional: pre-stabilisation rows simply don't contribute to the comparison signal.
 
 **Claude reviewer null tokens are not a v2 migration artefact**, they are a structural property of Task-subagent telemetry (§5.2). `usage_by_reviewer.claude.input_tokens` / `output_tokens` / `cached_tokens` are nullable in v2 for the same reason they will be nullable in v3+. Consumers reading these fields must handle null; comparisons that need claude token data filter on `telemetry_quality == "reliable"` and will return zero rows until a future "telemetry reliable" path lands.
 
@@ -505,7 +422,7 @@ New fields (all **nullable**; legacy v1 rows backfill to `null`):
 
 All v0.1 CLI flags map to YAML prompt-file fields. README rewrites significantly.
 
-**Pin-without-fallback semantics** — v0.2 preserves v0.1 least-surprise: setting `models.X: Y` pins X to Y with no fallback (matches v0.1 `--model X=Y` behaviour). Opting into a fallback chain is explicit (`fallback_models.X: [...]`). Absent `fallback_models.X` and `fallback_models.X: []` are equivalent. This is a **revised** §5.4 design — earlier drafts proposed inverting the default to "absent = use built-in chain", which would have silently changed v0.1 pin behaviour. Built-in defaults (e.g. the gemini fallback chain) apply only when the user has not supplied a `models.X` override.
+**Pin semantics** — `models.X: Y` pins reviewer X to model Y with no fallback. This matches v0.1 `--model X=Y` behaviour.
 
 ### 11.5 Project-level `.multi-review/` gitignore
 
@@ -520,14 +437,11 @@ First skill invocation in a project:
 |---------|-----------|
 | Reviewer rc!=0 OR output < 50 bytes (subprocess reviewers only) | Failed section in REVIEW.md with stderr tail + partial output. Other reviewers unaffected. |
 | Reviewer output missing `## Summary` heading (regex `^#{1,3}\s+(summary\|executive summary)\b`, case-insensitive) | Classify as failed; capture full output under `partial` field for inspection. Structural sentinel catches long permission-refusal text (which clears the 50-byte / rc=0 bar) and Task-subagent failures that have no exit code. **Applies to all reviewers** — subprocess (gemini/codex/opencode) and Task subagent (claude) alike — so the failure classifier is mode-independent. Reviewer prompt contract in §5.2 mandates the heading. Heading-depth and `Executive Summary` synonym are allowed to reduce false negatives. |
-| Capacity fallback chain exhausted | Reviewer marked failed. Final attempt's stderr captured. Pair-level `<reviewer>_comparable: false`. |
 | **Claude Task subagent fails** (no rc dimension applies) | Three failure conditions, any one of which classifies the reviewer as failed: (a) the Task tool itself raises (subagent crash, context overflow, dispatcher error); (b) returned text fails the `## Summary` regex; (c) returned text is < 50 bytes. Output bytes is still a useful sentinel even without rc — catches empty-string returns from a stalled subagent. Actionable error if context overflow. |
 | <2 reviewers succeeded | Synthesis auto-skipped. REVIEW.md ships with available sections + reason note. |
 | Synthesizer fails | REVIEW.md ships without consensus. Run still success if ≥2 reviewers passed. |
 | Snapshot perm denied | Halt pass 1 before fanout. No partial state. Actionable error. |
 | Harvest write perm denied | Row written to `<cwd>/.multi-review/pending-harvest/<run-id>.json`. EXPERIMENTS.md not regenerated. Later flush via `--flush-pending-harvest`. |
-| Background sleep killed externally | No auto-recovery. Pending meta survives. User runs `--resume-pair` manually. |
-| Resume against unknown/expired pair | Error lists known pending pair IDs OR refuses with `--force` override for expired. |
 | Prompt YAML invalid | `validate_prompt.py` returns specific field errors. SKILL.md offers fill-via-build or abort. |
 | Working tree dirty at snapshot | Snapshot captures current content. `git_dirty: true`, `git_head: <sha>` recorded. No special handling. |
 | Skill invoked from non-Claude-Code host | Error message: requires Claude Code TUI for Task subagent dispatch. Suggest removing claude from reviewers or running from inside Claude Code. |
@@ -548,7 +462,7 @@ Batch-level failure isolation: one prompt failure doesn't abort the batch. Final
 ### 13.2 CI scope
 
 - Push: pytest unit + integration; ruff lint; mypy strict on `core/`.
-- Release prep: manual smoke checklist (self-review, build, drift, migration, cooldown).
+- Release prep: manual smoke checklist (self-review, build, drift, migration).
 - Adapter fixtures re-captured during release prep to catch upstream schema drift.
 
 ### 13.3 Pre-existing gap
@@ -566,12 +480,11 @@ v0.1 has zero automated tests. v0.2 introduces a substantial uplift but takes a 
 - **Native Windows support.** POSIX-only via `os.open(O_EXCL)`. Native Windows untested; run from WSL.
 - Multi-runtime support (Codex/Gemini/OpenCode as host).
 - Per-invocation effort override on Task subagents (not documented; would unlock a `--effort` flag).
-- Pre-flight gemini quota probe (avoid burning fallback in the first place).
 - Spread-across-days limiter (`--max-runs-per-day N`).
 - Snapshot-based strict pass 2 (pass 2 reviews snapshot content rather than live files; preserves comparison when drift detected). Methodologically cleaner than the current abort/ask default, but not a v0.2 goal.
 - Sidecar restructure beyond format C (full option B split into mechanical + narrative file types).
 - Synthesizer model A/B (opus-high vs sonnet-high). Tracked in BACKLOG.md.
-- Full SKILL.md → CLI state-machine extraction. *(Paired review C4. §8.6 covers the one real race — pending-meta transitions — via `pending.py` + lockfile. Broader extraction is scope creep at v0.2 scale.)*
+- Full SKILL.md → CLI state-machine extraction. *(Paired review C4. Scope creep at v0.2 scale.)*
 - Single `multi-review-cli` binary with subcommands (vs the current 9 helper CLIs). *(Paired review C6. Keep 9 for unit-test isolation; subprocess cold-start cost is acceptable at this tool's scale.)*
 - Live `rich` 6Hz dashboard parity with v0.1. *(Paired review C6. Lost in the skill model since Bash `run_in_background` doesn't stream to the host turn. Replacement: per-reviewer Bash output streamed via `run_in_background` + skill-side status-poll text updates. No interactive dashboard in v0.2.)*
 - cwd-mismatch guard for reference mode (already in BACKLOG.md; carries over to v0.2 release notes). *(Paired review C7.)*
@@ -589,7 +502,6 @@ v0.1 has zero automated tests. v0.2 introduces a substantial uplift but takes a 
 ## 16. Glossary
 
 - **Pair / paired run**: a single review subject reviewed twice (once inline, once reference) for comparison.
-- **Cooldown**: pause between pass 1 and pass 2 of a paired run to let gemini quota recover, so **pass 2 lands on the primary model and produces a useful review**. Does **not** retroactively rescue pass-1 comparison eligibility — once pass 1 fell back, that reviewer's pair-level `<reviewer>_comparable` is already false (§7.1, §8.1).
 - **Drift**: file content changes between pass 1 and pass 2 of a paired run.
 - **Comparison eligible**: a run or reviewer whose data validly contributes to inline-vs-reference statistics.
 - **Telemetry quality**: per-reviewer self-declared accuracy of upstream CLI's reported usage metrics.

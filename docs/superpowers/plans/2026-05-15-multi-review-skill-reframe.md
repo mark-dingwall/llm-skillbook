@@ -135,7 +135,7 @@ After all four are run and the doc committed, Task 1 (project skeleton) is unblo
 - Create: `tests/__init__.py`
 - Create: `tests/conftest.py`
 
-- [ ] **Step 1: Create `pyproject.toml`**
+- [x] **Step 1: Create `pyproject.toml`**
 
 ```toml
 [project]
@@ -181,7 +181,7 @@ strict = true
 files = ["multi_review/core"]
 ```
 
-- [ ] **Step 2: Create empty `__init__.py` and `conftest.py`**
+- [x] **Step 2: Create empty `__init__.py` and `conftest.py`**
 
 ```python
 # multi_review/__init__.py
@@ -207,12 +207,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 ```
 
-- [ ] **Step 3: Verify package importable**
+- [x] **Step 3: Verify package importable**
 
 Run: `uv run python -c "import multi_review; print(multi_review.__version__)"`
 Expected: `0.2.0a0`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add pyproject.toml multi_review/ tests/__init__.py tests/conftest.py
@@ -226,7 +226,7 @@ git commit -m "feat: scaffold multi_review package + pyproject"
 - Create: `multi_review/core/paths.py`
 - Create: `tests/unit/test_paths.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/unit/test_paths.py
@@ -280,12 +280,12 @@ def test_slugify():
     assert slugify("  multiple   spaces  ") == "multiple-spaces"
 ```
 
-- [ ] **Step 2: Run test, expect failure**
+- [x] **Step 2: Run test, expect failure**
 
 Run: `uv run pytest tests/unit/test_paths.py -v`
 Expected: ImportError / module not found.
 
-- [ ] **Step 3: Implement `paths.py`**
+- [x] **Step 3: Implement `paths.py`**
 
 ```python
 # multi_review/core/paths.py
@@ -361,12 +361,12 @@ def slugify(s: str) -> str:
     return s.strip("-")
 ```
 
-- [ ] **Step 4: Run tests, expect pass**
+- [x] **Step 4: Run tests, expect pass**
 
 Run: `uv run pytest tests/unit/test_paths.py -v`
 Expected: 7 passed (config-honoured + XDG-fallback test pair replaces the bare shape check).
 
-- [ ] **Step 5: Update `.gitignore`**
+- [x] **Step 5: Update `.gitignore`**
 
 ```
 # Multi-review v0.2 state
@@ -379,7 +379,7 @@ __pycache__/
 .venv/
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/paths.py tests/unit/test_paths.py .gitignore
@@ -397,7 +397,7 @@ git commit -m "feat(core): add paths module + state-dir layout"
 - Create: `tests/fixtures/streams/opencode/success.jsonl`
 - Create: `tests/fixtures/streams/README.md`
 
-- [ ] **Step 1: Document fixture capture procedure**
+- [x] **Step 1: Document fixture capture procedure**
 
 Write `tests/fixtures/streams/README.md`:
 
@@ -434,7 +434,7 @@ known failure modes.
 Re-capture on every release prep to catch upstream schema drift.
 ````
 
-- [ ] **Step 2: Write synthetic fixtures**
+- [x] **Step 2: Write synthetic fixtures**
 
 `tests/fixtures/streams/gemini/capacity_429.jsonl`:
 ```
@@ -447,13 +447,13 @@ Re-capture on every release prep to catch upstream schema drift.
 {"type":"result","subtype":"success","result":"","total_cost_usd":0.0,"usage":{"input_tokens":0,"output_tokens":0}}
 ```
 
-- [ ] **Step 3: Capture real fixtures**
+- [x] **Step 3: Capture real fixtures**
 
 Run the commands in `tests/fixtures/streams/README.md` against installed CLIs.
 If a CLI is unavailable, create a one-line synthetic placeholder matching its current schema (see `multi_review.py:371-569` per-adapter event names).
 Expected: at least `success.jsonl` for every CLI exists and is non-empty.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/fixtures/streams/
@@ -465,7 +465,7 @@ git commit -m "test: capture adapter JSONL fixtures + capture procedure"
 **Files:**
 - Create: `tests/unit/test_smoke.py`
 
-- [ ] **Step 1: Write smoke test**
+- [x] **Step 1: Write smoke test**
 
 ```python
 # tests/unit/test_smoke.py
@@ -475,12 +475,12 @@ def test_version_exposed():
     assert multi_review.__version__ == "0.2.0a0"
 ```
 
-- [ ] **Step 2: Run**
+- [x] **Step 2: Run**
 
 Run: `uv run pytest tests/ -v`
 Expected: all pass (smoke + paths from Task 2).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/unit/test_smoke.py
@@ -500,7 +500,7 @@ Each extraction task moves code from `multi_review.py` into a focused module, ad
 - Modify: `multi_review.py:182-352` → re-export from new module
 - Create: `tests/unit/test_prompt.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_prompt.py
@@ -562,12 +562,12 @@ def test_summary_contract_exported():
     assert "## Summary" in SUMMARY_HEADING_CONTRACT
 ```
 
-- [ ] **Step 2: Run, expect import failure**
+- [x] **Step 2: Run, expect import failure**
 
 Run: `uv run pytest tests/unit/test_prompt.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Copy `multi_review.py:182-352` (functions `injection_preamble`, `reference_preamble`, `synthesis_prompt`, `build_prompt` plus any module-level constants they reference like `INJECTION_PREAMBLE`, `TASK_TEMPLATES`) into `multi_review/core/prompt.py`. Adjust imports to remove rich/asyncio references. `build_prompt` must accept `files: list[Path]`, `context_files: list[Path]`, `mode: Literal["inline","reference"]`.
 
@@ -581,17 +581,17 @@ from multi_review.core.prompt import (
 )
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_prompt.py -v`
 Expected: 7 passed (6 prompt tests + `test_summary_contract_exported`).
 
-- [ ] **Step 5: Run legacy script smoke**
+- [x] **Step 5: Run legacy script smoke**
 
 Run: `uv run ./multi_review.py --dry-run --task code multi_review.py 2>&1 | head -5`
 Expected: prints assembled prompt, no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/prompt.py multi_review.py tests/unit/test_prompt.py
@@ -605,7 +605,7 @@ git commit -m "refactor(core): extract prompt module from legacy script"
 - Modify: `multi_review.py:353-569` → re-export
 - Create: `tests/unit/test_adapters.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/unit/test_adapters.py
@@ -649,12 +649,12 @@ def test_opencode_adapter_success_fixture():
     assert a.text != ""
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_adapters.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Copy `multi_review.py:353-569` (the `ProgressAdapter` base + four subclasses + `Usage` dataclass if defined there; otherwise also lift the `Usage` definition) into `multi_review/core/adapters.py`. Preserve the existing comment at multi_review.py:351 about gemini delta-keying. Add a public `last_error: str | None` attribute on the base adapter (currently captured in subclass-specific state — promote it).
 
@@ -666,12 +666,12 @@ from multi_review.core.adapters import (
 )
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_adapters.py -v`
 Expected: 5 passed (skip per-CLI test if its real fixture is a placeholder; mark with `pytest.skip` based on `len(fixture.read_text()) < 50`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/adapters.py multi_review.py tests/unit/test_adapters.py
@@ -685,7 +685,7 @@ git commit -m "refactor(core): extract adapters module with fixture-replay tests
 - Modify: `multi_review.py:36-181, 571-634` → re-export
 - Create: `tests/unit/test_reviewers.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_reviewers.py
@@ -747,12 +747,12 @@ def test_make_adapter_dispatches_correct_class():
     assert isinstance(a, GeminiAdapter)
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_reviewers.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Move from `multi_review.py`:
 - `ALL_REVIEWERS` constant
@@ -764,17 +764,17 @@ into `multi_review/core/reviewers.py`. Update `make_adapter` to import from `mul
 
 Replace those in `multi_review.py` with imports from `multi_review.core.reviewers`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_reviewers.py -v`
 Expected: 9 passed.
 
-- [ ] **Step 5: Smoke**
+- [x] **Step 5: Smoke**
 
 Run: `uv run ./multi_review.py --list-reviewers`
 Expected: prints reviewer table.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/reviewers.py multi_review.py tests/unit/test_reviewers.py
@@ -788,7 +788,7 @@ git commit -m "refactor(core): extract reviewers + CLI_SPEC + build_command"
 - Modify: `multi_review.py:635-986` → keep `build_table`/`rich.Live` glue in legacy script only; export pure async runners
 - Create: `tests/unit/test_fanout.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_fanout.py
@@ -820,12 +820,12 @@ def test_resolve_chain_override_chain_used():
     assert chain == ["a", "b"]
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_fanout.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Move into `multi_review/core/fanout.py`:
 - `ReviewerState`, `ReviewerResult` dataclasses
@@ -835,12 +835,12 @@ Keep `build_table` in `multi_review.py` (legacy-only — the new architecture re
 
 `run_all_reviewers` signature in core/fanout.py should NOT take a `console` argument; it returns `list[ReviewerResult]` and emits state updates via an optional `state_callback`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_fanout.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/fanout.py multi_review.py tests/unit/test_fanout.py
@@ -856,7 +856,7 @@ git commit -m "refactor(core): extract fanout/runner separated from rich.Live"
 - Create: `tests/unit/test_synthesis.py`
 - Create: `tests/unit/test_aggregate.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_synthesis.py
@@ -932,12 +932,12 @@ def test_write_review_md_includes_failed_section(tmp_path):
     assert "failed" in body.lower() or "Failed" in body
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_synthesis.py tests/unit/test_aggregate.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Extract**
+- [x] **Step 3: Extract**
 
 Move into `multi_review/core/synthesis.py`:
 - `build_synthesis_input`, `_run_synthesis_attempt`, `run_synthesis`, `extract_filename_from_synthesis`, `strip_filename_prefix`, `sanitize_review_filename`, `suggest_filename_haiku` (lines 987–1227).
@@ -947,12 +947,12 @@ Move into `multi_review/core/aggregate.py`:
 
 `write_review_md` adds two new frontmatter fields wired in later tasks: `pair_id: str | None`, `prompt_file: str | None`. For this task: accept them as kwargs defaulting to `None` and emit them when non-null.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_synthesis.py tests/unit/test_aggregate.py -v`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/synthesis.py multi_review/core/aggregate.py multi_review.py \
@@ -967,7 +967,7 @@ git commit -m "refactor(core): extract synthesis + aggregate modules"
 - Modify: `multi_review.py:1373-1456` → re-export
 - Create: `tests/unit/test_harvest.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_harvest.py
@@ -1047,12 +1047,12 @@ def test_derive_project_override_wins(tmp_path):
     assert derive_project(tmp_path, override="Custom") == "Custom"
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_harvest.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract + add v2 fields**
+- [x] **Step 3: Extract + add v2 fields**
 
 Move `multi_review.py:1373-1456` (functions `_iso_utc`, `derive_project`, `harvest_run`, `HARVEST_SCHEMA_VERSION`) into `multi_review/core/harvest.py`. Split `harvest_run` into `build_row(...) -> dict` (pure) + `harvest_run(log_path, row) -> None` (append-only writer). Bump `HARVEST_SCHEMA_VERSION = 2`.
 
@@ -1073,12 +1073,12 @@ TELEMETRY_QUALITY = {
 
 `comparison_eligible` per-reviewer: `True` iff `fallback_hops == 0`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_harvest.py -v`
 Expected: 6 passed (incl. `test_harvest_row_emits_both_usage_keys`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/harvest.py multi_review.py tests/unit/test_harvest.py
@@ -1091,7 +1091,7 @@ git commit -m "feat(core): extract harvest + schema v2 (additive fields)"
 - Create: `multi_review/core/snapshot.py`
 - Create: `tests/unit/test_snapshot.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_snapshot.py
@@ -1157,12 +1157,12 @@ def test_cleanup_removes_dir(tmp_path):
     assert not snap_dir.exists()
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_snapshot.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/core/snapshot.py
@@ -1220,12 +1220,12 @@ def cleanup_snapshot(snapshot_dir: Path) -> None:
         shutil.rmtree(snapshot_dir)
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_snapshot.py -v`
 Expected: 6 passed (incl. `test_snapshot_includes_context_files`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/snapshot.py tests/unit/test_snapshot.py
@@ -1238,7 +1238,7 @@ git commit -m "feat(core): add snapshot module for paired-run drift detection"
 - Create: `multi_review/core/pending.py`
 - Create: `tests/unit/test_pending.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_pending.py
@@ -1304,12 +1304,12 @@ def test_sweep_expired_removes_old(tmp_path, monkeypatch):
     assert not (tmp_path / "pair-old").exists()
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/unit/test_pending.py -v`
 Expected: ImportError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/core/pending.py
@@ -1402,12 +1402,12 @@ def sweep_expired(pending_root: Path, *, ttl_days: int = PENDING_TTL_DAYS) -> li
     return swept
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_pending.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Add `cli/pending.py` argparse wrapper**
+- [x] **Step 5: Add `cli/pending.py` argparse wrapper**
 
 Tiny CLI exposing the core functions for SKILL.md Bash calls. Subcommands `init`, `read`, `transition --to <status>`, `gc`. Stdout is JSON.
 
@@ -1444,7 +1444,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 6: Add `cli/cooldown_notify.py`**
+- [x] **Step 6: Add `cli/cooldown_notify.py`**
 
 Fired by the §8.2 background `sleep <delay> && python -m multi_review.cli.cooldown_notify --pair-id <id>` composition. Plain status read (no lock — `cooldown_notify` is the loser by construction if a manual resume slipped in first; spec §8.6). On `status == awaiting-pass-2`, dispatch platform notification; otherwise exit silently.
 
@@ -1483,12 +1483,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 7: Smoke + tests**
+- [x] **Step 7: Smoke + tests**
 
 Run: `uv run pytest tests/unit/test_pending.py -v`
 Expected: 4 passed (existing tests cover the core; CLI wrappers are thin enough to defer to manual smoke in tests/manual/cooldown_resume.md).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add multi_review/core/pending.py multi_review/cli/pending.py \
@@ -1505,7 +1505,7 @@ git commit -m "feat(core+cli): pending-pair atomic transitions + cooldown_notify
 - Create: `tests/fixtures/prompts/custom_task_missing_body.yaml`
 - Create: `tests/unit/test_promptfile.py`
 
-- [ ] **Step 1: Write fixtures**
+- [x] **Step 1: Write fixtures**
 
 Fixtures reference paths relative to the YAML file's own dir (see `_resolve_path` below). Create a sibling stand-in file so the existence check passes for the valid fixture:
 
@@ -1547,7 +1547,7 @@ files: ["sample_subject.py"]
 mode: inline
 ```
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 ```python
 # tests/unit/test_promptfile.py
@@ -1650,12 +1650,12 @@ def test_unknown_reviewer_in_models_rejected(tmp_path):
         load_promptfile(p)
 ```
 
-- [ ] **Step 3: Run, expect ImportError**
+- [x] **Step 3: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_promptfile.py -v`
 Expected: fail.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 ```python
 # multi_review/core/promptfile.py
@@ -1767,12 +1767,12 @@ def load_promptfile(path: Path) -> PromptFile:
     return pf
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `uv run pytest tests/unit/test_promptfile.py -v`
 Expected: 12 passed (5 original + pin-without-fallback + 6 structural-rejection cases).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add multi_review/core/promptfile.py tests/fixtures/prompts/ tests/unit/test_promptfile.py
@@ -1786,7 +1786,7 @@ git commit -m "feat(core): YAML prompt schema with cheap structural validation"
 - Modify: `multi_review.py:1458-1622` → re-export
 - Create: `tests/unit/test_report.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/test_report.py
@@ -1857,12 +1857,12 @@ def test_build_paired_report_filename_format(tmp_path):
     ) == "paralife-2026-05-05-pair-20260505-0345-9f3a.md"
 ```
 
-- [ ] **Step 2: Run, expect ImportError**
+- [x] **Step 2: Run, expect ImportError**
 
 Run: `uv run pytest tests/unit/test_report.py -v`
 Expected: fail.
 
-- [ ] **Step 3: Extract + extend**
+- [x] **Step 3: Extract + extend**
 
 Move `multi_review.py:1458-1622` (`_format_fallback_label`, `render_experiments_markdown`) into `multi_review/core/report.py`.
 
@@ -1877,12 +1877,12 @@ Add new function `build_paired_report(log_path, pair_id, out_path, headline, mod
 
 **Filename format-of-record** (spec §4.2 / §10.1): `<project>-<date>-<pair-id>.md`, joined under `<out_dir>/`. Auto-suffix on collision (`-2`, `-3`, …) applies via `resolve_output_path`. Expose the join as a tiny pure helper `paired_report_filename(project, date, pair_id) -> str` so the contract is unit-testable independently of disk I/O. `cli/report.py` (Task 21) passes `--project`, `--date`, `--pair-id`, `--out-dir`; this function owns the literal format.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_report.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/core/report.py multi_review.py tests/unit/test_report.py
@@ -1901,7 +1901,7 @@ Each CLI is a thin argparse wrapper around `core/`. All read inputs from files/a
 - Create: `multi_review/cli/validate_prompt.py`
 - Create: `tests/integration/test_cli_validate_prompt.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/integration/test_cli_validate_prompt.py
@@ -1932,12 +1932,12 @@ def test_validate_invalid_returns_2_with_error():
     assert "files" in out["error"].lower()
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/integration/test_cli_validate_prompt.py -v`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/validate_prompt.py
@@ -1965,12 +1965,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_validate_prompt.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/validate_prompt.py tests/integration/test_cli_validate_prompt.py
@@ -1983,7 +1983,7 @@ git commit -m "feat(cli): mr-validate-prompt"
 - Create: `multi_review/cli/prepare.py`
 - Create: `tests/integration/test_cli_prepare.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_prepare.py
@@ -2015,12 +2015,12 @@ mode: inline
     assert "print('hi')" in body
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/integration/test_cli_prepare.py -v`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/prepare.py
@@ -2065,12 +2065,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_prepare.py -v`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/prepare.py tests/integration/test_cli_prepare.py
@@ -2083,7 +2083,7 @@ git commit -m "feat(cli): mr-prepare"
 - Create: `multi_review/cli/spawn.py`
 - Create: `tests/integration/test_cli_spawn.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Since `spawn.py` actually invokes external CLIs, the test uses a fake binary on PATH that echoes a canned JSONL stream from a fixture.
 
@@ -2124,12 +2124,12 @@ def test_spawn_writes_review_and_state(tmp_path, monkeypatch):
     assert state["ok"] in (True, False)
 ```
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `uv run pytest tests/integration/test_cli_spawn.py -v`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/spawn.py
@@ -2197,12 +2197,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_spawn.py -v`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/spawn.py tests/integration/test_cli_spawn.py
@@ -2215,7 +2215,7 @@ git commit -m "feat(cli): mr-spawn — single-reviewer subprocess runner"
 - Create: `multi_review/cli/aggregate.py`
 - Create: `tests/integration/test_cli_aggregate.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_aggregate.py
@@ -2247,11 +2247,11 @@ def test_aggregate_writes_review_md(tmp_path):
     assert "claude says it's fine" in body
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
 Run: `uv run pytest tests/integration/test_cli_aggregate.py -v`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/aggregate.py
@@ -2306,11 +2306,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_cli_aggregate.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/aggregate.py tests/integration/test_cli_aggregate.py
@@ -2325,7 +2325,7 @@ git commit -m "feat(cli): mr-aggregate"
 
 Spec cross-ref: §5.3 (harvest_row CLI contract), §12 (error-table row for "Harvest write perm denied" — denial path leaves pending files in place).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Two modes: single-row append (`--row-file`) and batched drain (`--flush-pending`). Modes are mutually exclusive at argparse.
 
@@ -2393,9 +2393,9 @@ def test_row_file_and_flush_pending_mutually_exclusive(tmp_path):
     assert r.returncode == 2
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/harvest_row.py
@@ -2445,12 +2445,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_harvest_row.py -v`
 Expected: 4 passed (append, flush drain, flush-with-unwritable-log, mutual-exclusion).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/harvest_row.py tests/integration/test_cli_harvest_row.py
@@ -2463,7 +2463,7 @@ git commit -m "feat(cli): mr-harvest-row with --flush-pending"
 - Create: `multi_review/cli/snapshot.py`
 - Create: `tests/integration/test_cli_snapshot.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_snapshot.py
@@ -2505,9 +2505,9 @@ def test_cleanup_removes(tmp_path):
     assert not snap.exists()
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/snapshot.py
@@ -2554,11 +2554,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_snapshot.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/snapshot.py tests/integration/test_cli_snapshot.py
@@ -2571,7 +2571,7 @@ git commit -m "feat(cli): mr-snapshot create/diff/cleanup"
 - Create: `multi_review/cli/report.py`
 - Create: `tests/integration/test_cli_report.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_report.py
@@ -2637,9 +2637,9 @@ def test_build_paired_report(tmp_path):
     assert any(p.name.endswith("pair-x.md") for p in rep_dir.iterdir())
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/report.py
@@ -2695,11 +2695,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_report.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/report.py tests/integration/test_cli_report.py
@@ -2716,7 +2716,7 @@ git commit -m "feat(cli): mr-report regen + build-paired"
 - Create: `tests/unit/test_sidecar.py`
 - Create: `tests/integration/test_cli_migrate_sidecars.py`
 
-- [ ] **Step 1: Write failing unit tests for row-grouper**
+- [x] **Step 1: Write failing unit tests for row-grouper**
 
 ```python
 # tests/unit/test_sidecar.py
@@ -2771,11 +2771,11 @@ def test_rows_without_argv_are_unpairable(tmp_path):
     assert group_candidate_pairs(log, default_delay_s=1800) == []
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
 Run: `uv run pytest tests/unit/test_sidecar.py -v`
 
-- [ ] **Step 3: Implement `sidecar.py` row-grouper**
+- [x] **Step 3: Implement `sidecar.py` row-grouper**
 
 ```python
 # multi_review/core/sidecar.py
@@ -2845,9 +2845,9 @@ def group_candidate_pairs(log_path: Path, *, default_delay_s: int) -> list[Candi
     return pairs
 ```
 
-- [ ] **Step 4: Run unit tests, expect pass.**
+- [x] **Step 4: Run unit tests, expect pass.**
 
-- [ ] **Step 5: Write failing integration test for the CLI (interactive)**
+- [x] **Step 5: Write failing integration test for the CLI (interactive)**
 
 The migrator is interactive — no `--auto-apply` (per spec §11.1). Test feeds answers via stdin.
 
@@ -2897,9 +2897,9 @@ def test_migrate_row_driven_writes_paired_and_legacies(tmp_path):
     assert all(r["pair_id"] is not None for r in upgraded)
 ```
 
-- [ ] **Step 6: Run, expect failure.**
+- [x] **Step 6: Run, expect failure.**
 
-- [ ] **Step 7: Implement `migrate_sidecars.py` (row-driven, interactive)**
+- [x] **Step 7: Implement `migrate_sidecars.py` (row-driven, interactive)**
 
 ```python
 # multi_review/cli/migrate_sidecars.py
@@ -3020,7 +3020,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 8: Update `core/report.py` `build_paired_report` signature**
+- [x] **Step 8: Update `core/report.py` `build_paired_report` signature**
 
 Extend with the legacy-mode kwargs already wired in the migrator above:
 - `legacy_run_ids: list[str] | None = None`
@@ -3030,12 +3030,12 @@ Extend with the legacy-mode kwargs already wired in the migrator above:
 
 When `pair_id is None`: use `synth_pair_id` for the frontmatter `pair_id` field; derive runs/modes from `legacy_run_ids` rows in the log (matching by `CandidatePair.synth_run_id`).
 
-- [ ] **Step 9: Run integration test**
+- [x] **Step 9: Run integration test**
 
 Run: `uv run pytest tests/integration/test_cli_migrate_sidecars.py -v`
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add multi_review/core/sidecar.py multi_review/cli/migrate_sidecars.py multi_review/core/report.py \
@@ -3049,7 +3049,7 @@ git commit -m "feat: row-driven sidecar migrator with interactive pair assignmen
 - Create: `multi_review/cli/setup.py`
 - Create: `tests/integration/test_cli_setup.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/integration/test_cli_setup.py
@@ -3095,9 +3095,9 @@ def test_setup_dev_mode_symlinks(tmp_path, monkeypatch):
     assert (tmp_path / ".claude" / "skills" / "multi-review").is_symlink()
 ```
 
-- [ ] **Step 2: Run, expect failure.**
+- [x] **Step 2: Run, expect failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/setup.py
@@ -3218,12 +3218,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_setup.py -v`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/setup.py tests/integration/test_cli_setup.py
@@ -3240,7 +3240,7 @@ git commit -m "feat(cli): mr-setup — install skill + agents + run dirs"
 - Create: `agents/multi-review-reviewer.md`
 - Create: `tests/manual/agent_reviewer_smoke.md`
 
-- [ ] **Step 1: Write agent definition**
+- [x] **Step 1: Write agent definition**
 
 `agents/multi-review-reviewer.md`:
 
@@ -3305,7 +3305,7 @@ Use file:line citations where you can: `auth.ts:42`. Cite line numbers from the 
 Be specific. "Edge case not handled" is useless; "if the user logs in with no email set, `session.email.toLowerCase()` throws at session.ts:128" is useful.
 ```
 
-- [ ] **Step 2: Write manual smoke procedure**
+- [x] **Step 2: Write manual smoke procedure**
 
 `tests/manual/agent_reviewer_smoke.md`:
 
@@ -3321,16 +3321,16 @@ Be specific. "Edge case not handled" is useless; "if the user logs in with no em
 4. Verify file:line citations present.
 ```
 
-- [ ] **Step 3: Verify `## Summary` heading contract interpolation**
+- [x] **Step 3: Verify `## Summary` heading contract interpolation**
 
 The `<!-- SUMMARY_CONTRACT -->` sentinel inside the frontmatter block is substituted at install time by `setup.py` (Task 23) with the `SUMMARY_HEADING_CONTRACT` string exported from `multi_review.core.prompt` (Task 5). Single source of truth: the same constant is interpolated into subprocess reviewer prompts by `prepare.py` (Task 16). Editing the contract means editing the constant.
 
-- [ ] **Step 4: Install + verify**
+- [x] **Step 4: Install + verify**
 
 Run: `uv run python -m multi_review.cli.setup --source-repo $(pwd) --no-prompt`
 Expected: `~/.claude/agents/multi-review-reviewer.md` exists; `## Summary` clause from `SUMMARY_HEADING_CONTRACT` is substituted in place of the `<!-- SUMMARY_CONTRACT -->` sentinel; `tools:` frontmatter does NOT include `Bash`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add agents/multi-review-reviewer.md tests/manual/agent_reviewer_smoke.md
@@ -3343,7 +3343,7 @@ git commit -m "feat(agents): multi-review-reviewer (opus xhigh, no Bash, ## Summ
 - Create: `agents/multi-review-synthesizer.md`
 - Create: `tests/manual/agent_synthesizer_smoke.md`
 
-- [ ] **Step 1: Write agent**
+- [x] **Step 1: Write agent**
 
 `agents/multi-review-synthesizer.md`:
 
@@ -3403,7 +3403,7 @@ When invoked for a **paired-run report build**, the prompt will include both pas
 ```
 ```
 
-- [ ] **Step 2: Manual smoke procedure**
+- [x] **Step 2: Manual smoke procedure**
 
 `tests/manual/agent_synthesizer_smoke.md`:
 
@@ -3416,7 +3416,7 @@ When invoked for a **paired-run report build**, the prompt will include both pas
 4. Verify output has Consensus Summary, Agreed Strengths, Agreed Concerns, Divergent Views, filename suggestion in <filename> tags.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/multi-review-synthesizer.md tests/manual/agent_synthesizer_smoke.md
@@ -3429,7 +3429,7 @@ git commit -m "feat(agents): multi-review-synthesizer (opus high)"
 - Create: `agents/multi-review-build.md`
 - Create: `tests/manual/agent_build_smoke.md`
 
-- [ ] **Step 1: Write agent**
+- [x] **Step 1: Write agent**
 
 `agents/multi-review-build.md`:
 
@@ -3499,7 +3499,7 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 - Validate fields against the schema before writing. If invalid, AskUserQuestion to correct.
 ```
 
-- [ ] **Step 2: Manual smoke**
+- [x] **Step 2: Manual smoke**
 
 `tests/manual/agent_build_smoke.md`:
 
@@ -3512,7 +3512,7 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 4. Autonomous: `Task(subagent_type="multi-review-build", prompt="mode: autonomous; seed: review session.ts")` and verify yaml written with no AskUserQuestion calls.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/multi-review-build.md tests/manual/agent_build_smoke.md
@@ -3525,7 +3525,7 @@ git commit -m "feat(agents): multi-review-build (sonnet high)"
 - Create: `agents/multi-review-investigate.md`
 - Create: `tests/manual/agent_investigate_smoke.md`
 
-- [ ] **Step 1: Write agent**
+- [x] **Step 1: Write agent**
 
 `agents/multi-review-investigate.md`:
 
@@ -3580,7 +3580,7 @@ For each diff hunk, classify as one of:
 - If diff is empty or only-whitespace: recommend proceed-with-pass-2 immediately.
 ```
 
-- [ ] **Step 2: Manual smoke**
+- [x] **Step 2: Manual smoke**
 
 `tests/manual/agent_investigate_smoke.md`:
 
@@ -3593,7 +3593,7 @@ For each diff hunk, classify as one of:
 4. Verify output has Verdict, Per-hunk classification, Recommendation, Rationale sections.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/multi-review-investigate.md tests/manual/agent_investigate_smoke.md
@@ -3615,7 +3615,7 @@ git commit -m "feat(agents): multi-review-investigate (sonnet high)"
 - Create: `tests/manual/drift_ask.md`
 - Create: `tests/manual/cooldown_resume.md`
 
-- [ ] **Step 1: Write reviewer task template**
+- [x] **Step 1: Write reviewer task template**
 
 `skills/multi-review/templates/reviewer_task.md`:
 
@@ -3647,7 +3647,7 @@ Produce the Consensus Summary per your agent definition. Write to:
 Use the Write tool ONCE at the very end.
 ```
 
-- [ ] **Step 2: Write SKILL.md**
+- [x] **Step 2: Write SKILL.md**
 
 `skills/multi-review/SKILL.md`:
 
@@ -3899,7 +3899,7 @@ If the user's prompt file has `reviewers` without `claude`:
 This is supported; print a one-line acknowledgement: "Note: claude reviewer omitted; synthesis still via Task subagent."
 ````
 
-- [ ] **Step 3: Manual smoke procedures**
+- [x] **Step 3: Manual smoke procedures**
 
 `tests/manual/single_pass.md`:
 
@@ -3971,7 +3971,7 @@ Run setup (Task 23 already installed; rerun if SKILL.md changed): `uv run python
 
 Then from inside Claude Code TUI, execute `tests/manual/single_pass.md`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/multi-review/ tests/manual/single_pass.md tests/manual/paired_pass.md \
@@ -3989,7 +3989,7 @@ git commit -m "feat(skill): SKILL.md orchestrator + templates + manual smoke pro
 - Create: `multi_review/cli/migrate_harvest.py`
 - Create: `tests/integration/test_cli_migrate_harvest.py`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 # tests/integration/test_cli_migrate_harvest.py
@@ -4026,9 +4026,9 @@ def test_migrate_backfills_v1_rows(tmp_path):
             assert "final_model" in ub
 ```
 
-- [ ] **Step 2: Run, expect ModuleNotFoundError.**
+- [x] **Step 2: Run, expect ModuleNotFoundError.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # multi_review/cli/migrate_harvest.py
@@ -4076,11 +4076,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run tests.**
+- [x] **Step 4: Run tests.**
 
 Run: `uv run pytest tests/integration/test_cli_migrate_harvest.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add multi_review/cli/migrate_harvest.py tests/integration/test_cli_migrate_harvest.py
@@ -4091,21 +4091,21 @@ git commit -m "feat(cli): mr-migrate-harvest — v1→v2 backfill"
 
 **Files:** (no new files; this is a guarded operational task with backup)
 
-- [ ] **Step 1: Stage backups**
+- [x] **Step 1: Stage backups**
 
 ```bash
 mkdir -p runs/backup
 cp runs/runs.jsonl runs/backup/runs.jsonl.pre-v2
 ```
 
-- [ ] **Step 2: Run harvest migration**
+- [x] **Step 2: Run harvest migration**
 
 Run: `uv run python -m multi_review.cli.migrate_harvest --log runs/runs.jsonl --backup runs/backup/runs.jsonl.pre-v2.dup`
 Expected: stdout `{"ok": true, ...}`; `runs.jsonl` rows now have `schema_version: 2`.
 
 Verify: `head -1 runs/runs.jsonl | python -c "import sys,json; r=json.loads(sys.stdin.read()); assert r['schema_version']==2; print('ok')"`
 
-- [ ] **Step 3: Migrate sidecars (interactive)**
+- [x] **Step 3: Migrate sidecars (interactive)**
 
 The migrator is purely interactive (spec §11.1) — no `--auto-apply`, no `--dry-run`. It surfaces row-grouped candidate pairs and prompts per-pair / per-sidecar:
 
@@ -4119,7 +4119,7 @@ uv run python -m multi_review.cli.migrate_sidecars \
 
 Confirm each candidate pair; assign each `runs/notes/*.md` to pair(s) or mark `legacy`. The migrator writes a `runs/runs.jsonl.bak` first, then rewrites `pair_id` onto matched legacy rows in place.
 
-- [ ] **Step 4: Verify outputs**
+- [x] **Step 4: Verify outputs**
 
 ```bash
 ls runs/reports/
@@ -4130,13 +4130,13 @@ ls runs/runs.jsonl.bak
 
 Inspect the migrator's printed summary for `pairs_confirmed` and surface any pairs classified `legacy/incomplete-telemetry` (skipped report emission). Final counts depend on the user's grouping decisions; there is no fixed pre-commitment (spec §11.1).
 
-- [ ] **Step 5: Regenerate EXPERIMENTS.md**
+- [x] **Step 5: Regenerate EXPERIMENTS.md**
 
 Run: `uv run python -m multi_review.cli.report regen --log runs/runs.jsonl --reports-dir runs/reports --output EXPERIMENTS.md`
 
 Verify diff against pre-migration EXPERIMENTS.md is sensible: same overall data, plus "Pre-schema-stabilisation narrative" section linking legacy files, plus paired-report sections per pair_id.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add runs/runs.jsonl runs/reports/ runs/notes/ EXPERIMENTS.md
@@ -4148,7 +4148,7 @@ git commit -m "chore(migration): apply schema v2 backfill + sidecar reorg"
 **Files:**
 - Modify: `multi_review.py` (full replacement with banner)
 
-- [ ] **Step 1: Replace contents**
+- [x] **Step 1: Replace contents**
 
 Overwrite `multi_review.py` with:
 
@@ -4183,12 +4183,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `./multi_review.py file.py`
 Expected: prints banner, exits 1.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add multi_review.py
@@ -4200,7 +4200,7 @@ git commit -m "feat: retire v0.1 CLI behind deprecation banner"
 **Files:**
 - Modify: `README.md` (full rewrite)
 
-- [ ] **Step 1: Rewrite**
+- [x] **Step 1: Rewrite**
 
 Sections to include:
 - What it is (skill, not CLI, post-June-15 2026 billing rationale)
@@ -4214,12 +4214,12 @@ Sections to include:
 - Testing discipline pointer (CLAUDE.md)
 - Migrating from v0.1: link to `cli/migrate_harvest.py` + `cli/migrate_sidecars.py`
 
-- [ ] **Step 2: Smoke read**
+- [x] **Step 2: Smoke read**
 
 Run: `grep -E "skill|YAML|pair-id|claude-opus-4-7|fallback_models" README.md | head -20`
 Expected: matches per the section list above.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md
@@ -4231,7 +4231,7 @@ git commit -m "docs: rewrite README for v0.2 skill interface"
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Add section after Testing discipline**
+- [x] **Step 1: Add section after Testing discipline**
 
 Append:
 
@@ -4247,7 +4247,7 @@ sidecar classification, harvest fields), backfill a pytest test under
 get used to skip — don't.
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add CLAUDE.md
@@ -4259,13 +4259,13 @@ git commit -m "docs: CLAUDE.md — codify v0.2 skill-bug testing rule"
 **Files:**
 - Modify: `BACKLOG.md`
 
-- [ ] **Step 1: Strike-through or move v0.2 items**
+- [x] **Step 1: Strike-through or move v0.2 items**
 
 Locate items in BACKLOG.md that the v0.2 work has shipped (paired-pass automation, snapshot/drift, sidecar restructure, harvest schema bump). Mark as `(SHIPPED in v0.2 — <YYYY-MM-DD>)` rather than deleting, so the history stays auditable.
 
 Leave open: BYO-API-key, multi-runtime, per-invocation effort override, pre-flight quota probe, spread-across-days limiter, snapshot-based strict pass 2, full option-B sidecar split, synthesizer model A/B.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add BACKLOG.md

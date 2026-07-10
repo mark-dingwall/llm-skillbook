@@ -14,6 +14,9 @@ REVIEW-*.md
 
 # Per-run harvest data (regenerable; EXPERIMENTS.md is generated from it)
 runs/runs.jsonl
+runs/runs.jsonl.bak
+runs/backup/
+runs/EXPERIMENTS.md
 
 # Spike samples (kept during development only)
 .spike-samples/
@@ -27,3 +30,10 @@ runs/runs.jsonl
 # LLM files
 .claude/
 .codex
+
+# Multi-review v0.2 state
+.multi-review/
+*.egg-info/
+
+# Skill install artifacts (config.json written by mr-setup; not checked in)
+skills/multi-review/config.json

@@ -2,15 +2,155 @@
 
 Forward-looking work, not committed to a milestone. Edit freely.
 
-## Next version (WIP)
+## v0.2.1 deferred cluster (2026-06-19)
 
-A new version of multi-review is in progress at `~/kramtime/multi-review`. It
-replaces the now-retired `gemini` reviewer with an alternate option. In this
-version gemini is hard-disabled (`DEFUNCT_REVIEWERS`): never spawned, its
-REVIEW.md section carries a sunset notice. The gemini plumbing here (CLI_SPEC
-entry, `GEMINI_FALLBACK_CHAIN`, `CAPACITY_PATTERNS["gemini"]`, `GeminiAdapter`,
-README/CLAUDE.md sections) is now dead code, left in place pending the rewrite
-rather than torn out.
+Items deferred from Bundle B Phase 1. Re-evaluate before v0.3 or when the relevant pain surfaces.
+
+### model-config feature
+
+TOML config file (`~/.config/multi-review/config.toml` or per-project `.multi-review/config.toml`) for default model overrides. Adds `mr-config edit` command to open in `$EDITOR`. Two-channel injection: CLI flag (`--model`) wins over config file, config file wins over hardcoded defaults. Motivation: per-project model pinning without repeating `models:` in every YAML prompt file.
+
+### agy telemetry recovery
+
+Probe `--log-file` (or equivalent) for parseable token usage data. The agy adapter currently records `telemetry_quality: degraded` and null token counts. If the CLI writes structured usage to a log file, parse it post-run and backfill the harvest row. Prerequisite: verify `--log-file` output schema against a real run.
+
+### quota-proximity probe
+
+Avoid burning quota in the first place. Before dispatching a reviewer, probe the CLI for remaining quota / rate-limit headroom (if the CLI exposes it). If quota is near-exhausted, warn the user or skip that reviewer rather than let the run fail mid-stream. This is the cleaner alternative to the fallback chain deleted in Bundle B (2026-06-19).
+
+### output-path TOCTOU (M8 — deferred YAGNI, 2026-07-10)
+
+`resolve_output_path` (aggregate.py) checks `not candidate.exists()` then the
+caller writes later — a classic check-then-write race. Left unfixed: this is a
+single-user local tool and the SKILL runs paired inline/reference passes
+sequentially, so the window is unreachable in normal use. If ever fixed, the
+minimal form is an `open(mode="x")`-retry loop rather than the exists() probe.
+Revisit only if concurrent same-dir runs become a real usage pattern.
+
+### pass-2 harvest framing gap (SKILL Step 8/9 — 2026-07-10)
+
+Step 9c says "Build pass 2 harvest row (pending)" but gives no command, and
+Step 8's `write_harvest_row` writes directly to `--log` while Step 9d flushes
+`pending-harvest/` — nothing populates that dir on the approved-write path, so
+the paired flush/defer semantics are underspecified. Resolve during the v0.2
+smokes (which exercise the paired path) or with a small design decision on
+whether paired rows always buffer-then-flush vs write-through. Not a prose tweak.
+
+**Confirmed single-pass side (2026-07-11 smoke):** on the single-pass path,
+`write_harvest_row` appends to `--log` immediately and the Step 12
+`--flush-pending` pass is a no-op (`{"flushed": 0}`). So SKILL Step 8's
+"(deferred) write" title and Step 12's "still matters for single-pass prompts
+in a batch" are both inaccurate for single-pass — the row is write-through, not
+deferred. Fold the prose fix into the same design decision.
+
+### setup.py self-referential central_path (2026-07-11 smoke — FIXED 2026-07-11)
+
+**FIXED:** `central_runs_dir(*, ignore_config=False)` added; setup now calls it
+with `ignore_config=True` to recompute the canonical path fresh and write it
+authoritatively. Regression tests: `test_central_runs_dir_ignore_config_skips_config`
+(unit) + `test_setup_heals_stale_config` (integration, pre-seeds a bogus config
+and asserts setup overwrites it). Original writeup below for history.
+
+
+`central_runs_dir()` (paths.py:46-50) reads `config.json` `central_path` FIRST
+in its resolution order. `setup.py` then calls that same resolver to decide
+where to write — so if `config.json` already holds a path, setup re-reads it and
+writes it straight back. Setup cannot heal a bad/stale `config.json`: it just
+echoes whatever is there. Surfaced when a leaked pytest tmp path (see next item)
+was stuck in the real config and `mr-setup --dev` kept re-emitting it.
+**Fix:** setup must resolve the FRESH path (dev-checkout → XDG → fallback,
+skipping the config.json branch) and persist that, rather than routing through
+the runtime resolver. Add a `central_runs_dir(ignore_config=True)` param or a
+separate `resolve_central_for_setup()` and a regression test that seeds a bad
+config.json then asserts setup overwrites it with the computed path.
+
+### test-isolation leak into real ~/.claude config (2026-07-11 smoke — NOT REPRODUCIBLE, closed)
+
+The real `~/.claude/skills/multi-review/config.json` was found holding
+`/tmp/pytest-of-mark/pytest-76/test_setup_dev_mode_symlinks0/xdg/multi-review`.
+**Investigated 2026-07-11: no active test-isolation leak.** Both setup tests set
+`HOME=tmp_path` in the monkeypatch AND the subprocess `env=`, so they write to
+`tmp_path/.claude`, never real `~/.claude`. The only config.json writer is
+`setup.py` (subprocess, HOME-isolated); no test sets XDG without HOME; no
+in-process `setup.main()`. The real-config value was a historical leftover
+(earlier buggy test version or a manual run), since cleaned. The bug-a fix +
+`test_setup_heals_stale_config` now guarantee setup can't get stuck on such a
+value again, which is the meaningful protection against this symptom.
+
+### claude reviewer/synth model hardcoded in SKILL (2026-07-11 smoke — minor)
+
+SKILL Steps 5 & 6 (and `write_task_result` invocations) pass
+`--model claude-opus-4-7` as a literal. The Task subagent actually runs on the
+session model (opus 4.8 here), so `final_model` in harvest is wrong for the
+claude reviewer/synthesizer. Token telemetry is null anyway (documented), so the
+only casualty is the `final_model` field. Either detect the real model or drop
+the field to null for Task-dispatched reviewers. Low priority.
+
+### mr-setup --dev leaves SKILL.md a plain copy (2026-07-11 smoke — minor)
+
+`--dev` symlinked the 3 marker-free agents but SKILL.md was a plain copy (the
+reviewer agent is necessarily copied — it expands `<!-- SUMMARY_CONTRACT -->`).
+So skill edits during dev iteration don't reflect without re-running setup,
+defeating `--dev`'s purpose for the SKILL itself. Confirm whether setup is
+meant to symlink `skills/` under `--dev`; if so it regressed. Content was
+identical this run, so impact was nil — flagged for correctness.
+
+### Task-reviewer output not trimmed to `## Summary` (2026-07-11 paired smoke — FIXED 2026-07-11)
+
+**FIXED:** `write_task_result` now trims the `--task-mode review` body to the
+first `## Summary` heading (via `SUMMARY_HEADING_RE`, parity with AgyAdapter);
+no heading → raw kept for the downstream classifier; synthesize branch untouched.
+Tests: `test_review_trims_preamble_to_summary`, `test_review_without_summary_kept_raw`,
+`test_synthesize_output_not_trimmed`. Original writeup below for history.
+
+
+`AgyAdapter.get_response_text()` trims agy's agentic narration down to the first
+`## Summary` heading. The Task path (`write_task_result`, used for the claude
+reviewer/synthesizer) does NOT — it persists the captured text verbatim. In the
+paired smoke, the reference-pass claude reviewer emitted a ~19-point reasoning
+preamble ("Grep/Glob unavailable… Let me reason through…") before `## Summary`;
+that narration landed in `claude.md`, flowed into REVIEW.md (Claude section
+lines 83→129 were preamble), and into the synthesizer input. It still passed the
+aggregator's M13 check because that check `search`es for the heading rather than
+requiring it first. **Fix:** apply the same `SUMMARY_HEADING_RE` left-trim in
+`write_task_result` for `--task-mode review` (parity with AgyAdapter), with a
+unit test feeding preamble+`## Summary` and asserting the preamble is stripped.
+
+### Grep/Glob unavailable in reviewer Task sandbox (2026-07-11 paired smoke — investigate)
+
+The reference-pass claude reviewer reported "The Grep/Glob tooling is unavailable
+in this sandbox" — the `multi-review-reviewer` agent grants `Read, Grep, Glob`
+but only Read was live. Read sufficed for a single-file review, but reference
+mode leans on Grep/Glob for multi-file/repo reviews. Determine whether this is a
+Task-subagent sandbox limitation or an agent-config issue; if the former,
+document that reference-mode Task reviews are effectively Read-only.
+
+### SKILL Step 10b paired-report synthesis underspecified (2026-07-11 paired smoke — SKILL gap)
+
+`report build-paired` wants three content files (`--headline-file`,
+`--mode-divergence-file`, `--per-reviewer-notes-file`), but no synthesizer
+template or agent mode produces those three labeled blocks — the
+`multi-review-synthesizer` agent emits a single Consensus Summary
+(Headline/Strengths/Concerns/Divergent) and has no pairwise pass-1-vs-pass-2
+mode. In the smoke I hand-authored a pair-comparison prompt asking for exactly
+`## Headline` / `## Mode Divergence` / `## Per-Reviewer Notes` and split the
+output into the 3 files by hand. **Fix:** add a `templates/paired_report.md`
+prompt + define how the skill splits the synthesizer's 3 sections into the 3
+build-paired files (or teach build-paired to accept one combined file and split
+internally).
+
+### Minor paired-smoke observations (2026-07-11)
+
+- **Reviewer heading deviation passes the sentinel-only check.** Pass-2 inline
+  claude used `## Critical` / `## Concerns` / `## Style` and omitted
+  `## Risk Assessment`; it still classified `ok` because only `## Summary`
+  presence is checked. Acceptable, but if section-completeness ever matters,
+  the check must widen.
+- **`sessions_reference_first/inline_first` are per-PROJECT, not per-run.** The
+  README's "a paired run contributes to sessions_… counters" wording reads as
+  per-session; the code counts one increment per project (first eligible row's
+  mode). Re-running an already-counted project never moves the needle. Clarify
+  the README wording; behaviour is by design.
 
 ## Reference mode + bwrap sandbox + per-CLI bypass-perms
 
@@ -26,6 +166,15 @@ matches frontier-model post-training. Hand the model a manifest, let it
 read files via its native tools — but solve permission posture (CLIs prompt
 on file reads) and blast-radius posture (bypassed CLI + user's machine = bad)
 first.
+
+**agy makes this urgent (2026-07-10 smoke).** agy is already an uncontained
+agentic reviewer: `agy --print` reads its prompt file via tools and, observed
+in the single-pass smoke, ran `pytest` and grepped the repo unprompted —
+auto-proceeding without `--dangerously-skip-permissions`. So agy already
+executes on the working tree during a review; reviewing untrusted code with
+agy is unsafe today (documented in CLAUDE.md + README). Investigate agy's own
+`--sandbox` flag ("terminal restrictions") and whether a read-only agy
+`--agent` persona exists, in addition to the bwrap cordon, when this lands.
 
 `~/llm-bench/2026-04-26/harness/dispatch.py:101-158` already solved both for pi:
 bwrap + bypass-perms-equivalent flag inside the cordon. Same pattern here.
@@ -349,7 +498,9 @@ failures.
    why reference mode is structurally unsuitable, suggests `--mode
    inline`.
 
-## Capacity-aware reviewer fallback
+## Capacity-aware reviewer fallback — DROPPED (2026-06-19)
+
+> Fallback subsystem deleted in Bundle B Phase 1. See v0.2.1 quota-proximity probe above for the replacement approach.
 
 **Status (2026-04-29):** Shipped for **gemini**. 6-deep default chain
 (`GEMINI_FALLBACK_CHAIN`) walked on capacity-class stderr, stops at first
@@ -593,9 +744,11 @@ assignment to localise the cost.
   than wall-clock timeout. Could surface as `--idle-timeout` later.
   Not v1.
 
-## Streaming output → crash-resume across model fallback
+## Streaming output → crash-resume across model fallback — DROPPED (2026-06-19)
 
-### Motivation
+> Fallback subsystem deleted in Bundle B Phase 1. No fallback hops to resume across.
+
+### Motivation (historical)
 
 When a reviewer (today: gemini fallback chain) hops models, the in-flight
 stream is lost. We restart from token zero on the next model. Two costs:
@@ -737,3 +890,131 @@ we have paired runs to compare.
 If sonnet-high holds up: switch the default agent to sonnet. Add `model: opus`
 override path via prompt-file `synthesizer_model` field for users who want it.
 If opus-high wins: document the cost-quality trade in README and keep default.
+
+## v0.2 pre-smoke triage deferrals (2026-05-19)
+
+Items surfaced during the pre-smoke 5-chunk code review pass (sonnet + codex)
+that were verified real but deferred from MVP because the tool is single-user
+internal and the failure modes don't gate v0.2 ship. Re-evaluate before v0.3
+or when external use is contemplated.
+
+### Quality / robustness
+
+- **stream backpressure on giant reviews**: `core/fanout.py` buffers entire
+  reviewer stdout into memory. A pathological reviewer streaming hundreds of
+  MB would OOM the host. Cap and truncate beyond `STREAM_BUFFER_LIMIT * N` or
+  add streaming-to-disk for review text. Not seen in practice.
+
+- **harvest write atomicity**: `core/harvest.py harvest_run` appends one line
+  at a time without an exclusive lock. Concurrent runs (rare — single-user)
+  could interleave bytes mid-line. Wrap append in `fcntl.flock` or write to
+  a tempfile + atomic rename + concat. Not seen.
+
+- **snapshot diff false-positives on EOL/encoding**: `core/snapshot.py` uses
+  byte-equal comparison. Files re-saved with CRLF↔LF or BOM toggles will read
+  as drifted even though semantically unchanged. Acceptable today because
+  pair-2 runs happen on the same machine within an hour, but warrants a hash
+  + normalisation pass for cross-machine resume.
+
+- **promptfile validator missing field roundtrip**: `core/promptfile.py` checks
+  shape but doesn't verify every YAML key it set defaults for survives the
+  load (e.g. setdefault-then-typed-dataclass mismatch is silent). Add a
+  full-roundtrip test fixture covering each optional field.
+
+- **`mr-spawn --task-mode synthesize` adapter telemetry**: synthesis path
+  writes `usage: null` always (state.json), so EXPERIMENTS counters lose
+  per-synth telemetry. Today the only synthesizer with telemetry would be
+  claude-via-Task (covered by `mr-write-task-result`), so this is empty real
+  estate for now; revisit if subprocess synth telemetry becomes load-bearing.
+
+### Security / hygiene
+
+- **untrusted promptfile path traversal**: prepare.py now resolves promptfile
+  relative paths against its parent (H13), but doesn't reject paths that
+  resolve outside an expected root. Internal tool → not a vuln today; would
+  matter if `mr-prepare` were ever exposed to untrusted YAML input.
+
+- **state.json schema validation**: aggregate.py reads state JSON with
+  best-effort `.get()` calls. A malformed state.json (e.g. wrong type for
+  `attempts`) crashes with an opaque TypeError. Add jsonschema or attrs-style
+  validation if state JSON ever flows from a non-spawn source.
+
+- **synthesizer-suggested filename trust**: `sanitize_review_filename` covers
+  the obvious cases but a determined adversary could still surface `aux.md`
+  or other Windows-reserved stems. We're on Linux, not a concern; flag if
+  ever shipped to a Windows-target user.
+
+### Documented gaps (no fix planned, deliberate)
+
+- **H8 — `resolve_chain` with explicit_model**: `--model gemini=X` PINS to X
+  with no fallback. `--fallback-model gemini=A,B,C` is the chain entry point.
+  Documented in CLAUDE.md invariants; codex review misread the contract.
+  Not a bug.
+
+- **H9 — Gemini JSONL error events bypass capacity fallback**: moot — fallback subsystem dropped 2026-06-19.
+
+- **M12 — snapshot diff skips new files**: by design. New files in the working
+  tree between pass 1 and pass 2 are not snapshot-drift, because the snapshot
+  set is scoped to declared `input_files + context_files` only (spec §9.1).
+  A new file the model didn't review can't change the review's validity.
+
+## Convergence churn at MEDIUM+ threshold (2026-06-06)
+
+### Problem
+
+Guestflow quote-pricing PLAN review loop ran 8 rounds at "no new post-triage
+MEDIUM+" before converging. The threshold itself wasn't wrong (payments
+surface warranted MEDIUM+), but later rounds kept resetting the loop with
+findings that were noise in three recognisable shapes:
+
+1. **Rehash** — reviewers re-flag already-triaged items in new words, or
+   re-litigate settled decisions (an EPSILON-rounding debate resurfaced
+   round after round until the plan grew an explicit "do not re-litigate"
+   block).
+2. **Late discoveries on stable content** — round-5 MEDIUM on lines unchanged
+   since round 1. Reviewers had N looks; late-MEDIUM-on-stable is noise more
+   often than signal, and *fixing* it creates fresh diff = fresh review
+   surface = more churn.
+3. **Improvement-vs-defect blur** — MEDIUM bar invites taste findings
+   ("could be clearer", "consider extracting"). Each one fixed = new surface.
+
+Second-order driver: orchestrator fix style. Refactors / comment-polish
+sweeps in response to findings are next round's churn fuel.
+
+### Mitigations (proven in-session 2026-06-06; candidate v-next features)
+
+Amended stop condition: loop until a round produces **no new post-triage
+MEDIUM+ findings that are (a) novel vs ledger, (b) defect-with-failure-
+scenario, (c) on changed code — or HIGH+ anywhere**. Hard stop unchanged.
+
+- **Novelty ledger**: every triaged finding (fixed/backlogged/dropped +
+  rationale) carried forward into each round's context as "known — do not
+  re-flag". Triage maps new findings against the ledger FIRST; rehash =
+  non-novel = doesn't reset the loop. (Skill prose already hints this;
+  make it mechanical — tool could emit/consume the ledger artifact.)
+- **Stable-code ratchet**: from round 3 on, a finding on lines unchanged
+  since round 1 must be HIGH+ to reset the loop. MEDIUM on stable code →
+  verify, then backlog (or fix without resetting if one-liner). Safety:
+  ratcheted items are backlogged, never dropped — nothing vanishes, just
+  doesn't block ship.
+- **Defect test**: MEDIUM+ counts toward non-convergence only with a
+  concrete failure scenario on this codebase (wrong money, wrong row,
+  crash, 502). Improvements without a failure mode → backlog regardless
+  of reviewer's severity tag.
+- **Surgical-fix discipline** (orchestrator-side): minimal diffs between
+  rounds; no refactors or polish sweeps in response to findings.
+
+What this does NOT relax: HIGH+ anywhere, any round, any code — always
+resets. The conditions only filter MEDIUM noise.
+
+### Tool-support candidates for v-next
+
+- First-class ledger: `--ledger <file>` consumed into the prompt with
+  do-not-re-flag framing; synthesizer dedupes new findings against it and
+  tags rehash explicitly.
+- Per-finding metadata in REVIEW.md output: novel-vs-ledger, on-changed-
+  lines (needs the diff range), has-failure-scenario — so triage can apply
+  the amended stop condition mechanically instead of by hand.
+- Round-aware convergence report: which findings reset the loop and under
+  which clause, so 8-round forensics doesn't require re-reading every
+  REVIEW file.

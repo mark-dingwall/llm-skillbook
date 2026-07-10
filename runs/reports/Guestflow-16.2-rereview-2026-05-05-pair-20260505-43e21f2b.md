@@ -1,3 +1,21 @@
+---
+report_format_version: 1
+pair_id: pair-20260505-43e21f2b
+pair_type: paired
+comparison_eligible: true
+---
+
+
+## Headline
+
+_TBD — synthesizer will fill_
+
+## Mode-divergence observations
+
+_TBD — synthesizer will fill_
+
+## Per-reviewer notes
+
 ## Guestflow — Phase 16.2 repo-clarity-cleanup re-review (2026-05-05)
 
 Paired re-review one day after the round-1 pair. Same input set (29 source/config + 4 docs), same context (3 × `CLAUDE.md` + 3 × phase docs). Prompt swap: `16.2-REREVIEW-PROMPT.md` (~7 KB on disk) explicitly listed 13 closed findings from round 1 + commits `2d815f4` / `9134dc5` / `441b8f5` and instructed reviewers not to re-flag. Distinct outputs (`-REF2.md` / `-INL2.md`). `--skip-self` (host = claude). `--project-tag Guestflow-16.2-rereview` partitions runs.jsonl from the 2026-05-04 pair. REF first (00:38Z, 7m), 20m gap, INL (01:07Z, 11m).
