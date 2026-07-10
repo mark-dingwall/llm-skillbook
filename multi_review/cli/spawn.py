@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             state=state,
             state_callback=None,
+            prompt_path=args.prompt_file,
         )
     )
     duration = time.monotonic() - start

@@ -17,6 +17,8 @@ import json
 import re
 import secrets
 import shutil
+import tempfile
+from pathlib import Path
 
 from multi_review.core.fanout import (
     FAILURE_MIN_BYTES,
@@ -26,7 +28,7 @@ from multi_review.core.fanout import (
     kill_proc,
 )
 from multi_review.core.prompt import synthesis_prompt
-from multi_review.core.reviewers import build_command
+from multi_review.core.reviewers import CLI_SPEC, build_command
 
 
 # -------- Synthesis input builder --------
@@ -58,31 +60,45 @@ async def _run_synthesis_attempt(
     timeout: int | None,
 ) -> tuple[bool, str, str, str | None]:
     prompt = synthesis_prompt(nonce) + "\n\n---\n\n" + review_body
-    cmd = build_command(cli, model, streaming=False)
+    # argv_file delivery (agy): write the combined prompt to a temp file and
+    # pass its path on argv; agy reads it itself (no stdin, avoids E2BIG).
+    delivery = CLI_SPEC[cli].get("prompt_delivery", "stdin")
+    tmp_path: Path | None = None
+    if delivery == "argv_file":
+        tf = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8")
+        tf.write(prompt)
+        tf.close()
+        tmp_path = Path(tf.name)
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            limit=STREAM_BUFFER_LIMIT,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError as e:
-        return False, "", f"synthesizer not found: {e}", None
-    except Exception as e:
-        return False, "", f"synthesizer launch failed: {e}", None
-
-    try:
-        if timeout is None:
-            stdout_b, stderr_b = await proc.communicate(prompt.encode())
-        else:
-            stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(prompt.encode()),
-                timeout=timeout,
+        cmd = build_command(cli, model, streaming=False, prompt_path=tmp_path)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                limit=STREAM_BUFFER_LIMIT,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-    except asyncio.TimeoutError:
-        await kill_proc(proc)
-        return False, "", f"synthesis timeout after {timeout}s", None
+        except FileNotFoundError as e:
+            return False, "", f"synthesizer not found: {e}", None
+        except Exception as e:
+            return False, "", f"synthesizer launch failed: {e}", None
+
+        stdin_payload = None if delivery == "argv_file" else prompt.encode()
+        try:
+            if timeout is None:
+                stdout_b, stderr_b = await proc.communicate(stdin_payload)
+            else:
+                stdout_b, stderr_b = await asyncio.wait_for(
+                    proc.communicate(stdin_payload),
+                    timeout=timeout,
+                )
+        except asyncio.TimeoutError:
+            await kill_proc(proc)
+            return False, "", f"synthesis timeout after {timeout}s", None
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
     text = stdout_b.decode("utf-8", errors="replace").strip()
     err = stderr_b.decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]

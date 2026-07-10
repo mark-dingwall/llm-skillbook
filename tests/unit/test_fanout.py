@@ -18,7 +18,7 @@ def test_run_reviewer_no_chain_walk(tmp_path, monkeypatch):
     )
 
     import multi_review.core.fanout as fanout_mod
-    monkeypatch.setattr(fanout_mod, "build_command", lambda cli, model, *, streaming: [sys.executable, str(script)])
+    monkeypatch.setattr(fanout_mod, "build_command", lambda cli, model, *, streaming, prompt_path=None: [sys.executable, str(script)])
     monkeypatch.setattr(fanout_mod, "make_adapter", lambda cli: ClaudeAdapter())
 
     state = ReviewerState(cli="claude", adapter=ClaudeAdapter())

@@ -14,9 +14,11 @@ import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from multi_review.core.adapters import ProgressAdapter, Usage
 from multi_review.core.reviewers import (
+    CLI_SPEC,
     build_command,
     make_adapter,
 )
@@ -87,10 +89,17 @@ async def run_reviewer(
     timeout: int | None,
     state: ReviewerState,
     state_callback: "Callable[[str, ReviewerState], None] | None" = None,
+    prompt_path: Path | None = None,
 ) -> ReviewerResult:
-    """Spawn one subprocess for cli, stream output, return ReviewerResult."""
+    """Spawn one subprocess for cli, stream output, return ReviewerResult.
+
+    Most CLIs receive ``prompt`` on stdin. CLIs with ``argv_file`` delivery
+    (agy) instead read the prompt from ``prompt_path`` — the caller must pass
+    the on-disk prompt file for those.
+    """
     adapter = state.adapter
-    cmd = build_command(cli, model, streaming=True)
+    delivery = CLI_SPEC[cli].get("prompt_delivery", "stdin")
+    cmd = build_command(cli, model, streaming=True, prompt_path=prompt_path)
     state.status = "starting"
     state.started_at = time.time()
     state.finished_at = 0.0
@@ -124,8 +133,9 @@ async def run_reviewer(
 
     if proc.stdin is not None:
         try:
-            proc.stdin.write(prompt.encode())
-            await proc.stdin.drain()
+            if delivery == "stdin":
+                proc.stdin.write(prompt.encode())
+                await proc.stdin.drain()
             proc.stdin.close()
         except (BrokenPipeError, ConnectionResetError):
             pass

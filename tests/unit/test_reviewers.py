@@ -86,21 +86,39 @@ def test_cli_spec_agy_shape():
     assert s["stdin_sentinel"] is None
     assert s["stream_flags"] == []
     assert s["default_args"] == []
+    # agy has no stdin mode; prompt is delivered via a file path on argv.
+    assert s["prompt_delivery"] == "argv_file"
 
 def test_cli_spec_no_gemini_entry():
     from multi_review.core.reviewers import CLI_SPEC
     assert "gemini" not in CLI_SPEC
 
-def test_build_command_agy_with_default():
+def test_build_command_agy_requires_prompt_path():
     from multi_review.core.reviewers import build_command
-    cmd = build_command("agy", model=None, streaming=True)
-    assert cmd == ["agy", "--print"]
+    # argv_file delivery cannot build a command without a prompt file to read.
+    with pytest.raises(ValueError):
+        build_command("agy", model=None, streaming=True)
 
-def test_build_command_agy_pinned():
+def test_build_command_agy_with_default():
+    from pathlib import Path
+    from multi_review.core.reviewers import build_command, AGY_FILE_INSTRUCTION
+    p = Path("/tmp/session/prompt.txt")
+    cmd = build_command("agy", model=None, streaming=True, prompt_path=p)
+    # The prompt-file instruction sits immediately after --print (which consumes
+    # the next arg as its value), and carries the path.
+    assert cmd == ["agy", "--print", AGY_FILE_INSTRUCTION.format(path=p)]
+    assert str(p) in cmd[2]
+
+def test_build_command_agy_pinned_model_not_swallowed():
+    from pathlib import Path
     from multi_review.core.reviewers import build_command
-    cmd = build_command("agy", model="Gemini 3.1 Pro (High)", streaming=True)
-    assert "--model" in cmd
-    assert "Gemini 3.1 Pro (High)" in cmd
+    p = Path("/tmp/session/prompt.txt")
+    cmd = build_command("agy", model="Gemini 3.1 Pro (High)", streaming=True, prompt_path=p)
+    # --print's value must be the instruction, NOT --model (the 1.0.x bug where
+    # `agy --print --model X` made --print eat the flag).
+    assert cmd[cmd.index("--print") + 1].startswith("Read the file")
+    assert cmd.index("--model") > cmd.index("--print") + 1
+    assert cmd[cmd.index("--model") + 1] == "Gemini 3.1 Pro (High)"
 
 def test_detect_self_no_gemini_branch(monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
