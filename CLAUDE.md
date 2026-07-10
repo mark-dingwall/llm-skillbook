@@ -24,7 +24,7 @@ No packaging. No test suite. Runs via `uv` using a PEP 723 inline script header 
 ./multi_review.py --reviewers gemini,codex file.py
 
 # Per-reviewer model override
-./multi_review.py --model claude=claude-opus-4-7 --model codex=gpt-5.5 file.py
+./multi_review.py --model claude=claude-opus-4-7 --model codex=gpt-5.6-sol file.py
 ```
 
 No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typing is not wired up — don't assume a tool is available without checking.

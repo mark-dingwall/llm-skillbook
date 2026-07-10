@@ -56,7 +56,7 @@ multi-review --task code --no-synthesize file.py
 multi-review --task plan --synthesizer gemini PLAN.md
 
 # Per-reviewer model override
-multi-review --model claude=claude-opus-4-7 --model codex=gpt-5.5 file.py
+multi-review --model claude=claude-opus-4-7 --model codex=gpt-5.6-sol file.py
 ```
 
 ## How it works

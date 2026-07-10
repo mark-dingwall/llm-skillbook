@@ -600,7 +600,7 @@ CLI_SPEC = {
         "base": ["codex", "exec", "--skip-git-repo-check"],
         "stream_flags": ["--json"],
         "model_flag": "--model",
-        "default_args": ["--model", "gpt-5.5",
+        "default_args": ["--model", "gpt-5.6-sol",
                          "-c", 'model_reasoning_effort="high"'],
         "fallback_chain": [],
         "stdin_sentinel": "-",
