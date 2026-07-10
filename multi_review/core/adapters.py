@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from multi_review.core.prompt import SUMMARY_HEADING_RE
+
 
 @dataclass
 class Usage:
@@ -113,6 +115,16 @@ class AgyAdapter(ProgressAdapter):
         if self.phase == "starting":
             self.phase = "running"
         self.text_parts.append(line + "\n")
+
+    def get_response_text(self) -> str:
+        # agy --print is agentic: it narrates its steps ("I will read the
+        # file…", "I will run pytest…") before emitting the review. Trim to the
+        # first review heading so that preamble doesn't pollute REVIEW.md. If no
+        # heading is present (pure narration / failure), return the raw text so
+        # the aggregator's ## Summary check can still demote it.
+        raw = "".join(self.text_parts).strip()
+        m = SUMMARY_HEADING_RE.search(raw)
+        return raw[m.start():].strip() if m else raw
 
 
 class CodexAdapter(ProgressAdapter):

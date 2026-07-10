@@ -51,6 +51,15 @@ read files via its native tools — but solve permission posture (CLIs prompt
 on file reads) and blast-radius posture (bypassed CLI + user's machine = bad)
 first.
 
+**agy makes this urgent (2026-07-10 smoke).** agy is already an uncontained
+agentic reviewer: `agy --print` reads its prompt file via tools and, observed
+in the single-pass smoke, ran `pytest` and grepped the repo unprompted —
+auto-proceeding without `--dangerously-skip-permissions`. So agy already
+executes on the working tree during a review; reviewing untrusted code with
+agy is unsafe today (documented in CLAUDE.md + README). Investigate agy's own
+`--sandbox` flag ("terminal restrictions") and whether a read-only agy
+`--agent` persona exists, in addition to the bwrap cordon, when this lands.
+
 `~/llm-bench/2026-04-26/harness/dispatch.py:101-158` already solved both for pi:
 bwrap + bypass-perms-equivalent flag inside the cordon. Same pattern here.
 

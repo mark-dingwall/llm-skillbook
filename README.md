@@ -2,7 +2,7 @@
 
 Fan out a code review across multiple AI models in parallel, aggregate results into a `REVIEW.md`, and optionally run a consensus-synthesis pass. Supports inline and reference prompt modes, automated paired runs with drift detection, and harvest-based comparison tracking.
 
-**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (gemini, codex, opencode) continue as subprocesses.
+**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (agy, codex, opencode) continue as subprocesses.
 
 ## Requirements
 
@@ -133,7 +133,7 @@ harvest: true       # write harvest row to central runs.jsonl
 | `custom_prompt` | string | — | Required when `task == custom`. |
 | `mode` | enum | — | Required. `inline \| reference \| both`. |
 | `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
-| `reviewers` | list[enum] | all detected | Subset of `claude \| gemini \| codex \| opencode`. |
+| `reviewers` | list[enum] | all detected | Subset of `claude \| agy \| codex \| opencode`. |
 | `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
 | `model_effort` | map | `{}` | Effort hint per reviewer. Silently ignored where unsupported. |
 | `if_drift` | enum | `ask` | `ignore \| abort \| ask`. `ask` keeps the pair comparison-eligible unless the user chooses to proceed after drift. |
@@ -177,6 +177,7 @@ Runs that fail any check are harvested (so the data is preserved) but are exclud
 ## Limitations
 
 - **Drift detection covers explicitly-submitted files only.** Files the pass-1 reviewer happened to read via tools (reference mode) but are not listed in `files` or `context_files` are not tracked. Untracked-tool-read drift is a documented v0.2 gap.
+- **agy is an agentic, uncontained reviewer.** `agy --print` runs as an autonomous agent: it reads its prompt from a file (agy has no stdin input mode) and may explore the repo and run commands (e.g. `pytest`) during a review. This yields richer reviews but means agy executes on your working tree — **don't point agy at untrusted code** until sandbox containment lands (BACKLOG). Its step-narration preamble is trimmed to the first `## Summary` heading before aggregation.
 - **v0.1 standalone CLI removed.** `./multi_review.py file.ts` prints a deprecation banner and exits 1. The v0.1 entry script will be removed entirely in v0.3.
 - **Task-subagent timeout.** Claude Code's `Task` tool exposes no per-Task timeout knob; the claude reviewer has no opt-in deadline in v0.2. Other reviewers still support `--timeout` via the YAML schema (tracked in BACKLOG).
 - **claude token telemetry is null.** Task subagents do not surface JSONL-level usage; `input_tokens` / `output_tokens` / `cached_tokens` for the claude reviewer are `null` in all harvest rows. Comparisons needing claude token data should filter on `telemetry_quality == "reliable"` (will return zero rows until a future path adds reliable telemetry).

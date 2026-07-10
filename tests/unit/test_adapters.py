@@ -57,6 +57,37 @@ def test_agy_fixture_round_trip():
     assert "LEEWAY_SECONDS = 1" in body
 
 
+def test_agy_get_response_text_trims_agentic_narration():
+    from multi_review.core.adapters import AgyAdapter
+    a = AgyAdapter()
+    # agy narrates its steps before the review; the review begins at ## Summary.
+    for line in [
+        "I will read the file at /x/prompt.txt to inspect the review request.",
+        "I will run pytest to verify the tests pass.",
+        "",
+        "## Summary",
+        "",
+        "The module is sound but has an uncaught exception path.",
+        "",
+        "## Critical Issues",
+        "- foo.py:10 crashes on null input.",
+    ]:
+        a.feed_line(line)
+    out = a.get_response_text()
+    assert out.startswith("## Summary")
+    assert "I will run pytest" not in out
+    assert "uncaught exception path" in out
+
+
+def test_agy_get_response_text_keeps_raw_when_no_heading():
+    # No ## Summary → return raw so the aggregator can demote it (not silently empty).
+    from multi_review.core.adapters import AgyAdapter
+    a = AgyAdapter()
+    a.feed_line("I explored the repo but produced no structured review.")
+    out = a.get_response_text()
+    assert "explored the repo" in out
+
+
 def test_no_gemini_adapter_export():
     import multi_review.core.adapters as m
     assert not hasattr(m, "GeminiAdapter")
