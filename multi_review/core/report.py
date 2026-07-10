@@ -192,8 +192,6 @@ def render_experiments_markdown(*, log_path: Path, reports_dir: Path) -> str:
 
     parts.append("## Open questions\n")
     parts.append(
-        "- Is the gemini-quota-cascade real or perceived? Need a session "
-        "where inline runs first against fresh quota.\n"
         "- Does the diversity-of-findings benefit hold for prompts under "
         "100KB? Both Guestflow data points are large reviews.\n"
         "- Should `--mode auto` exist (run both for prompts ≥ N bytes)? "
