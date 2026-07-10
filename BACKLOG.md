@@ -36,6 +36,122 @@ the paired flush/defer semantics are underspecified. Resolve during the v0.2
 smokes (which exercise the paired path) or with a small design decision on
 whether paired rows always buffer-then-flush vs write-through. Not a prose tweak.
 
+**Confirmed single-pass side (2026-07-11 smoke):** on the single-pass path,
+`write_harvest_row` appends to `--log` immediately and the Step 12
+`--flush-pending` pass is a no-op (`{"flushed": 0}`). So SKILL Step 8's
+"(deferred) write" title and Step 12's "still matters for single-pass prompts
+in a batch" are both inaccurate for single-pass — the row is write-through, not
+deferred. Fold the prose fix into the same design decision.
+
+### setup.py self-referential central_path (2026-07-11 smoke — FIXED 2026-07-11)
+
+**FIXED:** `central_runs_dir(*, ignore_config=False)` added; setup now calls it
+with `ignore_config=True` to recompute the canonical path fresh and write it
+authoritatively. Regression tests: `test_central_runs_dir_ignore_config_skips_config`
+(unit) + `test_setup_heals_stale_config` (integration, pre-seeds a bogus config
+and asserts setup overwrites it). Original writeup below for history.
+
+
+`central_runs_dir()` (paths.py:46-50) reads `config.json` `central_path` FIRST
+in its resolution order. `setup.py` then calls that same resolver to decide
+where to write — so if `config.json` already holds a path, setup re-reads it and
+writes it straight back. Setup cannot heal a bad/stale `config.json`: it just
+echoes whatever is there. Surfaced when a leaked pytest tmp path (see next item)
+was stuck in the real config and `mr-setup --dev` kept re-emitting it.
+**Fix:** setup must resolve the FRESH path (dev-checkout → XDG → fallback,
+skipping the config.json branch) and persist that, rather than routing through
+the runtime resolver. Add a `central_runs_dir(ignore_config=True)` param or a
+separate `resolve_central_for_setup()` and a regression test that seeds a bad
+config.json then asserts setup overwrites it with the computed path.
+
+### test-isolation leak into real ~/.claude config (2026-07-11 smoke — NOT REPRODUCIBLE, closed)
+
+The real `~/.claude/skills/multi-review/config.json` was found holding
+`/tmp/pytest-of-mark/pytest-76/test_setup_dev_mode_symlinks0/xdg/multi-review`.
+**Investigated 2026-07-11: no active test-isolation leak.** Both setup tests set
+`HOME=tmp_path` in the monkeypatch AND the subprocess `env=`, so they write to
+`tmp_path/.claude`, never real `~/.claude`. The only config.json writer is
+`setup.py` (subprocess, HOME-isolated); no test sets XDG without HOME; no
+in-process `setup.main()`. The real-config value was a historical leftover
+(earlier buggy test version or a manual run), since cleaned. The bug-a fix +
+`test_setup_heals_stale_config` now guarantee setup can't get stuck on such a
+value again, which is the meaningful protection against this symptom.
+
+### claude reviewer/synth model hardcoded in SKILL (2026-07-11 smoke — minor)
+
+SKILL Steps 5 & 6 (and `write_task_result` invocations) pass
+`--model claude-opus-4-7` as a literal. The Task subagent actually runs on the
+session model (opus 4.8 here), so `final_model` in harvest is wrong for the
+claude reviewer/synthesizer. Token telemetry is null anyway (documented), so the
+only casualty is the `final_model` field. Either detect the real model or drop
+the field to null for Task-dispatched reviewers. Low priority.
+
+### mr-setup --dev leaves SKILL.md a plain copy (2026-07-11 smoke — minor)
+
+`--dev` symlinked the 3 marker-free agents but SKILL.md was a plain copy (the
+reviewer agent is necessarily copied — it expands `<!-- SUMMARY_CONTRACT -->`).
+So skill edits during dev iteration don't reflect without re-running setup,
+defeating `--dev`'s purpose for the SKILL itself. Confirm whether setup is
+meant to symlink `skills/` under `--dev`; if so it regressed. Content was
+identical this run, so impact was nil — flagged for correctness.
+
+### Task-reviewer output not trimmed to `## Summary` (2026-07-11 paired smoke — FIXED 2026-07-11)
+
+**FIXED:** `write_task_result` now trims the `--task-mode review` body to the
+first `## Summary` heading (via `SUMMARY_HEADING_RE`, parity with AgyAdapter);
+no heading → raw kept for the downstream classifier; synthesize branch untouched.
+Tests: `test_review_trims_preamble_to_summary`, `test_review_without_summary_kept_raw`,
+`test_synthesize_output_not_trimmed`. Original writeup below for history.
+
+
+`AgyAdapter.get_response_text()` trims agy's agentic narration down to the first
+`## Summary` heading. The Task path (`write_task_result`, used for the claude
+reviewer/synthesizer) does NOT — it persists the captured text verbatim. In the
+paired smoke, the reference-pass claude reviewer emitted a ~19-point reasoning
+preamble ("Grep/Glob unavailable… Let me reason through…") before `## Summary`;
+that narration landed in `claude.md`, flowed into REVIEW.md (Claude section
+lines 83→129 were preamble), and into the synthesizer input. It still passed the
+aggregator's M13 check because that check `search`es for the heading rather than
+requiring it first. **Fix:** apply the same `SUMMARY_HEADING_RE` left-trim in
+`write_task_result` for `--task-mode review` (parity with AgyAdapter), with a
+unit test feeding preamble+`## Summary` and asserting the preamble is stripped.
+
+### Grep/Glob unavailable in reviewer Task sandbox (2026-07-11 paired smoke — investigate)
+
+The reference-pass claude reviewer reported "The Grep/Glob tooling is unavailable
+in this sandbox" — the `multi-review-reviewer` agent grants `Read, Grep, Glob`
+but only Read was live. Read sufficed for a single-file review, but reference
+mode leans on Grep/Glob for multi-file/repo reviews. Determine whether this is a
+Task-subagent sandbox limitation or an agent-config issue; if the former,
+document that reference-mode Task reviews are effectively Read-only.
+
+### SKILL Step 10b paired-report synthesis underspecified (2026-07-11 paired smoke — SKILL gap)
+
+`report build-paired` wants three content files (`--headline-file`,
+`--mode-divergence-file`, `--per-reviewer-notes-file`), but no synthesizer
+template or agent mode produces those three labeled blocks — the
+`multi-review-synthesizer` agent emits a single Consensus Summary
+(Headline/Strengths/Concerns/Divergent) and has no pairwise pass-1-vs-pass-2
+mode. In the smoke I hand-authored a pair-comparison prompt asking for exactly
+`## Headline` / `## Mode Divergence` / `## Per-Reviewer Notes` and split the
+output into the 3 files by hand. **Fix:** add a `templates/paired_report.md`
+prompt + define how the skill splits the synthesizer's 3 sections into the 3
+build-paired files (or teach build-paired to accept one combined file and split
+internally).
+
+### Minor paired-smoke observations (2026-07-11)
+
+- **Reviewer heading deviation passes the sentinel-only check.** Pass-2 inline
+  claude used `## Critical` / `## Concerns` / `## Style` and omitted
+  `## Risk Assessment`; it still classified `ok` because only `## Summary`
+  presence is checked. Acceptable, but if section-completeness ever matters,
+  the check must widen.
+- **`sessions_reference_first/inline_first` are per-PROJECT, not per-run.** The
+  README's "a paired run contributes to sessions_… counters" wording reads as
+  per-session; the code counts one increment per project (first eligible row's
+  mode). Re-running an already-counted project never moves the needle. Clarify
+  the README wording; behaviour is by design.
+
 ## Reference mode + bwrap sandbox + per-CLI bypass-perms
 
 ### Motivation
