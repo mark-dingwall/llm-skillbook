@@ -18,6 +18,24 @@ Probe `--log-file` (or equivalent) for parseable token usage data. The agy adapt
 
 Avoid burning quota in the first place. Before dispatching a reviewer, probe the CLI for remaining quota / rate-limit headroom (if the CLI exposes it). If quota is near-exhausted, warn the user or skip that reviewer rather than let the run fail mid-stream. This is the cleaner alternative to the fallback chain deleted in Bundle B (2026-06-19).
 
+### output-path TOCTOU (M8 — deferred YAGNI, 2026-07-10)
+
+`resolve_output_path` (aggregate.py) checks `not candidate.exists()` then the
+caller writes later — a classic check-then-write race. Left unfixed: this is a
+single-user local tool and the SKILL runs paired inline/reference passes
+sequentially, so the window is unreachable in normal use. If ever fixed, the
+minimal form is an `open(mode="x")`-retry loop rather than the exists() probe.
+Revisit only if concurrent same-dir runs become a real usage pattern.
+
+### pass-2 harvest framing gap (SKILL Step 8/9 — 2026-07-10)
+
+Step 9c says "Build pass 2 harvest row (pending)" but gives no command, and
+Step 8's `write_harvest_row` writes directly to `--log` while Step 9d flushes
+`pending-harvest/` — nothing populates that dir on the approved-write path, so
+the paired flush/defer semantics are underspecified. Resolve during the v0.2
+smokes (which exercise the paired path) or with a small design decision on
+whether paired rows always buffer-then-flush vs write-through. Not a prose tweak.
+
 ## Reference mode + bwrap sandbox + per-CLI bypass-perms
 
 ### Motivation
