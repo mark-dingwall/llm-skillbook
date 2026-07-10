@@ -16,6 +16,7 @@ REVIEW-*.md
 runs/runs.jsonl
 runs/runs.jsonl.bak
 runs/backup/
+runs/EXPERIMENTS.md
 
 # Spike samples (kept during development only)
 .spike-samples/
