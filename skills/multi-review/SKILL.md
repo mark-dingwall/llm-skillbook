@@ -163,14 +163,14 @@ uv run python -m multi_review.cli.build_synth_input \
     --task-mode synthesize --model claude-opus-4-7
   ```
   This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
-- Else:
+- Else: build argv with `<SYNTH_MODEL_FLAG>` = `--model <models[synthesizer]>` if `models[synthesizer]` is set, else **nothing** (no token at all) — conditional token, same construction as Step 5's `<MODEL_FLAG>`:
   ```
   uv run python -m multi_review.cli.spawn \
     --cli <synthesizer> \
     --prompt-file <SESSION_DIR>/synth-prompt.md \
     --task-mode synthesize \
     --input-nonce $(cat <SESSION_DIR>/synth-nonce.txt) \
-    --out-dir <SESSION_DIR>/synth/
+    --out-dir <SESSION_DIR>/synth/ <SYNTH_MODEL_FLAG>
   ```
   Then extract the synthesis body to the canonical location Step 7 expects:
   ```
