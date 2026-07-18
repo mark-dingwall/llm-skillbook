@@ -27,10 +27,21 @@ def test_validate_custom_task_requires_body():
 def test_fill_defaults_populates_missing():
     raw = {"prompt_format_version": 1, "task": "code", "files": ["x.py"], "mode": "inline"}
     pf = fill_defaults(raw)
-    assert pf.reviewers == ["claude", "agy", "codex", "opencode"]
+    assert pf.reviewers == ["claude", "agy", "codex", "opencode", "pykrete"]
     assert pf.synthesizer == "claude"
     assert pf.harvest is True
     assert pf.if_drift == "ignore"
+
+def test_pykrete_valid_and_defaulted(tmp_path):
+    f = tmp_path / "x.py"; f.write_text("")
+    base = {"prompt_format_version": 1, "task": "code", "files": [str(f)]}
+    pf = fill_defaults({**base, "reviewers": ["pykrete"], "synthesizer": "pykrete",
+                        "models": {"pykrete": "glm"}})
+    validate(pf, tmp_path)                               # must NOT raise: pykrete is a KNOWN/valid choice
+    assert pf.reviewers == ["pykrete"]
+    pf2 = fill_defaults(base)                            # omit reviewers -> defaults
+    validate(pf2, tmp_path)
+    assert "pykrete" in pf2.reviewers                    # default-on
 
 def test_agy_is_known_reviewer_and_synthesizer(tmp_path):
     src = tmp_path / "x.py"

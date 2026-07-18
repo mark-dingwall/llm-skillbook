@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 # -------- Reviewer list --------
 
-ALL_REVIEWERS: list[str] = ["claude", "agy", "codex", "opencode"]
+ALL_REVIEWERS: list[str] = ["claude", "agy", "codex", "opencode", "pykrete"]
 
 # -------- CLI detection + self-skip --------
 
@@ -133,6 +133,16 @@ CLI_SPEC: dict[str, dict] = {
         "default_args": [],
         "stdin_sentinel": "-",
     },
+    "pykrete": {
+        "base": ["pykrete"],
+        "stream_flags": [],
+        "model_flag": "--family",          # YAML models:{pykrete:<family>} names a NanoGPT family
+        "default_args": [],
+        "stdin_sentinel": "-",
+        "success_exit_codes": (0, 3),      # 3 == success via model downgrade
+        "config_env": "PYKRETE_CONFIG",    # path to pykrete.toml (NanoGPT config)
+        "records_family_not_model": True,  # model_used is a family, not the actual model (Task 5)
+    },
 }
 
 
@@ -154,6 +164,14 @@ def build_command(cli: str, model: str | None, *, streaming: bool,
             cmd += [spec["model_flag"], model]
         return cmd
     cmd = list(spec["base"])
+    if spec.get("config_env"):
+        cfg = os.environ.get(spec["config_env"])
+        if not cfg:
+            raise ValueError(
+                f"{cli} requires ${spec['config_env']} to point at a pykrete.toml "
+                f"(NanoGPT config). See README 'Pykrete setup'."
+            )
+        cmd += ["--config", cfg]
     if streaming:
         cmd += spec["stream_flags"]
     if model:
