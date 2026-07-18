@@ -22,7 +22,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from multi_review.core.fanout import ReviewerState, ReviewerResult, run_reviewer
-from multi_review.core.reviewers import ALL_REVIEWERS, make_adapter
+from multi_review.core.reviewers import ALL_REVIEWERS, CLI_SPEC, make_adapter
 from multi_review.core.synthesis import run_synthesis
 
 
@@ -126,6 +126,12 @@ def _run_synthesize(args) -> int:
 
     synth_path = args.out_dir / "synth.txt"
     synth_path.write_text(text or "")
+    final_model = attempts[-1] if attempts else None
+    # Same honesty rule as fanout.py's records_family_not_model branch: a
+    # NanoGPT family (pykrete's "model") must never be presented as if it
+    # were the actual model.
+    if CLI_SPEC[args.cli].get("records_family_not_model") and args.model is not None:
+        final_model = f"family:{args.model}"
     state_path = args.out_dir / "synth.state.json"
     state_path.write_text(json.dumps({
         "cli": args.cli,
@@ -133,7 +139,7 @@ def _run_synthesize(args) -> int:
         "duration_seconds": duration,
         "stderr_tail": err,
         "usage": None,
-        "final_model": attempts[-1] if attempts else None,
+        "final_model": final_model,
         "suggested_filename": suggested,
     }, indent=2))
 

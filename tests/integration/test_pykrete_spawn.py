@@ -71,6 +71,32 @@ def test_synthesize_forwards_model_as_family(tmp_path):
     assert "--family glm" in argv_log.read_text()
 
 
+def test_synthesize_records_family_not_raw_model(tmp_path):
+    """Honesty rule parity with fanout.py's records_family_not_model branch:
+    pykrete's "model" is really a NanoGPT family, never a concrete model.
+    The reviewer path already records this as "family:<x>" — the synthesize
+    path must record the same way, not the raw family string (glm)."""
+    argv_log = tmp_path / "argv.log"
+    review_body = tmp_path / "review_body.txt"
+    review_body.write_text('<review-deadbeef reviewer="pykrete">\nLooks fine.\n</review-deadbeef>\n')
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    env = _env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(argv_log)})
+    r = subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.spawn",
+         "--cli", "pykrete", "--task-mode", "synthesize",
+         "--model", "glm", "--input-nonce", "deadbeef",
+         "--prompt-file", str(review_body), "--out-dir", str(out_dir)],
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    j = json.loads(r.stdout)
+    state = json.loads(Path(j["state_path"]).read_text())
+    assert state["ok"] is True
+    assert state["final_model"] == "family:glm"
+
+
 def test_missing_config_fails_cleanly_no_traceback(tmp_path):
     prompt = tmp_path / "p.txt"
     prompt.write_text("review me")
