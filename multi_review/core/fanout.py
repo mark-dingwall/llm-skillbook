@@ -48,6 +48,14 @@ class ReviewerResult:
     elapsed: float
     error: str | None = None
     model_used: str | None = None
+    downgraded: bool = False
+
+
+def reviewer_ok(cli: str, rc: "int | None", text: str) -> bool:
+    """Success iff rc is in the CLI's success set AND output >= FAILURE_MIN_BYTES.
+    Most CLIs succeed only on 0; pykrete also succeeds on 3 (model downgrade)."""
+    return rc in CLI_SPEC[cli].get("success_exit_codes", (0,)) \
+        and len(text.encode()) >= FAILURE_MIN_BYTES
 
 
 @dataclass
@@ -202,20 +210,24 @@ async def run_reviewer(
     rc = proc.returncode
     stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
     text = adapter.get_response_text()
-    ok = (rc == 0) and (len(text.encode()) >= FAILURE_MIN_BYTES)
+    success_codes = CLI_SPEC[cli].get("success_exit_codes", (0,))
+    ok = reviewer_ok(cli, rc, text)
+    downgraded = ok and rc != 0            # rc is a non-zero success code
     state.status = "done" if ok else "failed"
     if state_callback is not None:
         state_callback(cli, state)
     err = None
     if not ok:
-        if rc != 0:
-            err = f"exit {rc}"
-        elif len(text.encode()) < FAILURE_MIN_BYTES:
-            err = f"empty output (<{FAILURE_MIN_BYTES} bytes)"
+        err = f"exit {rc}" if rc not in success_codes else f"empty output (<{FAILURE_MIN_BYTES} bytes)"
+    if CLI_SPEC[cli].get("records_family_not_model"):
+        recorded_model = f"family:{model}" if model is not None else None
+    else:
+        recorded_model = model if model is not None else "<default>"
     return ReviewerResult(
         cli, ok, text, stderr_tail, adapter.usage,
         state.elapsed, error=err,
-        model_used=model if model is not None else "<default>",
+        model_used=recorded_model,
+        downgraded=downgraded,
     )
 
 

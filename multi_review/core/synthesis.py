@@ -21,11 +21,11 @@ import tempfile
 from pathlib import Path
 
 from multi_review.core.fanout import (
-    FAILURE_MIN_BYTES,
     STDERR_TAIL_CHARS,
     STREAM_BUFFER_LIMIT,
     ReviewerResult,
     kill_proc,
+    reviewer_ok,
 )
 from multi_review.core.prompt import synthesis_prompt
 from multi_review.core.reviewers import CLI_SPEC, build_command
@@ -105,7 +105,7 @@ async def _run_synthesis_attempt(
     suggested = extract_filename_from_synthesis(text)
     if suggested is not None:
         text = strip_filename_prefix(text)
-    ok = proc.returncode == 0 and len(text.encode()) >= FAILURE_MIN_BYTES
+    ok = reviewer_ok(cli, proc.returncode, text)
     return ok, text, err, suggested if ok else None
 
 

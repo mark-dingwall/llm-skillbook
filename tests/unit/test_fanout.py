@@ -26,3 +26,15 @@ def test_run_reviewer_no_chain_walk(tmp_path, monkeypatch):
         run_reviewer("claude", "x", model=None, timeout=None, state=state)
     )
     assert result.ok is False
+
+
+def test_reviewer_ok_pykrete_accepts_downgrade_exit3():
+    from multi_review.core.fanout import reviewer_ok
+    body = "x" * 100
+    assert reviewer_ok("pykrete", 3, body) is True
+    assert reviewer_ok("pykrete", 0, body) is True
+    assert reviewer_ok("pykrete", 1, body) is False
+    assert reviewer_ok("pykrete", 4, body) is False
+    assert reviewer_ok("pykrete", 0, "tiny") is False   # byte floor preserved
+    assert reviewer_ok("codex", 3, body) is False        # default (0,) unchanged
+    assert reviewer_ok("codex", 0, body) is True
