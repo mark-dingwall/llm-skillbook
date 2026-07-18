@@ -107,9 +107,16 @@ async def run_reviewer(
     """
     adapter = state.adapter
     delivery = CLI_SPEC[cli].get("prompt_delivery", "stdin")
-    cmd = build_command(cli, model, streaming=True, prompt_path=prompt_path)
     state.status = "starting"
     state.started_at = time.time()
+    try:
+        cmd = build_command(cli, model, streaming=True, prompt_path=prompt_path)
+    except ValueError as e:
+        state.status = "error"
+        state.finished_at = time.time()
+        if state_callback is not None:
+            state_callback(cli, state)
+        return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=str(e))
     state.finished_at = 0.0
     if state_callback is not None:
         state_callback(cli, state)

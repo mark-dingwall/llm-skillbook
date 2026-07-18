@@ -28,6 +28,18 @@ def test_run_reviewer_no_chain_walk(tmp_path, monkeypatch):
     assert result.ok is False
 
 
+def test_run_reviewer_missing_config_is_failed_not_raised(monkeypatch):
+    """A missing PYKRETE_CONFIG raises ValueError inside build_command; run_reviewer
+    must catch it and return a failed ReviewerResult, never let it escape (it would
+    otherwise blow up asyncio.gather and abort the whole fanout)."""
+    monkeypatch.delenv("PYKRETE_CONFIG", raising=False)
+    from multi_review.core.reviewers import make_adapter
+    state = ReviewerState(cli="pykrete", adapter=make_adapter("pykrete"))
+    r = asyncio.run(run_reviewer("pykrete", "p", model=None, timeout=None, state=state))
+    assert r.ok is False
+    assert "PYKRETE_CONFIG" in (r.error or "")   # recorded, not raised
+
+
 def test_reviewer_ok_pykrete_accepts_downgrade_exit3():
     from multi_review.core.fanout import reviewer_ok
     body = "x" * 100

@@ -96,6 +96,8 @@ async def _run_synthesis_attempt(
         except asyncio.TimeoutError:
             await kill_proc(proc)
             return False, "", f"synthesis timeout after {timeout}s", None
+    except ValueError as e:
+        return False, "", str(e), None
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
