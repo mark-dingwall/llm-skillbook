@@ -213,11 +213,25 @@ class OpenCodeAdapter(ProgressAdapter):
             self.phase = f"error:{err.get('name', 'error')}"
 
 
+class PykreteAdapter(ProgressAdapter):
+    """Plain-text buffer for pykrete (wraps pi; no JSONL stream). Whole stdout is
+    the review body; no telemetry (usage stays zero). Unlike AgyAdapter there is
+    no agentic step-narration preamble to trim — return the body verbatim."""
+    def feed_line(self, line: str) -> None:
+        super().feed_line(line)
+        if not line:
+            return
+        if self.phase == "starting":
+            self.phase = "running"
+        self.text_parts.append(line.rstrip("\n") + "\n")
+
+
 ADAPTER_FOR = {
     "claude": ClaudeAdapter,
     "agy": AgyAdapter,
     "codex": CodexAdapter,
     "opencode": OpenCodeAdapter,
+    "pykrete": PykreteAdapter,
 }
 
 __all__ = [
@@ -227,5 +241,6 @@ __all__ = [
     "AgyAdapter",
     "CodexAdapter",
     "OpenCodeAdapter",
+    "PykreteAdapter",
     "ADAPTER_FOR",
 ]
