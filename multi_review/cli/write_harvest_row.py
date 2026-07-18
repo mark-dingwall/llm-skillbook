@@ -36,6 +36,8 @@ def _state_to_result(state: dict, review_text: str = "") -> ReviewerResult:
         usage=usage,
         elapsed=state.get("duration_seconds") or 0.0,
         model_used=state.get("final_model"),
+        downgraded=bool(state.get("downgraded", False)),
+        error=state.get("error"),
     )
 
 

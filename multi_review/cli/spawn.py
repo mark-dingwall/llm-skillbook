@@ -95,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         "stderr_tail": result.stderr_tail,
         "usage": asdict(result.usage) if result.usage else None,
         "final_model": result.model_used,
+        "downgraded": result.downgraded,
+        "error": result.error,
     }, indent=2))
 
     print(json.dumps({

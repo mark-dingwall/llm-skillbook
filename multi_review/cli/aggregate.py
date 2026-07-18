@@ -89,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             usage=usage,
             elapsed=state.get("duration_seconds") or 0.0,  # map JSON key → dataclass field
             model_used=state.get("final_model"),
+            error=state.get("error"),
         ))
 
     synthesis_text: str | None = None
