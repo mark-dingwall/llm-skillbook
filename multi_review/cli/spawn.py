@@ -34,7 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--prompt-file", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--model", default=None,
-                   help="Pin to a specific model; absent = CLI default.")
+                   help="Pin to a specific model (a NanoGPT family for pykrete); "
+                        "absent = CLI default.")
     p.add_argument("--effort", default=None,
                    help="Effort hint (accepted but no-op until wired through CLI_SPEC).")
     p.add_argument("--timeout", type=int, default=None,

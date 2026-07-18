@@ -24,8 +24,8 @@ from multi_review.core.reviewers import (
 )
 
 # Dual failure threshold: captured output must be at least this many bytes for
-# a zero-exit run to be considered successful. Don't lower this — both checks
-# (rc==0 AND size>=threshold) have caught real breakage.
+# a run to be considered successful. Don't lower this — both checks (exit code
+# in the CLI's success set AND size>=threshold) have caught real breakage.
 FAILURE_MIN_BYTES = 50
 
 # Max stderr kept for failure diagnosis (chars, UTF-8 decoded).

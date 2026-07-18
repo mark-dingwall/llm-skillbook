@@ -1,6 +1,6 @@
 ---
 name: multi-review
-description: Fan out a code review across claude/agy/codex/opencode, aggregate into REVIEW.md, optionally synthesize. Supports inline + reference modes including automated paired-pass runs with drift detection.
+description: Fan out a code review across claude/agy/codex/opencode/pykrete, aggregate into REVIEW.md, optionally synthesize. Supports inline + reference modes including automated paired-pass runs with drift detection.
 ---
 
 # multi-review
@@ -22,7 +22,7 @@ Orchestrate a multi-model code review.
 
 Extract: prompt-files list (or build), resume-pair id, `--report`, `--use-defaults` seed, `--list-reviewers`.
 
-If `--list-reviewers`: probe each known CLI via `shutil.which <cli>` + `<cli> --version`; print availability, detected default models, and the host backend (Task subagent for claude in v0.2). Exit. (Replaces v0.1's flag with a skill-local procedure per spec §5.1.)
+If `--list-reviewers`: probe each of `claude, agy, codex, opencode, pykrete` (i.e. `ALL_REVIEWERS`) via `shutil.which <cli>` + `<cli> --version`; print availability, detected default models, and the host backend (Task subagent for claude in v0.2). Exit. (Replaces v0.1's flag with a skill-local procedure per spec §5.1.)
 
 **Resolve central path:** read `~/.claude/skills/multi-review/config.json` `central_path` field. Stash it as `CENTRAL_PATH` for use by later steps. Fail with a setup hint if config.json absent.
 
@@ -108,7 +108,7 @@ uv run python -m multi_review.cli.snapshot create \
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
      --out-dir <REVIEWS_DIR> <MODEL_FLAG> <EFFORT_FLAG>
    ```
-   An unset value emits NO token — never `--model ""` (a blank string would hand agy an empty model). `spawn.py` defaults both to `None`; agy/codex/opencode ship unset by default, so their command is just the base argv with neither flag.
+   An unset value emits NO token — never `--model ""` (a blank string would hand agy an empty model). `spawn.py` defaults both to `None`; agy/codex/opencode/pykrete ship unset by default, so their command is just the base argv with neither flag.
 2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
 
    The agent definition is read-only (`tools: Read, Grep, Glob` — no Write per spec §5.2). Claude Code's Task tool returns the agent's final assistant message as a string; the host CAPTURES that string and persists it. Record wall time around the Task call as `<claude_duration>`. Then in a Bash heredoc write the captured text to `<REVIEWS_DIR>/claude.txt` and invoke the host-side writer:
@@ -130,7 +130,7 @@ was dispatched:
   `TaskGet <task_id>` returns its status; poll until `status == "complete"`.
   Read the final state via the state.json the reviewer writes (or via
   `TaskOutput` for the agent's return text — but state.json is authoritative).
-- **External reviewers** (`agy`, `codex`, `opencode`, dispatched via
+- **External reviewers** (`agy`, `codex`, `opencode`, `pykrete`, dispatched via
   `Bash run_in_background` running `multi_review.cli.spawn`):
   `BashOutput <bash_id>` returns the latest stdout/stderr lines + an `exited`
   flag. Poll until `exited: true` for every external bash_id.
