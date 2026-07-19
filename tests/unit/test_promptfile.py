@@ -119,6 +119,10 @@ def test_dataclass_default_reviewers_excludes_grok():
     pf = PromptFile(prompt_format_version=1, task="code", files=["a.py"])
     assert pf.reviewers == DEFAULT_REVIEWERS
     assert "grok" not in pf.reviewers
+    # Same opt-in dimension, the SYNTHESIZER: direct construction must not
+    # default to grok either.
+    assert pf.synthesizer == "claude"
+    assert pf.synthesizer != "grok"
 
 
 def test_grok_omitted_from_filled_defaults():

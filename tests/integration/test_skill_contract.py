@@ -220,6 +220,19 @@ def test_builder_autonomous_default_matches_DEFAULT_REVIEWERS():
     )
 
 
+def test_builder_autonomous_default_synthesizer_is_claude():
+    """Companion guard to the reviewers pin above: the SYNTHESIZER is the
+    other opt-in dimension. Nothing pins `## Defaults`' `- synthesizer: ...`
+    line, so changing it to grok would auto-select grok as the consensus
+    synthesizer in every `--use-defaults` build with the suite green."""
+    section = _builder_defaults_section()
+    m = re.search(r"^- synthesizer: (\S+)\s*$", section, re.MULTILINE)
+    assert m, "builder `## Defaults` lost its `- synthesizer: ...` line"
+    assert m.group(1) == "claude", (
+        f"builder autonomous synthesizer default {m.group(1)!r} != 'claude'"
+    )
+
+
 def _builder_schema_block() -> str:
     """The fenced schema-template code block near the top of the builder agent
     file — this is what drives INTERACTIVE mode's authored YAML, where
@@ -310,6 +323,12 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
     )
     assert "resolved.models[resolved.synthesizer]" in step6, (
         "SKILL.md Step 6 synthesis model lookup lost its resolved qualifier"
+    )
+    # The substring "resolved.synthesizer" alone would still appear in the
+    # <SYNTH_MODEL_FLAG> line even if the actual --cli dispatch were mutated
+    # to a hardcoded CLI (e.g. "--cli grok"). Pin the literal dispatch token.
+    assert "--cli <resolved.synthesizer>" in step6, (
+        "SKILL.md Step 6 synthesis dispatch lost its --cli <resolved.synthesizer> binding"
     )
     # 3. Resume: pass 2 must reuse pass 1's resolved set, not re-derive it.
     # Scoped per site: the pointer string appears both where pass 1 writes it
