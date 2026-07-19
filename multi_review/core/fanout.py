@@ -218,14 +218,22 @@ async def run_reviewer(
     stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
     text = adapter.get_response_text()
     success_codes = CLI_SPEC[cli].get("success_exit_codes", (0,))
-    ok = reviewer_ok(cli, rc, text)
+    base_ok = reviewer_ok(cli, rc, text)
+    # Demote on an adapter-reported terminal error (currently only GrokAdapter
+    # sets last_error, on a non-EndTurn stopReason or an {"type":"error"}
+    # event) — rc+bytes alone would record a refusal/abort as a successful
+    # review. No-op for every other reviewer, whose adapters never set it.
+    ok = base_ok and not adapter.last_error
     downgraded = ok and rc != 0            # rc is a non-zero success code
     state.status = "done" if ok else "failed"
     if state_callback is not None:
         state_callback(cli, state)
     err = None
     if not ok:
-        err = f"exit {rc}" if rc not in success_codes else f"empty output (<{FAILURE_MIN_BYTES} bytes)"
+        if base_ok and adapter.last_error:
+            err = adapter.last_error
+        else:
+            err = f"exit {rc}" if rc not in success_codes else f"empty output (<{FAILURE_MIN_BYTES} bytes)"
     if CLI_SPEC[cli].get("records_family_not_model"):
         recorded_model = f"family:{model}" if model is not None else None
     else:

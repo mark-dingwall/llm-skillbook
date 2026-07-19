@@ -225,16 +225,49 @@ def test_grok_adapter_coerces_bad_token_counters():
     assert a.usage.cached_tokens == 0
     # bool is an int subclass in Python, so this is the non-obvious half of
     # _int0's guard: True must not silently become a token count of 1. A
-    # negative counter is likewise rejected. Assign directly rather than
-    # accumulate (usage is absolute per event), so re-feed a second "end".
-    a.feed_line('{"type":"end","stopReason":"EndTurn","usage":'
+    # negative counter is likewise rejected. Use a FRESH adapter instance: the
+    # terminal latch (test_grok_adapter_latches_after_end_*) now drops any
+    # event fed after a first "end", so this can no longer be a second event
+    # on `a` — that would test the latch, not per-field coercion.
+    b = GrokAdapter()
+    b.feed_line('{"type":"end","stopReason":"EndTurn","usage":'
                 '{"input_tokens":true,"output_tokens":-5,'
                 '"cache_read_input_tokens":300}}')
-    assert a.usage.input_tokens == 0     # bool rejected, not coerced to 1
-    assert a.usage.output_tokens == 0    # negative rejected
-    assert a.usage.cached_tokens == 300  # a valid counter still passes through
-    for v in a.usage.as_dict().values():
+    assert b.usage.input_tokens == 0     # bool rejected, not coerced to 1
+    assert b.usage.output_tokens == 0    # negative rejected
+    assert b.usage.cached_tokens == 300  # a valid counter still passes through
+    for v in b.usage.as_dict().values():
         assert isinstance(v, int) and not isinstance(v, bool)
+
+
+def test_grok_adapter_latches_after_end_ignores_late_text():
+    """A late `text` event arriving after `end` must not re-open the phase or
+    corrupt the already-finalised review body."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line(json.dumps({"type": "text", "data": "## Summary\nreal body\n"}))
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn",
+                            "usage": {"input_tokens": 10}}))
+    assert a.phase == "done"
+    a.feed_line(json.dumps({"type": "text", "data": "LATE GARBAGE"}))
+    assert a.phase == "done"
+    assert "LATE GARBAGE" not in a.text
+
+
+def test_grok_adapter_latches_after_end_ignores_duplicate_partial_end():
+    """A second, partial `end` (missing usage fields) arriving after a valid
+    `end` must not zero out the already-recorded counters."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn",
+                            "usage": {"input_tokens": 100, "output_tokens": 50,
+                                      "cache_read_input_tokens": 10}}))
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn", "usage": {}}))
+    assert a.usage.input_tokens == 100
+    assert a.usage.output_tokens == 50
+    assert a.usage.cached_tokens == 10
 
 
 def test_grok_registered():

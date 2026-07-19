@@ -32,6 +32,15 @@ def _grok_resolves_to_fixture():
     turn them into live, paid calls to the real grok CLI instead of failing
     loudly. Fail here, before any subprocess is spawned, if PATH doesn't
     resolve `grok` inside the fixture bin.
+
+    That assertion alone only validates what _env() COMPUTES, not what actually
+    reaches each launch — a future edit that dropped `env=_env(...)` in favour
+    of ambient `os.environ`, or added a raw subprocess call elsewhere in this
+    file, would keep this guard green while resolving the real, network-calling
+    `grok` off the real PATH. So also prepend FIXTURE_BIN to the process's own
+    `os.environ["PATH"]` for the duration of this module, restoring it after —
+    belt-and-braces: even a launch that forgets `env=_env(...)` and falls back
+    to ambient os.environ still resolves the shim, not the real binary.
     """
     resolved = shutil.which("grok", path=_env()["PATH"])
     assert resolved and Path(resolved).parent == FIXTURE_BIN, (
@@ -39,6 +48,12 @@ def _grok_resolves_to_fixture():
         "PATH prepend in _env() may have regressed; refusing to run this file "
         "against a possibly-real grok binary"
     )
+    old_path = os.environ["PATH"]
+    os.environ["PATH"] = f"{FIXTURE_BIN}:{old_path}"
+    try:
+        yield
+    finally:
+        os.environ["PATH"] = old_path
 
 
 def _spawn(tmp_path, prompt_text="review this code please", extra_args=(), env_extra=None):
@@ -50,7 +65,7 @@ def _spawn(tmp_path, prompt_text="review this code please", extra_args=(), env_e
         ["uv", "run", "python", "-m", "multi_review.cli.spawn",
          "--cli", "grok", "--prompt-file", str(prompt),
          "--out-dir", str(out_dir), *extra_args],
-        capture_output=True, text=True, env=_env(env_extra),
+        capture_output=True, text=True, env=_env(env_extra), timeout=60,
     )
     return r, out_dir, prompt
 
@@ -128,6 +143,7 @@ def test_synthesize_uses_plain_output_not_jsonl(tmp_path):
          "--prompt-file", str(review_body), "--out-dir", str(out_dir)],
         capture_output=True, text=True,
         env=_env({"GROK_ARGV_LOG": str(argv_log), "GROK_STDIN_LOG": str(stdin_log)}),
+        timeout=60,
     )
     assert r.returncode == 0, r.stderr
     j = json.loads(r.stdout)
@@ -163,7 +179,7 @@ def test_synthesize_model_pin_recorded_verbatim(tmp_path):
          "--cli", "grok", "--task-mode", "synthesize",
          "--model", "grok-4.5-build", "--input-nonce", "deadbeef",
          "--prompt-file", str(review_body), "--out-dir", str(out_dir)],
-        capture_output=True, text=True, env=_env(),
+        capture_output=True, text=True, env=_env(), timeout=60,
     )
     assert r.returncode == 0, r.stderr
     state = json.loads((out_dir / "synth.state.json").read_text())
@@ -194,3 +210,15 @@ def test_short_output_fails_on_byte_floor(tmp_path):
     state = json.loads((out_dir / "grok.state.json").read_text())
     assert state["ok"] is False
     assert "50" in state["error"]      # byte floor, not exit code
+
+
+def test_non_endturn_stop_reason_is_a_recorded_failure(tmp_path):
+    """rc 0 and a well-formed, >50-byte `## Summary` body are not sufficient:
+    a refusal/abort surfaces only via the `end` event's stopReason. Without
+    wiring GrokAdapter.last_error into classification, this run would be
+    recorded ok:true — a refusal persisted as a successful review."""
+    r, out_dir, _ = _spawn(tmp_path, env_extra={"FAKE_GROK_STOP_REASON": "PermissionDenied"})
+    assert r.returncode == 1
+    state = json.loads((out_dir / "grok.state.json").read_text())
+    assert state["ok"] is False
+    assert "PermissionDenied" in state["error"]

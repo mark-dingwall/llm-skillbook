@@ -267,6 +267,13 @@ class GrokAdapter(ProgressAdapter):
             return
         if not isinstance(ev, dict):
             return
+        if getattr(self, "_terminal", False):
+            # Terminal latch: once `end`/`error` has been processed, ignore
+            # everything after it. Without this, a late `text` line re-opens
+            # `phase` and corrupts the finished body, and a second, partial
+            # `end` (missing usage fields) zeroes out good counters via
+            # _int0(None) == 0 — since usage is assigned, not accumulated.
+            return
         t = ev.get("type")
         if t == "thought":
             self.phase = "thinking"
@@ -289,9 +296,11 @@ class GrokAdapter(ProgressAdapter):
             stop = ev.get("stopReason")
             if stop and stop != "EndTurn":
                 self.last_error = f"stopReason={stop}"
+            self._terminal = True
         elif t == "error":
             self.phase = "error"
             self.last_error = str(ev.get("message") or ev.get("error") or "error")
+            self._terminal = True
 
 
 ADAPTER_FOR = {

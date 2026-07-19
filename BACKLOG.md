@@ -37,6 +37,11 @@ grok because `detect_self()` has no grok branch (no known env marker). Not an
 issue today: v0.2's entry point is a Claude Code skill. Revisit if a grok-hosted
 invocation path appears.
 
+### Refine grok terminal-failure classification once the live `stopReason` vocabulary is enumerated
+
+Currently any non-EndTurn stopReason demotes the run (fanout.py), which is
+conservative but may false-fail benign truncations.
+
 ## Reviewer stdin lifecycle (pre-existing, 2026-07-19)
 
 ### `fanout.py` writes the whole prompt before starting the output drainers
