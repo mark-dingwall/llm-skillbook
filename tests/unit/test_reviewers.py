@@ -153,8 +153,9 @@ def test_build_command_codex_pinned_still_works():
     assert "gpt-5.5" in cmd
 
 def test_pykrete_known_and_default():
-    from multi_review.core.reviewers import ALL_REVIEWERS, CLI_SPEC
-    assert "pykrete" in ALL_REVIEWERS            # known/valid AND default-on
+    from multi_review.core.reviewers import ALL_REVIEWERS, DEFAULT_REVIEWERS, CLI_SPEC
+    assert "pykrete" in ALL_REVIEWERS         # known/valid
+    assert "pykrete" in DEFAULT_REVIEWERS     # AND default-on (post-split proof)
     assert CLI_SPEC["pykrete"]["success_exit_codes"] == (0, 3)
 
 def test_build_command_pykrete_family_and_config(monkeypatch):
@@ -181,3 +182,80 @@ def test_build_command_pykrete_requires_config(monkeypatch):
     monkeypatch.delenv("PYKRETE_CONFIG", raising=False)
     with pytest.raises(ValueError, match="PYKRETE_CONFIG"):
         build_command("pykrete", model=None, streaming=True)
+
+
+def test_grok_is_known_but_not_default():
+    from multi_review.core.reviewers import ALL_REVIEWERS, DEFAULT_REVIEWERS
+    assert "grok" in ALL_REVIEWERS          # valid wherever a reviewer is named
+    assert "grok" not in DEFAULT_REVIEWERS  # never auto-selected
+
+
+def test_default_reviewers_is_exactly_the_five():
+    from multi_review.core.reviewers import DEFAULT_REVIEWERS
+    assert DEFAULT_REVIEWERS == ["claude", "agy", "codex", "opencode", "pykrete"]
+
+
+def test_resolve_reviewers_never_auto_selects_grok():
+    from multi_review.core.reviewers import resolve_reviewers
+    chosen = resolve_reviewers(
+        explicit=None, skip_self=False, self_cli="",
+        available={"claude", "agy", "codex", "opencode", "pykrete", "grok"},
+    )
+    assert "grok" not in chosen
+    assert "claude" in chosen
+
+
+def test_resolve_reviewers_explicit_selection_still_passes_through():
+    """Regression guard on generic explicit-selection behaviour only.
+
+    NOT evidence that grok is a *known* reviewer: resolve_reviewers filters on
+    `available` and never checks membership of any reviewer set, so this passes
+    for any string. Grok's validity is proved by the validate() test in
+    tests/unit/test_promptfile.py.
+    """
+    from multi_review.core.reviewers import resolve_reviewers
+    chosen = resolve_reviewers(
+        explicit=["grok"], skip_self=False, self_cli="",
+        available={"claude", "grok"},
+    )
+    assert chosen == ["grok"]
+
+
+def test_detect_available_probes_grok(monkeypatch):
+    """--list-reviewers must report grok's availability even though it is opt-in."""
+    import multi_review.core.reviewers as m
+    monkeypatch.setattr(m.shutil, "which", lambda c: "/usr/bin/" + c)
+    assert "grok" in m.detect_available()
+
+
+def test_build_command_grok_argv_shape():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("grok", model=None, streaming=True)
+    assert cmd[0] == "grok"
+    # Prompt is delivered via the stdin pipe that /dev/stdin resolves to.
+    assert cmd[cmd.index("--prompt-file") + 1] == "/dev/stdin"
+    assert cmd[cmd.index("--sandbox") + 1] == "workspace"
+    assert cmd[cmd.index("--output-format") + 1] == "streaming-json"
+    assert "-" not in cmd            # no stdin sentinel; it would be a stray prompt arg
+
+
+def test_build_command_grok_model_pin():
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("grok", model="grok-4.5-build", streaming=True)
+    assert cmd[cmd.index("--model") + 1] == "grok-4.5-build"
+
+
+def test_build_command_grok_synthesis_drops_stream_flags():
+    """streaming=False is the synthesis path: plain stdout, still stdin-delivered."""
+    from multi_review.core.reviewers import build_command
+    cmd = build_command("grok", model=None, streaming=False)
+    assert "--output-format" not in cmd
+    assert cmd[cmd.index("--prompt-file") + 1] == "/dev/stdin"
+
+
+def test_grok_has_no_pykrete_machinery():
+    from multi_review.core.reviewers import CLI_SPEC
+    spec = CLI_SPEC["grok"]
+    assert "success_exit_codes" not in spec      # succeeds only on 0
+    assert "config_env" not in spec
+    assert not spec.get("records_family_not_model")  # grok reports real model IDs
