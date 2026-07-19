@@ -8,8 +8,11 @@ wiring, or the review-vs-synthesis output contract drifted.
 """
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 FIXTURE_BIN = Path(__file__).parent.parent / "fixtures" / "bin"
 
@@ -19,6 +22,23 @@ def _env(extra=None):
     if extra:
         env.update(extra)
     return env
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _grok_resolves_to_fixture():
+    """Whole-file guard: only 2 of the tests below assert FIXTURE_GROK_MARKER.
+    The rest drive behaviour purely through FAKE_GROK_* env vars that the real
+    binary ignores, so a regression in _env()'s PATH prepend would silently
+    turn them into live, paid calls to the real grok CLI instead of failing
+    loudly. Fail here, before any subprocess is spawned, if PATH doesn't
+    resolve `grok` inside the fixture bin.
+    """
+    resolved = shutil.which("grok", path=_env()["PATH"])
+    assert resolved and Path(resolved).parent == FIXTURE_BIN, (
+        f"grok resolved to {resolved!r}, not the fixture bin {FIXTURE_BIN} — "
+        "PATH prepend in _env() may have regressed; refusing to run this file "
+        "against a possibly-real grok binary"
+    )
 
 
 def _spawn(tmp_path, prompt_text="review this code please", extra_args=(), env_extra=None):

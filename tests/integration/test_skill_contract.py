@@ -220,6 +220,56 @@ def test_builder_autonomous_default_matches_DEFAULT_REVIEWERS():
     )
 
 
+def _builder_schema_block() -> str:
+    """The fenced schema-template code block near the top of the builder agent
+    file — this is what drives INTERACTIVE mode's authored YAML, where
+    `## Defaults` (autonomous-mode only) never applies. The final whole-branch
+    review found that adding grok to this block's `reviewers: [...]` line
+    would leave the whole suite green, since only the `## Defaults` bullet was
+    pinned. This is the companion guard.
+    """
+    text = (AGENTS_DIR / "multi-review-build.md").read_text()
+    blocks = _fenced_blocks(text)
+    assert blocks, "builder agent lost its schema fenced block"
+    return blocks[0]
+
+
+def test_builder_schema_reviewers_line_matches_DEFAULT_REVIEWERS():
+    """Pins the schema block's `reviewers: [...]` template line, not just the
+    `## Defaults` bullet — see `_builder_schema_block` for why both are needed.
+    """
+    from multi_review.core.reviewers import DEFAULT_REVIEWERS
+    block = _builder_schema_block()
+    line = next(
+        (l for l in block.splitlines() if l.strip().startswith("reviewers:")), None
+    )
+    assert line, "builder schema lost its `reviewers: [...]` template line"
+    line = line.split("#", 1)[0]  # strip trailing comment before parsing the list
+    m = re.search(r"\[([^\]]*)\]", line)
+    assert m, f"builder schema reviewers line has no [...] list: {line!r}"
+    listed = [s.strip() for s in m.group(1).split(",") if s.strip()]
+    assert listed == DEFAULT_REVIEWERS, (
+        f"builder schema reviewers template {listed} != DEFAULT_REVIEWERS {DEFAULT_REVIEWERS}"
+    )
+
+
+def test_builder_grok_only_appears_on_opt_in_or_choice_lines():
+    """Every mention of grok in the builder agent must sit on a synthesizer-
+    choice line, a models-mapping line, or explicit opt-in prose — never
+    silently folded into the reviewers default/schema list. Checks for a
+    marker substring per line (not exact text) so innocuous rewording doesn't
+    make this brittle.
+    """
+    text = (AGENTS_DIR / "multi-review-build.md").read_text()
+    allowed = ("synthesizer:", "models", "opt-in")
+    for line in text.splitlines():
+        if not re.search(r"\bgrok\b", line):
+            continue
+        assert any(a in line for a in allowed), (
+            f"unexpected grok mention outside synthesizer/models/opt-in context: {line!r}"
+        )
+
+
 def test_builder_lists_grok_as_a_valid_synthesizer_choice():
     """grok must be nameable by the builder even though it is never a default.
 
@@ -232,6 +282,23 @@ def test_builder_lists_grok_as_a_valid_synthesizer_choice():
     choices = {c.strip() for c in m.group(1).split("|")}
     assert "grok" in choices, f"grok missing from synthesizer choices {choices}"
     assert "none" in choices
+
+
+def _skill_step_section(step_num: int) -> str:
+    """The body of `### Step <n> — ...` up to (not including) the next heading
+    of depth 1-3. Same scoping idea as `_builder_defaults_section`: an
+    unscoped substring search can stay green while the actual selection site
+    is deleted, as long as the string survives somewhere else in the file
+    (e.g. a later "Notes on ..." section, or a different step that merely
+    reads what this step writes).
+    """
+    text = SKILL.read_text()
+    m = re.search(
+        rf"^### Step {step_num}\b[^\n]*\n(.*?)(?=^#{{1,3}} |\Z)",
+        text, re.MULTILINE | re.DOTALL,
+    )
+    assert m, f"SKILL.md missing Step {step_num} section"
+    return m.group(1)
 
 
 def test_skill_dispatch_binds_to_resolved_reviewers():
@@ -251,13 +318,25 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
         "SKILL.md Step 5 fanout instruction lost its resolved-set qualifier"
     )
     # 2. Synthesis: which CLI runs the consensus pass, and with which model.
-    assert "resolved.synthesizer" in text, (
+    # Scoped to Step 6 itself: "resolved.synthesizer" also appears in the
+    # closing "Notes on `claude` not in reviewers" section, so an unscoped
+    # search would stay green even if Step 6's own selection logic regressed.
+    step6 = _skill_step_section(6)
+    assert "resolved.synthesizer" in step6, (
         "SKILL.md Step 6 must select the synthesizer from the resolved object"
     )
-    assert "resolved.models[resolved.synthesizer]" in text, (
+    assert "resolved.models[resolved.synthesizer]" in step6, (
         "SKILL.md Step 6 synthesis model lookup lost its resolved qualifier"
     )
     # 3. Resume: pass 2 must reuse pass 1's resolved set, not re-derive it.
-    assert "pending/<pair_id>/prompt-source.txt" in text, (
-        "SKILL.md resume path must read the prompt pointer pass 1 persisted"
+    # Scoped per site: the pointer string appears both where pass 1 writes it
+    # (Step 5) and where resume reads it (Step 2). Deleting either site while
+    # the other survives must fail this test, not stay green.
+    step2 = _skill_step_section(2)
+    step5 = _skill_step_section(5)
+    assert "pending/<pair_id>/prompt-source.txt" in step2, (
+        "SKILL.md Step 2 resume path must read the prompt pointer pass 1 persisted"
+    )
+    assert "pending/<pair_id>/prompt-source.txt" in step5, (
+        "SKILL.md Step 5 must persist the prompt pointer for Step 2's resume to read"
     )

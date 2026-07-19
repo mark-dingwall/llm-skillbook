@@ -223,6 +223,16 @@ def test_grok_adapter_coerces_bad_token_counters():
     assert a.usage.input_tokens == 0
     assert a.usage.output_tokens == 0
     assert a.usage.cached_tokens == 0
+    # bool is an int subclass in Python, so this is the non-obvious half of
+    # _int0's guard: True must not silently become a token count of 1. A
+    # negative counter is likewise rejected. Assign directly rather than
+    # accumulate (usage is absolute per event), so re-feed a second "end".
+    a.feed_line('{"type":"end","stopReason":"EndTurn","usage":'
+                '{"input_tokens":true,"output_tokens":-5,'
+                '"cache_read_input_tokens":300}}')
+    assert a.usage.input_tokens == 0     # bool rejected, not coerced to 1
+    assert a.usage.output_tokens == 0    # negative rejected
+    assert a.usage.cached_tokens == 300  # a valid counter still passes through
     for v in a.usage.as_dict().values():
         assert isinstance(v, int) and not isinstance(v, bool)
 
