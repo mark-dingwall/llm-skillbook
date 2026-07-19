@@ -181,3 +181,83 @@ def test_skill_flags_exist():
                     f"{(' ' + sub) if sub else ''} references {flag} "
                     f"which is not a recognized flag (help: {sorted(valid)})"
                 )
+
+
+def _builder_defaults_section() -> str:
+    """The `## Defaults` section only, up to the next heading.
+
+    Scoping matters: an unscoped document-wide search could match a
+    default-looking bullet elsewhere while the real autonomous default quietly
+    gained grok.
+    """
+    text = (AGENTS_DIR / "multi-review-build.md").read_text()
+    m = re.search(r"^## Defaults$(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    assert m, "builder agent lost its `## Defaults` section"
+    return m.group(1)
+
+
+def test_builder_autonomous_default_matches_DEFAULT_REVIEWERS():
+    """The builder agent's autonomous (--use-defaults) reviewer list is the
+    SOURCE OF the live opt-in enforcement point: resolve_reviewers has no caller
+    outside tests, and an explicit `reviewers` list in the authored YAML bypasses
+    fill_defaults entirely. If someone adds grok to that prose list, opt-in is
+    silently dead and every Python test still passes. This is the guard.
+
+    Scope caveat: this asserts the REPO copy. `setup.py` copies agents into
+    ~/.claude (symlinks only under --dev), so a stale install can still differ.
+    That is a deployment concern, covered by the reinstall step in
+    tests/manual/grok-smoke.md, not something this test can see.
+    """
+    from multi_review.core.reviewers import DEFAULT_REVIEWERS
+    section = _builder_defaults_section()
+    matches = re.findall(r"^- reviewers: \[([^\]]*)\]\s*$", section, re.MULTILINE)
+    assert len(matches) == 1, (
+        f"expected exactly one `- reviewers: [...]` default line, found {len(matches)}"
+    )
+    listed = [s.strip() for s in matches[0].split(",") if s.strip()]
+    assert listed == DEFAULT_REVIEWERS, (
+        f"builder autonomous default {listed} != DEFAULT_REVIEWERS {DEFAULT_REVIEWERS}"
+    )
+
+
+def test_builder_lists_grok_as_a_valid_synthesizer_choice():
+    """grok must be nameable by the builder even though it is never a default.
+
+    Tokenised, not a substring test: `"grok" in line` would also be satisfied by
+    text like `grok-disabled`.
+    """
+    text = (AGENTS_DIR / "multi-review-build.md").read_text()
+    m = re.search(r"^synthesizer: (.+)$", text, re.MULTILINE)
+    assert m, "builder schema lost its synthesizer choice line"
+    choices = {c.strip() for c in m.group(1).split("|")}
+    assert "grok" in choices, f"grok missing from synthesizer choices {choices}"
+    assert "none" in choices
+
+
+def test_skill_dispatch_binds_to_resolved_reviewers():
+    """The reviewer-selecting steps must name the validated set, not an
+    unqualified `reviewers` that an LLM orchestrator could satisfy from the
+    known/probed list — which contains opt-in grok.
+
+    Pins the three sites that actually SELECT what runs. The remaining
+    Task 4 edits (claude-inclusion note, pass-2 back-reference, closing rules)
+    are consistency edits, not selection sites, and are deliberately not
+    pinned — literal-string assertions on prose are a false-positive source,
+    and this file's stated design constraint is NO false positives.
+    """
+    text = SKILL.read_text()
+    # 1. Fanout: which reviewers get dispatched.
+    assert "every non-claude reviewer in `resolved.reviewers`" in text, (
+        "SKILL.md Step 5 fanout instruction lost its resolved-set qualifier"
+    )
+    # 2. Synthesis: which CLI runs the consensus pass, and with which model.
+    assert "resolved.synthesizer" in text, (
+        "SKILL.md Step 6 must select the synthesizer from the resolved object"
+    )
+    assert "resolved.models[resolved.synthesizer]" in text, (
+        "SKILL.md Step 6 synthesis model lookup lost its resolved qualifier"
+    )
+    # 3. Resume: pass 2 must reuse pass 1's resolved set, not re-derive it.
+    assert "pending/<pair_id>/prompt-source.txt" in text, (
+        "SKILL.md resume path must read the prompt pointer pass 1 persisted"
+    )

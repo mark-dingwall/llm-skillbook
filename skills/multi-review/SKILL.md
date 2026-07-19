@@ -30,7 +30,7 @@ If `--list-reviewers`: probe each of `claude, agy, codex, opencode, pykrete` (i.
 
 Determine prompt files:
 - If `--prompt-files` given: use them as-is.
-- If `--resume-pair`: skip build; read pending meta.
+- If `--resume-pair`: skip build. Read `<cwd>/.multi-review/pending/<pair_id>/prompt-source.txt` (written by pass 1) to get the prompt YAML's absolute path, then run that path through `validate_prompt` to obtain the `resolved` object — validating the original in place so relative `files` / `context_files` resolve against the same base directory pass 1 used. Pass 2 must use the same resolved set as pass 1 — never re-derive reviewers from availability or from the probe list. Before validating, re-hash the YAML and compare against `prompt-source.sha256`; **if it differs, stop** — the prompt was edited between passes, so pass 2 would silently run a different reviewer set, synthesizer, or mode under pass 1's `pair_id` and the pair's comparison data would be meaningless. If the pointer file, the hash file, or the prompt YAML it names is absent, the pair is likewise unresumable: report which one is missing and stop, rather than guessing a reviewer set.
 - If `--report`: skip build.
 - Otherwise: dispatch `multi-review-build` Task subagent:
   - With seed text and (interactive | autonomous) mode flag.
@@ -41,6 +41,8 @@ Validate every YAML via Bash:
 uv run python -m multi_review.cli.validate_prompt <path>
 ```
 Abort batch if any invalid (print specific field error to user).
+
+Capture the `resolved` object from `validate_prompt`'s JSON output and treat it as the **sole** source of `reviewers`, `synthesizer`, `models`, `model_effort`, `mode`, and `if_drift` for the rest of the run. Never derive a run set from `ALL_REVIEWERS`, from the `--list-reviewers` probe, or from what happens to be installed — those include opt-in reviewers (currently `grok`) that must not run unless named. Below, `resolved.<field>` always means this object's field.
 
 ### Step 3 — Sweep expired pending pairs
 
@@ -100,10 +102,25 @@ uv run python -m multi_review.cli.snapshot create \
   --context-file <ctx1> --context-file <ctx2> ...
 ```
 
+Persist the prompt location for resume. **Only when `resolved.mode == both`**
+(single-pass runs never generate a `pair_id`):
+
+    mkdir -p <cwd>/.multi-review/pending/<pair_id>
+    printf '%s\n' "<absolute path of the prompt YAML>" \
+      > <cwd>/.multi-review/pending/<pair_id>/prompt-source.txt
+    sha256sum "<absolute path of the prompt YAML>" | cut -d' ' -f1 \
+      > <cwd>/.multi-review/pending/<pair_id>/prompt-source.sha256
+
+The explicit `mkdir -p` is required: `create_snapshot()` is otherwise the only
+thing that creates `pending/<pair_id>/` (`snapshot.py:28`), and it is skipped
+entirely under `if_drift: ignore` — so without this the write fails on exactly
+the configuration that still needs to be resumable. Step 11 removes the whole
+`pending/<pair_id>/` directory after pass 2, so this leaves no lasting artifact.
+
 **Fanout sequencing — Task tool blocks the host turn (spec §6.2 step 3).** In a single assistant message:
-1. **First**, dispatch every non-claude reviewer via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer). Build argv by appending each optional flag ONLY when its value is set — `<MODEL_FLAG>` and `<EFFORT_FLAG>` below are conditional tokens, not literals:
-   - `<MODEL_FLAG>`  = `--model <models[cli]>`         if `models[cli]` is set, else **nothing** (no token at all)
-   - `<EFFORT_FLAG>` = `--effort <model_effort[cli]>`  if `model_effort[cli]` is set, else **nothing**
+1. **First**, dispatch every non-claude reviewer in `resolved.reviewers` via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer). Dispatch exactly that set — not every installed reviewer, not every reviewer in `ALL_REVIEWERS`. Build argv by appending each optional flag ONLY when its value is set — `<MODEL_FLAG>` and `<EFFORT_FLAG>` below are conditional tokens, not literals:
+   - `<MODEL_FLAG>`  = `--model <resolved.models[cli]>`         if `resolved.models[cli]` is set, else **nothing** (no token at all)
+   - `<EFFORT_FLAG>` = `--effort <resolved.model_effort[cli]>`  if `resolved.model_effort[cli]` is set, else **nothing**
    ```
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
      --out-dir <REVIEWS_DIR> <MODEL_FLAG> <EFFORT_FLAG>
@@ -140,11 +157,11 @@ versa. Track the dispatch type for each reviewer when you launch them.
 
 Total wall ≈ max(claude Task, max(other reviewers)).
 
-If `claude` is not in `reviewers`, skip the Task dispatch and the `mr-write-task-result` invocation; the join barrier reduces to BashOutput polling on each external bash_id.
+If `claude` is not in `resolved.reviewers`, skip the Task dispatch and the `mr-write-task-result` invocation; the join barrier reduces to BashOutput polling on each external bash_id.
 
 ### Step 6 — Synthesis
 
-If `synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` fields):
+If `resolved.synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` fields):
 
 First, build the synthesis prompt (both branches):
 ```
@@ -154,7 +171,7 @@ uv run python -m multi_review.cli.build_synth_input \
   --out-nonce-file <SESSION_DIR>/synth-nonce.txt
 ```
 
-- If `synthesizer == "claude"`: dispatch `multi-review-synthesizer` via Task with the synthesizer prompt at `<SESSION_DIR>/synth-prompt.md` and nonce from `<SESSION_DIR>/synth-nonce.txt`. Record wall time as `<synth_duration>`. The agent is read-only (`tools: Read`); CAPTURE the Task return value as a string, write it to `<SESSION_DIR>/synth.txt` via a Bash heredoc, then invoke:
+- If `resolved.synthesizer == "claude"`: dispatch `multi-review-synthesizer` via Task with the synthesizer prompt at `<SESSION_DIR>/synth-prompt.md` and nonce from `<SESSION_DIR>/synth-nonce.txt`. Record wall time as `<synth_duration>`. The agent is read-only (`tools: Read`); CAPTURE the Task return value as a string, write it to `<SESSION_DIR>/synth.txt` via a Bash heredoc, then invoke:
   ```
   uv run python -m multi_review.cli.write_task_result \
     --cli claude --out-dir <SESSION_DIR> \
@@ -163,10 +180,10 @@ uv run python -m multi_review.cli.build_synth_input \
     --task-mode synthesize --model claude-opus-4-7
   ```
   This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
-- Else: build argv with `<SYNTH_MODEL_FLAG>` = `--model <models[synthesizer]>` if `models[synthesizer]` is set, else **nothing** (no token at all) — conditional token, same construction as Step 5's `<MODEL_FLAG>`:
+- Else: build argv with `<SYNTH_MODEL_FLAG>` = `--model <resolved.models[resolved.synthesizer]>` if `resolved.models[resolved.synthesizer]` is set, else **nothing** (no token at all) — conditional token, same construction as Step 5's `<MODEL_FLAG>`:
   ```
   uv run python -m multi_review.cli.spawn \
-    --cli <synthesizer> \
+    --cli <resolved.synthesizer> \
     --prompt-file <SESSION_DIR>/synth-prompt.md \
     --task-mode synthesize \
     --input-nonce $(cat <SESSION_DIR>/synth-nonce.txt) \
@@ -232,7 +249,7 @@ a. If `if_drift != ignore`:
      - `drifted` + `if_drift == abort` → harvest row marks `drift_status: drifted`, skip pass 2, continue.
      - `drifted` + `if_drift == ask` → AskUserQuestion(proceed | abort | investigate). On investigate: dispatch `multi-review-investigate` with the diff + pass-1 REVIEW.md → re-ask with verdict.
 
-b. Run pass 2 fanout, synthesis, aggregate — same as Steps 5–7 with `mode_override` = pass 2 mode and `pair-id` flag passed through, **but resolve `SESSION_DIR` and `REVIEWS_DIR` against `pass2_run_id`** (not the pass-1 id). All prepare / fanout / aggregate invocations during pass 2 use `<cwd>/.multi-review/sessions/<pass2_run_id>` so pass-2 artifacts never collide with pass-1's.
+b. Run pass 2 fanout, synthesis, aggregate — same as Steps 5–7, using the same resolved.reviewers / resolved.synthesizer as pass 1, with `mode_override` = pass 2 mode and `pair-id` flag passed through, **but resolve `SESSION_DIR` and `REVIEWS_DIR` against `pass2_run_id`** (not the pass-1 id). All prepare / fanout / aggregate invocations during pass 2 use `<cwd>/.multi-review/sessions/<pass2_run_id>` so pass-2 artifacts never collide with pass-1's.
 
 c. Build pass 2 harvest row (pending).
 
@@ -320,8 +337,8 @@ The investigate subagent is never dispatched in this configuration.
 
 ## Notes on `claude` not in reviewers
 
-If the user's prompt file has `reviewers` without `claude`:
+If the user's prompt file has `resolved.reviewers` without `claude`:
 - The reviewer fanout in step 5 dispatches no Task subagent; all reviewers are subprocess.
-- The synthesizer path in step 6 still uses `multi-review-synthesizer` Task IF `synthesizer == "claude"`. Otherwise subprocess synthesis via `mr-spawn`.
+- The synthesizer path in step 6 still uses `multi-review-synthesizer` Task IF `resolved.synthesizer == "claude"`. Otherwise subprocess synthesis via `mr-spawn`.
 
 This is supported; print a one-line acknowledgement: "Note: claude reviewer omitted; synthesis still via Task subagent."
