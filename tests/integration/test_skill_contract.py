@@ -226,10 +226,12 @@ def test_builder_autonomous_default_synthesizer_is_claude():
     line, so changing it to grok would auto-select grok as the consensus
     synthesizer in every `--use-defaults` build with the suite green."""
     section = _builder_defaults_section()
-    m = re.search(r"^- synthesizer: (\S+)\s*$", section, re.MULTILINE)
-    assert m, "builder `## Defaults` lost its `- synthesizer: ...` line"
-    assert m.group(1) == "claude", (
-        f"builder autonomous synthesizer default {m.group(1)!r} != 'claude'"
+    matches = re.findall(r"^- synthesizer: (\S+)\s*$", section, re.MULTILINE)
+    assert len(matches) == 1, (
+        f"expected exactly one `- synthesizer: ...` default line, found {len(matches)}"
+    )
+    assert matches[0] == "claude", (
+        f"builder autonomous synthesizer default {matches[0]!r} != 'claude'"
     )
 
 
@@ -345,4 +347,30 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
     # in Step 5 is load-bearing too — not just the pointer .txt.
     assert "pending/<pair_id>/prompt-source.sha256" in step5, (
         "SKILL.md Step 5 must persist the prompt-source hash for Step 2's resume to verify"
+    )
+
+
+def test_skill_step2_pins_resolved_sole_source_provenance():
+    """Step 5/6 above trust `resolved.<field>` blindly — none of those
+    assertions can see WHERE `resolved` comes from. A rewrite of Step 2 that
+    replaced `resolved.reviewers` with `ALL_REVIEWERS` and `resolved.synthesizer`
+    with `grok` before dispatch would leave test_skill_dispatch_binds_to_resolved_reviewers
+    green, since Step 5/6 would then faithfully dispatch the poisoned values.
+
+    Pins a small set of stable, governing substrings from Step 2's provenance
+    sentence — not the whole sentence, which would be brittle to harmless
+    rewording.
+    """
+    step2 = _skill_step_section(2)
+    assert "validate_prompt" in step2, (
+        "SKILL.md Step 2 lost the validate_prompt provenance for `resolved`"
+    )
+    assert "sole" in step2, (
+        "SKILL.md Step 2 lost the 'sole source' framing for `resolved`"
+    )
+    assert "Never derive a run set from" in step2, (
+        "SKILL.md Step 2 lost the prohibition on deriving a run set"
+    )
+    assert "ALL_REVIEWERS" in step2, (
+        "SKILL.md Step 2 lost the ALL_REVIEWERS prohibition"
     )

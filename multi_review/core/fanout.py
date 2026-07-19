@@ -230,7 +230,7 @@ async def run_reviewer(
         state_callback(cli, state)
     err = None
     if not ok:
-        if base_ok and adapter.last_error:
+        if adapter.last_error:
             err = adapter.last_error
         else:
             err = f"exit {rc}" if rc not in success_codes else f"empty output (<{FAILURE_MIN_BYTES} bytes)"

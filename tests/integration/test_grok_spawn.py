@@ -18,9 +18,13 @@ FIXTURE_BIN = Path(__file__).parent.parent / "fixtures" / "bin"
 
 
 def _env(extra=None):
-    env = {**os.environ, "PATH": f"{FIXTURE_BIN}:{os.environ['PATH']}"}
+    env = {**os.environ}
     if extra:
         env.update(extra)
+    # Prepend FIXTURE_BIN AFTER applying extra, so a caller-supplied `PATH` in
+    # `extra` can never replace the safe, fixture-first PATH and resolve the
+    # real, paid grok binary.
+    env["PATH"] = f"{FIXTURE_BIN}:{env['PATH']}"
     return env
 
 
@@ -218,6 +222,21 @@ def test_non_endturn_stop_reason_is_a_recorded_failure(tmp_path):
     wiring GrokAdapter.last_error into classification, this run would be
     recorded ok:true — a refusal persisted as a successful review."""
     r, out_dir, _ = _spawn(tmp_path, env_extra={"FAKE_GROK_STOP_REASON": "PermissionDenied"})
+    assert r.returncode == 1
+    state = json.loads((out_dir / "grok.state.json").read_text())
+    assert state["ok"] is False
+    assert "PermissionDenied" in state["error"]
+
+
+def test_short_output_with_terminal_error_keeps_specific_detail(tmp_path):
+    """When a run fails BOTH the byte floor AND carries an adapter-reported
+    terminal error (non-EndTurn stopReason), the recorded error must be the
+    adapter's specific detail, not the generic byte-floor message — otherwise
+    the actual cause of the short/empty output is lost."""
+    r, out_dir, _ = _spawn(tmp_path, env_extra={
+        "FAKE_GROK_SHORT": "1",
+        "FAKE_GROK_STOP_REASON": "PermissionDenied",
+    })
     assert r.returncode == 1
     state = json.loads((out_dir / "grok.state.json").read_text())
     assert state["ok"] is False

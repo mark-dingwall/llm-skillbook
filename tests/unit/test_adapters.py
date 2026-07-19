@@ -173,12 +173,20 @@ def test_grok_adapter_end_event_usage_is_absolute():
     import json
     from multi_review.core.adapters import GrokAdapter
     a = GrokAdapter()
+    # Pre-seed nonzero counters BEFORE the single `end`: if usage were
+    # accumulated (+=) rather than assigned (=), these would leak into the
+    # total below. Feeding a second `end` no longer distinguishes the two
+    # cases — the terminal latch now discards any event after the first
+    # `end` regardless of `=` vs `+=` — so this must pin absolute assignment
+    # a different way: pre-seeded garbage that a correct `=` overwrites.
+    a.usage.input_tokens = 999
+    a.usage.output_tokens = 999
+    a.usage.cached_tokens = 999
     end = {"type": "end", "stopReason": "EndTurn",
            "usage": {"input_tokens": 100, "cache_read_input_tokens": 10,
                      "output_tokens": 50, "reasoning_tokens": 5,
                      "total_tokens": 165}}
     a.feed_line(json.dumps(end))
-    a.feed_line(json.dumps(end))          # a second end must not double-count
     assert a.usage.input_tokens == 100
     assert a.usage.output_tokens == 50
     assert a.usage.cached_tokens == 10    # from cache_read_input_tokens
@@ -268,6 +276,25 @@ def test_grok_adapter_latches_after_end_ignores_duplicate_partial_end():
     assert a.usage.input_tokens == 100
     assert a.usage.output_tokens == 50
     assert a.usage.cached_tokens == 10
+
+
+def test_grok_adapter_latches_after_error_ignores_late_events():
+    """The terminal latch must also engage on the `error` path, not just
+    `end`. A late `text` (or `end`) arriving after `error` must not reopen
+    `phase` or append to the already-finalised (error) body."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line(json.dumps({"type": "text", "data": "## Summary\nreal body\n"}))
+    a.feed_line(json.dumps({"type": "error", "message": "permission refused"}))
+    assert a.phase == "error"
+    a.feed_line(json.dumps({"type": "text", "data": "LATE GARBAGE"}))
+    assert a.phase == "error"
+    assert "LATE GARBAGE" not in a.text
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn",
+                            "usage": {"input_tokens": 1}}))
+    assert a.phase == "error"
+    assert a.usage.input_tokens == 0
 
 
 def test_grok_registered():
