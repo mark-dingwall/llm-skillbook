@@ -2,6 +2,37 @@
 
 Forward-looking work, not committed to a milestone. Edit freely.
 
+## pykrete deferred cluster (2026-07-19)
+
+Items deferred from the pykrete-reviewer work (Tasks 1-8). Re-evaluate before
+v0.3 or when the relevant pain surfaces.
+
+### `--task` threading from the prompt task
+
+pykrete supports task-family selection (`--task`) but nothing in `CLI_SPEC`,
+`build_command`, or the SKILL fanout threads the prompt YAML's `task` field
+(code/plan/security/generic/custom) through to pykrete's own `--task` flag.
+Today pykrete only ever sees the assembled prompt text, not a matching task
+hint. Wire `task` → pykrete `--task` once a mapping between multi-review's
+task presets and pykrete's task vocabulary is confirmed.
+
+### Capture pykrete's actual selected model (needs upstream reporting)
+
+`CLI_SPEC["pykrete"]["records_family_not_model"]` means harvest rows record
+`final_model` as `family:<name>` rather than the specific model NanoGPT
+routed to — pykrete's plain-text output doesn't surface that today. If
+pykrete adds a way to report the actual resolved model (stderr line, exit
+metadata, etc.), parse it and replace the `family:…` placeholder with the
+real model name.
+
+### JSONL passthrough adapter if pykrete adds `--format json`
+
+`PykreteAdapter` is plain-text only (see `core/adapters.py`), same posture as
+`AgyAdapter` — no per-turn telemetry, `telemetry_quality: degraded`. If a
+future pykrete release adds a structured `--format json` (or similar) output
+mode, add a JSONL-parsing adapter analogous to `CodexAdapter`/`OpenCodeAdapter`
+to recover real token/tool-call telemetry.
+
 ## v0.2.1 deferred cluster (2026-06-19)
 
 Items deferred from Bundle B Phase 1. Re-evaluate before v0.3 or when the relevant pain surfaces.

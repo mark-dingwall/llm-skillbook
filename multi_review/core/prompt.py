@@ -38,9 +38,10 @@ SUMMARY_HEADING_RE = re.compile(
 def classify_review_ok(raw_ok: bool, review_text: str) -> tuple[bool, str | None]:
     """Decide whether a review body counts as a successful review.
 
-    ``raw_ok`` is the reviewer subprocess/Task success flag (rc == 0 and
-    output over the byte floor). A review that succeeded upstream is still
-    demoted to failed if its body lacks the ``## Summary`` structural sentinel.
+    ``raw_ok`` is the reviewer subprocess/Task success flag (exit code
+    accepted by the CLI's success set and output over ``FAILURE_MIN_BYTES``).
+    A review that succeeded upstream is still demoted to failed if its body
+    lacks the ``## Summary`` structural sentinel.
 
     Returns ``(effective_ok, note)``. ``note`` is None when nothing changed,
     otherwise a short demotion reason to surface in the artifact.

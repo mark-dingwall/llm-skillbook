@@ -2,7 +2,7 @@
 
 Fan out a code review across multiple AI models in parallel, aggregate results into a `REVIEW.md`, and optionally run a consensus-synthesis pass. Supports inline and reference prompt modes, automated paired runs with drift detection, and harvest-based comparison tracking.
 
-**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (agy, codex, opencode) continue as subprocesses.
+**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (agy, codex, opencode, pykrete) continue as subprocesses.
 
 ## Requirements
 
@@ -10,9 +10,10 @@ Fan out a code review across multiple AI models in parallel, aggregate results i
 - Claude Code (TUI) — required for Task subagent dispatch
 - One or more of the supported reviewer CLIs on `PATH`:
   - [`claude`](https://github.com/anthropics/claude-code)
-  - [`gemini`](https://github.com/google-gemini/gemini-cli)
+  - `agy`
   - [`codex`](https://github.com/openai/codex)
   - [`opencode`](https://opencode.ai)
+  - `pykrete`
 
 ## Install
 
@@ -37,6 +38,25 @@ For iterating on the skill itself, `--dev` symlinks instead of copying so edits 
 ```bash
 uv run python -m multi_review.cli.setup --source-repo $(pwd) --dev
 ```
+
+## Pykrete setup
+
+`pykrete` is a **default-on** reviewer (like `agy`) — it runs in every auto-resolved reviewer set without opting in. It routes reviews through NanoGPT via the `pi` agent. Until configured, it shows up as a failed section in `REVIEW.md`.
+
+```bash
+npm link pykrete
+export NANOGPT_API_KEY=...
+```
+
+Then create a `pykrete.toml` (NanoGPT config) and point `PYKRETE_CONFIG` at it:
+
+```bash
+export PYKRETE_CONFIG=/path/to/pykrete.toml
+```
+
+`models: {pykrete: <family>}` in a prompt YAML names a NanoGPT **family** (e.g. `glm`), not a specific model — pykrete resolves the actual model within that family itself.
+
+Without `NANOGPT_API_KEY` and `PYKRETE_CONFIG` set, pykrete fails clean (recorded failure with the config error as the reason) — it does not abort the rest of the fanout.
 
 ## Usage
 
@@ -87,22 +107,23 @@ custom_prompt: |
 # both — run once in each mode (paired run for comparison)
 mode: reference
 
-# Synthesis pass. One of: claude | gemini | codex | opencode | none
+# Synthesis pass. One of: claude | agy | codex | opencode | pykrete | none
 synthesizer: claude
 
 # Reviewer set
 reviewers:
   - claude
-  - gemini
+  - agy
   - codex
   - opencode
+  - pykrete
 
 # Primary model per reviewer (optional — omit for defaults)
 models:
   claude: claude-opus-4-7
-  gemini: gemini-3.1-pro
   codex: gpt-5
   opencode: openrouter/deepseek/deepseek-v4-pro
+  pykrete: glm      # names a NanoGPT *family*, not a specific model
 
 # Effort hint per reviewer — silently ignored where unsupported
 # claude effort is pinned in the agent definition (xhigh); this field
@@ -133,7 +154,7 @@ harvest: true       # write harvest row to central runs.jsonl
 | `custom_prompt` | string | — | Required when `task == custom`. |
 | `mode` | enum | — | Required. `inline \| reference \| both`. |
 | `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
-| `reviewers` | list[enum] | all detected | Subset of `claude \| agy \| codex \| opencode`. |
+| `reviewers` | list[enum] | all detected | Subset of `claude \| agy \| codex \| opencode \| pykrete`. |
 | `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
 | `model_effort` | map | `{}` | Effort hint per reviewer. Silently ignored where unsupported. |
 | `if_drift` | enum | `ask` | `ignore \| abort \| ask`. `ask` keeps the pair comparison-eligible unless the user chooses to proceed after drift. |

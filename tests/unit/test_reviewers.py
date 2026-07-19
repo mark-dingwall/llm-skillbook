@@ -151,3 +151,33 @@ def test_build_command_codex_pinned_still_works():
     cmd = build_command("codex", model="gpt-5.5", streaming=True)
     assert "--model" in cmd
     assert "gpt-5.5" in cmd
+
+def test_pykrete_known_and_default():
+    from multi_review.core.reviewers import ALL_REVIEWERS, CLI_SPEC
+    assert "pykrete" in ALL_REVIEWERS            # known/valid AND default-on
+    assert CLI_SPEC["pykrete"]["success_exit_codes"] == (0, 3)
+
+def test_build_command_pykrete_family_and_config(monkeypatch):
+    from multi_review.core.reviewers import build_command
+    monkeypatch.setenv("PYKRETE_CONFIG", "/etc/pykrete.toml")
+    cmd = build_command("pykrete", model="glm", streaming=True)
+    assert cmd[0] == "pykrete"
+    assert cmd[cmd.index("--config") + 1] == "/etc/pykrete.toml"
+    assert cmd[cmd.index("--family") + 1] == "glm"    # family, not --model
+    assert "--model" not in cmd
+    assert cmd[-1] == "-"                               # stdin sentinel last
+    assert "--output-format" not in cmd                # plain text
+
+def test_build_command_pykrete_config_kept_without_family(monkeypatch):
+    from multi_review.core.reviewers import build_command
+    monkeypatch.setenv("PYKRETE_CONFIG", "/etc/pykrete.toml")
+    cmd = build_command("pykrete", model=None, streaming=True)
+    assert "--config" in cmd            # NOT dropped when no family override
+    assert "--family" not in cmd
+    assert cmd[-1] == "-"
+
+def test_build_command_pykrete_requires_config(monkeypatch):
+    from multi_review.core.reviewers import build_command
+    monkeypatch.delenv("PYKRETE_CONFIG", raising=False)
+    with pytest.raises(ValueError, match="PYKRETE_CONFIG"):
+        build_command("pykrete", model=None, streaming=True)

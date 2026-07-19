@@ -36,6 +36,7 @@ TELEMETRY_QUALITY: dict[str, str] = {
     "agy": "degraded",          # plain-text output, no token telemetry (Usage stays zero)
     "codex": "reliable",
     "opencode": "known-issues",
+    "pykrete": "degraded",      # plain-text output, no token telemetry
 }
 
 
@@ -120,7 +121,7 @@ def build_row(
             "elapsed_s": round(r.elapsed, 1),
             # v2 additions
             "telemetry_quality": TELEMETRY_QUALITY.get(r.cli, "degraded"),
-            "comparison_eligible": not drift_blocks_eligibility,
+            "comparison_eligible": not drift_blocks_eligibility and not r.downgraded,
             "final_model": final_model,
         }
         usage_by_reviewer[r.cli] = per_rev

@@ -118,3 +118,21 @@ def test_opencode_adapter_reads_part_tokens():
     assert a.usage.input_tokens == 100
     assert a.usage.output_tokens == 50
     assert a.usage.cached_tokens == 10
+
+
+def test_pykrete_adapter_accumulates_plaintext():
+    from multi_review.core.adapters import PykreteAdapter
+    a = PykreteAdapter(); a.feed_line("## Summary"); a.feed_line("Fine.")
+    assert a.text == "## Summary\nFine."
+    assert a.usage.input_tokens == 0
+
+
+def test_pykrete_adapter_does_not_trim_preamble():
+    from multi_review.core.adapters import PykreteAdapter
+    a = PykreteAdapter(); a.feed_line("Intro before heading."); a.feed_line("## Summary")
+    assert a.text.startswith("Intro before heading.")
+
+
+def test_pykrete_registered():
+    from multi_review.core.adapters import ADAPTER_FOR, PykreteAdapter
+    assert ADAPTER_FOR["pykrete"] is PykreteAdapter

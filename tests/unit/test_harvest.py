@@ -21,6 +21,52 @@ def test_telemetry_quality_agy_not_gemini():
     assert TELEMETRY_QUALITY["agy"] == "degraded"
 
 
+def test_pykrete_telemetry_degraded():
+    from multi_review.core.harvest import TELEMETRY_QUALITY
+    assert TELEMETRY_QUALITY["pykrete"] == "degraded"
+
+
+def test_downgraded_state_yields_ineligible_row(tmp_path):
+    """A pykrete exit-3 downgrade (rc!=0, ok=True) must not count toward the
+    paired-comparison log — drives the real state.json -> write_harvest_row.main
+    boundary, not a direct build_row(ReviewerResult(...)) call."""
+    from multi_review.cli.write_harvest_row import main as write_harvest_row_main
+
+    state_dir = tmp_path / "states"
+    state_dir.mkdir()
+    (state_dir / "pykrete.state.json").write_text(json.dumps({
+        "cli": "pykrete",
+        "ok": True,
+        "duration_seconds": 4.0,
+        "stderr_tail": "",
+        "usage": {"input_tokens": 10, "output_tokens": 20, "cached_tokens": 0, "tool_calls": 0},
+        "final_model": "family:fallback-model",
+        "downgraded": True,
+        "error": None,
+    }))
+
+    review = tmp_path / "REVIEW.md"
+    review.write_text("# Review\n" + ("x" * 200))
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Review this.")
+    log = tmp_path / "runs.jsonl"
+
+    rc = write_harvest_row_main([
+        "--state-dir", str(state_dir),
+        "--out-review", str(review),
+        "--prompt-file", str(prompt),
+        "--run-id", "r1",
+        "--log", str(log),
+        "--mode", "inline",
+        "--project", "test",
+        "--task", "code",
+        "--drift-status", "clean",
+    ])
+    assert rc == 0
+    row = json.loads(log.read_text().splitlines()[0])
+    assert row["usage_by_reviewer"]["pykrete"]["comparison_eligible"] is False
+
+
 def _r(cli, final_model="m"):
     """Build a ReviewerResult."""
     return ReviewerResult(
