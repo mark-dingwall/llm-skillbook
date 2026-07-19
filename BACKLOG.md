@@ -54,7 +54,7 @@ Affects every stdin-delivery reviewer — codex, opencode, pykrete, grok — i.e
 three default-on reviewers today. NOT introduced by any one of them. `agy` is
 exempt (argv_file delivery) and the synthesis path is exempt
 (`proc.communicate()` handles all three streams concurrently inside `wait_for`,
-`synthesis.py:87`).
+`synthesis.py:90-94`).
 
 Fix: start the stdin write and both drainers concurrently, and put the whole
 exchange inside the timeout. Related: `BrokenPipeError`/`ConnectionResetError`

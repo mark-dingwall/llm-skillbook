@@ -77,6 +77,9 @@ multi-review invokes it as
 `grok --sandbox workspace --prompt-file /dev/stdin --output-format streaming-json`.
 The prompt travels on stdin; `--sandbox workspace` fences writes to cwd + tmp
 while leaving reads open, so reference-mode file manifests outside cwd still work.
+The synthesis path runs the same binary without `--output-format` — plain-text
+output taken verbatim, not the streaming-json envelope — so don't assume the
+flag is unconditional.
 
 ## Usage
 

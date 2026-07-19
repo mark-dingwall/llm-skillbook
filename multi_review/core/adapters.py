@@ -238,10 +238,15 @@ def _int0(v) -> int:
 class GrokAdapter(ProgressAdapter):
     """grok --output-format streaming-json.
 
-    Event types (the complete set — verified against grok Build TUI 2026-07):
+    Event types (the complete OBSERVED set — verified against grok Build TUI
+    2026-07):
       {"type":"thought","data":str}  reasoning narration; liveness only, NOT body
       {"type":"text","data":str}     response body deltas
       {"type":"end", usage:{...}}    terminal; usage is ABSOLUTE, not a delta
+
+    The `error` branch below is defensive for an event type never seen in
+    probing — same posture as the other adapters' defensive branches, not a
+    documented part of the schema.
 
     grok emits no tool-call events in any output format, so usage.tool_calls
     stays 0. Don't synthesise it from num_turns — that would be a made-up metric.

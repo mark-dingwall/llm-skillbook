@@ -33,6 +33,8 @@ No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typi
 
 When fixing a bug or shipping a behavioural change in an untested area, write the test as part of the fix. The v0.2 work landed a pytest suite under `tests/{unit,integration}/` — `uv run pytest tests/ -q` is the baseline; every bugfix is an opportunity to backfill the test that would have caught it. Do not ship a fix to a regressed path without leaving an executable check behind. Applies to: adapter JSONL parsing, harvest schema, prompt assembly, snapshot/drift detection, aggregation, sidecar grouping, report rendering. Skill-level interactive flows that genuinely can't be automated → document a manual smoke step under `tests/manual/*.md` instead.
 
+**`uv run pytest` resolves to the system pytest**, and `pytest_asyncio` is not importable there — hence the pre-existing `PytestConfigWarning: Unknown config option: asyncio_mode` on every run. Harmless today because zero `async def` tests exist, but it silently disarms `asyncio_mode = "auto"` (pyproject.toml) the day someone writes one — an `async def test_...` would just be collected as a coroutine object and reported as a pass without ever running its body. Don't rely on the warning being noticed; if you add an async test, verify it actually executed (e.g. a deliberate `assert False` inside it) before trusting a green run.
+
 ## v0.2 manual-smoke note
 
 v0.2 introduces skill-level interactive flows that bypass the test suite. When you hit a bug in

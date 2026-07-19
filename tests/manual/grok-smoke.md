@@ -119,6 +119,12 @@ Run it. Confirm:
 - A grok section exists in `REVIEW-*.md`, opening with a `## Summary` heading.
 - The harvest row records non-zero `input_tokens`/`output_tokens` for grok,
   with `tool_calls: 0` and `telemetry_quality: "known-issues"`.
+- The review text references `project_state_dir` or `central_runs_dir` (symbols
+  defined only in `multi_review/core/paths.py`) — a `## Summary` heading and
+  non-zero tokens alone don't prove the prompt arrived; grok re-opens fd 0 via
+  `/dev/stdin`, and the plausible live failure is grok reading an empty prompt,
+  reviewing nothing, and still exiting 0 with >50 bytes (a recorded success
+  with a content-free review).
 
 ### 5 — Reference mode with an out-of-cwd file
 
