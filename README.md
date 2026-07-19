@@ -2,7 +2,7 @@
 
 Fan out a code review across multiple AI models in parallel, aggregate results into a `REVIEW.md`, and optionally run a consensus-synthesis pass. Supports inline and reference prompt modes, automated paired runs with drift detection, and harvest-based comparison tracking.
 
-**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (agy, codex, opencode, pykrete) continue as subprocesses.
+**v0.2 is a Claude Code skill, not a standalone CLI.** The entry point is `/multi-review` inside a Claude Code session. The `claude` reviewer runs as a Task subagent on interactive subscription billing rather than `claude -p` subprocess (which draws from the Agent SDK credit pool post-June 15 2026). Other reviewers (agy, codex, opencode, pykrete, grok) continue as subprocesses.
 
 ## Requirements
 
@@ -14,6 +14,7 @@ Fan out a code review across multiple AI models in parallel, aggregate results i
   - [`codex`](https://github.com/openai/codex)
   - [`opencode`](https://opencode.ai)
   - `pykrete`
+  - `grok` (opt-in — see below)
 
 ## Install
 
@@ -57,6 +58,25 @@ export PYKRETE_CONFIG=/path/to/pykrete.toml
 `models: {pykrete: <family>}` in a prompt YAML names a NanoGPT **family** (e.g. `glm`), not a specific model — pykrete resolves the actual model within that family itself.
 
 Without `NANOGPT_API_KEY` and `PYKRETE_CONFIG` set, pykrete fails clean (recorded failure with the config error as the reason) — it does not abort the rest of the fanout.
+
+## Grok setup
+
+`grok` is an **opt-in** reviewer — it is never auto-selected. Name it explicitly
+in a prompt YAML's `reviewers` (or `synthesizer`) to use it:
+
+```yaml
+reviewers: [claude, codex, grok]
+models:
+  grok: grok-4.5-build     # optional; omit for grok's default
+```
+
+Install and authenticate the Grok Build CLI so `grok` is on `PATH`. Verify with
+`/multi-review --list-reviewers` (grok is probed even though it is opt-in).
+
+multi-review invokes it as
+`grok --sandbox workspace --prompt-file /dev/stdin --output-format streaming-json`.
+The prompt travels on stdin; `--sandbox workspace` fences writes to cwd + tmp
+while leaving reads open, so reference-mode file manifests outside cwd still work.
 
 ## Usage
 
@@ -107,7 +127,7 @@ custom_prompt: |
 # both — run once in each mode (paired run for comparison)
 mode: reference
 
-# Synthesis pass. One of: claude | agy | codex | opencode | pykrete | none
+# Synthesis pass. One of: claude | agy | codex | opencode | pykrete | grok | none
 synthesizer: claude
 
 # Reviewer set
@@ -117,6 +137,7 @@ reviewers:
   - codex
   - opencode
   - pykrete
+#  - grok        # opt-in: never auto-selected
 
 # Primary model per reviewer (optional — omit for defaults)
 models:
@@ -124,6 +145,7 @@ models:
   codex: gpt-5
   opencode: openrouter/deepseek/deepseek-v4-pro
   pykrete: glm      # names a NanoGPT *family*, not a specific model
+  grok: grok-4.5-build
 
 # Effort hint per reviewer — silently ignored where unsupported
 # claude effort is pinned in the agent definition (xhigh); this field
@@ -154,7 +176,7 @@ harvest: true       # write harvest row to central runs.jsonl
 | `custom_prompt` | string | — | Required when `task == custom`. |
 | `mode` | enum | — | Required. `inline \| reference \| both`. |
 | `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
-| `reviewers` | list[enum] | all detected | Subset of `claude \| agy \| codex \| opencode \| pykrete`. |
+| `reviewers` | list[enum] | claude, agy, codex, opencode, pykrete | Subset of `claude \| agy \| codex \| opencode \| pykrete \| grok`. Default omits `grok` (opt-in). |
 | `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
 | `model_effort` | map | `{}` | Effort hint per reviewer. Silently ignored where unsupported. |
 | `if_drift` | enum | `ask` | `ignore \| abort \| ask`. `ask` keeps the pair comparison-eligible unless the user chooses to proceed after drift. |
@@ -202,6 +224,19 @@ Runs that fail any check are harvested (so the data is preserved) but are exclud
 - **v0.1 standalone CLI removed.** `./multi_review.py file.ts` prints a deprecation banner and exits 1. The v0.1 entry script will be removed entirely in v0.3.
 - **Task-subagent timeout.** Claude Code's `Task` tool exposes no per-Task timeout knob; the claude reviewer has no opt-in deadline in v0.2. Other reviewers still support `--timeout` via the YAML schema (tracked in BACKLOG).
 - **claude token telemetry is null.** Task subagents do not surface JSONL-level usage; `input_tokens` / `output_tokens` / `cached_tokens` for the claude reviewer are `null` in all harvest rows. Comparisons needing claude token data should filter on `telemetry_quality == "reliable"` (will return zero rows until a future path adds reliable telemetry).
+- **grok tool-call telemetry is unavailable, and `0` is a sentinel.** grok emits
+  no tool-call events in any output format, so `tool_calls` is always `0` for the
+  grok reviewer **even on runs where it demonstrably used tools**. Read it as
+  "unknown", never as "grok used no tools" — the harvest schema has no way to
+  express unavailability for a single field. Token counts are complete and
+  reliable; harvest rows record `telemetry_quality: known-issues` to reflect the
+  split. Filtering analyses to `telemetry_quality == "reliable"` therefore also
+  excludes grok's good token data; filter per-field when that matters.
+- **grok is an agentic, uncontained reviewer.** It auto-approves its own tool use
+  in headless mode and can run commands on your working tree during a review.
+  `--sandbox workspace` fences writes but is not a security boundary and does not
+  restrict reads — **don't point grok at untrusted code** until sandbox
+  containment lands (BACKLOG). Same posture as agy and pykrete.
 
 ## Testing discipline
 

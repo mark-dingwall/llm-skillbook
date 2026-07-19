@@ -15,7 +15,7 @@ reviewer both active. Observe the join-barrier step.
 | Reviewer type | Dispatch tool | Poll tool | ID type |
 |---|---|---|---|
 | `claude` | Task | `TaskGet <task_id>` | Task UUID |
-| `agy`, `codex`, `opencode` | `Bash run_in_background` | `BashOutput <bash_id>` | Bash background id |
+| `agy`, `codex`, `opencode`, `pykrete`, `grok` | `Bash run_in_background` | `BashOutput <bash_id>` | Bash background id |
 
 1. After dispatch, record which reviewers got a `task_id` vs a `bash_id`.
 2. At the join barrier, confirm `TaskGet` is called only on Task UUIDs and

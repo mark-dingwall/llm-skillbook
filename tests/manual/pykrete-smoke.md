@@ -22,7 +22,7 @@ From `multi_review/core/reviewers.py` `CLI_SPEC["pykrete"]`:
 - `records_family_not_model = True` — `model_used` is recorded as `f"family:{model}"` (or `None`), never a bare model id, because pykrete resolves the actual model inside the family itself.
 - `TELEMETRY_QUALITY["pykrete"] = "degraded"` (`multi_review/core/harvest.py`) — plain-text stdout, no token telemetry, `Usage` stays all-zero. Expected, not a bug.
 - `PykreteAdapter` (`multi_review/core/adapters.py`) buffers stdout verbatim — no step-narration trim like agy's adapter.
-- `ALL_REVIEWERS = ["claude", "agy", "codex", "opencode", "pykrete"]` — pykrete is **default-on**, same posture as agy. Until configured it will surface as a failed section in every run, not just ones that explicitly ask for it.
+- `DEFAULT_REVIEWERS = ["claude", "agy", "codex", "opencode", "pykrete"]` — pykrete is **default-on**, same posture as agy. Until configured it will surface as a failed section in every run, not just ones that explicitly ask for it. `ALL_REVIEWERS` now also contains opt-in `grok`, which is nameable but never auto-selected — its presence in the known/valid set does not make it default-on.
 - `build_row` in `multi_review/core/harvest.py`: `comparison_eligible = not drift_blocks_eligibility and not r.downgraded`. This is set **per reviewer** inside `usage_by_reviewer.pykrete`, not as a row-level flag — a downgraded pykrete run does not mark other reviewers in the same row ineligible.
 - The `## Summary` heading failure classifier (SKILL.md Step 7) applies to pykrete's output exactly like every other reviewer: `<REVIEWS_DIR>/pykrete.md` must start with a heading matching `^#{1,3}\s+(summary|executive summary)\b` or the reviewer gets demoted to `ok: false` regardless of exit code.
 
@@ -69,7 +69,7 @@ In a Claude Code session with the multi-review skill installed:
 
 Confirm the printed table includes a `pykrete` row marked available, with
 `shutil.which pykrete` resolving and `pykrete --version` output shown (SKILL.md
-Step 1: probes `claude, agy, codex, opencode, pykrete` via `shutil.which` +
+Step 1: probes `claude, agy, codex, opencode, pykrete, grok` via `shutil.which` +
 `<cli> --version`).
 
 ### B — single-pass review, explicit `reviewers: [pykrete]`
