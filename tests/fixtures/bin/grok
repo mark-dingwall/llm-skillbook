@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Fake grok. Discriminating shim:
+#   - echoes argv one token per line to $GROK_ARGV_LOG
+#   - reads the prompt from the path given to --prompt-file (NOT bare fd 0), so
+#     the test is tied to the invocation contract; copies it to $GROK_STDIN_LOG
+#   - BRANCHES ON --output-format: streaming JSONL for the reviewer path, clean
+#     markdown for the synthesis path (which build_command builds with
+#     streaming=False and synthesis.py treats as the body verbatim)
+#   - FAKE_GROK_RC (default 0) sets the exit code
+#   - FAKE_GROK_SHORT=1 emits <50 bytes of body to drive the byte-floor case
+set -u
+prompt_file=""
+streaming=0
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    --prompt-file) prompt_file="${args[i+1]:-}" ;;
+    --output-format) [ "${args[i+1]:-}" = "streaming-json" ] && streaming=1 ;;
+  esac
+done
+[ -n "${GROK_ARGV_LOG:-}" ] && printf '%s\n' "$@" > "$GROK_ARGV_LOG"
+if [ -z "$prompt_file" ]; then
+  echo "fake grok: no --prompt-file given" >&2
+  exit 64
+fi
+prompt=$(cat "$prompt_file")
+[ -n "${GROK_STDIN_LOG:-}" ] && printf '%s' "$prompt" > "$GROK_STDIN_LOG"
+
+if [ "${FAKE_GROK_SHORT:-0}" = "1" ]; then
+  body='short'
+else
+  body='## Summary
+Fake grok review body, well over fifty bytes of content here.'
+fi
+
+if [ "$streaming" = "1" ]; then
+  printf '%s\n' '{"type":"thought","data":"Considering the diff."}'
+  printf '{"type":"text","data":%s}\n' "$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+  printf '%s\n' '{"type":"end","stopReason":"EndTurn","usage":{"input_tokens":1200,"cache_read_input_tokens":300,"output_tokens":45,"reasoning_tokens":9,"total_tokens":1554},"num_turns":1,"modelUsage":{"grok-4.5-build":{"inputTokens":1200,"outputTokens":45}}}'
+else
+  printf '%s\n' "$body"
+fi
+exit "${FAKE_GROK_RC:-0}"
