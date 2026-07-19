@@ -8,7 +8,12 @@
 #     streaming=False and synthesis.py treats as the body verbatim)
 #   - FAKE_GROK_RC (default 0) sets the exit code
 #   - FAKE_GROK_SHORT=1 emits <50 bytes of body to drive the byte-floor case
+#   - unconditionally emits FIXTURE_GROK_MARKER on stderr so tests can prove
+#     this fixture (not a real grok binary) actually ran; spawn.py always
+#     captures child stderr into stderr_tail on both the review and synthesis
+#     state.json, so this channel never touches the review/synthesis body
 set -u
+echo "FIXTURE_GROK_MARKER=7f3c2e1a" >&2
 prompt_file=""
 streaming=0
 args=("$@")

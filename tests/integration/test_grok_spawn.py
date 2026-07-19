@@ -40,6 +40,11 @@ def test_review_success_parses_streaming_json(tmp_path):
     assert r.returncode == 0, r.stderr
     j = json.loads(r.stdout)
     state = json.loads(Path(j["state_path"]).read_text())
+    # Proves the fixture shim ran, not a real grok binary picked up off PATH
+    # (see tests/fixtures/bin/grok's FIXTURE_GROK_MARKER) — without this, a
+    # test that lost the FIXTURE_BIN/PATH prepend would silently invoke the
+    # real, network-calling grok CLI instead of failing loudly.
+    assert "FIXTURE_GROK_MARKER=7f3c2e1a" in state["stderr_tail"]
     assert state["cli"] == "grok"
     assert state["ok"] is True
     assert state["downgraded"] is False
@@ -121,6 +126,9 @@ def test_synthesize_uses_plain_output_not_jsonl(tmp_path):
     assert "deadbeef" in stdin_log.read_text()      # the wrapped reviews arrived
     state = json.loads((out_dir / "synth.state.json").read_text())
     assert state["ok"] is True
+    # Same fixture-not-real-binary proof as the streaming-mode test, via the
+    # non-streaming path's stderr_tail channel.
+    assert "FIXTURE_GROK_MARKER=7f3c2e1a" in state["stderr_tail"]
 
 
 def test_synthesize_model_pin_recorded_verbatim(tmp_path):
