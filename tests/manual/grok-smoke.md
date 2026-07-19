@@ -28,8 +28,9 @@ From `multi_review/core/reviewers.py`:
   — tokens reliable, `tool_calls` always `0` and unavailable (grok emits no
   tool-call events in any output format; see `GrokAdapter` docstring in
   `multi_review/core/adapters.py`).
-- `GrokAdapter.feed_line` handles `thought` / `text` / `end` events; `end`
-  usage is absolute (assigned, not accumulated).
+- `GrokAdapter.feed_line` handles the complete *observed* event set —
+  `thought` / `text` / `end` (plus a defensive `error` branch for a type
+  never seen in probing); `end` usage is absolute (assigned, not accumulated).
 - `--sandbox workspace` fences writes to cwd + tmp; it does **not** restrict
   reads and is **not** a security boundary — grok remains agentic/uncontained
   in posture, same as agy and pykrete (CLAUDE.md invariants).

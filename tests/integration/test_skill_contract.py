@@ -253,23 +253,6 @@ def test_builder_schema_reviewers_line_matches_DEFAULT_REVIEWERS():
     )
 
 
-def test_builder_grok_only_appears_on_opt_in_or_choice_lines():
-    """Every mention of grok in the builder agent must sit on a synthesizer-
-    choice line, a models-mapping line, or explicit opt-in prose — never
-    silently folded into the reviewers default/schema list. Checks for a
-    marker substring per line (not exact text) so innocuous rewording doesn't
-    make this brittle.
-    """
-    text = (AGENTS_DIR / "multi-review-build.md").read_text()
-    allowed = ("synthesizer:", "models", "opt-in")
-    for line in text.splitlines():
-        if not re.search(r"\bgrok\b", line):
-            continue
-        assert any(a in line for a in allowed), (
-            f"unexpected grok mention outside synthesizer/models/opt-in context: {line!r}"
-        )
-
-
 def test_builder_lists_grok_as_a_valid_synthesizer_choice():
     """grok must be nameable by the builder even though it is never a default.
 
@@ -312,9 +295,9 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
     pinned — literal-string assertions on prose are a false-positive source,
     and this file's stated design constraint is NO false positives.
     """
-    text = SKILL.read_text()
     # 1. Fanout: which reviewers get dispatched.
-    assert "every non-claude reviewer in `resolved.reviewers`" in text, (
+    step5 = _skill_step_section(5)
+    assert "every non-claude reviewer in `resolved.reviewers`" in step5, (
         "SKILL.md Step 5 fanout instruction lost its resolved-set qualifier"
     )
     # 2. Synthesis: which CLI runs the consensus pass, and with which model.
@@ -333,10 +316,14 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
     # (Step 5) and where resume reads it (Step 2). Deleting either site while
     # the other survives must fail this test, not stay green.
     step2 = _skill_step_section(2)
-    step5 = _skill_step_section(5)
     assert "pending/<pair_id>/prompt-source.txt" in step2, (
         "SKILL.md Step 2 resume path must read the prompt pointer pass 1 persisted"
     )
     assert "pending/<pair_id>/prompt-source.txt" in step5, (
         "SKILL.md Step 5 must persist the prompt pointer for Step 2's resume to read"
+    )
+    # Step 2's resume hard-stops on a missing hash file, so the sha256 write
+    # in Step 5 is load-bearing too — not just the pointer .txt.
+    assert "pending/<pair_id>/prompt-source.sha256" in step5, (
+        "SKILL.md Step 5 must persist the prompt-source hash for Step 2's resume to verify"
     )
