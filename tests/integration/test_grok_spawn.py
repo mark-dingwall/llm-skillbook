@@ -28,6 +28,23 @@ def _env(extra=None):
     return env
 
 
+def test_env_caller_supplied_path_cannot_displace_fixture_bin():
+    """Direct regression test for the ordering comment above: a caller-supplied
+    `PATH` in `extra` must never win over the fixture-bin prepend. Reverting to
+    the old (buggy) ordering — computing `env["PATH"] = f"{FIXTURE_BIN}:{orig}"`
+    BEFORE `env.update(extra)` — lets `extra`'s own `PATH` key clobber that
+    prepend entirely, silently exposing the real (paid) grok binary to any
+    caller that happens to pass its own PATH override.
+    """
+    sentinel = "/some/sentinel"
+    result = _env({"PATH": sentinel})["PATH"]
+    assert result.startswith(f"{FIXTURE_BIN}:"), (
+        f"_env()['PATH'] = {result!r} is not fixture-bin-prefixed; a "
+        "caller-supplied PATH may be able to displace the fixture bin"
+    )
+    assert sentinel in result
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _grok_resolves_to_fixture():
     """Whole-file guard: only 2 of the tests below assert FIXTURE_GROK_MARKER.

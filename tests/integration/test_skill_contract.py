@@ -252,14 +252,20 @@ def _builder_schema_block() -> str:
 def test_builder_schema_reviewers_line_matches_DEFAULT_REVIEWERS():
     """Pins the schema block's `reviewers: [...]` template line, not just the
     `## Defaults` bullet — see `_builder_schema_block` for why both are needed.
+
+    Asserts there is exactly ONE `reviewers:` line in the block (same
+    uniqueness pattern as the `## Defaults` guards above): `next(...)` alone
+    would keep matching the first, legitimate line even if a contradictory
+    `reviewers: [grok]` line were appended below it in the same block, leaving
+    the builder agent with two conflicting instructions and this test green.
     """
     from multi_review.core.reviewers import DEFAULT_REVIEWERS
     block = _builder_schema_block()
-    line = next(
-        (l for l in block.splitlines() if l.strip().startswith("reviewers:")), None
+    lines = [l for l in block.splitlines() if l.strip().startswith("reviewers:")]
+    assert len(lines) == 1, (
+        f"expected exactly one `reviewers: [...]` line in the schema block, found {len(lines)}"
     )
-    assert line, "builder schema lost its `reviewers: [...]` template line"
-    line = line.split("#", 1)[0]  # strip trailing comment before parsing the list
+    line = lines[0].split("#", 1)[0]  # strip trailing comment before parsing the list
     m = re.search(r"\[([^\]]*)\]", line)
     assert m, f"builder schema reviewers line has no [...] list: {line!r}"
     listed = [s.strip() for s in m.group(1).split(",") if s.strip()]
@@ -273,11 +279,19 @@ def test_builder_lists_grok_as_a_valid_synthesizer_choice():
 
     Tokenised, not a substring test: `"grok" in line` would also be satisfied by
     text like `grok-disabled`.
+
+    Scoped to the schema block (see `_builder_schema_block`) and asserting
+    there is exactly ONE `synthesizer:` line in it — same uniqueness pattern
+    as the `reviewers:` guard above. An unscoped `re.search` over the whole
+    document would find only the first match and stay green even if a
+    contradictory `synthesizer: grok` line were appended inside the block.
     """
-    text = (AGENTS_DIR / "multi-review-build.md").read_text()
-    m = re.search(r"^synthesizer: (.+)$", text, re.MULTILINE)
-    assert m, "builder schema lost its synthesizer choice line"
-    choices = {c.strip() for c in m.group(1).split("|")}
+    block = _builder_schema_block()
+    lines = [l for l in block.splitlines() if l.strip().startswith("synthesizer:")]
+    assert len(lines) == 1, (
+        f"expected exactly one `synthesizer: ...` line in the schema block, found {len(lines)}"
+    )
+    choices = {c.strip() for c in lines[0].split(":", 1)[1].split("|")}
     assert "grok" in choices, f"grok missing from synthesizer choices {choices}"
     assert "none" in choices
 
@@ -373,4 +387,29 @@ def test_skill_step2_pins_resolved_sole_source_provenance():
     )
     assert "ALL_REVIEWERS" in step2, (
         "SKILL.md Step 2 lost the ALL_REVIEWERS prohibition"
+    )
+
+
+def test_skill_step2_all_reviewers_mentioned_only_once():
+    """Narrow tripwire for the additive-contradiction failure mode: appending
+    a sentence like "After validation, replace `resolved.reviewers` with
+    `ALL_REVIEWERS` ..." after the legitimate prohibition above leaves every
+    presence-only assertion in this file green, because none of them check
+    that the governing sentence is the ONLY thing Step 2 says about
+    `ALL_REVIEWERS`.
+
+    This does NOT guarantee Step 2 is free of contradictions in general — a
+    rewrite that poisons the run set without re-mentioning the literal token
+    `ALL_REVIEWERS` (or that poisons `resolved.synthesizer` some other way)
+    would not be caught here. It only catches the one reproduced mutation
+    that happens to add a second mention of this specific token, which is
+    cheap to check and worth pinning; it is not a general anti-contradiction
+    guard for prose.
+    """
+    step2 = _skill_step_section(2)
+    assert step2.count("ALL_REVIEWERS") == 1, (
+        "SKILL.md Step 2 mentions ALL_REVIEWERS more than once — the sole "
+        "legitimate mention is the 'Never derive a run set from ALL_REVIEWERS' "
+        "prohibition; a second mention likely means a contradictory "
+        "instruction was appended"
     )

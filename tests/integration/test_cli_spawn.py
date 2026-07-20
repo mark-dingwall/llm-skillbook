@@ -76,6 +76,18 @@ def test_spawn_synthesize_writes_synth_files(tmp_path):
     assert "duration_seconds" in state
 
 
+def test_spawn_cli_flag_is_required(tmp_path):
+    """`--cli` must have no default. If a future edit changed
+    `required=True` to e.g. `default="grok"`, a bare `spawn` invocation would
+    silently run grok. This never reaches subprocess-launch code: argparse
+    rejects the missing required arg before `main` does anything else, so
+    there is no risk of this test ever touching a real reviewer binary.
+    """
+    from multi_review.cli.spawn import main
+    rc = main(["--prompt-file", "/nonexistent", "--out-dir", str(tmp_path)])
+    assert rc == 2
+
+
 def test_spawn_no_fallback_flags(tmp_path):
     from multi_review.cli.spawn import main
     rc = main(["--cli", "claude", "--prompt-file", "/nonexistent",
