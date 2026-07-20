@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 import yaml
 
-from multi_review.core.reviewers import ALL_REVIEWERS
+from multi_review.core.reviewers import ALL_REVIEWERS, DEFAULT_REVIEWERS
 
 class ValidationError(Exception):
     pass
@@ -19,7 +19,7 @@ class PromptFile:
     custom_prompt: str | None = None
     mode: Literal["inline", "reference", "both"] = "inline"
     synthesizer: str = "claude"
-    reviewers: list[str] = field(default_factory=lambda: list(ALL_REVIEWERS))
+    reviewers: list[str] = field(default_factory=lambda: list(DEFAULT_REVIEWERS))
     models: dict[str, str] = field(default_factory=dict)
     model_effort: dict[str, str] = field(default_factory=dict)
     if_drift: Literal["ignore", "abort", "ask"] = "ignore"
@@ -30,7 +30,7 @@ class PromptFile:
 _VALID_TASKS = {"code", "plan", "security", "generic", "custom"}
 _VALID_MODES = {"inline", "reference", "both"}
 _VALID_IF_DRIFT = {"ignore", "abort", "ask"}
-_KNOWN_REVIEWERS = set(ALL_REVIEWERS)  # canonical source: reviewers.ALL_REVIEWERS
+_KNOWN_REVIEWERS = set(ALL_REVIEWERS)  # valid set (includes opt-in reviewers like grok)
 _VALID_SYNTHESIZERS = _KNOWN_REVIEWERS | {"none"}
 
 _REQUIRED_FIELDS = {"prompt_format_version", "task", "files"}
@@ -44,7 +44,7 @@ def fill_defaults(raw: dict) -> PromptFile:
     raw.setdefault("custom_prompt", None)
     raw.setdefault("mode", "inline")
     raw.setdefault("synthesizer", "claude")
-    raw.setdefault("reviewers", list(ALL_REVIEWERS))
+    raw.setdefault("reviewers", list(DEFAULT_REVIEWERS))
     raw.setdefault("models", {})
     raw.setdefault("model_effort", {})
     raw.setdefault("if_drift", "ignore")

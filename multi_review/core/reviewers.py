@@ -1,7 +1,7 @@
 """multi_review.core.reviewers — reviewer detection, CLI_SPEC, command builder.
 
 Single source of truth for:
-  - ALL_REVIEWERS list
+  - ALL_REVIEWERS (known/valid) + DEFAULT_REVIEWERS (auto-selected) lists
   - detect_self / detect_available / resolve_reviewers
   - CLI_SPEC table (invocation recipes)
   - build_command, make_adapter
@@ -17,7 +17,17 @@ if TYPE_CHECKING:
 
 # -------- Reviewer list --------
 
-ALL_REVIEWERS: list[str] = ["claude", "agy", "codex", "opencode", "pykrete"]
+# Known/valid reviewers: everything nameable in a prompt YAML's `reviewers` or
+# `synthesizer`, spawnable via `spawn --cli`, and probed by --list-reviewers.
+ALL_REVIEWERS: list[str] = ["claude", "agy", "codex", "opencode", "pykrete", "grok"]
+
+# Auto-selected reviewers: the set used when the user names none. grok is
+# OPT-IN — valid everywhere above, never auto-selected. Adding a reviewer here
+# makes it default-on (the pykrete posture); leaving it out makes it opt-in.
+# NOTE: this constant is not the only default site. agents/multi-review-build.md
+# hardcodes the same list for its autonomous --use-defaults selection; the two
+# must stay in sync (guarded by tests/integration/test_skill_contract.py).
+DEFAULT_REVIEWERS: list[str] = ["claude", "agy", "codex", "opencode", "pykrete"]
 
 # -------- CLI detection + self-skip --------
 
@@ -62,7 +72,7 @@ def resolve_reviewers(
         testable without touching the filesystem.
     """
     is_explicit = explicit is not None
-    base = explicit if is_explicit else list(ALL_REVIEWERS)
+    base = explicit if is_explicit else list(DEFAULT_REVIEWERS)
     out = []
     for cli in base:
         # Self-skip is opt-in via --skip-self. Default behaviour: a fresh subprocess
@@ -142,6 +152,21 @@ CLI_SPEC: dict[str, dict] = {
         "success_exit_codes": (0, 3),      # 3 == success via model downgrade
         "config_env": "PYKRETE_CONFIG",    # path to pykrete.toml (NanoGPT config)
         "records_family_not_model": True,  # model_used is a family, not the actual model (Task 5)
+    },
+    "grok": {
+        # --prompt-file /dev/stdin: grok has no `-` stdin sentinel, but reading
+        # the prompt file from /dev/stdin resolves to the pipe fanout already
+        # writes to. Only the literal "/dev/stdin" reaches /proc/PID/cmdline,
+        # never prompt bytes — the stdin invariant holds without an argv_file
+        # workaround. Assumes a Linux /dev/stdin (repo targets Linux/WSL).
+        # --sandbox workspace: fences writes to cwd + tmp; reads stay open so
+        # reference-mode manifests outside cwd still work. NOT a security
+        # boundary — grok remains agentic/uncontained in posture.
+        "base": ["grok", "--sandbox", "workspace", "--prompt-file", "/dev/stdin"],
+        "stream_flags": ["--output-format", "streaming-json"],
+        "model_flag": "--model",
+        "default_args": [],
+        "stdin_sentinel": None,   # /dev/stdin in base already routes the pipe
     },
 }
 

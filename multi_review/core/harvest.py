@@ -37,6 +37,7 @@ TELEMETRY_QUALITY: dict[str, str] = {
     "codex": "reliable",
     "opencode": "known-issues",
     "pykrete": "degraded",      # plain-text output, no token telemetry
+    "grok": "known-issues",     # tokens complete/reliable; no tool-call events exist
 }
 
 

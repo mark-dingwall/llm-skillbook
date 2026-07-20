@@ -26,6 +26,26 @@ def test_pykrete_telemetry_degraded():
     assert TELEMETRY_QUALITY["pykrete"] == "degraded"
 
 
+def test_grok_telemetry_known_issues():
+    """Not "reliable" (tool_calls is permanently 0, an unavailable sentinel) and
+    not "degraded" (token counts are complete). A missing entry would silently
+    fall back to "degraded" via TELEMETRY_QUALITY.get(cli, "degraded")."""
+    from multi_review.core.harvest import TELEMETRY_QUALITY
+    assert TELEMETRY_QUALITY["grok"] == "known-issues"
+
+
+def test_build_row_emits_grok_telemetry_quality():
+    row = build_row(
+        results=[_r("grok")], mode="inline", task="code", project="p",
+        wall_seconds=2.0, reviewers_attempted=["grok"],
+        synthesizer="claude", synthesis_ok=True,
+        pair_id=None, prompt_file="prompts/auth.yaml",
+        prompt_format_version=1, drift_status="clean",
+        telemetry_notes=None,
+    )
+    assert row["usage_by_reviewer"]["grok"]["telemetry_quality"] == "known-issues"
+
+
 def test_downgraded_state_yields_ineligible_row(tmp_path):
     """A pykrete exit-3 downgrade (rc!=0, ok=True) must not count toward the
     paired-comparison log — drives the real state.json -> write_harvest_row.main

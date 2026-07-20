@@ -226,12 +226,90 @@ class PykreteAdapter(ProgressAdapter):
         self.text_parts.append(line.rstrip("\n") + "\n")
 
 
+def _int0(v) -> int:
+    """Token counters only. Non-int (null, str, dict from a drifted schema) -> 0.
+
+    bool is excluded deliberately: it is an int subclass, and True would
+    silently become a token count of 1.
+    """
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+
+class GrokAdapter(ProgressAdapter):
+    """grok --output-format streaming-json.
+
+    Event types (the complete OBSERVED set — verified against grok Build TUI
+    2026-07):
+      {"type":"thought","data":str}  reasoning narration; liveness only, NOT body
+      {"type":"text","data":str}     response body deltas
+      {"type":"end", usage:{...}}    terminal; usage is ABSOLUTE, not a delta
+
+    The `error` branch below is defensive for an event type never seen in
+    probing — same posture as the other adapters' defensive branches, not a
+    documented part of the schema.
+
+    grok emits no tool-call events in any output format, so usage.tool_calls
+    stays 0. Don't synthesise it from num_turns — that would be a made-up metric.
+
+    Type guards are load-bearing, not decoration: json.loads returns None/list/
+    str for valid non-object JSON, and ev.get() on those raises AttributeError
+    inside the drain task, killing the review mid-stream.
+    """
+
+    def feed_line(self, line: str) -> None:
+        super().feed_line(line)
+        line = line.strip()
+        if not line:
+            return
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(ev, dict):
+            return
+        if getattr(self, "_terminal", False):
+            # Terminal latch: once `end`/`error` has been processed, ignore
+            # everything after it. Without this, a late `text` line re-opens
+            # `phase` and corrupts the finished body, and a second, partial
+            # `end` (missing usage fields) zeroes out good counters via
+            # _int0(None) == 0 — since usage is assigned, not accumulated.
+            return
+        t = ev.get("type")
+        if t == "thought":
+            self.phase = "thinking"
+        elif t == "text":
+            self.phase = "running"
+            data = ev.get("data")
+            if isinstance(data, str):
+                self.text_parts.append(data)
+        elif t == "end":
+            # Absolute totals for the whole run — assign, never accumulate.
+            # Coerce per counter: Usage declares ints, and a drifted schema
+            # (null, a string, a nested object) would otherwise flow straight
+            # into <cli>.state.json and the harvest row as a non-int.
+            u = ev.get("usage")
+            if isinstance(u, dict):
+                self.usage.input_tokens = _int0(u.get("input_tokens"))
+                self.usage.output_tokens = _int0(u.get("output_tokens"))
+                self.usage.cached_tokens = _int0(u.get("cache_read_input_tokens"))
+            self.phase = "done"
+            stop = ev.get("stopReason")
+            if stop and stop != "EndTurn":
+                self.last_error = f"stopReason={stop}"
+            self._terminal = True
+        elif t == "error":
+            self.phase = "error"
+            self.last_error = str(ev.get("message") or ev.get("error") or "error")
+            self._terminal = True
+
+
 ADAPTER_FOR = {
     "claude": ClaudeAdapter,
     "agy": AgyAdapter,
     "codex": CodexAdapter,
     "opencode": OpenCodeAdapter,
     "pykrete": PykreteAdapter,
+    "grok": GrokAdapter,
 }
 
 __all__ = [
@@ -242,5 +320,6 @@ __all__ = [
     "CodexAdapter",
     "OpenCodeAdapter",
     "PykreteAdapter",
+    "GrokAdapter",
     "ADAPTER_FOR",
 ]

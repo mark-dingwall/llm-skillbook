@@ -107,3 +107,53 @@ def test_unknown_reviewer_in_models_rejected(tmp_path):
     )
     with pytest.raises(ValidationError):
         load_promptfile(p)
+
+
+def test_dataclass_default_reviewers_excludes_grok():
+    """Direct construction bypasses fill_defaults entirely. Without this test,
+    leaving PromptFile.reviewers' default_factory on ALL_REVIEWERS would make
+    grok auto-selected for every direct PromptFile(...) while every
+    fill_defaults-based test still passed."""
+    from multi_review.core.promptfile import PromptFile
+    from multi_review.core.reviewers import DEFAULT_REVIEWERS
+    pf = PromptFile(prompt_format_version=1, task="code", files=["a.py"])
+    assert pf.reviewers == DEFAULT_REVIEWERS
+    assert "grok" not in pf.reviewers
+    # Same opt-in dimension, the SYNTHESIZER: direct construction must not
+    # default to grok either.
+    assert pf.synthesizer == "claude"
+    assert pf.synthesizer != "grok"
+
+
+def test_grok_omitted_from_filled_defaults():
+    from multi_review.core.promptfile import fill_defaults
+    pf = fill_defaults({"prompt_format_version": 1, "task": "code",
+                        "files": ["a.py"]})
+    assert "grok" not in pf.reviewers
+
+
+def test_grok_is_a_valid_explicit_reviewer_and_synthesizer(tmp_path):
+    """fill_defaults does not enforce membership — validate does. Drive validate."""
+    from multi_review.core.promptfile import fill_defaults, validate
+    (tmp_path / "a.py").write_text("x = 1\n")
+    pf = fill_defaults({"prompt_format_version": 1, "task": "code",
+                        "files": ["a.py"], "reviewers": ["grok"],
+                        "synthesizer": "grok"})
+    validate(pf, base_dir=tmp_path)      # must not raise
+    assert pf.reviewers == ["grok"]
+    assert pf.synthesizer == "grok"
+
+
+def test_unknown_reviewer_and_synthesizer_still_rejected(tmp_path):
+    """Lock the valid set while it is being changed."""
+    import pytest
+    from multi_review.core.promptfile import fill_defaults, validate, ValidationError
+    (tmp_path / "a.py").write_text("x = 1\n")
+    bad_rev = fill_defaults({"prompt_format_version": 1, "task": "code",
+                             "files": ["a.py"], "reviewers": ["grok3"]})
+    with pytest.raises(ValidationError):
+        validate(bad_rev, base_dir=tmp_path)
+    bad_synth = fill_defaults({"prompt_format_version": 1, "task": "code",
+                               "files": ["a.py"], "synthesizer": "grok3"})
+    with pytest.raises(ValidationError):
+        validate(bad_synth, base_dir=tmp_path)

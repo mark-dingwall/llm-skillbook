@@ -181,3 +181,235 @@ def test_skill_flags_exist():
                     f"{(' ' + sub) if sub else ''} references {flag} "
                     f"which is not a recognized flag (help: {sorted(valid)})"
                 )
+
+
+def _builder_defaults_section() -> str:
+    """The `## Defaults` section only, up to the next heading.
+
+    Scoping matters: an unscoped document-wide search could match a
+    default-looking bullet elsewhere while the real autonomous default quietly
+    gained grok.
+    """
+    text = (AGENTS_DIR / "multi-review-build.md").read_text()
+    m = re.search(r"^## Defaults$(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    assert m, "builder agent lost its `## Defaults` section"
+    return m.group(1)
+
+
+def test_builder_autonomous_default_matches_DEFAULT_REVIEWERS():
+    """The builder agent's autonomous (--use-defaults) reviewer list is the
+    SOURCE OF the live opt-in enforcement point: resolve_reviewers has no caller
+    outside tests, and an explicit `reviewers` list in the authored YAML bypasses
+    fill_defaults entirely. If someone adds grok to that prose list, opt-in is
+    silently dead and every Python test still passes. This is the guard.
+
+    Scope caveat: this asserts the REPO copy. `setup.py` copies agents into
+    ~/.claude (symlinks only under --dev), so a stale install can still differ.
+    That is a deployment concern, covered by the reinstall step in
+    tests/manual/grok-smoke.md, not something this test can see.
+    """
+    from multi_review.core.reviewers import DEFAULT_REVIEWERS
+    section = _builder_defaults_section()
+    matches = re.findall(r"^- reviewers: \[([^\]]*)\]\s*$", section, re.MULTILINE)
+    assert len(matches) == 1, (
+        f"expected exactly one `- reviewers: [...]` default line, found {len(matches)}"
+    )
+    listed = [s.strip() for s in matches[0].split(",") if s.strip()]
+    assert listed == DEFAULT_REVIEWERS, (
+        f"builder autonomous default {listed} != DEFAULT_REVIEWERS {DEFAULT_REVIEWERS}"
+    )
+
+
+def test_builder_autonomous_default_synthesizer_is_claude():
+    """Companion guard to the reviewers pin above: the SYNTHESIZER is the
+    other opt-in dimension. Nothing pins `## Defaults`' `- synthesizer: ...`
+    line, so changing it to grok would auto-select grok as the consensus
+    synthesizer in every `--use-defaults` build with the suite green."""
+    section = _builder_defaults_section()
+    matches = re.findall(r"^- synthesizer: (\S+)\s*$", section, re.MULTILINE)
+    assert len(matches) == 1, (
+        f"expected exactly one `- synthesizer: ...` default line, found {len(matches)}"
+    )
+    assert matches[0] == "claude", (
+        f"builder autonomous synthesizer default {matches[0]!r} != 'claude'"
+    )
+
+
+def _builder_schema_block() -> str:
+    """The fenced schema-template code block near the top of the builder agent
+    file — this is what drives INTERACTIVE mode's authored YAML, where
+    `## Defaults` (autonomous-mode only) never applies. The final whole-branch
+    review found that adding grok to this block's `reviewers: [...]` line
+    would leave the whole suite green, since only the `## Defaults` bullet was
+    pinned. This is the companion guard.
+    """
+    text = (AGENTS_DIR / "multi-review-build.md").read_text()
+    blocks = _fenced_blocks(text)
+    assert blocks, "builder agent lost its schema fenced block"
+    return blocks[0]
+
+
+def test_builder_schema_reviewers_line_matches_DEFAULT_REVIEWERS():
+    """Pins the schema block's `reviewers: [...]` template line, not just the
+    `## Defaults` bullet — see `_builder_schema_block` for why both are needed.
+
+    Asserts there is exactly ONE `reviewers:` line in the block (same
+    uniqueness pattern as the `## Defaults` guards above): `next(...)` alone
+    would keep matching the first, legitimate line even if a contradictory
+    `reviewers: [grok]` line were appended below it in the same block, leaving
+    the builder agent with two conflicting instructions and this test green.
+    """
+    from multi_review.core.reviewers import DEFAULT_REVIEWERS
+    block = _builder_schema_block()
+    lines = [l for l in block.splitlines() if l.strip().startswith("reviewers:")]
+    assert len(lines) == 1, (
+        f"expected exactly one `reviewers: [...]` line in the schema block, found {len(lines)}"
+    )
+    line = lines[0].split("#", 1)[0]  # strip trailing comment before parsing the list
+    m = re.search(r"\[([^\]]*)\]", line)
+    assert m, f"builder schema reviewers line has no [...] list: {line!r}"
+    listed = [s.strip() for s in m.group(1).split(",") if s.strip()]
+    assert listed == DEFAULT_REVIEWERS, (
+        f"builder schema reviewers template {listed} != DEFAULT_REVIEWERS {DEFAULT_REVIEWERS}"
+    )
+
+
+def test_builder_lists_grok_as_a_valid_synthesizer_choice():
+    """grok must be nameable by the builder even though it is never a default.
+
+    Tokenised, not a substring test: `"grok" in line` would also be satisfied by
+    text like `grok-disabled`.
+
+    Scoped to the schema block (see `_builder_schema_block`) and asserting
+    there is exactly ONE `synthesizer:` line in it — same uniqueness pattern
+    as the `reviewers:` guard above. An unscoped `re.search` over the whole
+    document would find only the first match and stay green even if a
+    contradictory `synthesizer: grok` line were appended inside the block.
+    """
+    block = _builder_schema_block()
+    lines = [l for l in block.splitlines() if l.strip().startswith("synthesizer:")]
+    assert len(lines) == 1, (
+        f"expected exactly one `synthesizer: ...` line in the schema block, found {len(lines)}"
+    )
+    choices = {c.strip() for c in lines[0].split(":", 1)[1].split("|")}
+    assert "grok" in choices, f"grok missing from synthesizer choices {choices}"
+    assert "none" in choices
+
+
+def _skill_step_section(step_num: int) -> str:
+    """The body of `### Step <n> — ...` up to (not including) the next heading
+    of depth 1-3. Same scoping idea as `_builder_defaults_section`: an
+    unscoped substring search can stay green while the actual selection site
+    is deleted, as long as the string survives somewhere else in the file
+    (e.g. a later "Notes on ..." section, or a different step that merely
+    reads what this step writes).
+    """
+    text = SKILL.read_text()
+    m = re.search(
+        rf"^### Step {step_num}\b[^\n]*\n(.*?)(?=^#{{1,3}} |\Z)",
+        text, re.MULTILINE | re.DOTALL,
+    )
+    assert m, f"SKILL.md missing Step {step_num} section"
+    return m.group(1)
+
+
+def test_skill_dispatch_binds_to_resolved_reviewers():
+    """The reviewer-selecting steps must name the validated set, not an
+    unqualified `reviewers` that an LLM orchestrator could satisfy from the
+    known/probed list — which contains opt-in grok.
+
+    Pins the three sites that actually SELECT what runs. The remaining
+    Task 4 edits (claude-inclusion note, pass-2 back-reference, closing rules)
+    are consistency edits, not selection sites, and are deliberately not
+    pinned — literal-string assertions on prose are a false-positive source,
+    and this file's stated design constraint is NO false positives.
+    """
+    # 1. Fanout: which reviewers get dispatched.
+    step5 = _skill_step_section(5)
+    assert "every non-claude reviewer in `resolved.reviewers`" in step5, (
+        "SKILL.md Step 5 fanout instruction lost its resolved-set qualifier"
+    )
+    # 2. Synthesis: which CLI runs the consensus pass, and with which model.
+    # Scoped to Step 6 itself: "resolved.synthesizer" also appears in the
+    # closing "Notes on `claude` not in reviewers" section, so an unscoped
+    # search would stay green even if Step 6's own selection logic regressed.
+    step6 = _skill_step_section(6)
+    assert "resolved.synthesizer" in step6, (
+        "SKILL.md Step 6 must select the synthesizer from the resolved object"
+    )
+    assert "resolved.models[resolved.synthesizer]" in step6, (
+        "SKILL.md Step 6 synthesis model lookup lost its resolved qualifier"
+    )
+    # The substring "resolved.synthesizer" alone would still appear in the
+    # <SYNTH_MODEL_FLAG> line even if the actual --cli dispatch were mutated
+    # to a hardcoded CLI (e.g. "--cli grok"). Pin the literal dispatch token.
+    assert "--cli <resolved.synthesizer>" in step6, (
+        "SKILL.md Step 6 synthesis dispatch lost its --cli <resolved.synthesizer> binding"
+    )
+    # 3. Resume: pass 2 must reuse pass 1's resolved set, not re-derive it.
+    # Scoped per site: the pointer string appears both where pass 1 writes it
+    # (Step 5) and where resume reads it (Step 2). Deleting either site while
+    # the other survives must fail this test, not stay green.
+    step2 = _skill_step_section(2)
+    assert "pending/<pair_id>/prompt-source.txt" in step2, (
+        "SKILL.md Step 2 resume path must read the prompt pointer pass 1 persisted"
+    )
+    assert "pending/<pair_id>/prompt-source.txt" in step5, (
+        "SKILL.md Step 5 must persist the prompt pointer for Step 2's resume to read"
+    )
+    # Step 2's resume hard-stops on a missing hash file, so the sha256 write
+    # in Step 5 is load-bearing too — not just the pointer .txt.
+    assert "pending/<pair_id>/prompt-source.sha256" in step5, (
+        "SKILL.md Step 5 must persist the prompt-source hash for Step 2's resume to verify"
+    )
+
+
+def test_skill_step2_pins_resolved_sole_source_provenance():
+    """Step 5/6 above trust `resolved.<field>` blindly — none of those
+    assertions can see WHERE `resolved` comes from. A rewrite of Step 2 that
+    replaced `resolved.reviewers` with `ALL_REVIEWERS` and `resolved.synthesizer`
+    with `grok` before dispatch would leave test_skill_dispatch_binds_to_resolved_reviewers
+    green, since Step 5/6 would then faithfully dispatch the poisoned values.
+
+    Pins a small set of stable, governing substrings from Step 2's provenance
+    sentence — not the whole sentence, which would be brittle to harmless
+    rewording.
+    """
+    step2 = _skill_step_section(2)
+    assert "validate_prompt" in step2, (
+        "SKILL.md Step 2 lost the validate_prompt provenance for `resolved`"
+    )
+    assert "sole" in step2, (
+        "SKILL.md Step 2 lost the 'sole source' framing for `resolved`"
+    )
+    assert "Never derive a run set from" in step2, (
+        "SKILL.md Step 2 lost the prohibition on deriving a run set"
+    )
+    assert "ALL_REVIEWERS" in step2, (
+        "SKILL.md Step 2 lost the ALL_REVIEWERS prohibition"
+    )
+
+
+def test_skill_step2_all_reviewers_mentioned_only_once():
+    """Narrow tripwire for the additive-contradiction failure mode: appending
+    a sentence like "After validation, replace `resolved.reviewers` with
+    `ALL_REVIEWERS` ..." after the legitimate prohibition above leaves every
+    presence-only assertion in this file green, because none of them check
+    that the governing sentence is the ONLY thing Step 2 says about
+    `ALL_REVIEWERS`.
+
+    This does NOT guarantee Step 2 is free of contradictions in general — a
+    rewrite that poisons the run set without re-mentioning the literal token
+    `ALL_REVIEWERS` (or that poisons `resolved.synthesizer` some other way)
+    would not be caught here. It only catches the one reproduced mutation
+    that happens to add a second mention of this specific token, which is
+    cheap to check and worth pinning; it is not a general anti-contradiction
+    guard for prose.
+    """
+    step2 = _skill_step_section(2)
+    assert step2.count("ALL_REVIEWERS") == 1, (
+        "SKILL.md Step 2 mentions ALL_REVIEWERS more than once — the sole "
+        "legitimate mention is the 'Never derive a run set from ALL_REVIEWERS' "
+        "prohibition; a second mention likely means a contradictory "
+        "instruction was appended"
+    )

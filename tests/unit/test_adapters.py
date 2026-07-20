@@ -136,3 +136,167 @@ def test_pykrete_adapter_does_not_trim_preamble():
 def test_pykrete_registered():
     from multi_review.core.adapters import ADAPTER_FOR, PykreteAdapter
     assert ADAPTER_FOR["pykrete"] is PykreteAdapter
+
+
+def test_grok_adapter_success_fixture():
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    _feed(a, FIX / "grok" / "success.jsonl")
+    assert a.text.startswith("## Summary")
+    assert "two edge cases are unhandled" in a.text
+
+
+def test_grok_adapter_excludes_thought_narration():
+    """thought events are reasoning narration, not review body."""
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    _feed(a, FIX / "grok" / "success.jsonl")
+    assert "The user wants a review." not in a.text
+    assert "wants" not in a.text
+
+
+def test_grok_adapter_phase_transitions():
+    """Pinned contract: starting -> thinking -> running -> done."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    assert a.phase == "starting"
+    a.feed_line(json.dumps({"type": "thought", "data": "hm"}))
+    assert a.phase == "thinking"
+    a.feed_line(json.dumps({"type": "text", "data": "body"}))
+    assert a.phase == "running"
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn", "usage": {}}))
+    assert a.phase == "done"
+
+
+def test_grok_adapter_end_event_usage_is_absolute():
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    # Pre-seed nonzero counters BEFORE the single `end`: if usage were
+    # accumulated (+=) rather than assigned (=), these would leak into the
+    # total below. Feeding a second `end` no longer distinguishes the two
+    # cases — the terminal latch now discards any event after the first
+    # `end` regardless of `=` vs `+=` — so this must pin absolute assignment
+    # a different way: pre-seeded garbage that a correct `=` overwrites.
+    a.usage.input_tokens = 999
+    a.usage.output_tokens = 999
+    a.usage.cached_tokens = 999
+    end = {"type": "end", "stopReason": "EndTurn",
+           "usage": {"input_tokens": 100, "cache_read_input_tokens": 10,
+                     "output_tokens": 50, "reasoning_tokens": 5,
+                     "total_tokens": 165}}
+    a.feed_line(json.dumps(end))
+    assert a.usage.input_tokens == 100
+    assert a.usage.output_tokens == 50
+    assert a.usage.cached_tokens == 10    # from cache_read_input_tokens
+    assert a.usage.tool_calls == 0        # grok emits no tool events
+
+
+def test_grok_adapter_survives_malformed_and_non_object_lines():
+    """Valid-but-non-object JSON must not raise: ev.get() on a list/str/None
+    would AttributeError and kill the drain task mid-review."""
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    for bad in ('not json at all', 'null', '[]', '"banner"', '42'):
+        a.feed_line(bad)
+    a.feed_line('{"type":"text","data":"ok"}')
+    assert a.text == "ok"
+
+
+def test_grok_adapter_ignores_non_string_text_payload():
+    """data: null must not enter text_parts — "".join() would raise later."""
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line('{"type":"text","data":null}')
+    a.feed_line('{"type":"text","data":"real"}')
+    assert a.text == "real"
+
+
+def test_grok_adapter_ignores_non_dict_usage():
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line('{"type":"end","stopReason":"EndTurn","usage":"nope"}')
+    assert a.usage.input_tokens == 0
+
+
+def test_grok_adapter_coerces_bad_token_counters():
+    """Usage declares ints. A drifted counter (null / string / object / bool /
+    negative) must not reach <cli>.state.json or the harvest row as a non-int."""
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line('{"type":"end","stopReason":"EndTurn","usage":'
+                '{"input_tokens":null,"output_tokens":"12",'
+                '"cache_read_input_tokens":{"nested":1}}}')
+    assert a.usage.input_tokens == 0
+    assert a.usage.output_tokens == 0
+    assert a.usage.cached_tokens == 0
+    # bool is an int subclass in Python, so this is the non-obvious half of
+    # _int0's guard: True must not silently become a token count of 1. A
+    # negative counter is likewise rejected. Use a FRESH adapter instance: the
+    # terminal latch (test_grok_adapter_latches_after_end_*) now drops any
+    # event fed after a first "end", so this can no longer be a second event
+    # on `a` — that would test the latch, not per-field coercion.
+    b = GrokAdapter()
+    b.feed_line('{"type":"end","stopReason":"EndTurn","usage":'
+                '{"input_tokens":true,"output_tokens":-5,'
+                '"cache_read_input_tokens":300}}')
+    assert b.usage.input_tokens == 0     # bool rejected, not coerced to 1
+    assert b.usage.output_tokens == 0    # negative rejected
+    assert b.usage.cached_tokens == 300  # a valid counter still passes through
+    for v in b.usage.as_dict().values():
+        assert isinstance(v, int) and not isinstance(v, bool)
+
+
+def test_grok_adapter_latches_after_end_ignores_late_text():
+    """A late `text` event arriving after `end` must not re-open the phase or
+    corrupt the already-finalised review body."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line(json.dumps({"type": "text", "data": "## Summary\nreal body\n"}))
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn",
+                            "usage": {"input_tokens": 10}}))
+    assert a.phase == "done"
+    a.feed_line(json.dumps({"type": "text", "data": "LATE GARBAGE"}))
+    assert a.phase == "done"
+    assert "LATE GARBAGE" not in a.text
+
+
+def test_grok_adapter_latches_after_end_ignores_duplicate_partial_end():
+    """A second, partial `end` (missing usage fields) arriving after a valid
+    `end` must not zero out the already-recorded counters."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn",
+                            "usage": {"input_tokens": 100, "output_tokens": 50,
+                                      "cache_read_input_tokens": 10}}))
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn", "usage": {}}))
+    assert a.usage.input_tokens == 100
+    assert a.usage.output_tokens == 50
+    assert a.usage.cached_tokens == 10
+
+
+def test_grok_adapter_latches_after_error_ignores_late_events():
+    """The terminal latch must also engage on the `error` path, not just
+    `end`. A late `text` (or `end`) arriving after `error` must not reopen
+    `phase` or append to the already-finalised (error) body."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    a = GrokAdapter()
+    a.feed_line(json.dumps({"type": "text", "data": "## Summary\nreal body\n"}))
+    a.feed_line(json.dumps({"type": "error", "message": "permission refused"}))
+    assert a.phase == "error"
+    a.feed_line(json.dumps({"type": "text", "data": "LATE GARBAGE"}))
+    assert a.phase == "error"
+    assert "LATE GARBAGE" not in a.text
+    a.feed_line(json.dumps({"type": "end", "stopReason": "EndTurn",
+                            "usage": {"input_tokens": 1}}))
+    assert a.phase == "error"
+    assert a.usage.input_tokens == 0
+
+
+def test_grok_registered():
+    from multi_review.core.adapters import ADAPTER_FOR, GrokAdapter
+    assert ADAPTER_FOR["grok"] is GrokAdapter
