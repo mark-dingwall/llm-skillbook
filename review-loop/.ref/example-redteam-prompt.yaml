@@ -1,0 +1,110 @@
+prompt_format_version: 1
+task: custom
+mode: reference
+files:
+  - "/home/mark/kramtime/Pykrete/docs/superpowers/plans/2026-07-07-liveness-resume.md"
+  - "/home/mark/kramtime/Pykrete/docs/superpowers/specs/2026-07-07-liveness-resume-design.md"
+context_files:
+  - "/home/mark/kramtime/Pykrete/src/classify.ts"
+  - "/home/mark/kramtime/Pykrete/src/pi-events.ts"
+  - "/home/mark/kramtime/Pykrete/src/launch.ts"
+  - "/home/mark/kramtime/Pykrete/src/failover.ts"
+reviewers: ["claude", "agy", "codex", "opencode"]
+synthesizer: "claude"
+if_drift: ignore
+harvest: true
+custom_prompt: |
+  You are red-teaming an IMPLEMENTATION PLAN plus its design SPEC for a headless
+  launcher ("Pykrete") that wires the `pi` coding agent to the NanoGPT provider.
+  This is a SECOND review pass: a first 5-lens pass already ran and its findings
+  were applied. Your job is to scrutinise the JUST-APPLIED revisions and catch
+  anything the fixes introduced or missed. No code is written yet — you are
+  reviewing the plan/spec docs. The `files` are the review subject; the
+  `context_files` are the EXISTING source the plan modifies — cross-check the
+  plan against them (they are ground truth for current behaviour).
+
+  ## Severity rubric — tag EVERY finding
+  - BLOCKER: must fix before implementation; correctness/data-loss/contract breach.
+  - HIGH: serious bug or a real risk that will surface during implementation.
+  - MEDIUM: real issue, not urgent.
+  - LOW: minor.
+  - NIT: style/preference.
+  For each finding: file + line/section, the concrete failing scenario (specific
+  inputs -> wrong outcome), and CONFIRMED (you traced it) vs PLAUSIBLE.
+  Attempt to REFUTE each finding before reporting it. A finding you could not
+  refute is stronger. Do not invent issues to seem thorough; "no material issue
+  in section X" is a valid and useful statement.
+
+  ## Focus — the just-applied revisions (in the plan's "Red-team revisions" list
+  and Task 6 `runCandidate`). Give these disproportionate attention:
+
+  1. **The `runCandidate` gate redesign (Task 6).** The old double-gate was
+     collapsed into ONE gate returning `proceed | recovered | fatal | giveup`.
+     Trace the whole dispatch loop against every combination of
+     {stopReason, sawAssistantOutput, idledOut, noncePresent, probe-result}.
+     Branch order is: success -> incomplete-resume -> idle -> transient-gate ->
+     post-output-hard-fatal -> clean-fatal -> failover. Find any co-occurrence
+     that lands in the wrong branch. Specifically verify:
+     - the `recovered` path retries the SAME candidate WITHOUT spending a resume
+       attempt, and cannot loop forever (there is a `MAX_OUTAGE_RETRIES=10`
+       backstop — check it actually bounds a flapping network and is not itself
+       off-by-one or bypassable);
+     - `resumeOrTerminal` gates before relaunch and consumes a resume attempt;
+     - the two helpers (`retrySameCandidateAfterOutage`, `resumeOrTerminal`)
+       return a sentinel ("looped") vs a terminal `CandidateResult` and the loop
+       handles both without falling through or double-returning.
+
+  2. **D2: nonce-disabled post-output stall -> `fatal` (no emit).** Confirm it
+     truly suppresses the partial (Spec B only emits on success) and that
+     `failover` maps `fatal` to exit 1 with no `emit`. Check the nonce-disabled
+     path never emits a truncated partial as if it were the answer.
+
+  3. **D4: post-output transient waits out an outage.** The transient branch sits
+     BEFORE the post-output-hard-fatal branch. Verify a post-output 429/5xx with
+     probe=down backs off (paused deadline) and retries, while a post-output
+     model-unavailable/fatal (clean 4xx, API up) still exits 1. Check the branch
+     ordering actually delivers this and the spec matrix (row 6) matches the code.
+
+  4. **D6 + throttled: 429 probe -> `throttled`.** Confirm `throttled` never
+     counts as a hard outage (never exit 4) yet still enters the same backoff
+     ladder as `down`. Check the reachability enum, the gate's `label`, and that
+     no code path treats `throttled` as `up` (which would skip the backoff the
+     owner explicitly asked for) or as a genuine failover-eligible failure.
+
+  5. **D1: idle default 120s -> 330s.** The rationale is that pi's undici HTTP
+     idle window is 300s (`DEFAULT_HTTP_IDLE_TIMEOUT_MS`). Sanity-check the number
+     (330 > 300) and the claim that pi's agent-session retry backoff emits visible
+     stdout events (so it's not the silent window). Flag if 330s interacts badly
+     with the per-launch overall timeout or the deadline math.
+
+  6. **D7: `sessionReady` hardened to require a `.jsonl`.** Check
+     `readdirSync(dir).some(f => f.endsWith(".jsonl"))` is a sound "pi wrote
+     resumable state" proxy, and the documented cwd invariant (pi `--continue`
+     filters by exact resolved cwd) is actually guaranteed by the bin wiring.
+
+  7. **The NEW tests (Task 2/3/6).** Are any vacuous — could a plausible wrong
+     implementation still pass? Especially: the fake-pi/scripted-launch nonce-echo
+     trick (does it accidentally self-pass regardless of `noncePresent`?), the
+     backoff-ladder `slept deepEqual [...]` assertions, the "idle+probe=down ->
+     backoff not failover" anti-cascade test, the "throttled -> backoff" test, and
+     the "nonce-disabled post-output stall -> fatal (no emit)" test. Verify each
+     asserts observable BOUNDARY behaviour, not the implementation's own shape.
+     Cross-check every new fake-pi/scripted outcome against `pi-events.ts`'s
+     accumulator so the asserted `PiRunOutcome` is actually what the fixture yields.
+
+  8. **Consistency between plan and spec.** The two docs were edited together;
+     flag any place they now contradict (routing matrix vs dispatch code, config
+     defaults, the reachability enum, exit-code contract).
+
+  ## Also (lower priority) — the parts NOT changed this pass
+  Do a lighter sanity check on the unchanged core (deadline pause math, exit-code
+  aggregation in `failover`, the Contract-06-05 scope guard which forbids Pykrete
+  inferring/decomposing/verdict-gating tasks — the nonce must stay an opaque
+  liveness token). Only raise these if you find something concrete.
+
+  ## Output
+  Start with a one-line verdict (ship / ship-with-fixes / do-not-ship-until-fixed).
+  Then: Strengths (brief), Findings (severity-ordered, most severe first, each with
+  the failing scenario + CONFIRMED/PLAUSIBLE), and Open Questions for the author.
+  Under a "## Summary" heading, give the headline verdict and the count of findings
+  by severity.
