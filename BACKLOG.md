@@ -1140,3 +1140,80 @@ resets. The conditions only filter MEDIUM noise.
 - Round-aware convergence report: which findings reset the loop and under
   which clause, so 8-round forensics doesn't require re-reading every
   REVIEW file.
+
+## review-loop integration as a single holistic slot (2026-07-28)
+
+**Provenance:** design session for the `review-loop` skill
+(`~/kramtime/claude-skills/review-loop`), 2026-07-28. That skill runs
+multi-round external review with a hard completion contract; the plan is to
+dispatch its **holistic** reviewer slot through multi-review for the first N
+rounds, where the review surface is largest and vendor diversity pays most.
+Later rounds review a small fix diff, so the fan-out hits diminishing returns —
+hence "first N rounds" rather than always.
+
+The one-slot mapping works today (`output_dir` is overridable, so the sealed-tree
+artifact rule is satisfiable; `synthesizer` gives a single consolidated output;
+failed reviewers are visible as failed sections). These are the gaps that make
+the integration harder than it needs to be. Related: the ledger/convergence items
+under "Convergence churn at MEDIUM+ threshold" — same consumer, different axis.
+
+### Prompt addendum appended to a task preset, not replacing it
+
+`custom_prompt` is only honoured when `task == custom`, and it replaces the task
+prompt rather than extending it. review-loop must append a reviewer contract
+(charter, evidence contract, severity ladder, closing attestation, per-fix
+`FIX-AUDIT` lines, report path) to every reviewer while keeping the `code`
+preset's baseline. Today the only route is `task: custom` plus a hand-rolled
+prompt that re-implements whatever `code` contributes.
+
+An `addendum: |` field appended to any preset's prompt would cover it. Lower
+priority, same area: the addendum is currently uniform across reviewers, so
+per-reviewer charters (holistic vs adversarial vs specialist) are not
+expressible — fine for the one-slot holistic use, blocking if review-loop ever
+maps its whole roster onto multi-review.
+
+### Machine-readable per-reviewer terminal status
+
+review-loop's completion contract is fail-closed: a reviewer that did not
+complete is NOT RUN, never "no findings", and one NOT RUN makes the round
+INDETERMINATE. Checking that today means parsing prose sections out of
+`REVIEW.md` — exactly the "grep the trace" failure mode review-loop bans
+elsewhere, because a reasoning trace containing severity words can satisfy any
+grep.
+
+A per-session `status.json` (or equivalent) listing each reviewer's terminal
+state, exit status, model actually used, and duration would let a consumer
+enforce completion mechanically. `runs.jsonl` is central and harvest-oriented;
+a per-session artifact next to `REVIEW.md` is the natural shape.
+
+### Sandbox fences writes *into* cwd, which is backwards for sealed-tree consumers
+
+`grok --sandbox workspace` fences writes to cwd + tmp (README §grok). review-loop
+seals the subject tree and treats **any** write inside it as voiding the round —
+so the sandbox confines writes to precisely the directory that must stay
+untouched. Reviewers should be read-only against the subject tree and write only
+to their session/output directory.
+
+Worth a documented per-CLI read-only posture, and ideally a post-run assertion
+that the subject paths are byte-identical to their pre-run state. Consumers that
+seal a tree cannot currently rely on the fan-out leaving it alone.
+
+### Selective re-run of failed reviewers
+
+Reviewers run single-attempt; 429/capacity errors fail clean. review-loop grants
+each failed reviewer exactly one retry before declaring the round INDETERMINATE.
+With no way to re-run just the failed subset, honouring that rule means
+re-dispatching the entire fan-out — paying for every reviewer that already
+succeeded, and re-rolling their output so the round's evidence changes underneath
+the retry.
+
+A `--retry-failed <session>` (or resume-with-subset) that re-runs only
+non-terminal reviewers and merges into the existing session would make the retry
+rule affordable.
+
+### Note: `model_effort` no-op is already tracked
+
+review-loop's effort tier would want to reach `model_effort`, which is currently
+dropped by `spawn.py` for every CLI. Already filed under the grok deferred
+cluster ("Thread `model_effort` through to `grok --reasoning-effort`") — noting
+here only that review-loop is a second consumer for that work.
