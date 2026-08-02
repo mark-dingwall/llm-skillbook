@@ -111,3 +111,53 @@ def test_classify_review_ok_agrees_across_artifacts():
     # A reviewer that already failed upstream stays failed regardless of body.
     ok3, _ = classify_review_ok(False, present)
     assert ok3 is False
+
+
+# Real grok stdout shape, 2026-07-24 smoke: the `text` events glue a trailing
+# narration sentence directly onto the heading with no intervening newline.
+GLUED_HEADING_BODY = (
+    "I have reviewed the file against the criteria you listed.## Summary\n\n"
+    "The module resolves run directories correctly.\n"
+)
+
+
+def test_classify_review_ok_accepts_glued_heading():
+    """The gate asserts only what the output contract can reliably deliver:
+    that a `## Summary` heading is *present*, not where it sits. Observed
+    violations (agy narration, claude Task narration, grok glue) all had the
+    heading present with preamble in front of it — never absent. A gate that
+    requires line-start position demotes a genuine review to a truncated
+    failure section and poisons its harvest row."""
+    from multi_review.core.prompt import classify_review_ok
+
+    ok, note = classify_review_ok(True, GLUED_HEADING_BODY)
+    assert ok is True, "glued-heading review must not be demoted"
+    assert note is None
+
+
+def test_trim_regex_stays_anchored_while_gate_does_not():
+    """The two regexes have opposite risk profiles and must not be merged
+    back together. The gate (SUMMARY_PRESENT_RE) may false-accept cheaply — a
+    junk body renders in full and is visibly junk. The trim
+    (SUMMARY_HEADING_RE, used by AgyAdapter and write_task_result) discards
+    everything before its match, so a false match silently destroys real
+    analysis; it must stay anchored to a true line start."""
+    from multi_review.core.prompt import SUMMARY_HEADING_RE, SUMMARY_PRESENT_RE
+
+    assert SUMMARY_PRESENT_RE.search(GLUED_HEADING_BODY) is not None
+    assert SUMMARY_HEADING_RE.search(GLUED_HEADING_BODY) is None
+
+    # A heading quoted mid-sentence is exactly what the trim must not latch
+    # onto — slicing there would drop the analysis preceding it.
+    quoted = "The template at line 63 emits a `## Summary` heading, which is fine."
+    assert SUMMARY_HEADING_RE.search(quoted) is None
+
+
+def test_synthesis_prompt_instructs_ignoring_reviewer_narration():
+    """Narration reaches the synthesizer regardless of the aggregate-time
+    gate: build_synthesis_input filters on the raw state.json `ok`, and runs
+    at Step 6 — before classify_review_ok is ever called."""
+    from multi_review.core.prompt import synthesis_prompt
+
+    out = synthesis_prompt("abc123").lower()
+    assert "narration" in out

@@ -413,3 +413,23 @@ def test_skill_step2_all_reviewers_mentioned_only_once():
         "prohibition; a second mention likely means a contradictory "
         "instruction was appended"
     )
+
+
+def test_both_synthesis_paths_carry_the_narration_rule():
+    """Narration reaches the synthesizer on every path, because
+    build_synthesis_input filters on the raw state.json `ok` and runs at
+    SKILL.md Step 6 — before classify_review_ok is called at Step 7/8. The two
+    paths get their instructions from different places (subprocess CLIs from
+    `synthesis_prompt`, claude from the agent definition), so the rule has to
+    be stated in both or the default synthesizer silently misses it."""
+    from multi_review.core.prompt import synthesis_prompt
+
+    agent = (AGENTS_DIR / "multi-review-synthesizer.md").read_text().lower()
+    assert "narration" in agent, (
+        "multi-review-synthesizer.md lost its narration rule; the claude "
+        "synthesizer (the default) does not read synthesis_prompt"
+    )
+    assert "narration" in synthesis_prompt("nonce").lower(), (
+        "synthesis_prompt lost its narration rule; subprocess synthesizers "
+        "(agy/codex/opencode/pykrete/grok) do not read the agent definition"
+    )
