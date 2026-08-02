@@ -157,18 +157,37 @@ verbatim as the synthesis body with no adapter involved.
 
 ### 7 — Failure path
 
-Temporarily rename the `grok` binary off `PATH` (e.g.
-`mv $(which grok) $(which grok).disabled`). Run **single-pass**
-(`mode: reference`, not `both`) with `reviewers: [claude, grok]`. Confirm:
+Do **not** rename or move the `grok` binary — a rename-then-restore via
+`which` is self-defeating (once renamed, `which grok` resolves to nothing,
+so the restore command has no destination and leaves the binary disabled).
+Instead, hide grok from `PATH` only for this one invocation by filtering out
+any directory that contains a `grok` executable, and invoke `uv` by its
+absolute path so command lookup itself isn't affected by the filtered PATH:
+
+```bash
+UV_BIN=$(command -v uv)
+CLEAN_PATH=$(python3 -c "
+import os
+dirs = [d for d in os.environ['PATH'].split(':') if d and not os.path.isfile(os.path.join(d, 'grok'))]
+print(':'.join(dirs))
+")
+PATH="$CLEAN_PATH" "$UV_BIN" run python -m multi_review.cli.spawn --cli grok ...
+```
+
+Nothing is renamed, so there is nothing to restore afterward — the real
+`PATH`/binary are untouched outside this one command's environment. (`claude`
+in `reviewers: [claude, grok]` runs via the Task tool, not a subprocess, so
+excluding whole PATH directories here doesn't affect it.)
+
+Run **single-pass** (`mode: reference`, not `both`) with
+`reviewers: [claude, grok]`, applying the `PATH`/`uv` substitution above to
+whichever step spawns the grok subprocess. Confirm:
 - grok appears as a *failed section* with a `CLI not found` error.
 - The run still produces its review file (exit 0, claude succeeded).
 - The path the skill reports is `<cwd>/REVIEW-<slug>.md` (SKILL.md Step 7) —
   not a bare `REVIEW.md`, which no code path writes, and possibly
   auto-suffixed `-2` if a prior run left a file there. Paired runs use
   mode-suffixed names instead, which is why this case pins single-pass.
-
-Restore the `grok` binary afterward (`mv $(which grok).disabled $(which grok)`,
-adjusting the path as needed).
 
 ## Pass criteria
 
