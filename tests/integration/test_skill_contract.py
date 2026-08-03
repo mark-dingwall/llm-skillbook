@@ -433,3 +433,25 @@ def test_both_synthesis_paths_carry_the_narration_rule():
         "synthesis_prompt lost its narration rule; subprocess synthesizers "
         "(agy/codex/opencode/pykrete/grok) do not read the agent definition"
     )
+
+
+def test_skill_harvest_invocation_records_the_synthesizer():
+    """Found live, 2026-08-03 grok smoke case 6. `write_harvest_row` accepts
+    `--synthesizer` / `--synthesis-ok`, but SKILL.md Step 8's invocation listed
+    neither, so every skill-driven run wrote `synthesizer: null,
+    synthesis_ok: false` into runs.jsonl — including runs whose synthesis
+    plainly succeeded and is present in the REVIEW.md. Nothing errors; the
+    columns are just silently wrong, which is the same failure shape as the
+    never-populated `comparison_eligible` key. The report layer reads these
+    fields, so an unpinned Step 8 quietly poisons the harvest.
+    """
+    skill = SKILL.read_text()
+    step8 = skill.split("write_harvest_row", 1)[1].split("```", 1)[0]
+    assert "--synthesizer" in step8, (
+        "SKILL.md Step 8 no longer passes --synthesizer; harvest rows will "
+        "record synthesizer: null even when synthesis succeeded"
+    )
+    assert "--synthesis-ok" in step8, (
+        "SKILL.md Step 8 no longer passes --synthesis-ok; harvest rows will "
+        "record synthesis_ok: false even when synthesis succeeded"
+    )

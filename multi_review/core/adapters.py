@@ -238,15 +238,19 @@ def _int0(v) -> int:
 class GrokAdapter(ProgressAdapter):
     """grok --output-format streaming-json.
 
-    Event types (the complete OBSERVED set — verified against grok Build TUI
-    2026-07):
+    Event types consumed:
       {"type":"thought","data":str}  reasoning narration; liveness only, NOT body
       {"type":"text","data":str}     response body deltas
       {"type":"end", usage:{...}}    terminal; usage is ABSOLUTE, not a delta
 
-    The `error` branch below is defensive for an event type never seen in
-    probing — same posture as the other adapters' defensive branches, not a
-    documented part of the schema.
+    Other types are emitted and deliberately ignored — grok 0.2.117 also sends
+    `available_commands` (a startup banner) and a standalone `usage` event that
+    duplicates the `end` totals. Unrecognised types hit no branch, so new ones
+    are inert; do NOT rewrite this as an exhaustive match. The `error` branch
+    below is defensive for a type never seen in probing.
+
+    The schema DOES drift: the clean `stopReason` has shipped as both `EndTurn`
+    and `end_turn` across builds. Treat every literal here as a snapshot.
 
     grok emits no tool-call events in any output format, so usage.tool_calls
     stays 0. Don't synthesise it from num_turns — that would be a made-up metric.
@@ -294,7 +298,16 @@ class GrokAdapter(ProgressAdapter):
                 self.usage.cached_tokens = _int0(u.get("cache_read_input_tokens"))
             self.phase = "done"
             stop = ev.get("stopReason")
-            if stop and stop != "EndTurn":
+            # Compare normalised: grok has shipped BOTH spellings of the clean
+            # stop reason — `EndTurn` (captured in tests/fixtures/streams/grok/
+            # success.jsonl) and `end_turn` (grok 0.2.117, 2026-08-03). An exact
+            # match against one of them makes last_error truthy on every good
+            # run, and fanout's `ok = base_ok and not adapter.last_error` then
+            # records a complete review as a failure. Only the clean reason is
+            # normalised away; any other stopReason still surfaces verbatim,
+            # because a refusal/abort shows up here and nowhere else (grok exits
+            # 0 either way).
+            if stop and str(stop).replace("_", "").lower() != "endturn":
                 self.last_error = f"stopReason={stop}"
             self._terminal = True
         elif t == "error":

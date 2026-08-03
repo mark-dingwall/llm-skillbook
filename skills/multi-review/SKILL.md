@@ -234,8 +234,20 @@ uv run python -m multi_review.cli.write_harvest_row \
   --mode <MODE> \
   --project <PROJECT> \
   --task <TASK> \
-  --drift-status <DRIFT_STATUS>
+  --drift-status <DRIFT_STATUS> \
+  --synthesizer <SYNTHESIZER> \
+  --synthesis-ok
 ```
+
+`--synthesizer` and `--synthesis-ok` are conditional, like Step 5's model flags:
+pass `--synthesizer <name>` only when `synthesizer != none`, and add the bare
+`--synthesis-ok` flag only when Step 6's `<SESSION_DIR>/synth.state.json` has
+`ok: true` — never infer success from `synth.txt` being non-empty; a subprocess
+synthesizer that errored after emitting partial text still leaves a non-empty
+file. Omitting `--synthesizer`/`--synthesis-ok`, or setting the latter off a
+non-empty file instead of the `ok` field, records `synthesizer: null` /
+`synthesis_ok: false`-or-wrong — which the report layer then reads as "no
+synthesis ran" (or wrongly as success), silently mislabelling runs.
 
 ### Step 9 — Pass 2 + flush harvest rows (paired only)
 

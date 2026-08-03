@@ -300,3 +300,34 @@ def test_grok_adapter_latches_after_error_ignores_late_events():
 def test_grok_registered():
     from multi_review.core.adapters import ADAPTER_FOR, GrokAdapter
     assert ADAPTER_FOR["grok"] is GrokAdapter
+
+
+def test_grok_adapter_accepts_every_observed_clean_stop_reason():
+    """Live regression, grok 0.2.117 (2026-08-03 smoke, case 5): a clean run
+    now reports `stopReason: "end_turn"`, not the `"EndTurn"` captured in
+    tests/fixtures/streams/grok/success.jsonl from an earlier build. An exact
+    string compare against one spelling makes `last_error` truthy on EVERY
+    successful review, and fanout computes `ok = base_ok and not
+    adapter.last_error` — so a complete, correct 7.9 KB review was recorded as
+    a failure with its body truncated into `partial`. The gate must accept the
+    clean stop reason in whatever casing/separator style the CLI emits, since
+    both spellings have now been observed from the real binary."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    for clean in ("EndTurn", "end_turn"):
+        a = GrokAdapter()
+        a.feed_line(json.dumps({"type": "text", "data": "## Summary\nfine"}))
+        a.feed_line(json.dumps({"type": "end", "stopReason": clean, "usage": {}}))
+        assert a.last_error is None, f"clean stopReason {clean!r} flagged as error"
+        assert a.phase == "done"
+
+
+def test_grok_adapter_still_flags_genuine_abort_stop_reasons():
+    """The loosened comparison must not swallow real terminal failures — a
+    refusal/abort surfaces ONLY via stopReason (grok exits 0 either way)."""
+    import json
+    from multi_review.core.adapters import GrokAdapter
+    for bad in ("max_tokens", "MaxTokens", "refusal", "error"):
+        a = GrokAdapter()
+        a.feed_line(json.dumps({"type": "end", "stopReason": bad, "usage": {}}))
+        assert a.last_error == f"stopReason={bad}", f"{bad!r} must stay an error"

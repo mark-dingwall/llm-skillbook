@@ -1,10 +1,10 @@
 # grok reviewer manual smoke
 
-**Status:** procedure authored 2026-07-19; not yet executed live. This
-environment has the real `grok` CLI installed but it makes live, paid network
-calls — nothing below has been exercised end to end. Do not treat any
-pass/fail claim in this file as evidence until the "Results" section at the
-bottom is filled in from a real run.
+**Status:** procedure authored 2026-07-19. **Cases 5 and 6 executed live
+2026-08-03** against grok 0.2.117 — both pass, and case 5 found a blocker that
+failed every grok review (see Results). Cases 1-4 and 7 are still unrun; this
+CLI makes live, paid network calls, so treat any unticked pass criterion below
+as unevidenced.
 
 grok is the opt-in sixth reviewer: valid everywhere a reviewer or synthesizer
 can be named, but never auto-selected (`ALL_REVIEWERS` contains it,
@@ -28,9 +28,14 @@ From `multi_review/core/reviewers.py`:
   — tokens reliable, `tool_calls` always `0` and unavailable (grok emits no
   tool-call events in any output format; see `GrokAdapter` docstring in
   `multi_review/core/adapters.py`).
-- `GrokAdapter.feed_line` handles the complete *observed* event set —
-  `thought` / `text` / `end` (plus a defensive `error` branch for a type
-  never seen in probing); `end` usage is absolute (assigned, not accumulated).
+- `GrokAdapter.feed_line` consumes `thought` / `text` / `end` (plus a
+  defensive `error` branch for a type never seen in probing); `end` usage is
+  absolute (assigned, not accumulated). grok emits more types than these —
+  0.2.117 also sends `available_commands` and a standalone `usage` event — but
+  unrecognised types hit no branch and are inert. **The event schema drifts:**
+  the clean `stopReason` has shipped as both `EndTurn` and `end_turn`, and the
+  exact-match against one spelling was the case-5 blocker. Treat every literal
+  here as a snapshot, not a contract.
 - `--sandbox workspace` fences writes to cwd + tmp; it does **not** restrict
   reads and is **not** a security boundary — grok remains agentic/uncontained
   in posture, same as agy and pykrete (CLAUDE.md invariants).
@@ -199,10 +204,11 @@ whichever step spawns the grok subprocess. Confirm:
 - [ ] 4: explicit `reviewers: [claude, grok]` produces a grok `## Summary`
       section; harvest row shows non-zero tokens, `tool_calls: 0`,
       `telemetry_quality: "known-issues"`.
-- [ ] 5: reference mode with an out-of-cwd file — grok's review engages with
+- [x] 5: reference mode with an out-of-cwd file — grok's review engages with
       that file's real content (reads not blocked by the sandbox profile).
-- [ ] 6: `synthesizer: grok` produces clean markdown synthesis, no JSONL
-      envelope, no narration.
+      PASS 2026-08-03, after fixing the stopReason blocker (see Results).
+- [x] 6: `synthesizer: grok` produces clean markdown synthesis, no JSONL
+      envelope, no narration. PASS 2026-08-03.
 - [ ] 7: `grok` off `PATH` → recorded failed-reviewer section, not a run
       crash; reported path is `<cwd>/REVIEW-<slug>.md` (single-pass).
 
@@ -225,7 +231,102 @@ whichever step spawns the grok subprocess. Confirm:
 
 ## Results
 
-Not yet run. Fill in per scenario (1-7) once executed against the real `grok`
-CLI: date, pass/fail, and any bug found — including whether it needs a fix +
-backfilled pytest test per CLAUDE.md's testing-discipline note, or is
-genuinely un-automatable and stays here.
+### 2026-08-03 — cases 5 and 6 executed live (grok 0.2.117, `a422116`)
+
+Cases 1-4 and 7 remain unrun.
+
+**Case 5 — reference mode, out-of-cwd file: PASS (after fixing a blocker).**
+Reviewed `~/kramtime/claude-skills/review-loop/.ref/code-review-workflow.js`
+from a cwd of the multi-review checkout. grok's review names `canonFile`,
+`verifyGroups`, `LEVEL_PARAMS` and `Object.create(null)` — symbols that exist
+only in that file — so `--sandbox workspace` does **not** restrict reads, as
+the CLAUDE.md invariant claims. 31 209 in / 4 543 out tokens, `tool_calls: 0`,
+`telemetry_quality: "known-issues"`, 95 s.
+
+**Case 6 — `synthesizer: grok`: PASS.** Reviewers claude + codex both ok;
+grok synthesized in 27 s. `synth.txt` is 2 664 bytes of clean markdown, zero
+lines matching `^{"type"` (no JSONL envelope leak), no step narration, and it
+correctly omits the host-supplied `## Consensus Summary` heading. The
+`FILENAME:` line was parsed and stripped as designed —
+`suggested_filename: "REVIEW-core-paths-reviewers.md"`. `usage: null` on the
+synthesis state is expected: that path builds with `streaming=False` and runs
+no adapter.
+
+#### Bug 1 (blocker, fixed) — `stopReason` schema drift failed every grok review
+
+Case 5's first run recorded `ok: false` with `error: "stopReason=end_turn"`
+despite producing a complete 7.9 KB review. `GrokAdapter` compared
+`stop != "EndTurn"`, but grok 0.2.117 emits `end_turn` (confirmed by direct
+probe: `stopReason":"end_turn"`, rc 0, on a trivial prompt). Since
+`fanout.py:226` computes `ok = base_ok and not adapter.last_error`, **every
+successful grok review was being recorded as a failure** with its body
+truncated into `partial` — and a false failure written to `runs.jsonl`. The
+`EndTurn` spelling in `tests/fixtures/streams/grok/success.jsonl` is a real
+capture from an older build, so both spellings have now been observed.
+
+Fixed by normalising the comparison (`str(stop).replace("_","").lower() !=
+"endturn"`); any other stopReason still surfaces verbatim, since a refusal or
+abort shows up there and nowhere else (grok exits 0 either way). Pinned by
+`test_grok_adapter_accepts_every_observed_clean_stop_reason` and
+`test_grok_adapter_still_flags_genuine_abort_stop_reasons`. The fixture shim's
+default was moved to `end_turn` to track current reality. Re-ran case 5 against
+the real binary: `ok: true`, `error: null`.
+
+The probe also surfaced two event types the adapter docstring called a complete
+set: `available_commands` (startup banner) and a standalone `usage` event.
+Both are inert — unrecognised types hit no branch — but the docstring's
+"complete OBSERVED set" claim was stale and has been corrected.
+
+#### Live confirmation of the 2026-07-31 gate split
+
+Both grok runs opened with narration glued straight onto the heading with no
+newline (`"I'll review the referenced file carefully…## Summary"`). Verified
+directly: `classify_review_ok` returns `(True, None)` while the anchored
+`SUMMARY_HEADING_RE` does **not** match. Under the pre-split single anchored
+regex this real, complete, correct review would have been demoted to a
+1000-char failure section. Third independent observation of the
+heading-present-but-not-at-line-start shape.
+
+#### Bug 2 (fixed) — pytest silently redirected the real harvest path
+
+Not grok-specific; hit while satisfying this file's own reinstall
+precondition. `~/.claude/skills/multi-review/config.json` contained
+`/tmp/pytest-of-mark/pytest-3/test_setup_dev_mode_symlinks0/xdg/multi-review`,
+so `central_runs_dir()` — which reads that file before any other resolution
+step — pointed every real run's harvest at a deleted tmpdir.
+
+Cause: `test_setup_dev_mode_symlinks` ran `setup --dev --source-repo <the live
+checkout>`. `--dev` symlinks `$HOME/.claude/skills/multi-review` at
+`--source-repo`, so setup's `config.json` write follows the symlink into the
+real tree; monkeypatching `HOME` does not redirect it. Reproduced by running
+that single test in isolation and diffing the file. Suite stayed green
+throughout — nothing asserts the checkout is unmodified.
+
+Fixed by staging a copy of `skills/` + `agents/` under `tmp_path` and pointing
+`--source-repo` there. Guarded by a session-scoped autouse fixture in
+`tests/conftest.py` that snapshots the file, restores it, and fails the run if
+any test mutates it — ordering-independent, so it catches a reintroduction
+from any test, not just this one.
+
+#### Bug 3 (fixed) — SKILL.md Step 8 never recorded the synthesizer
+
+Case 6's harvest row came out `synthesizer: null, synthesis_ok: false` even
+though grok's synthesis succeeded and is present in the REVIEW.md.
+`write_harvest_row` accepts `--synthesizer` / `--synthesis-ok`, but SKILL.md
+Step 8's documented invocation listed neither — so every skill-driven run
+mislabels its synthesis. Nothing errors; the columns are just silently wrong,
+the same failure shape as the never-populated `comparison_eligible` key. Step 8
+now passes both conditionally; pinned by
+`test_skill_harvest_invocation_records_the_synthesizer`. Case 6's row was
+corrected in place.
+
+#### Procedure gaps found in this document
+
+- Cases 4 and 6's YAML snippets use paths relative to the repo root, but
+  `promptfile.py:99` resolves relative `files:` against **the YAML's own
+  directory**. A YAML staged outside the repo fails validation with
+  `files: path does not exist on disk`. Use absolute paths, or keep the YAML
+  in the repo root.
+- The reinstall precondition should also check
+  `~/.claude/skills/multi-review/config.json` for a `/tmp/pytest-of-*` path —
+  bug 2 above makes that a recurring hazard on any dev box that runs the suite.
