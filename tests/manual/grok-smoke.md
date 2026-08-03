@@ -1,10 +1,10 @@
 # grok reviewer manual smoke
 
-**Status:** procedure authored 2026-07-19. **Cases 5 and 6 executed live
-2026-08-03** against grok 0.2.117 — both pass, and case 5 found a blocker that
-failed every grok review (see Results). Cases 1-4 and 7 are still unrun; this
-CLI makes live, paid network calls, so treat any unticked pass criterion below
-as unevidenced.
+**Status:** procedure authored 2026-07-19. **All 7 cases executed live
+2026-08-03** against grok 0.2.117 (a422116) — all pass. Case 5 (first run)
+found a blocker that failed every grok review (see Results); cases 1-4 and 7
+(run after the fix) found no further issues. This CLI makes live, paid
+network calls; every pass criterion below is now evidenced.
 
 grok is the opt-in sixth reviewer: valid everywhere a reviewer or synthesizer
 can be named, but never auto-selected (`ALL_REVIEWERS` contains it,
@@ -196,21 +196,32 @@ whichever step spawns the grok subprocess. Confirm:
 
 ## Pass criteria
 
-- [ ] 1: `--list-reviewers` shows grok available and marked opt-in.
-- [ ] 2: omitted `reviewers` in a YAML never includes grok (review file or
-      harvest row).
-- [ ] 3: `--use-defaults` autonomous builder's authored YAML omits grok from
-      its explicit `reviewers` list.
-- [ ] 4: explicit `reviewers: [claude, grok]` produces a grok `## Summary`
+- [x] 1: `--list-reviewers` shows grok available and marked opt-in.
+      PASS 2026-08-03: `detect_available()` returns grok alongside the other
+      five; grok is absent from `DEFAULT_REVIEWERS` so it renders opt-in.
+- [x] 2: omitted `reviewers` in a YAML never includes grok (review file or
+      harvest row). PASS 2026-08-03: `fill_defaults` resolved to
+      `[claude, agy, codex, opencode, pykrete]`; live fanout's REVIEW.md has
+      no grok section and `usage_by_reviewer` has no `grok` key.
+- [x] 3: `--use-defaults` autonomous builder's authored YAML omits grok from
+      its explicit `reviewers` list. PASS 2026-08-03: builder wrote
+      `reviewers: [claude, agy, codex, opencode, pykrete]`.
+- [x] 4: explicit `reviewers: [claude, grok]` produces a grok `## Summary`
       section; harvest row shows non-zero tokens, `tool_calls: 0`,
-      `telemetry_quality: "known-issues"`.
+      `telemetry_quality: "known-issues"`. PASS 2026-08-03: 99 899 in / 3 290
+      out tokens, `tool_calls: 0`, `telemetry_quality: "known-issues"`; review
+      body cites `project_state_dir`/`central_runs_dir` (paths.py-only
+      symbols), proving the prompt arrived.
 - [x] 5: reference mode with an out-of-cwd file — grok's review engages with
       that file's real content (reads not blocked by the sandbox profile).
       PASS 2026-08-03, after fixing the stopReason blocker (see Results).
 - [x] 6: `synthesizer: grok` produces clean markdown synthesis, no JSONL
       envelope, no narration. PASS 2026-08-03.
-- [ ] 7: `grok` off `PATH` → recorded failed-reviewer section, not a run
+- [x] 7: `grok` off `PATH` → recorded failed-reviewer section, not a run
       crash; reported path is `<cwd>/REVIEW-<slug>.md` (single-pass).
+      PASS 2026-08-03: `error: "CLI not found: [Errno 2] No such file or
+      directory: 'grok'"`, claude succeeded, output written to
+      `<cwd>/REVIEW-case7-offpath.md`.
 
 ## Failure modes to watch for
 
@@ -233,7 +244,8 @@ whichever step spawns the grok subprocess. Confirm:
 
 ### 2026-08-03 — cases 5 and 6 executed live (grok 0.2.117, `a422116`)
 
-Cases 1-4 and 7 remain unrun.
+Cases 1-4 and 7 remain unrun as of this section (executed later the same day —
+see the follow-up section below).
 
 **Case 5 — reference mode, out-of-cwd file: PASS (after fixing a blocker).**
 Reviewed `~/kramtime/claude-skills/review-loop/.ref/code-review-workflow.js`
@@ -330,3 +342,48 @@ corrected in place.
 - The reinstall precondition should also check
   `~/.claude/skills/multi-review/config.json` for a `/tmp/pytest-of-*` path —
   bug 2 above makes that a recurring hazard on any dev box that runs the suite.
+
+### 2026-08-03 (later) — cases 1-4 and 7 executed live (grok 0.2.117, `a422116`)
+
+Ran with the stopReason fix from Bug 1 already in place. All five pass, no
+further bugs found.
+
+**Case 1 — availability: PASS.** `detect_available()` (probes `ALL_REVIEWERS`)
+returned grok alongside claude/agy/codex/opencode/pykrete; grok's absence from
+`DEFAULT_REVIEWERS` marks it opt-in in the rendered table.
+
+**Case 2 — opt-in via omitted `reviewers`: PASS.** `validate_prompt` on a YAML
+with `reviewers` omitted resolved `[claude, agy, codex, opencode, pykrete]` via
+`fill_defaults` — no grok. Ran the full fanout live: the resulting REVIEW.md
+has no grok section and the harvest row's `usage_by_reviewer` has no `grok`
+key, as expected. Two of the other four reviewers didn't fully succeed, but
+neither is grok-related: pykrete failed clean on missing `$PYKRETE_CONFIG` as
+designed, and agy failed on a `command` tool auto-denied under a
+headless-permission gate. The agy failure is unrelated to this smoke's
+subject but noted for the record — observed once here, cause not confirmed.
+CLAUDE.md's agy invariant says it normally auto-proceeds without
+`--dangerously-skip-permissions`, so a permission block is somewhat
+surprising; may be a local sandbox quirk, may be worth its own investigation.
+
+**Case 3 — opt-in via autonomous builder: PASS.** `multi-review-build` in
+`--use-defaults` mode wrote `reviewers: [claude, agy, codex, opencode,
+pykrete]` — matches `DEFAULT_REVIEWERS`, omits grok, on the installed copy
+(not just the repo copy the unit tests pin).
+
+**Case 4 — explicit `[claude, grok]` selection: PASS.** grok section present
+with a `## Summary` heading (narration glued directly onto the heading again,
+no newline — third-plus observation of the same shape the gate/trim split
+handles). Harvest row: 99 899 in / 3 290 out tokens, `tool_calls: 0`,
+`telemetry_quality: "known-issues"`. Review body cites `project_state_dir` and
+`central_runs_dir` — symbols defined only in `paths.py` — proving the prompt
+(not an empty stdin) reached the model.
+
+**Case 7 — grok off PATH: PASS.** Spawned grok with `PATH` filtered to drop
+the directory containing the `grok` binary (per the procedure's
+rename-avoidance approach). Recorded `error: "CLI not found: [Errno 2] No
+such file or directory: 'grok'"`, `ok: false`. claude still succeeded; the
+aggregated file landed at `<cwd>/REVIEW-case7-offpath.md` (not a bare
+`REVIEW.md`), matching SKILL.md Step 7's single-pass output-path contract.
+
+No code changes this round — all five cases behaved exactly as documented
+once Bug 1 (case 5/6 round) was fixed.
