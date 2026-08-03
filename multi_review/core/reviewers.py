@@ -108,6 +108,9 @@ AGY_FILE_INSTRUCTION = (
 # sentinel. Prompt is written to the child's stdin (see run_reviewer) so it
 # never appears in /proc/PID/cmdline — EXCEPT for CLIs marked
 # "prompt_delivery": "argv_file" (agy), which read it from a file path instead.
+# "bypass_perms_flag" is only honoured under "prompt_delivery": "argv_file" —
+# build_command's other (stdin) branch never reads it. Adding it to a
+# non-argv_file CLI's spec is a silent no-op, not an error.
 CLI_SPEC: dict[str, dict] = {
     "claude": {
         "base": ["claude", "-p"],
@@ -128,6 +131,14 @@ CLI_SPEC: dict[str, dict] = {
         "default_args": [],
         "stdin_sentinel": None,
         "prompt_delivery": "argv_file",
+        # agy 1.1.10 auto-denies any tool needing a permission it can't
+        # interactively prompt for in --print (headless) mode — deterministic,
+        # not flaky: confirmed live 2026-08-03 that even a trivial file read
+        # fails this way every time without this flag. See CLAUDE.md's agy
+        # invariant for the full story and the BACKLOG bwrap-sandbox section
+        # for the plan to gate this on real containment instead of a blanket
+        # bypass once per-CLI bwrap wrapping exists.
+        "bypass_perms_flag": "--dangerously-skip-permissions",
     },
     "codex": {
         "base": ["codex", "exec", "--skip-git-repo-check"],
@@ -178,13 +189,17 @@ def build_command(cli: str, model: str | None, *, streaming: bool,
     except KeyError:
         raise ValueError(f"Unknown CLI: {cli}")
     # argv_file delivery (agy): the prompt-file instruction must sit immediately
-    # after the base flag (--print consumes the next arg as its value), before
-    # any --model. No stream flags (agy emits plain text) and no stdin sentinel.
+    # after the base flag (--print consumes the next arg as its value — and,
+    # confirmed live 2026-08-03, so does ANY flag placed there, silently
+    # discarding the real prompt), before any --model or bypass_perms_flag. No
+    # stream flags (agy emits plain text) and no stdin sentinel.
     if spec.get("prompt_delivery") == "argv_file":
         if prompt_path is None:
             raise ValueError(f"{cli} uses argv_file delivery and requires prompt_path")
         cmd = list(spec["base"])
         cmd.append(AGY_FILE_INSTRUCTION.format(path=prompt_path))
+        if spec.get("bypass_perms_flag"):
+            cmd.append(spec["bypass_perms_flag"])
         if model:
             cmd += [spec["model_flag"], model]
         return cmd

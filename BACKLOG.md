@@ -289,14 +289,36 @@ read files via its native tools — but solve permission posture (CLIs prompt
 on file reads) and blast-radius posture (bypassed CLI + user's machine = bad)
 first.
 
-**agy makes this urgent (2026-07-10 smoke).** agy is already an uncontained
-agentic reviewer: `agy --print` reads its prompt file via tools and, observed
-in the single-pass smoke, ran `pytest` and grepped the repo unprompted —
-auto-proceeding without `--dangerously-skip-permissions`. So agy already
-executes on the working tree during a review; reviewing untrusted code with
-agy is unsafe today (documented in CLAUDE.md + README). Investigate agy's own
-`--sandbox` flag ("terminal restrictions") and whether a read-only agy
-`--agent` persona exists, in addition to the bwrap cordon, when this lands.
+**agy makes this urgent (2026-07-10 smoke; corrected 2026-08-03).** agy is
+already an uncontained agentic reviewer: `agy --print` reads its prompt file
+via tools. The 2026-07-10 note said this ran unprompted *without*
+`--dangerously-skip-permissions` — that turned out to be stale. Verified live
+2026-08-03 against agy 1.1.10: headless `--print` mode auto-denies any tool
+needing permission it can't interactively prompt for, deterministically —
+every real agy review was failing this way until `CLI_SPEC["agy"]` gained a
+`bypass_perms_flag` set unconditionally (see CLAUDE.md's agy invariant and
+`tests/manual/grok-smoke.md`'s 2026-08-03 agy findings, discovered while
+chasing a permission-gate flake reported during that smoke). So agy already
+executes on the working tree during a review, now unconditionally rather than
+"unprompted despite no flag" as previously believed — reviewing untrusted code
+with agy is unsafe today (documented in CLAUDE.md + README), more directly so
+than the original note implied. Investigate agy's own `--sandbox` flag
+("terminal restrictions") and whether a read-only agy `--agent` persona
+exists, in addition to the bwrap cordon, when this lands.
+
+**Deferred: gate `bypass_perms_flag` on real containment, not unconditional
+(raised 2026-08-03).** Once Phase 2 below actually wraps a CLI's child process
+in bwrap, agy's (and pykrete's — `pi agent` is unrestricted by design, no flag
+to gate) blast radius is bounded by the sandbox rather than by agy's own
+permission system. At that point the right shape is: only pass
+`bypass_perms_flag` (or run agy/pykrete at all) when the invocation is
+actually bwrapped for this run; leave the current unconditional-bypass fail
+mode as the safe default for un-sandboxed hosts, or exclude these CLIs from
+the resolved reviewer set entirely when not bwrapped, matching the
+`--bypass-perms --sandbox none` error case already scoped in Goals below. Not
+done now: doing it before Phase 2 exists would just always resolve to
+"not bwrapped" (nothing to detect yet) — hollow conditional logic with no
+CLI to wrap. Revisit when Phase 2 lands.
 
 `~/llm-bench/2026-04-26/harness/dispatch.py:101-158` already solved both for pi:
 bwrap + bypass-perms-equivalent flag inside the cordon. Same pattern here.

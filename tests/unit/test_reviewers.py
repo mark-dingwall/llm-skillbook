@@ -88,6 +88,10 @@ def test_cli_spec_agy_shape():
     assert s["default_args"] == []
     # agy has no stdin mode; prompt is delivered via a file path on argv.
     assert s["prompt_delivery"] == "argv_file"
+    # agy 1.1.10 denies any tool needing permission it can't interactively
+    # prompt for in --print (headless) mode, deterministically, unless this
+    # is set (see CLAUDE.md's agy invariant, 2026-08-03).
+    assert s["bypass_perms_flag"] == "--dangerously-skip-permissions"
 
 def test_cli_spec_no_gemini_entry():
     from multi_review.core.reviewers import CLI_SPEC
@@ -105,20 +109,32 @@ def test_build_command_agy_with_default():
     p = Path("/tmp/session/prompt.txt")
     cmd = build_command("agy", model=None, streaming=True, prompt_path=p)
     # The prompt-file instruction sits immediately after --print (which consumes
-    # the next arg as its value), and carries the path.
-    assert cmd == ["agy", "--print", AGY_FILE_INSTRUCTION.format(path=p)]
+    # the next arg as its value), and carries the path. --dangerously-skip-
+    # permissions follows the prompt, never precedes it (see the pinned-model
+    # test below for why: --print eats whatever token comes right after it).
+    assert cmd == [
+        "agy", "--print", AGY_FILE_INSTRUCTION.format(path=p),
+        "--dangerously-skip-permissions",
+    ]
     assert str(p) in cmd[2]
 
 def test_build_command_agy_pinned_model_not_swallowed():
     from pathlib import Path
-    from multi_review.core.reviewers import build_command
+    from multi_review.core.reviewers import build_command, AGY_FILE_INSTRUCTION
     p = Path("/tmp/session/prompt.txt")
     cmd = build_command("agy", model="Gemini 3.1 Pro (High)", streaming=True, prompt_path=p)
-    # --print's value must be the instruction, NOT --model (the 1.0.x bug where
-    # `agy --print --model X` made --print eat the flag).
-    assert cmd[cmd.index("--print") + 1].startswith("Read the file")
-    assert cmd.index("--model") > cmd.index("--print") + 1
-    assert cmd[cmd.index("--model") + 1] == "Gemini 3.1 Pro (High)"
+    # --print's value must be the instruction, NOT --model or the bypass-perms
+    # flag (the 1.0.x bug where `agy --print --model X` made --print eat the
+    # flag; confirmed live 2026-08-03 that ANY flag placed right after --print
+    # gets swallowed the same way, silently discarding the real prompt). Full-
+    # list equality also pins the bypass flag strictly before --model, not
+    # just "somewhere after --print" — a regression that appended it after
+    # --model's value would satisfy looser index-only assertions.
+    assert cmd == [
+        "agy", "--print", AGY_FILE_INSTRUCTION.format(path=p),
+        "--dangerously-skip-permissions",
+        "--model", "Gemini 3.1 Pro (High)",
+    ]
 
 def test_detect_self_no_gemini_branch(monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
