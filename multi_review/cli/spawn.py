@@ -36,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default=None,
                    help="Pin to a specific model (a NanoGPT family for pykrete); "
                         "absent = CLI default.")
+    p.add_argument("--task", default=None,
+                   help="Prompt task preset (code/plan/security/generic/custom); "
+                        "forwarded to CLIs that declare a task_flag (pykrete).")
     p.add_argument("--effort", default=None,
                    help="Effort hint (accepted but no-op until wired through CLI_SPEC).")
     p.add_argument("--timeout", type=int, default=None,
@@ -80,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             state=state,
             state_callback=None,
             prompt_path=args.prompt_file,
+            task=args.task,
         )
     )
     duration = time.monotonic() - start

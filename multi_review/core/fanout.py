@@ -98,6 +98,7 @@ async def run_reviewer(
     state: ReviewerState,
     state_callback: "Callable[[str, ReviewerState], None] | None" = None,
     prompt_path: Path | None = None,
+    task: str | None = None,
 ) -> ReviewerResult:
     """Spawn one subprocess for cli, stream output, return ReviewerResult.
 
@@ -110,7 +111,8 @@ async def run_reviewer(
     state.status = "starting"
     state.started_at = time.time()
     try:
-        cmd = build_command(cli, model, streaming=True, prompt_path=prompt_path)
+        cmd = build_command(cli, model, streaming=True,
+                            prompt_path=prompt_path, task=task)
     except ValueError as e:
         state.status = "error"
         state.finished_at = time.time()

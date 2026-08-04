@@ -138,3 +138,23 @@ def test_short_output_fails_on_byte_floor_not_exit_code(tmp_path):
     assert state["ok"] is False
     assert "exit 3" not in state["error"]
     assert "50" in state["error"]
+
+
+def test_task_flag_reaches_pykrete_argv(tmp_path):
+    """spawn --task code must land as `--task code` in pykrete's real argv —
+    without it pykrete silently resolves its [defaults.general] lead."""
+    prompt = tmp_path / "p.txt"
+    prompt.write_text("review me")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    log = tmp_path / "argv.log"
+
+    subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.spawn",
+         "--cli", "pykrete", "--prompt-file", str(prompt),
+         "--out-dir", str(out_dir), "--task", "code"],
+        capture_output=True, text=True,
+        env=_env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(log)}),
+    )
+
+    assert "--task code" in log.read_text()
