@@ -304,3 +304,8 @@ def test_task_flag_only_for_clis_that_declare_it():
     from multi_review.core.reviewers import build_command
     argv = build_command("codex", model=None, streaming=True, task="code")
     assert "--task" not in argv
+    assert None not in argv, (
+        "no task_flag for this CLI must mean no argv change at all — "
+        "a bare `task_flag or task` check would push [None, 'code'] into argv"
+    )
+    assert all(isinstance(a, str) for a in argv)
