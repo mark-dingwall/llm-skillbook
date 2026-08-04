@@ -57,7 +57,7 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 - models.grok: (unset — grok picks its default model; set explicitly for reproducibility, e.g. `grok-4.5-build`)
 - model_effort.codex: high
 
-**agy permission posture.** `agy --print` defaults often refuse reads outside the current working directory. When you prepare a prompt that targets files outside cwd, scope the review to cwd OR copy the target tree to cwd / a `/tmp/<scratch>/` directory first (omit `node_modules`, `.git`, `dist`, `build`, `.venv`, `__pycache__`, vendor dirs). Don't pass `--dangerously-skip-permissions` blindly — read-only reviews don't need it.
+**agy permission posture.** multi-review already runs agy with `--dangerously-skip-permissions` (headless agy denies every tool call otherwise, including reading its own prompt file), so paths outside cwd are readable and need no special handling. The trade-off is that agy executes freely on the working tree — don't build prompts pointing agy at untrusted code.
 
 ## Strict rules
 

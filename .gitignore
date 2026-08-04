@@ -39,3 +39,5 @@ runs/*
 
 # Skill install artifacts (config.json written by mr-setup; not checked in)
 skills/multi-review/config.json
+# Generated comparison log (lives at CENTRAL_PATH; names private codebases)
+EXPERIMENTS.md

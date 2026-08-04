@@ -4,30 +4,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Single-file Python tool (`multi_review.py`) that fans out one review prompt to multiple AI CLIs in parallel (`claude`, `gemini`, `codex`, `opencode`), aggregates responses into `REVIEW.md`, and optionally runs a consensus-synthesis pass.
+Fans out one review prompt to multiple AI CLIs in parallel (`claude`, `agy`, `codex`, `opencode`, `pykrete`, `grok`), aggregates responses into `REVIEW.md`, and optionally runs a consensus-synthesis pass.
 
-No packaging. No test suite. Runs via `uv` using a PEP 723 inline script header (`#!/usr/bin/env -S uv run --script`); `rich>=13.7` is declared inline and resolved on first run.
+v0.2 ships as a **Claude Code skill**, not a CLI. Entry point is `/multi-review` inside a Claude Code session; `skills/multi-review/SKILL.md` drives the procedure and calls the `multi_review.cli.*` modules step by step. The v0.1 script `multi_review.py` is a deprecation stub that prints a banner and exits 1 — removed entirely in v0.3.
+
+Packaged via `pyproject.toml` (`multi_review/core` + `multi_review/cli`). Console scripts (`mr-spawn`, `mr-snapshot`, …) are declared there but **are not installed in this checkout** — invoke modules as `uv run python -m multi_review.cli.<name>`.
 
 ## Commands
 
 ```bash
-# Run directly (uv resolves deps)
-./multi_review.py [files...]
+# Install/refresh the skill + agents into ~/.claude
+uv run python -m multi_review.cli.setup --source-repo $(pwd)
 
-# Show detected CLIs + self-detection (no network calls)
-./multi_review.py --list-reviewers
+# Test suite
+uv run pytest tests/ -q
 
-# Assemble prompt + print, no reviewers invoked
-./multi_review.py --dry-run --task code src/*.py
+# Validate a prompt YAML without running a review
+uv run python -m multi_review.cli.validate_prompt prompt.yaml
 
-# Force explicit reviewer set (bypasses --skip-self and availability filter)
-./multi_review.py --reviewers gemini,codex file.py
-
-# Per-reviewer model override
-./multi_review.py --model claude=claude-opus-4-7 --model codex=gpt-5.6-sol file.py
+# Regenerate EXPERIMENTS.md from the harvest log
+uv run python -m multi_review.cli.report regen \
+  --log <CENTRAL_PATH>/runs.jsonl --reports-dir <CENTRAL_PATH>/reports \
+  --output <CENTRAL_PATH>/EXPERIMENTS.md
 ```
 
-No `make`, `lint`, or `test` targets exist. Manual smoke test only. Linting/typing is not wired up — don't assume a tool is available without checking.
+`ruff` and `mypy` are configured in `pyproject.toml` but not wired into any target — don't assume a tool is installed without checking.
+
+## Tooling gotchas
+
+- `codex exec` always tries reading extra prompt from stdin after startup — if stdin stays open (not piped/closed), it hangs forever.
+- `agy --print <prompt>` swallows whatever argv token comes immediately after `--print` as its prompt value — even if that token is itself a flag. `agy --print --model X "prompt"` silently discards `"prompt"` and answers as if asked about `--model` instead. Put flags before `--print`, or after the prompt string — never between. Confirmed live 2026-08-03 against agy 1.1.10; `build_command` already orders agy's argv correctly (see the agy invariant below) — this note is for anyone invoking `agy` by hand outside the tool.
+- `agy --print` (headless) auto-denies any permission-gated tool call, always — there's no human to prompt. Pass `--dangerously-skip-permissions` when invoking it by hand, or it silently produces no output with a denial message on stderr. multi_review's own agy invocation already does this (see the agy invariant below).
 
 ## Testing discipline
 
@@ -49,16 +56,18 @@ get used to skip — don't.
 
 ### Data flow
 
-1. `parse_args` → `detect_self` + `resolve_reviewers` filter the reviewer list (availability by `shutil.which`; host CLI included by default — `--skip-self` opt-in to drop it from auto-resolved set).
-2. `build_prompt` assembles `INJECTION_PREAMBLE` + task template (or custom/`--prompt-file`) + context files + input files. Context files are always wrapped inline in `<file-NONCE path="…">…</file-NONCE>`. Input files are inline-wrapped under `--mode inline` (default) or emitted as a manifest of resolved absolute paths under `--mode reference` (model reads them via its own tools). Reference mode prepends a second injection preamble (`reference_preamble()`) warning that file *contents* read at tool-call time are review subjects, not instructions.
-3. `run_all_reviewers` spawns one `asyncio.subprocess` per reviewer. Each child's stdout is fed line-by-line into a per-CLI `ProgressAdapter`. `claude`/`codex`/`opencode`/`grok` parse a JSONL event stream; `agy`/`pykrete` are plain-text (no structured events — the whole stdout is the review body). A `rich.Live` dashboard (`build_table`) polls adapter state at ~6Hz.
-4. `run_synthesis` (if ≥2 reviewers succeeded and `--synthesize` is on) pipes `build_synthesis_input(results)` through `--synthesizer` CLI for a Consensus Summary block.
-5. `write_review_md` emits YAML frontmatter + one section per reviewer + Consensus Summary.
+SKILL.md steps drive this; the module names below are where each step's work happens.
+
+1. `validate_prompt` parses the prompt YAML into a `resolved` object — reviewer set, synthesizer, mode, models. That object is the sole source of who runs; never re-derive from `ALL_REVIEWERS` or a `--list-reviewers` probe.
+2. `prepare` calls `build_prompt`: injection preamble + task template (or `custom_prompt`) + context files + input files. Context files are always wrapped inline in `<file-NONCE path="…">…</file-NONCE>`. Input files are inline-wrapped under `mode: inline` or emitted as a manifest of absolute paths under `mode: reference`. Reference mode prepends a second preamble (`reference_preamble()`) warning that file *contents* read at tool-call time are review subjects, not instructions.
+3. Fanout: the `claude` reviewer runs as a Task subagent (`multi-review-reviewer`), captured via `write_task_result`. Every other reviewer is a background `spawn` subprocess whose stdout feeds a per-CLI `ProgressAdapter` (`claude`/`codex`/`opencode`/`grok` parse JSONL; `agy`/`pykrete` are plain text).
+4. `build_synth_input` wraps each successful review in `<review reviewer="…">`; the synthesizer (Task subagent or `spawn`) returns a Consensus Summary body.
+5. `aggregate` emits YAML frontmatter + one section per reviewer + Consensus Summary; `write_harvest_row` queues the metadata row.
 
 ### Key abstractions
 
-- **`CLI_SPEC` table** (multi_review.py:458): single source of truth for each CLI's invocation — `base` args, streaming flags, `--model` flag name, and optional `stdin_sentinel` (the `-` arg some CLIs need to read prompt from stdin). `build_command` composes argv from this; both `run_reviewer` (streaming) and `run_synthesis` (non-streaming) consume it.
-- **Adding a new reviewer**: add to `ALL_REVIEWERS` (known/valid), decide default-on vs opt-in by whether it also goes in `DEFAULT_REVIEWERS`, add a `CLI_SPEC` entry, write a `ProgressAdapter` subclass, register in `ADAPTER_FOR`, add a `TELEMETRY_QUALITY` entry (a missing one silently defaults to `degraded`), and — if it is default-on — add it to the builder agent's autonomous default list too. README *Not in v0.1* names `coderabbit`, `qwen`, `cursor` as open candidates.
+- **`CLI_SPEC` table** (`multi_review/core/reviewers.py`): single source of truth for each CLI's invocation — `base` args, streaming flags, `--model` flag name, and optional `stdin_sentinel` (the `-` arg some CLIs need to read prompt from stdin). `build_command` composes argv from this; both `run_reviewer` (streaming) and `run_synthesis` (non-streaming) consume it.
+- **Adding a new reviewer**: add to `ALL_REVIEWERS` (known/valid), decide default-on vs opt-in by whether it also goes in `DEFAULT_REVIEWERS`, add a `CLI_SPEC` entry, write a `ProgressAdapter` subclass, register in `ADAPTER_FOR`, add a `TELEMETRY_QUALITY` entry (a missing one silently defaults to `degraded`), and — if it is default-on — add it to the builder agent's autonomous default list too.
 - **`ProgressAdapter` subclasses** (one per CLI): parse that CLI's JSON event stream into a `Usage` dataclass + accumulated text. Each CLI has different telemetry fidelity — see README table. Keep the adapter defensive: upstream event schemas drift.
 - **`ReviewerState` / `ReviewerResult`**: mutable state the dashboard watches vs. final result returned from `run_reviewer`.
 - **Prompt shape (`--mode`)**: `inline` embeds every input file under `<file-NONCE>` tags; `reference` emits a `## Files to Review` manifest of absolute paths only. `build_prompt` skips reading input-file bytes entirely in reference mode. Context files are inline-wrapped in both modes. Argv (`build_command`, `CLI_SPEC`) is mode-independent — reference is purely a prompt-shape change. Reference mode is a Phase-1 falsification test for the larger sandbox + bypass-perms work tracked in `BACKLOG.md`; hybrid mode was dropped permanently.
@@ -99,12 +108,14 @@ get used to skip — don't.
 
 When `--synthesizer` is also a reviewer, that model is double-weighted. The synthesizer call uses the CLI name directly regardless of the reviewer list, so it works whether or not the host was dropped via `--skip-self`. Don't "fix" double-weighting by auto-excluding the synthesizer from reviewers without discussion — the README explicitly calls this out as user choice.
 
-## Dependency tracking
+## Adapter schema drift
 
-Gemini emitted cumulative (non-delta) assistant messages in some versions. `GeminiAdapter.feed_line` keys off `ev.get("delta")` — if a future gemini release drops that flag, it will double-count text. Comment at multi_review.py:351 flags this. Same caution applies to any adapter when upstream schemas change.
+Upstream event schemas change without notice, and an adapter that silently mis-parses produces a plausible-looking wrong review. Two live examples are pinned in the invariants above: grok's `stopReason` spelling flip (`EndTurn` → `end_turn`) and its absolute-vs-delta usage accounting. Keep every adapter defensive — unrecognised event types must hit no branch — and re-check `tests/fixtures/streams/` against a real run after any CLI upgrade.
+
+(The deleted `GeminiAdapter` carried the original version of this warning: it keyed text accumulation off `ev.get("delta")` and would have double-counted if that flag ever vanished.)
 
 ## Comparison-test methodology
 
-Every run writes a metadata row to `runs/runs.jsonl` by default (opt out with `--no-harvest`). `multi_review.py --report` reads that JSONL and regenerates `EXPERIMENTS.md` — the inline-vs-reference comparison log + ordering rule + per-project narrative. Schema is flat JSONL keyed by `HARVEST_SCHEMA_VERSION`; bump that on field rename/removal (additions are safe). Per-project narrative depth lives in `runs/notes/<project>-<YYYY-MM-DD>.md` sidecars stitched in at report time. `EXPERIMENTS.md` is fully generated — never edit it by hand; edits are overwritten on next `--report`. The `project` key is derived via `--project-tag` (explicit override) → `git remote get-url origin` basename → `cwd.name` fallback (`derive_project`); paired runs from a worktree like `Guestflow-16.1/` and the main `Guestflow/` checkout share one bucket via origin, but pre-change rows keyed off `cwd.name` may differ — pass `--project-tag` when finer phase partitioning is wanted.
+Every run writes a metadata row to the central `runs.jsonl` by default (opt out with `harvest: false` in the prompt YAML). `report regen` reads that JSONL and rewrites `EXPERIMENTS.md` — the inline-vs-reference comparison log + ordering rule + per-project narrative. The central path is resolved from `~/.claude/skills/multi-review/config.json`; the tracked `EXPERIMENTS.md` at repo root is a historical snapshot, not the live file. Schema is flat JSONL keyed by `HARVEST_SCHEMA_VERSION`; bump that on field rename/removal (additions are safe). Per-project narrative depth lives in `runs/notes/<project>-<YYYY-MM-DD>.md` sidecars stitched in at report time. `EXPERIMENTS.md` is fully generated — never edit it by hand; edits are overwritten on next `--report`. The `project` key is derived via `--project-tag` (explicit override) → `git remote get-url origin` basename → `cwd.name` fallback (`derive_project`); paired runs from a worktree like `Guestflow-16.1/` and the main `Guestflow/` checkout share one bucket via origin, but pre-change rows keyed off `cwd.name` may differ — pass `--project-tag` when finer phase partitioning is wanted.
 
 **Run-to-run variance is large.** Paired runs of the same prompt on the same codebase produce materially different findings, severities, and per-reviewer behaviour from one day to the next — same model, same `--mode`, different bugs surfaced. Two paired runs on Guestflow-16.1 (2026-04-29 vs 2026-04-30) both showed reference-mode beating inline, but for **different reasons each time** (cleaner synthesis vs +2 unique codex bugs); reviewer-level quirks shifted too (gemini fallback chain burned through on one run, ran clean on the next; opencode hallucinated a fix as present in one reference run but not another). **Do not draw conclusions from single runs.** Treat each row in `EXPERIMENTS.md` as one sample, not a trend. We need ≥5 paired runs across distinct codebases before any "mode X is better for reviewer Y" claim is load-bearing. When narrating sidecars, emphasise what the run *showed this time* over what it "proves".
