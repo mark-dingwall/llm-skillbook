@@ -7,11 +7,12 @@ process caps at 3 rounds; this is the final revision. Ready for `writing-plans`.
 commits behind `main`**, missing the agy `bypass_perms_flag` fix (`main:multi_review/core/reviewers.py:141,201-202`).
 Every agy review fails on this branch as-is. **Rebase onto `main` before implementation begins.**
 Every `file:line` citation throughout this spec is anchored to this branch; round-3 review confirmed
-only `multi_review/core/reviewers.py`'s citations drift after the rebase (+13 lines from the
-`bypass_perms_flag` insertion already on `main` — e.g. the `prompt_path` `ValueError` cited below at
-`reviewers.py:184-185` moves to `197-198` on `main`, and the `default_args` fallthrough cited at
-`202-205` moves to `217-220`). Every other cited file is byte-identical between this branch and
-`main`. Re-anchor `reviewers.py` citations post-rebase; the rest hold as written.
+only `multi_review/core/reviewers.py`'s citations drift after the rebase, from the
+`bypass_perms_flag` insertion already on `main` (two separate insertion points, not a flat offset —
+e.g. the `prompt_path` `ValueError` cited below at `reviewers.py:184-185` moves to `197-198` on
+`main` (+13), and the `default_args` fallthrough cited at `202-205` moves to `217-220` (+15)). Every
+other cited file is byte-identical between this branch and `main`. Re-anchor `reviewers.py`
+citations individually post-rebase; the rest hold as written.
 
 ## Problem
 
@@ -359,7 +360,7 @@ dashboard to watch) — see "Progress output" in the Flow section below.
    *always* renders a `## Consensus Summary` heading, even when `synthesis_text` is `None`
    (`core/aggregate.py:147-159`) — but which of two fallback bodies it renders depends on the
    **classified** success count in `classified_results` (not the raw count the synthesis gate uses):
-   fewer than 2 classified successes renders `_Consensus: n/a (insufficient reviewers — need >=2
+   fewer than 2 classified successes renders `_Consensus: n/a (insufficient reviewers — need ≥2
    successful reviews)_`; 2-or-more classified successes with `synthesis_text=None` renders
    `_Consensus synthesis skipped (run without --no-synthesize to populate)._`, referencing a
    `--no-synthesize` flag this driver has no equivalent of. Given the synthesis gate itself already
@@ -580,7 +581,10 @@ sandboxed behavior.
    specific test (see Shutdown) — that's the scenario the caller-side `bwrap --unshare-pid
    --die-with-parent` contract exists for, so also separately confirm killing a `bwrap`-wrapped driver
    that way tears down the *entire* tree, including those grandchildren, regardless of the driver's
-   own handler.
+   own handler. Also record whether `pykrete`'s engine process survives the plain (non-`bwrap`) kill —
+   the Shutdown section left it as "possibly affected" but unconfirmed, and this is the pass meant to
+   resolve that: if it survives, it needs the same `bwrap` contract as `codex`/`opencode`; if not, the
+   "possibly" hedge can be dropped.
 
 ## Open question carried from the handoff (resolved here)
 
