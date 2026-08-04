@@ -455,3 +455,13 @@ def test_skill_harvest_invocation_records_the_synthesizer():
         "SKILL.md Step 8 no longer passes --synthesis-ok; harvest rows will "
         "record synthesis_ok: false even when synthesis succeeded"
     )
+
+
+def test_skill_step5_passes_task_to_spawn():
+    """Without --task, pykrete always resolves its [defaults.general] lead —
+    a user's [defaults.code] tuning is silently ignored."""
+    step5 = _skill_step_section(5)
+    assert "--task <resolved.task>" in step5, (
+        "SKILL.md Step 5 must forward the prompt's task to spawn — without it "
+        "pykrete always resolves its [defaults.general] lead"
+    )

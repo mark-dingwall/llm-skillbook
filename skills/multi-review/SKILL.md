@@ -121,9 +121,10 @@ the configuration that still needs to be resumable. Step 11 removes the whole
 1. **First**, dispatch every non-claude reviewer in `resolved.reviewers` via Bash `run_in_background` invoking `spawn.py` (returns immediately with a task id per reviewer). Dispatch exactly that set — not every installed reviewer, not every reviewer in `ALL_REVIEWERS`. Build argv by appending each optional flag ONLY when its value is set — `<MODEL_FLAG>` and `<EFFORT_FLAG>` below are conditional tokens, not literals:
    - `<MODEL_FLAG>`  = `--model <resolved.models[cli]>`         if `resolved.models[cli]` is set, else **nothing** (no token at all)
    - `<EFFORT_FLAG>` = `--effort <resolved.model_effort[cli]>`  if `resolved.model_effort[cli]` is set, else **nothing**
+   - `<TASK_FLAG>`   = `--task <resolved.task>`                 **always** (the prompt's task; `task` is required in every validated prompt YAML, and `build_command` drops it for CLIs with no `task_flag`)
    ```
    uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
-     --out-dir <REVIEWS_DIR> <MODEL_FLAG> <EFFORT_FLAG>
+     --out-dir <REVIEWS_DIR> <MODEL_FLAG> <EFFORT_FLAG> <TASK_FLAG>
    ```
    An unset value emits NO token — never `--model ""` (a blank string would hand agy an empty model). `spawn.py` defaults both to `None`; agy/codex/opencode/pykrete/grok ship unset by default, so their command is just the base argv with neither flag.
 2. **Then**, in the SAME message, dispatch the claude reviewer via Task — this call blocks until the subagent returns: `Task(subagent_type="multi-review-reviewer", prompt=<reviewer_task.md filled>)`.
