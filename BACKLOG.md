@@ -107,6 +107,12 @@ Today pykrete only ever sees the assembled prompt text, not a matching task
 hint. Wire `task` → pykrete `--task` once a mapping between multi-review's
 task presets and pykrete's task vocabulary is confirmed.
 
+**Confirmed live 2026-08-04 (smoke A–D):** pykrete defaults to `task =
+"general"` when the flag is absent (`args.ts:28`), so its lead model comes from
+`[defaults.general]` and the `[defaults.code]` entry is unreachable through
+multi-review — a user who tuned a reviewing model under `[defaults.code]` never
+gets it. Raises the priority of this item from tidiness to correctness.
+
 ### Capture pykrete's actual selected model (needs upstream reporting)
 
 `CLI_SPEC["pykrete"]["records_family_not_model"]` means harvest rows record
@@ -115,6 +121,12 @@ routed to — pykrete's plain-text output doesn't surface that today. If
 pykrete adds a way to report the actual resolved model (stderr line, exit
 metadata, etc.), parse it and replace the `family:…` placeholder with the
 real model name.
+
+**Partial source found 2026-08-04:** on a downgrade pykrete prints
+`pykrete: substituted "<actual>" for intended lead "<intended>"` to stderr,
+which `stderr_tail` already captures. That names the real model, but only on
+the downgrade path — a clean run says nothing, so this covers the exit-3 case
+only, not the general one.
 
 ### JSONL passthrough adapter if pykrete adds `--format json`
 

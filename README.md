@@ -174,7 +174,7 @@ harvest: true       # write harvest row to central runs.jsonl
 |-------|------|---------|-------|
 | `prompt_format_version` | int | — | Required. Currently `1`. |
 | `task` | enum | — | Required. `code \| plan \| security \| generic \| custom`. |
-| `files` | list[path] | — | Required. Paths must exist on disk at validation time. |
+| `files` | list[path] | — | Required. Paths must exist at validation time. Relative paths resolve against the **prompt YAML's own directory**, not cwd. |
 | `context_files` | list[path] | `[]` | Always inlined (both modes). Also snapshotted for drift detection. |
 | `custom_prompt` | string | — | Required when `task == custom`. |
 | `mode` | enum | — | Required. `inline \| reference \| both`. |
