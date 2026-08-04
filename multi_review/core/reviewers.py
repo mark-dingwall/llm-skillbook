@@ -158,6 +158,12 @@ CLI_SPEC: dict[str, dict] = {
         "base": ["pykrete"],
         "stream_flags": [],
         "model_flag": "--family",          # YAML models:{pykrete:<family>} names a NanoGPT family
+        "task_flag": "--task",             # prompt YAML `task` selects [defaults.<task>]
+        # multi-review's "generic" is pykrete's "general" — same concept, different
+        # spelling. Users write [defaults.general], so forwarding "generic" verbatim
+        # would only earn an `unknown task` warning on stderr and fall back to that
+        # very table (pykrete src/args.ts:30). Every other task name goes verbatim.
+        "task_aliases": {"generic": "general"},
         "default_args": [],
         "stdin_sentinel": "-",
         "success_exit_codes": (0, 3),      # 3 == success via model downgrade
@@ -183,7 +189,8 @@ CLI_SPEC: dict[str, dict] = {
 
 
 def build_command(cli: str, model: str | None, *, streaming: bool,
-                  prompt_path: "Path | None" = None) -> list[str]:
+                  prompt_path: "Path | None" = None,
+                  task: str | None = None) -> list[str]:
     try:
         spec = CLI_SPEC[cli]
     except KeyError:
@@ -212,6 +219,9 @@ def build_command(cli: str, model: str | None, *, streaming: bool,
                 f"(NanoGPT config). See README 'Pykrete setup'."
             )
         cmd += ["--config", cfg]
+    task_flag = spec.get("task_flag")
+    if task_flag and task:
+        cmd += [task_flag, spec.get("task_aliases", {}).get(task, task)]
     if streaming:
         cmd += spec["stream_flags"]
     if model:

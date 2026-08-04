@@ -275,3 +275,32 @@ def test_grok_has_no_pykrete_machinery():
     assert "success_exit_codes" not in spec      # succeeds only on 0
     assert "config_env" not in spec
     assert not spec.get("records_family_not_model")  # grok reports real model IDs
+
+
+def test_pykrete_task_flag_forwarded(monkeypatch):
+    from multi_review.core.reviewers import build_command
+    monkeypatch.setenv("PYKRETE_CONFIG", "/tmp/pykrete.toml")
+    argv = build_command("pykrete", model="deepseek", streaming=True, task="code")
+    assert "--task" in argv
+    assert argv[argv.index("--task") + 1] == "code"
+
+
+def test_pykrete_generic_aliases_to_pykretes_own_general(monkeypatch):
+    """multi-review says "generic"; pykrete's table is [defaults.general]."""
+    from multi_review.core.reviewers import build_command
+    monkeypatch.setenv("PYKRETE_CONFIG", "/tmp/pykrete.toml")
+    argv = build_command("pykrete", model=None, streaming=True, task="generic")
+    assert argv[argv.index("--task") + 1] == "general"
+
+
+def test_pykrete_custom_task_is_forwarded_not_suppressed(monkeypatch):
+    from multi_review.core.reviewers import build_command
+    monkeypatch.setenv("PYKRETE_CONFIG", "/tmp/pykrete.toml")
+    argv = build_command("pykrete", model=None, streaming=True, task="custom")
+    assert argv[argv.index("--task") + 1] == "custom"
+
+
+def test_task_flag_only_for_clis_that_declare_it():
+    from multi_review.core.reviewers import build_command
+    argv = build_command("codex", model=None, streaming=True, task="code")
+    assert "--task" not in argv
