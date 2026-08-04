@@ -57,6 +57,8 @@ export PYKRETE_CONFIG=/path/to/pykrete.toml
 
 `models: {pykrete: <family>}` in a prompt YAML names a NanoGPT **family** (e.g. `glm`), not a specific model — pykrete resolves the actual model within that family itself.
 
+The prompt's `task` is forwarded as pykrete's `--task`, and pykrete picks that family's lead model from `[defaults.<task>].<family>` (falling back to `[defaults.general]`). So put the model you want for reviews under `[defaults.code]` — or whichever task you actually run. multi-review's `generic` task maps to pykrete's own `general`; every other task name goes through verbatim, and a task with no `[defaults.*]` table just warns on stderr and falls back.
+
 Without `NANOGPT_API_KEY` and `PYKRETE_CONFIG` set, pykrete fails clean (recorded failure with the config error as the reason) — it does not abort the rest of the fanout.
 
 ## Grok setup

@@ -2,8 +2,9 @@
 
 **Status:** procedure authored 2026-07-19. **Scenarios A–D executed live
 2026-08-04** against pykrete on NanoGPT (`deepseek` family) — all pass. See
-Results. No multi-review bug found; one behavioural gap confirmed (`--task` is
-never threaded, so pykrete always resolves its `general` lead — BACKLOG).
+Results. No multi-review bug found; one behavioural gap confirmed (`--task`
+never threaded, so pykrete always resolved its `general` lead) — **fixed
+2026-08-04**; scenario E covers it and is not yet executed.
 
 pykrete is the closest analog to `agy`: a plain-text, agentic, subprocess
 reviewer (see `tests/manual/agy-smoke.md`). Unlike agy it needs external
@@ -31,11 +32,12 @@ From `multi_review/core/reviewers.py` `CLI_SPEC["pykrete"]`:
 `[defaults.<task>].<family>`, then `[defaults.general].<family>`, then the
 family list in order (`resolve.ts:buildCandidates`).
 
-**multi-review never passes `--task`**, so pykrete falls back to
-`task = "general"` (`args.ts:28`) and always runs the `[defaults.general]` lead
-— never the `[defaults.code]` one, even for `task: code` prompts. Threading
-`--task` is tracked in BACKLOG. Until it lands, put the model you want pykrete
-to use for reviews in `[defaults.general]`.
+**multi-review threads the prompt's `task` through as `--task`** (since
+2026-08-04), so a `task: code` prompt runs the `[defaults.code]` lead. Absent
+the flag pykrete falls back to `task = "general"` (`args.ts:28`). `generic` is
+aliased to pykrete's `general`; every other task name goes verbatim, and an
+unknown task warns on **stderr** only (`cli.ts:52`) and falls back to
+`general` — stdout, and therefore the review body, is unaffected.
 
 pykrete has no `--help`: any unrecognised argv is treated as the prompt, so
 `pykrete --help` spends an API call answering a question about the flag.
@@ -165,6 +167,45 @@ Confirm:
 
 Restore `PYKRETE_CONFIG` afterward.
 
+## Scenario E — `--task` selects the `[defaults.<task>]` lead
+
+Falsification test: a clean run reports *nothing* about which task table was
+used, so make the `[defaults.code]` lead unreachable and watch the substitution
+warning name it.
+
+Work against a **copy** of the config, never the original:
+
+```bash
+cp ~/kramtime/pykrete/pykrete.toml "$TMP/pykrete-taskE.toml"
+```
+
+In the copy, point the `[defaults.code]` entry at a nonexistent id and add that
+id to the family list (config validation requires every `[defaults.*]` id to
+appear in its `[families]` list):
+
+```toml
+[families]
+deepseek = ["deepseek/deepseek-v9-nonexistent-code-lead",
+            "deepseek/deepseek-v4-pro-cheaper:thinking",
+            "deepseek/deepseek-v4-pro-cheaper"]
+
+[defaults.code]
+deepseek = "deepseek/deepseek-v9-nonexistent-code-lead"
+```
+
+Run the B prompt (`task: code`, `models: {pykrete: deepseek}`,
+`synthesizer: none`) via `spawn --task code`, with `PYKRETE_CONFIG` pointed at
+the copy.
+
+- **Expected:** stderr carries `pykrete: substituted "..." for intended lead
+  "deepseek/deepseek-v9-nonexistent-code-lead"` — that line names the *code*
+  lead, which is the proof `--task code` was honoured. State shows `ok: true`,
+  `downgraded: true`.
+- **Control:** the same run *without* `--task` must substitute the
+  `[defaults.general]` lead instead (or not downgrade at all).
+
+Delete the copy afterwards.
+
 ## Pass criteria
 
 - [x] A: `--list-reviewers` shows pykrete available.
@@ -174,6 +215,7 @@ Restore `PYKRETE_CONFIG` afterward.
       `comparison_eligible: false` for pykrete only.
 - [x] D: missing config is a recorded failed-reviewer section, not a run
       crash; no traceback.
+- [ ] E: `--task code` reaches pykrete and selects the `[defaults.code]` lead.
 
 ## Failure modes to watch for
 
@@ -224,8 +266,8 @@ mirroring SKILL.md Step 5 rather than a full `/multi-review` turn.
 **Model actually used:** `deepseek/deepseek-v4-pro-cheaper`, the non-thinking
 variant. B produced no substitution warning, so it ran the intended lead, and
 with no `--task` the intended lead is the `[defaults.general]` entry. The
-`:thinking` id under `[defaults.code]` is currently unreachable through
-multi-review.
+`:thinking` id under `[defaults.code]` was unreachable through multi-review at
+the time — fixed the same day by threading `--task` (scenario E).
 
 **Harness note:** passing `--drift-status unchecked` on a single-pass run marks
 the reviewer `comparison_eligible: false` (`harvest.py:116` — `unchecked` and
