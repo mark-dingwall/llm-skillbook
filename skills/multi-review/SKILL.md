@@ -158,7 +158,7 @@ versa. Track the dispatch type for each reviewer when you launch them.
 
 Total wall ≈ max(claude Task, max(other reviewers)).
 
-If `claude` is not in `resolved.reviewers`, skip the Task dispatch and the `mr-write-task-result` invocation; the join barrier reduces to BashOutput polling on each external bash_id.
+If `claude` is not in `resolved.reviewers`, skip the Task dispatch and the `write_task_result` invocation; the join barrier reduces to BashOutput polling on each external bash_id.
 
 ### Step 6 — Synthesis
 
@@ -256,7 +256,7 @@ If `mode != both`: nothing to do here; skip to Step 10. **Tie-break:** when EXPE
 If `mode == both`:
 
 a. If `if_drift != ignore`:
-   - `mr-snapshot diff --snapshot-dir <pending/<pair_id>/files> --file <each input file> --context-file <each context file>`
+   - `uv run python -m multi_review.cli.snapshot diff --snapshot-dir <pending/<pair_id>/files> --file <each input file> --context-file <each context file>`
    - Branch on `status`:
      - `clean` → proceed.
      - `drifted` + `if_drift == abort` → harvest row marks `drift_status: drifted`, skip pass 2, continue.
@@ -310,7 +310,7 @@ The mode_divergence / per_reviewer_notes blocks come from a final synthesis pass
 
 ### Step 11 — Cleanup
 
-`mr-snapshot cleanup --snapshot-dir <pending/<pair_id>/files>`
+`uv run python -m multi_review.cli.snapshot cleanup --snapshot-dir <pending/<pair_id>/files>`
 Remove `.multi-review/pending/<pair_id>/`.
 
 Step 10 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<run_id>/`, so the session directories now contain only ephemeral artifacts (per-reviewer state/.md, synthesis input/output, prepared prompt). Cleaning or pruning these directories will not lose user-visible output.
@@ -352,6 +352,6 @@ The investigate subagent is never dispatched in this configuration.
 
 If the user's prompt file has `resolved.reviewers` without `claude`:
 - The reviewer fanout in step 5 dispatches no Task subagent; all reviewers are subprocess.
-- The synthesizer path in step 6 still uses `multi-review-synthesizer` Task IF `resolved.synthesizer == "claude"`. Otherwise subprocess synthesis via `mr-spawn`.
+- The synthesizer path in step 6 still uses `multi-review-synthesizer` Task IF `resolved.synthesizer == "claude"`. Otherwise subprocess synthesis via `multi_review.cli.spawn`.
 
 This is supported; print a one-line acknowledgement: "Note: claude reviewer omitted; synthesis still via Task subagent."

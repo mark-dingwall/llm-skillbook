@@ -1,8 +1,20 @@
 # agy reviewer manual smoke
 
 ## Setup
-- `agy --version` ≥ 1.0.9
+- `agy --version` — verified against 1.0.16, 1.1.1 and 1.1.10
 - `which agy` resolves to `~/.local/bin/agy` or wherever it's installed
+
+## Invocation shape
+
+`build_command` emits `agy --print <prompt-file instruction> --dangerously-skip-permissions [--model X]`.
+Two rules make that ordering load-bearing:
+
+- Headless agy denies every permission-gated tool call, including reading its own
+  prompt file, so without the bypass flag the review is always empty.
+- `--print` consumes the next argv token as its prompt, whatever it is. A flag
+  placed directly after `--print` is silently used as the prompt instead.
+
+If a run returns no review, check argv order before suspecting the model.
 
 ## Procedure
 1. From this repo root:
@@ -29,3 +41,4 @@
 ## Failure modes seen
 - agy refusing to read `/proc/...` etc. — use real cwd files.
 - `--print-timeout 5m0s` default; our default `--timeout None` overrides.
+- Empty output + a permission-denial line on stderr — the bypass flag is missing or landed immediately after `--print` (see Invocation shape).

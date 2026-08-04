@@ -1,5 +1,7 @@
 # multi-review v0.2 Skill Reframe Implementation Plan
 
+> **Archival.** Historical record of the work as planned. Line references point at the pre-split `multi_review.py` and may not match current code. Current behaviour lives in `CLAUDE.md`, `README.md` and `skills/multi-review/SKILL.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Restructure multi-review from a single-file CLI into a Claude Code skill + custom-agent package that moves claude reviewer dispatch off the Agent SDK billing pool and onto interactive subscription via Task subagents, while bundling inline-vs-reference comparison methodology (snapshot, drift, paired report, harvest) into the call lifecycle.

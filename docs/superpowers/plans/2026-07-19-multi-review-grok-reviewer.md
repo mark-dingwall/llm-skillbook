@@ -1,5 +1,7 @@
 # Grok Reviewer (opt-in) Implementation Plan
 
+> **Archival.** Historical record of the work as planned. Line references point at the pre-split `multi_review.py` and may not match current code. Current behaviour lives in `CLAUDE.md`, `README.md` and `skills/multi-review/SKILL.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add `grok` (xAI Grok Build CLI) as a **sixth, opt-in** reviewer — valid everywhere a reviewer or synthesizer can be named, but never auto-selected.

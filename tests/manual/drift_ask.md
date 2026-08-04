@@ -1,12 +1,15 @@
-# drift detection (mode: both, if_drift: ask, background)
+# drift detection (mode: both, if_drift: ask)
 
-1. Build prompt with mode: both, delay: 60, delay_type: background, if_drift: ask.
-2. Run pass 1.
-3. Verify `<cwd>/.multi-review/pending/<pair-id>/prompt-source.txt` and `prompt-source.sha256` both exist.
-4. While background timer running, edit one reviewed file (add a TODO comment).
+Pass 2 normally fires in the same turn as pass 1, so drift can only occur on a
+resumed pair. This procedure interrupts between passes to create that window.
+
+1. Build a prompt with `mode: both`, `if_drift: ask`.
+2. Run pass 1, then interrupt the session before pass 2 starts.
+3. Verify `<cwd>/.multi-review/pending/<pair-id>/` holds `prompt-source.txt`, `prompt-source.sha256`, and a `files/` snapshot.
+4. Edit one reviewed file (add a TODO comment).
 5. `/multi-review --resume-pair <pair-id>`.
-6. Verify AskUserQuestion appears with proceed/abort/investigate.
-7. Choose investigate. Verify `multi-review-investigate` subagent dispatched and returns verdict.
-8. AskUserQuestion proceed/accept-pass-1-as-final/restart appears. Choose proceed.
-9. Pass 2 runs. Paired report shows drift_status: drifted, comparison_eligible: false at pair level.
-10. Separately: repeat from step 1, but instead of step 4, edit the prompt YAML itself before `--resume-pair`. Verify resume hard-stops citing a hash mismatch — no AskUserQuestion, no pass 2.
+6. Verify AskUserQuestion offers proceed / abort / investigate.
+7. Choose investigate. Verify `multi-review-investigate` is dispatched and returns a verdict.
+8. Verify the follow-up AskUserQuestion offers proceed / accept-pass-1-as-final / restart. Choose proceed.
+9. Verify pass 2 runs and the paired report records `drift_status: drifted`, `comparison_eligible: false` at pair level.
+10. Repeat from step 1, but at step 4 edit the prompt YAML instead of a reviewed file. Verify the resume hard-stops on the hash mismatch — no AskUserQuestion, no pass 2.

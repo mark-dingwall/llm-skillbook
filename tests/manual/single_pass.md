@@ -9,4 +9,4 @@
    - Filename derived from synth
    - Harvest row queued in `pending-harvest/`
    - Permission prompt for harvest write at end
-4. After approving harvest, verify EXPERIMENTS.md regenerated with the new row visible.
+4. After approving harvest, verify `<CENTRAL_PATH>/EXPERIMENTS.md` regenerated with the new row visible.

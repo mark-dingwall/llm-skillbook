@@ -217,6 +217,14 @@ defeating `--dev`'s purpose for the SKILL itself. Confirm whether setup is
 meant to symlink `skills/` under `--dev`; if so it regressed. Content was
 identical this run, so impact was nil — flagged for correctness.
 
+**Update 2026-08-04:** `skills/multi-review` *is* symlinked under `--dev` in the
+current install, so that half is fine. Separate bug found while re-running
+setup over a dev install: plain (non-`--dev`) setup dies with
+`shutil.SameFileError` copying `templates/reviewer_task.md` onto its own
+symlink target. There is no supported way back from a `--dev` install to a copy
+install without deleting `~/.claude/skills/multi-review` by hand. Setup should
+unlink an existing symlink before copying.
+
 ### Task-reviewer output not trimmed to `## Summary` (2026-07-11 paired smoke — FIXED 2026-07-11)
 
 **FIXED:** `write_task_result` now trims the `--task-mode review` body to the

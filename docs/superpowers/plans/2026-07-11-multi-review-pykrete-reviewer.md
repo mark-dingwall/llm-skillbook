@@ -1,5 +1,7 @@
 # Pykrete Reviewer Implementation Plan (rev 5)
 
+> **Archival.** Historical record of the work as planned. Line references point at the pre-split `multi_review.py` and may not match current code. Current behaviour lives in `CLAUDE.md`, `README.md` and `skills/multi-review/SKILL.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add `pykrete` as a **default-on** multi-review reviewer (like agy) so reviews can run on NanoGPT models.

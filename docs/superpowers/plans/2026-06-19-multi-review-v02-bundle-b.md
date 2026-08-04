@@ -1,5 +1,7 @@
 # multi-review v0.2 Bundle B Implementation Plan
 
+> **Archival.** Historical record of the work as planned. Line references point at the pre-split `multi_review.py` and may not match current code. Current behaviour lives in `CLAUDE.md`, `README.md` and `skills/multi-review/SKILL.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the orchestration-layer fixes surfaced by the 2026-05-27 dogfood review, swap the deprecated `gemini` CLI for `agy` (Google Antigravity), scrap the fallback/cooldown subsystem, and land the SHOULD-tier robustness fixes — so the v0.2 live smokes (Tasks 35/36/37) can run.
