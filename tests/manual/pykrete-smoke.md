@@ -1,10 +1,10 @@
 # pykrete reviewer manual smoke
 
-**Status:** procedure authored 2026-07-19. **Scenarios A–D executed live
+**Status:** procedure authored 2026-07-19. **Scenarios A–E executed live
 2026-08-04** against pykrete on NanoGPT (`deepseek` family) — all pass. See
 Results. No multi-review bug found; one behavioural gap confirmed (`--task`
 never threaded, so pykrete always resolved its `general` lead) — **fixed
-2026-08-04**; scenario E covers it and is not yet executed.
+2026-08-04**, verified live by scenario E.
 
 pykrete is the closest analog to `agy`: a plain-text, agentic, subprocess
 reviewer (see `tests/manual/agy-smoke.md`). Unlike agy it needs external
@@ -215,7 +215,7 @@ Delete the copy afterwards.
       `comparison_eligible: false` for pykrete only.
 - [x] D: missing config is a recorded failed-reviewer section, not a run
       crash; no traceback.
-- [ ] E: `--task code` reaches pykrete and selects the `[defaults.code]` lead.
+- [x] E: `--task code` reaches pykrete and selects the `[defaults.code]` lead.
 
 ## Failure modes to watch for
 
@@ -268,6 +268,24 @@ variant. B produced no substitution warning, so it ran the intended lead, and
 with no `--task` the intended lead is the `[defaults.general]` entry. The
 `:thinking` id under `[defaults.code]` was unreachable through multi-review at
 the time — fixed the same day by threading `--task` (scenario E).
+
+### 2026-08-04 — E executed live, pass
+
+Config copy with `[defaults.code].deepseek =
+"deepseek/deepseek-v9-nonexistent-code-lead"` (also added to `[families]`),
+`spawn --cli pykrete --model deepseek --task code` on a tiny throwaway prompt.
+
+- **E — pass.** `ok: true`, `downgraded: true`, stderr `pykrete: substituted
+  "deepseek/deepseek-v4-pro-cheaper:thinking" for intended lead
+  "deepseek/deepseek-v9-nonexistent-code-lead"` — names the **code** lead, so
+  `--task code` was honoured.
+- **Control — pass.** Same config, no `--task`: `ok: true`, `downgraded:
+  false`, empty stderr. The `[defaults.general]` lead is valid, so the bogus
+  code lead was never reached — discriminating in the intended direction.
+- **Real config + `--task code`** (`~/kramtime/pykrete/pykrete.toml`,
+  untouched): `ok: true`, `downgraded: false`, empty stderr, `## Summary`
+  present — the `[defaults.code]` lead
+  (`deepseek/deepseek-v4-pro-cheaper:thinking`) ran with no substitution.
 
 **Harness note:** passing `--drift-status unchecked` on a single-pass run marks
 the reviewer `comparison_eligible: false` (`harvest.py:116` — `unchecked` and
