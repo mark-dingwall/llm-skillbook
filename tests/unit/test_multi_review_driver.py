@@ -368,3 +368,37 @@ def test_synthesis_returning_not_ok_leaves_review_intact(tmp_path, monkeypatch):
     code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
     assert code == 0
     assert "synthesizer: claude" not in (out / "REVIEW.md").read_text()
+
+
+def test_cancellation_during_fanout_returns_1_not_a_traceback(tmp_path, monkeypatch):
+    # The outer cancellation a SIGTERM triggers propagates through the shared
+    # fanout, out of the coroutine, and out of asyncio.run(). Without the catch
+    # in main(), the process dies on an uncaught traceback instead of honouring
+    # the `main() -> int` contract.
+    async def _cancelled(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(driver, "_amain", _cancelled)
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
+
+
+def test_sigterm_handler_is_installed(tmp_path, monkeypatch):
+    installed = []
+    real_get_loop = driver.asyncio.get_running_loop
+
+    class _Spy:
+        def __init__(self, loop):
+            self._loop = loop
+
+        def __getattr__(self, name):
+            return getattr(self._loop, name)
+
+        def add_signal_handler(self, sig, cb):
+            installed.append(sig)
+            return self._loop.add_signal_handler(sig, cb)
+
+    monkeypatch.setattr(driver.asyncio, "get_running_loop", lambda: _Spy(real_get_loop()))
+    _run(tmp_path, monkeypatch, THREE_YAML, _RecordingFanout())
+    assert driver.signal.SIGTERM in installed

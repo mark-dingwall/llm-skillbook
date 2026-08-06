@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import dataclasses
 import secrets
+import signal
 import sys
 import time
 from pathlib import Path
@@ -39,6 +40,14 @@ from multi_review.core.synthesis import build_synthesis_input, run_synthesis
 
 async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
                  out_dir: Path, timeout: int | None, prompt_file: Path) -> int:
+    # Must be installed from inside the coroutine, not from main(): before
+    # asyncio.run() starts there is no running loop and no current task to cancel.
+    # Best-effort only — see the spec's Shutdown section; the caller-side
+    # `bwrap --unshare-pid --die-with-parent` contract is the load-bearing one,
+    # because SIGKILL to a node shim does not reach codex/opencode's real engine.
+    asyncio.get_running_loop().add_signal_handler(
+        signal.SIGTERM, asyncio.current_task().cancel)
+
     def _report(result: ReviewerResult) -> None:
         print(f"[multi_review] {result.cli}: {'ok' if result.ok else 'failed'} "
               f"({result.elapsed:.1f}s) [raw]", file=sys.stderr, flush=True)
@@ -64,7 +73,7 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
     if pf.synthesizer != "none" and sum(1 for r in raw_results if r.ok) >= 2:
         body, nonce = build_synthesis_input(raw_results)
         try:
-            ok, text, err, suggested, attempts = await run_synthesis(
+            ok, text, _err, _suggested, _attempts = await run_synthesis(
                 pf.synthesizer, body, nonce,
                 model=pf.models.get(pf.synthesizer), timeout=timeout,
             )
@@ -72,7 +81,7 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             # NamedTemporaryFile in _run_synthesis_attempt runs before its own
             # try block, so an OSError there can escape. Preserve the collected
             # reviewer results and write REVIEW.md even when synthesis crashes.
-            ok, text, err, suggested, attempts = False, "", str(exc), None, []
+            ok, text, _err, _suggested, _attempts = False, "", str(exc), None, []
             print(f"[multi_review] synthesis ({pf.synthesizer}): crashed: {exc}",
                   file=sys.stderr, flush=True)
         synthesis_ok = ok
@@ -164,8 +173,13 @@ def main(argv: list[str] | None = None) -> int:
         # Operational output failure, before dispatch: failed run, no traceback.
         print(f"error: cannot write driver output: {exc}", file=sys.stderr)
         return 1
-    return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
-                              args.timeout, prompt_file))
+    try:
+        return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
+                                  args.timeout, prompt_file))
+    except asyncio.CancelledError:
+        # SIGTERM during fanout or synthesis: no REVIEW.md was written; the caller
+        # sees a failed round. review-loop treats any non-zero exit identically.
+        return 1
 
 
 if __name__ == "__main__":
