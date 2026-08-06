@@ -415,9 +415,10 @@ the other is what actually holds in the deployment:**
      executables, so the direct child *is* the reviewer. `codex` and `opencode`, at minimum, are
      `#!/usr/bin/env node` shims whose real engine is a **grandchild** process the shim itself spawns
      (`node`'s own `spawn()`/`spawnSync()` internally) — confirmed by inspecting their installed
-     entry points. `SIGKILL` to the shim does not reach that grandchild, which survives. (Whether
-     `pykrete` shares this shim pattern wasn't independently confirmed this round — treat it as
-     "possibly affected" rather than "confirmed clean" until checked.) `codex` additionally forwards
+     entry points. `SIGKILL` to the shim does not reach that grandchild, which survives. Pykrete also
+     spawns a `pi` engine grandchild, but the 2026-08-07 Task 5 live smoke captured both processes,
+     sent SIGTERM only to the Python driver, and confirmed that both were gone after cancellation;
+     pykrete 0.1.0/pi 0.80.10 is therefore confirmed clean for this path. `codex` additionally forwards
      `SIGINT`/`SIGTERM`/`SIGHUP` to its own children when *it* receives one of those signals directly
      — which is exactly what happens under `Ctrl-C`/`SIGINT` (the whole foreground process group
      receives it), explaining why round-2's SIGINT measurement showed clean teardown: that test may
@@ -451,8 +452,7 @@ the other is what actually holds in the deployment:**
      explicit rather than left to inference, per round-3 review.
 
 **Net effect:** a plan-writer should implement both, but must not read the driver-side handler as
-making the caller-side `bwrap` contract optional. It doesn't, for `codex`/`opencode` (and possibly
-`pykrete`) specifically.
+making the caller-side `bwrap` contract optional. It doesn't, for `codex`/`opencode` specifically.
 
 ### Directory layout under `--out-dir`
 
@@ -482,7 +482,7 @@ and synthesis results are passed as in-memory objects directly into `write_revie
 | A `CancelledError`/other non-`ReviewerResult` item from `gather` | step 6 | synthesized failed `ReviewerResult` for that CLI (via `not isinstance(item, ReviewerResult)`); others unaffected |
 | `run_synthesis` raises | step 8 | caught, `synthesis_text=None`, run continues to step 9 |
 | Synthesis fails or `pf.synthesizer == "none"` or `<2` raw successes | step 8 | `synthesis_text=None`; `REVIEW.md`'s Consensus Summary section renders `write_review_md`'s own existing fallback text |
-| `SIGTERM` to the driver during fanout or synthesis | Shutdown | driver-side handler cancels and returns exit `1`, **no `REVIEW.md` written**; child cleanup via `kill_proc` reliably covers single-binary reviewers only (`claude`/`agy`/`grok`) — `codex`/`opencode` (grandchild engine survives `SIGKILL` to the shim) rely on the caller-side `bwrap --unshare-pid --die-with-parent` contract, which is load-bearing, not optional (see Shutdown) |
+| `SIGTERM` to the driver during fanout or synthesis | Shutdown | driver-side handler cancels and returns exit `1`, **no `REVIEW.md` written**; child cleanup covers the single-binary reviewers (`claude`/`agy`/`grok`) and, as live-verified 2026-08-07, pykrete 0.1.0's `pi` engine grandchild; `codex`/`opencode` (grandchild engine survives `SIGKILL` to the shim) rely on the caller-side `bwrap --unshare-pid --die-with-parent` contract, which is load-bearing, not optional (see Shutdown) |
 | `write_review_md` itself fails (e.g. disk full, read-only mount) | `core.aggregate.write_review_md` (step 9) | `OSError`/`SystemExit` propagates uncaught — this is the one failure mode with no fallback, since it's the write of the driver's entire output; exit code is whatever the interpreter gives an uncaught exception (1). Round-2 review noted this is indistinguishable from "every reviewer failed" from the caller's point of view (both exit 1) — accepted, not fixed here; `review-loop` treats any non-zero exit the same way regardless. |
 
 "Partial failures still produce `REVIEW.md`" holds for every row except the last (nothing else can
@@ -581,10 +581,9 @@ sandboxed behavior.
    specific test (see Shutdown) — that's the scenario the caller-side `bwrap --unshare-pid
    --die-with-parent` contract exists for, so also separately confirm killing a `bwrap`-wrapped driver
    that way tears down the *entire* tree, including those grandchildren, regardless of the driver's
-   own handler. Also record whether `pykrete`'s engine process survives the plain (non-`bwrap`) kill —
-   the Shutdown section left it as "possibly affected" but unconfirmed, and this is the pass meant to
-   resolve that: if it survives, it needs the same `bwrap` contract as `codex`/`opencode`; if not, the
-   "possibly" hedge can be dropped.
+   own handler. The 2026-08-07 Task 5 smoke also captured pykrete and its `pi` engine during a plain
+   driver kill: both were gone after the driver handled SIGTERM, resolving the earlier
+   "possibly affected" hedge as confirmed clean for pykrete 0.1.0/pi 0.80.10.
 
 ## Open question carried from the handoff (resolved here)
 
