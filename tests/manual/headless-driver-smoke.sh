@@ -32,7 +32,8 @@ require_command() {
 run_self_check() {
   [[ -x "$script_path" ]] || die "harness is not executable: $script_path"
   bash -n "$script_path"
-  PYTHONPATH="$repo_root" python3 - "$fixture_dir" <<'PY'
+  require_command uv
+  uv run --project "$repo_root" python - "$fixture_dir" <<'PY'
 from pathlib import Path
 import sys
 
