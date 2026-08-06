@@ -21,14 +21,57 @@ module-level attributes, which dotted access would not allow.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import dataclasses
 import secrets
 import sys
 from pathlib import Path
 
 import yaml
 
-from multi_review.core.prompt import build_prompt
+from multi_review.core.aggregate import write_review_md
+from multi_review.core.fanout import ReviewerResult, run_all_reviewers
+from multi_review.core.prompt import build_prompt, classify_review_ok
 from multi_review.core.promptfile import ValidationError, _resolve_path, load_promptfile
+
+
+async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
+                 out_dir: Path, timeout: int | None, prompt_file: Path) -> int:
+    def _report(result: ReviewerResult) -> None:
+        print(f"[multi_review] {result.cli}: {'ok' if result.ok else 'failed'} "
+              f"({result.elapsed:.1f}s) [raw]", file=sys.stderr, flush=True)
+
+    raw_results = await run_all_reviewers(
+        reviewers, prompt_text, pf.models, timeout,
+        prompt_path=prompt_path, task=pf.task, result_callback=_report,
+    )
+
+    classified_results = []
+    for result in raw_results:
+        ok, note = classify_review_ok(result.ok, result.text)
+        classified_results.append(dataclasses.replace(
+            result,
+            ok=ok,
+            error=(result.error or note),
+            stderr_tail=(f"{result.stderr_tail}\n{note}" if result.stderr_tail and note
+                         else note or result.stderr_tail),
+        ))
+
+    try:
+        write_review_md(
+            path=out_dir / "REVIEW.md",
+            results=classified_results,
+            synthesis_text=None,
+            mode=pf.mode,
+            task=pf.task,
+            reviewers_attempted=reviewers,
+            models=pf.models,
+            prompt_file=str(prompt_file),
+        )
+    except SystemExit as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0 if any(result.ok for result in classified_results) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -94,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
         # Operational output failure, before dispatch: failed run, no traceback.
         print(f"error: cannot write driver output: {exc}", file=sys.stderr)
         return 1
-    return 0
+    return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
+                              args.timeout, prompt_file))
 
 
 if __name__ == "__main__":

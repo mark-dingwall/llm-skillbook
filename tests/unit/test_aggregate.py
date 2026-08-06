@@ -1,5 +1,6 @@
 """tests/unit/test_aggregate.py — unit tests for core/aggregate.py"""
 from pathlib import Path
+import yaml
 from multi_review.core.aggregate import write_review_md, resolve_output_path
 from multi_review.core.fanout import ReviewerResult
 
@@ -115,3 +116,15 @@ def test_aggregate_frontmatter_empty_models(tmp_path):
     )
     body = out.read_text()
     assert "models:" in body
+
+
+def test_aggregate_prompt_file_is_yaml_safe(tmp_path):
+    prompt_file = "/absolute/has: a # hash/prompt.yaml"
+    out = tmp_path / "REVIEW.md"
+    write_review_md(
+        path=out, results=[_r("claude")], synthesis_text=None,
+        mode="inline", task="code", reviewers_attempted=["claude"],
+        prompt_file=prompt_file,
+    )
+    frontmatter = out.read_text().split("---", 2)[1]
+    assert yaml.safe_load(frontmatter)["prompt_file"] == prompt_file

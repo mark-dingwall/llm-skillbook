@@ -1,8 +1,12 @@
+import asyncio
 import importlib.util
 import textwrap
 from pathlib import Path
 
 import pytest
+
+from multi_review.core.adapters import Usage
+from multi_review.core.fanout import ReviewerResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,17 +38,13 @@ BASE_YAML = """\
 """
 
 
-def test_out_dir_created_when_missing(tmp_path):
-    pf = _write_promptfile(tmp_path, BASE_YAML)
-    out = tmp_path / "round-1"
-    driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+def test_out_dir_created_when_missing(tmp_path, monkeypatch):
+    _, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
     assert (out / "prompt.txt").exists()
 
 
-def test_prompt_txt_contains_the_input_file_body(tmp_path):
-    pf = _write_promptfile(tmp_path, BASE_YAML)
-    out = tmp_path / "round-1"
-    driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+def test_prompt_txt_contains_the_input_file_body(tmp_path, monkeypatch):
+    _, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
     assert "return 1" in (out / "prompt.txt").read_text()
 
 
@@ -56,10 +56,11 @@ def test_non_empty_out_dir_is_rejected(tmp_path):
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
 
 
-def test_empty_out_dir_is_accepted(tmp_path):
+def test_empty_out_dir_is_accepted(tmp_path, monkeypatch):
     pf = _write_promptfile(tmp_path, BASE_YAML)
     out = tmp_path / "round-1"
     out.mkdir()
+    monkeypatch.setattr(driver, "run_all_reviewers", _RecordingFanout())
     driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
     assert (out / "prompt.txt").exists()
 
@@ -128,3 +129,134 @@ def test_prompt_output_write_failure_exits_1_without_traceback(tmp_path, monkeyp
 def test_argparse_usage_error_raises_systemexit(tmp_path):
     with pytest.raises(SystemExit):
         driver.main(["--prompt-file", "only-one-arg"])
+
+
+SUMMARY_BODY = "## Summary\n\nLooks fine.\n"
+
+
+def _result(cli, ok=True, text=SUMMARY_BODY, error=None):
+    return ReviewerResult(cli=cli, ok=ok, text=text, stderr_tail="",
+                          usage=Usage(), elapsed=1.0, error=error)
+
+
+class _RecordingFanout:
+    """Stand-in for run_all_reviewers that records one orchestration call."""
+
+    def __init__(self, results=None):
+        self.results = results or {}
+        self.calls = []
+
+    async def __call__(self, reviewers, prompt, models, timeout, **kwargs):
+        self.calls.append({"reviewers": reviewers, "prompt": prompt, "models": models,
+                           "timeout": timeout, **kwargs})
+        results = [self.results.get(cli, _result(cli)) for cli in reviewers]
+        if kwargs.get("result_callback"):
+            for result in results:
+                kwargs["result_callback"](result)
+        return results
+
+    @property
+    def clis(self):
+        return self.calls[0]["reviewers"]
+
+
+def _run(tmp_path, monkeypatch, yaml_body, fanout, extra_argv=()):
+    """Run the driver with run_all_reviewers faked out."""
+    pf = _write_promptfile(tmp_path, yaml_body)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out), *extra_argv])
+    return code, out
+
+
+THREE_YAML = """\
+    prompt_format_version: 1
+    task: code
+    files: [target.py]
+    reviewers: [codex, codex, agy]
+    synthesizer: none
+"""
+
+
+def test_duplicate_reviewers_are_dispatched_once(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert fanout.clis == ["codex", "agy"]
+
+
+def test_fanout_receives_the_on_disk_prompt_path(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    _, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert fanout.calls[0]["prompt_path"] == out / "prompt.txt"
+
+
+def test_fanout_receives_prompt_task(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert fanout.calls[0]["task"] == "code"
+
+
+def test_model_is_forwarded_only_when_configured(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML + "    models: {codex: gpt-5.6-sol}\n", fanout)
+    assert fanout.calls[0]["models"] == {"codex": "gpt-5.6-sol"}
+
+
+def test_timeout_is_forwarded_when_given(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML, fanout, extra_argv=["--timeout", "600"])
+    assert fanout.calls[0]["timeout"] == 600
+
+
+def test_timeout_defaults_to_none(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert fanout.calls[0]["timeout"] is None
+
+
+def test_review_md_is_written_with_both_reviewers(tmp_path, monkeypatch):
+    fanout = _RecordingFanout()
+    code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    text = (out / "REVIEW.md").read_text()
+    assert code == 0
+    assert 'reviewers_succeeded: ["codex", "agy"]' in text
+    assert 'reviewers_failed: []' in text
+
+
+def test_all_reviewers_failing_exits_1(tmp_path, monkeypatch):
+    fanout = _RecordingFanout(results={
+        "codex": _result("codex", ok=False, text="", error="rc=1"),
+        "agy": _result("agy", ok=False, text="", error="rc=1"),
+    })
+    code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert code == 1
+    assert 'reviewers_failed: ["codex", "agy"]' in (out / "REVIEW.md").read_text()
+
+
+def test_exit_code_uses_classified_not_raw_ok(tmp_path, monkeypatch):
+    fanout = _RecordingFanout(results={
+        "codex": _result("codex", ok=True, text="I reviewed it. No heading here."),
+        "agy": _result("agy", ok=False, text="", error="rc=1"),
+    })
+    code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    text = (out / "REVIEW.md").read_text()
+    assert code == 1
+    assert 'reviewers_failed: ["codex", "agy"]' in text
+    assert "failed — no ## Summary heading in review body" in text
+    assert "unknown error" not in text
+
+
+def test_progress_lines_go_to_stderr(tmp_path, monkeypatch, capsys):
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    err = capsys.readouterr().err
+    assert "[multi_review] codex: ok" in err
+    assert "[multi_review] agy: ok" in err
+
+
+def test_review_write_failure_returns_1_without_raising(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(driver, "write_review_md",
+                        lambda **kwargs: (_ for _ in ()).throw(SystemExit("disk full")))
+    code, _ = _run(tmp_path, monkeypatch, THREE_YAML, _RecordingFanout())
+    assert code == 1
+    assert "disk full" in capsys.readouterr().err

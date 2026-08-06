@@ -99,7 +99,7 @@ def write_review_md(
     if pair_id is not None:
         lines.append(f"pair_id: {pair_id}")
     if prompt_file is not None:
-        lines.append(f"prompt_file: {prompt_file}")
+        lines.append(f"prompt_file: {json.dumps(prompt_file)}")
     lines.append("models:")
     for k, v in (models or {}).items():
         lines.append(f"  {k}: {json.dumps(v)}")
