@@ -25,6 +25,7 @@ import asyncio
 import dataclasses
 import secrets
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -33,6 +34,7 @@ from multi_review.core.aggregate import write_review_md
 from multi_review.core.fanout import ReviewerResult, run_all_reviewers
 from multi_review.core.prompt import build_prompt, classify_review_ok
 from multi_review.core.promptfile import ValidationError, _resolve_path, load_promptfile
+from multi_review.core.synthesis import build_synthesis_input, run_synthesis
 
 
 async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
@@ -57,16 +59,41 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
                          else note or result.stderr_tail),
         ))
 
+    synthesis_text = None
+    synthesis_ok = False
+    if pf.synthesizer != "none" and sum(1 for r in raw_results if r.ok) >= 2:
+        body, nonce = build_synthesis_input(raw_results)
+        try:
+            ok, text, err, suggested, attempts = await run_synthesis(
+                pf.synthesizer, body, nonce,
+                model=pf.models.get(pf.synthesizer), timeout=timeout,
+            )
+        except Exception as exc:
+            # NamedTemporaryFile in _run_synthesis_attempt runs before its own
+            # try block, so an OSError there can escape. Preserve the collected
+            # reviewer results and write REVIEW.md even when synthesis crashes.
+            ok, text, err, suggested, attempts = False, "", str(exc), None, []
+            print(f"[multi_review] synthesis ({pf.synthesizer}): crashed: {exc}",
+                  file=sys.stderr, flush=True)
+        synthesis_ok = ok
+        if synthesis_ok:
+            synthesis_text = text
+        print(f"[multi_review] synthesis ({pf.synthesizer}): {'ok' if ok else 'failed'}",
+              file=sys.stderr, flush=True)
+
     try:
         write_review_md(
             path=out_dir / "REVIEW.md",
             results=classified_results,
-            synthesis_text=None,
+            synthesis_text=synthesis_text,
             mode=pf.mode,
             task=pf.task,
             reviewers_attempted=reviewers,
             models=pf.models,
             prompt_file=str(prompt_file),
+            synthesizer=(pf.synthesizer if synthesis_ok else None),
+            synthesized_at=(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                            if synthesis_ok else None),
         )
     except SystemExit as exc:
         print(f"error: {exc}", file=sys.stderr)

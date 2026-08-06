@@ -260,3 +260,111 @@ def test_review_write_failure_returns_1_without_raising(tmp_path, monkeypatch, c
     code, _ = _run(tmp_path, monkeypatch, THREE_YAML, _RecordingFanout())
     assert code == 1
     assert "disk full" in capsys.readouterr().err
+
+
+class _RecordingSynth:
+    def __init__(self, ok=True, text="## Consensus Summary\n\nAgreed.\n", raises=None):
+        self.ok, self.text, self.raises = ok, text, raises
+        self.calls = []
+
+    async def __call__(self, cli, body, nonce, model=None, timeout=None):
+        self.calls.append({"cli": cli, "body": body, "nonce": nonce,
+                           "model": model, "timeout": timeout})
+        if self.raises is not None:
+            raise self.raises
+        return self.ok, self.text, "", None, ["<default>"]
+
+
+SYNTH_YAML = """\
+    prompt_format_version: 1
+    task: code
+    files: [target.py]
+    reviewers: [codex, agy]
+    synthesizer: claude
+"""
+
+
+def _run_with_synth(tmp_path, monkeypatch, yaml_body, reviewer, synth, extra_argv=()):
+    monkeypatch.setattr(driver, "run_synthesis", synth)
+    return _run(tmp_path, monkeypatch, yaml_body, reviewer, extra_argv)
+
+
+def test_synthesizer_none_never_calls_run_synthesis(tmp_path, monkeypatch):
+    synth = _RecordingSynth()
+    _run_with_synth(tmp_path, monkeypatch, THREE_YAML, _RecordingFanout(), synth)
+    assert synth.calls == []
+
+
+def test_one_raw_success_does_not_reach_the_synthesizer(tmp_path, monkeypatch):
+    rev = _RecordingFanout(results={"agy": _result("agy", ok=False, text="", error="rc=1")})
+    synth = _RecordingSynth()
+    _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, rev, synth)
+    assert synth.calls == []
+
+
+def test_two_raw_successes_reach_the_synthesizer(tmp_path, monkeypatch):
+    synth = _RecordingSynth()
+    code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
+    text = (out / "REVIEW.md").read_text()
+    assert code == 0
+    assert [c["cli"] for c in synth.calls] == ["claude"]
+    assert "Agreed." in text
+
+
+def test_synthesis_frontmatter_records_attribution(tmp_path, monkeypatch):
+    synth = _RecordingSynth()
+    _, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
+    text = (out / "REVIEW.md").read_text()
+    assert "synthesizer: claude" in text
+    assert "synthesized_at: " in text
+
+
+def test_successful_empty_synthesis_still_records_attribution(tmp_path, monkeypatch):
+    synth = _RecordingSynth(ok=True, text="")
+    _, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML,
+                             _RecordingFanout(), synth)
+    text = (out / "REVIEW.md").read_text()
+    assert "synthesizer: claude" in text
+    assert "synthesized_at: " in text
+
+
+def test_synthesis_receives_model_and_timeout(tmp_path, monkeypatch):
+    synth = _RecordingSynth()
+    _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML + "    models: {claude: opus}\n",
+                    _RecordingFanout(), synth, extra_argv=["--timeout", "600"])
+    assert synth.calls[0]["model"] == "opus"
+    assert synth.calls[0]["timeout"] == 600
+
+
+def test_synthesis_gate_is_raw_while_exit_code_is_classified(tmp_path, monkeypatch):
+    # Both raw-ok (gate fires) but one lacks a "## Summary" heading (classified fail).
+    rev = _RecordingFanout(results={
+        "codex": _result("codex", ok=True, text="no heading anywhere in this body"),
+    })
+    synth = _RecordingSynth()
+    code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, rev, synth)
+    text = (out / "REVIEW.md").read_text()
+    assert len(synth.calls) == 1          # gate saw 2 raw successes
+    assert code == 0                      # agy still classified-ok
+    assert 'reviewers_succeeded: ["agy"]' in text
+    assert 'reviewers_failed: ["codex"]' in text
+
+
+def test_synthesis_raising_does_not_lose_the_review(tmp_path, monkeypatch):
+    # run_synthesis genuinely can raise: NamedTemporaryFile in
+    # _run_synthesis_attempt executes before its own try block, so an OSError
+    # (unwritable /tmp under `bwrap --tmpfs /tmp`) propagates out. Unwrapped,
+    # that would discard every collected reviewer result at the last moment.
+    synth = _RecordingSynth(raises=OSError("read-only /tmp"))
+    code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
+    text = (out / "REVIEW.md").read_text()
+    assert code == 0
+    assert 'reviewers_succeeded: ["codex", "agy"]' in text
+    assert "synthesizer: claude" not in text
+
+
+def test_synthesis_returning_not_ok_leaves_review_intact(tmp_path, monkeypatch):
+    synth = _RecordingSynth(ok=False, text="")
+    code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
+    assert code == 0
+    assert "synthesizer: claude" not in (out / "REVIEW.md").read_text()

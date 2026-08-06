@@ -96,6 +96,9 @@ async def _run_synthesis_attempt(
         except asyncio.TimeoutError:
             await kill_proc(proc)
             return False, "", f"synthesis timeout after {timeout}s", None
+        except asyncio.CancelledError:
+            await kill_proc(proc)
+            raise
     except ValueError as e:
         return False, "", str(e), None
     finally:
