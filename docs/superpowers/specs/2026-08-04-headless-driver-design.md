@@ -560,7 +560,9 @@ Cases:
 The test suite mocks all CLI dispatch, so a green suite says nothing about real subprocess or
 sandboxed behavior.
 
-1. `claude -p` running correctly under `bwrap --clearenv` with `~/.claude` bound writable.
+1. `claude -p` running correctly under `bwrap --clearenv` with a fresh writable scratch
+   `HOME`/`CLAUDE_CONFIG_DIR` and a script-scoped token from `claude setup-token` supplied as
+   `CLAUDE_CODE_OAUTH_TOKEN`. Never bind the real `~/.claude` into this sandbox.
 2. Whether headless `claude -p` auto-denies permission-gated tool calls the way `agy --print` does
    (see the Goal section's posture-change note) — if so, reference mode systematically fails for
    `claude` through this driver and needs its own fix, not just a caveat.

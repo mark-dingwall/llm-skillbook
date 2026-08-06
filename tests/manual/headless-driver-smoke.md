@@ -2,6 +2,8 @@
 
 The unit suite mocks all CLI dispatch. Run these against the real binaries before
 `review-loop` commits to this driver's shape. Record outcomes inline (date + result).
+The executable procedure is `tests/manual/headless-driver-smoke.sh`; its sanitized
+fixtures are checked in under `tests/manual/fixtures/headless-driver-smoke/`.
 
 ## 1. `claude -p` under `bwrap`
 
@@ -69,66 +71,49 @@ Do not mark this task complete with blank outcomes. For each case above record:
 - for BLOCKED, the missing binary/auth/containment prerequisite;
 - for FAIL, the plan task reopened and the contract change or implementation fix required.
 
-### 2026-08-07 gate rerun — PASS
+### 2026-08-07 checked-in harness rerun — PASS
 
 Environment: Ubuntu 22.04.5 LTS on WSL2
 (`6.18.33.2-microsoft-standard-WSL2`, x86_64), `uv 0.10.7`,
 `bubblewrap 0.6.1`, Claude Code 2.1.223, pykrete 0.1.0, and pi 0.80.10.
-The synthetic fixture and prompt YAMLs used for this run are retained at
-`.superpowers/sdd/2026-08-04-headless-driver/task-5-smoke/` in the acceptance
-worktree. Each driver invocation had this exact argv shape (with the named YAML
-and output directory varied per case):
+The earlier ad hoc commands and ignored fixtures are superseded by the committed
+harness and fixtures named above. Reproduce the exact gate with mode-0600 secret
+files (values are read on stdin with tracing disabled, never passed on argv):
 
 ```bash
-uv run "$REPO/multi_review.py" \
-  --prompt-file "$REPO/.superpowers/sdd/2026-08-04-headless-driver/task-5-smoke/<case>.yaml" \
-  --out-dir <case-output> --timeout <180|600>
+tests/manual/headless-driver-smoke.sh --check
+
+CLAUDE_TOKEN_FILE=/secure/claude-token \
+PYKRETE_ENV_FILE=/secure/pykrete.env \
+PYKRETE_CONFIG_FILE=/path/to/pykrete.toml \
+KEEP_SMOKE_ARTIFACTS=1 \
+  tests/manual/headless-driver-smoke.sh
 ```
 
-Claude runs used `bwrap --clearenv --unshare-pid --die-with-parent`, a read-only
-system runtime, read-only `$REPO`, read-only `/mnt/wsl`, a scratch uv cache, and
-case-specific writable `/out` and fresh `HOME`/`CLAUDE_CONFIG_DIR` mounts. No
-real Claude configuration was mounted. The script-scoped OAuth token entered the
-inner shell on stdin, was read directly into `CLAUDE_CODE_OAUTH_TOKEN`, and stdin
-was then replaced with `/dev/null`; it was never placed on argv or persisted in a
-credential file. `--bare` was not used. Pykrete's key was sourced from its
-gitignored environment file and `PYKRETE_CONFIG` named its normal config; neither
-secret value was printed or recorded.
+The harness contains the complete bwrap mount mappings, fresh-home setup,
+token-to-stdin shell sequence, foreign-cwd construction, driver-PID resolution,
+recursive descendant snapshots, targeted signals, and per-PID liveness checks.
+`bash -n`, ShellCheck, the harness `--check`, and its unit contract all passed
+before this live run.
 
-1. **PASS — `claude -p` under `bwrap`.** The inline run returned exit 0 in 7.6s.
-   `REVIEW.md` recorded `reviewers_succeeded: ["claude"]`, no failed reviewers,
-   the fixture marker `INLINE_DRIVER_SMOKE_20260807`, and the deliberately missing
-   zero-denominator policy. The fresh Claude home contained no `.credentials.json`.
-2. **PASS — reference-mode file tool.** The corrected reference prompt requested
-   the value of `REFERENCE_MARKER` without including that value. The value
+1. **PASS — `claude -p` under `bwrap`.** Exit 0 in 8.7s. `REVIEW.md` recorded
+   Claude as succeeded and contained `INLINE_DRIVER_SMOKE_20260807` plus the
+   intended zero-denominator finding. No scratch home contained `.credentials.json`.
+2. **PASS — reference-mode file tool.** Exit 0 in 8.6s. The value
    `REFERENCE_TOOL_READ_20260807` was absent from `prompt.txt`, present in the
-   successful review, and the isolated Claude session recorded a `Read` tool call.
-   The run returned exit 0 in 9.7s, proving headless Claude did not auto-deny the
-   permission-gated manifest read.
-3. **PASS — WSL2 DNS.** The sandbox mounted `/mnt/wsl` read-only and used
-   `/mnt/wsl/resolv.conf`. Cases 1 and 2 both reached Anthropic and returned real
-   reviews, directly confirming DNS and endpoint reachability inside the sandbox.
-4. **PASS — foreign cwd.** The same absolute-script invocation returned exit 0
-   from `/tmp/mr-headless-smoke-20260807/foreign-no-project` (8.4s) and from
-   `/tmp/mr-headless-smoke-20260807/foreign-with-project` (10.8s). Both reviews
-   contained the expected marker/finding. The first directory remained empty; the
-   second retained only its original `pyproject.toml`. Neither contained `.venv/`
-   nor `uv.lock`.
-5. **PASS — shutdown.** For the plain run, `uv` PID 776616 launched the actual
-   Python driver PID 776625. Its pre-signal descendant snapshot was pykrete PID
-   776639 and pi engine PID 776673. `kill -TERM 776625` produced driver exit 1,
-   no traceback, and no `REVIEW.md`; two seconds later both captured descendants
-   were gone. Thus pykrete 0.1.0/pi 0.80.10 is confirmed clean under the driver's
-   plain cancellation path, and the design's "possibly affected" hedge is removed.
+   review, and the isolated session recorded a `Read` tool call.
+3. **PASS — WSL2 DNS.** The read-only `/mnt/wsl` mount supported the successful
+   sandboxed Anthropic calls in cases 1 and 2.
+4. **PASS — foreign cwd.** The no-project run completed in 9.0s and its directory
+   stayed empty; the own-project run completed in 7.6s and retained only its
+   original `pyproject.toml`. Neither directory gained `.venv/` or `uv.lock`.
+5. **PASS — shutdown.** The plain harness resolved Python driver PID 793336 before
+   signaling it; captured pykrete PID 793346 and pi PID 793365 were both gone,
+   the wrapper returned 1, no traceback appeared, and no `REVIEW.md` existed.
+   The separate bwrap wrapper PID 793419 reached descendants 793424, 793425,
+   795588, 795661, and 796048 (namespace/reaper, uv, Python, pykrete, pi). The
+   wrapper returned 143 after SIGTERM; every captured PID was gone and no
+   `REVIEW.md` existed.
 
-   Separately, bwrap PID 781216 was allowed to reach a five-process descendant
-   tree: namespace/reaper 781218, uv 781223, Python driver 783795, pykrete 783902,
-   and pi 784298. `kill -TERM 781216` made the wrapper exit 143; two seconds later
-   every captured PID was gone and no `REVIEW.md` existed. This confirms the
-   load-bearing `--unshare-pid --die-with-parent` whole-tree teardown contract.
-
-The initial authentication-blocked record and two invalid shutdown harness probes
-were superseded rather than counted: one probe detected a process name too narrowly;
-the other targeted uv's wrapper PID instead of the Python driver. Neither produced
-accepted shutdown evidence. The results above come only from the corrected full
-process-tree observations.
+The harness emitted `headless_driver_smoke=PASS cases=5`. Only this checked-in,
+reproducible rerun is the binding acceptance evidence.

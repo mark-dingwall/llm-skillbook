@@ -1,0 +1,15 @@
+prompt_format_version: 1
+task: custom
+files:
+  - subject.py
+custom_prompt: |
+  Use your file-reading tool to read every file in the manifest. Do not use Bash and
+  do not modify files. Your Markdown response must begin with `## Summary`, report
+  the exact string value assigned to `REFERENCE_MARKER`, and identify the missing
+  zero-denominator policy. If you cannot read the file, state that instead of guessing.
+mode: reference
+reviewers:
+  - claude
+models:
+  claude: haiku
+synthesizer: none
