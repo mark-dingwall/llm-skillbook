@@ -200,7 +200,84 @@ snapshot_tree() {
   done
 }
 
+snapshot_has_distinct_patterns() {
+  local snapshot=$1
+  local first_pattern=$2
+  local second_pattern=${3:-}
+  local first_pids second_pids first_pid second_pid
+  first_pids=$(rg "$first_pattern" "$snapshot" | awk '{print $1}' | sort -u) || return 1
+  [[ -n "$first_pids" ]] || return 1
+  [[ -n "$second_pattern" ]] || return 0
+  second_pids=$(rg "$second_pattern" "$snapshot" | awk '{print $1}' | sort -u) || return 1
+  [[ -n "$second_pids" ]] || return 1
+  for first_pid in $first_pids; do
+    for second_pid in $second_pids; do
+      [[ "$first_pid" != "$second_pid" ]] && return 0
+    done
+  done
+  return 1
+}
+
+wait_for_tree_patterns() {
+  local root_pid=$1
+  local snapshot=$2
+  local first_pattern=$3
+  local second_pattern=${4:-}
+  local attempt
+  local attempts=${PATTERN_WAIT_ATTEMPTS:-1200}
+  for ((attempt = 0; attempt < attempts; attempt++)); do
+    snapshot_tree "$root_pid" "$snapshot"
+    if snapshot_has_distinct_patterns "$snapshot" "$first_pattern" "$second_pattern"; then
+      return 0
+    fi
+    kill -0 "$root_pid" 2>/dev/null || return 1
+    sleep 0.05
+  done
+  return 1
+}
+
+validate_and_report_shutdown() {
+  local scope=$1
+  local cli=$2
+  local rc=$3
+  local case_out=$4
+  local stderr_log=$5
+  local captured=$6
+  local survivor_count=$7
+  local cleanup_result=$8
+  [[ ! -e "$case_out/REVIEW.md" ]] || die "$scope $cli shutdown wrote REVIEW.md"
+  ! rg -q 'Traceback \(most recent call last\)' "$stderr_log" || \
+    die "$scope $cli shutdown emitted a traceback"
+  [[ "$cleanup_result" == gone ]] || die "$scope $cli cleanup result was $cleanup_result"
+  case "$scope" in
+    plain)
+      [[ "$rc" == 1 ]] || die "plain $cli driver exited $rc, expected 1"
+      printf 'shutdown_%s_plain=PASS driver_rc=%s captured=%s post_driver_survivors=%s harness_cleanup=%s\n' \
+        "$cli" "$rc" "$captured" "$survivor_count" "$cleanup_result"
+      ;;
+    bwrap)
+      [[ "$rc" == 143 ]] || die "bwrap $cli wrapper exited $rc, expected 143"
+      printf 'shutdown_%s_bwrap=PASS wrapper_rc=%s captured=%s post_wrapper_survivors=%s harness_cleanup=%s\n' \
+        "$cli" "$rc" "$captured" "$survivor_count" "$cleanup_result"
+      ;;
+    *) die "unknown shutdown result scope: $scope" ;;
+  esac
+}
+
+build_plain_workload_path() {
+  local destination=$1
+  mkdir -p "$destination"
+  ln -s -- "$claude_binary" "$destination/claude"
+  ln -s -- "$agy_binary" "$destination/agy"
+  ln -s -- "$codex_entry" "$destination/codex"
+  ln -s -- "$opencode_entry" "$destination/opencode"
+  ln -s -- "$pykrete_entry" "$destination/pykrete"
+  ln -s -- "$pi_entry" "$destination/pi"
+  ln -s -- "$grok_binary" "$destination/grok"
+}
+
 smoke_root=""
+plain_workload_bin=""
 active_plain_wrapper=""
 active_plain_pgid=""
 active_plain_snapshot=""
@@ -311,8 +388,28 @@ case "${1:-}" in
     [[ $# == 2 ]] || die "--cleanup-check requires a snapshot path"
     run_cleanup_check "$2"
     ;;
+  --pattern-check)
+    [[ $# == 5 ]] || die "--pattern-check requires root, snapshot, and two patterns"
+    require_command awk
+    require_command ps
+    require_command rg
+    wait_for_tree_patterns "$2" "$3" "$4" "$5" || \
+      die "process patterns did not match distinct PIDs"
+    matched_pids=$(rg "$4|$5" "$3" | awk '{print $1}' | sort -u | wc -l)
+    printf 'matched_pids=%s\nprocess_patterns=PASS\n' "$matched_pids"
+    exit 0
+    ;;
+  --result-check)
+    [[ $# == 9 ]] || die "--result-check requires scope, CLI, rc, out, stderr, captured, survivors, cleanup"
+    require_command rg
+    validate_and_report_shutdown "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+    exit 0
+    ;;
   --prereq-check)
     run_mode=prereq
+    ;;
+  --workload-path-check)
+    run_mode=workload
     ;;
   "") ;;
   *)
@@ -322,7 +419,6 @@ case "${1:-}" in
 esac
 
 require_command awk
-require_command bwrap
 require_command cp
 require_command find
 require_command git
@@ -334,9 +430,84 @@ require_command stat
 claude_token_file=${CLAUDE_TOKEN_FILE:-}
 pykrete_env_file=${PYKRETE_ENV_FILE:-}
 pykrete_config_file=${PYKRETE_CONFIG_FILE:-}
-[[ -n "$claude_token_file" ]] || die "CLAUDE_TOKEN_FILE is required"
-[[ -n "$pykrete_env_file" ]] || die "PYKRETE_ENV_FILE is required"
-[[ -n "$pykrete_config_file" ]] || die "PYKRETE_CONFIG_FILE is required"
+user_home=$(getent passwd "$(id -u)" | awk -F: '{print $6}')
+uv_cache_source=${UV_CACHE_SOURCE:-"$user_home/.cache/uv"}
+agy_token_file=${AGY_TOKEN_FILE:-"$user_home/.gemini/antigravity-cli/antigravity-oauth-token"}
+codex_auth_file=${CODEX_AUTH_FILE:-"$user_home/.codex/auth.json"}
+opencode_auth_file=${OPENCODE_AUTH_FILE:-"$user_home/.local/share/opencode/auth.json"}
+opencode_model_file=${OPENCODE_MODEL_FILE:-"$user_home/.local/state/opencode/model.json"}
+grok_auth_file=${GROK_AUTH_FILE:-"$user_home/.grok/auth.json"}
+
+declare -A prereq_reasons=()
+append_prereq() {
+  local cli=$1
+  local reason=$2
+  prereq_reasons[$cli]="${prereq_reasons[$cli]:+${prereq_reasons[$cli]} }$reason"
+}
+
+check_binary_prereq() {
+  local cli=$1
+  local override=$2
+  local command_name=$3
+  local label=$4
+  if [[ -n "$override" ]]; then
+    [[ -x "$override" ]] || append_prereq "$cli" "missing_binary=$label:$override"
+  elif ! command -v "$command_name" >/dev/null 2>&1; then
+    append_prereq "$cli" "missing_binary=$command_name"
+  fi
+}
+
+check_entry_prereq() {
+  local cli=$1
+  local override=$2
+  local command_name=$3
+  local label=$4
+  if [[ -n "$override" ]]; then
+    [[ -f "$override" ]] || append_prereq "$cli" "missing_binary=$label:$override"
+  elif ! command -v "$command_name" >/dev/null 2>&1; then
+    append_prereq "$cli" "missing_binary=$command_name"
+  fi
+}
+
+for shutdown_cli in "${shutdown_clis[@]}"; do
+  command -v bwrap >/dev/null 2>&1 || append_prereq "$shutdown_cli" missing_containment=bwrap
+  if [[ -n ${UV_BIN:-} ]]; then
+    [[ -x ${UV_BIN} ]] || append_prereq "$shutdown_cli" "missing_runner=uv:${UV_BIN}"
+  elif ! command -v uv >/dev/null 2>&1; then
+    append_prereq "$shutdown_cli" missing_runner=uv
+  fi
+  [[ -d "$uv_cache_source" ]] || append_prereq "$shutdown_cli" "missing_cache=$uv_cache_source"
+  [[ -f /mnt/wsl/resolv.conf ]] || \
+    append_prereq "$shutdown_cli" missing_containment=/mnt/wsl/resolv.conf
+done
+check_binary_prereq claude "${CLAUDE_BIN:-}" claude claude
+check_binary_prereq agy "${AGY_BIN:-}" agy agy
+check_entry_prereq codex "${CODEX_ENTRY:-}" codex codex
+check_entry_prereq opencode "${OPENCODE_ENTRY:-}" opencode opencode
+check_entry_prereq pykrete "${PYKRETE_ENTRY:-}" pykrete pykrete
+check_entry_prereq pykrete "${PI_ENTRY:-}" pi pi
+check_binary_prereq grok "${GROK_BIN:-}" grok grok
+[[ -n "$claude_token_file" && -s "$claude_token_file" ]] || \
+  append_prereq claude "missing_auth=${claude_token_file:-CLAUDE_TOKEN_FILE}"
+[[ -s "$agy_token_file" ]] || append_prereq agy "missing_auth=$agy_token_file"
+[[ -s "$codex_auth_file" ]] || append_prereq codex "missing_auth=$codex_auth_file"
+[[ -s "$opencode_auth_file" ]] || append_prereq opencode "missing_auth=$opencode_auth_file"
+[[ -n "$pykrete_env_file" && -s "$pykrete_env_file" ]] || \
+  append_prereq pykrete "missing_auth=${pykrete_env_file:-PYKRETE_ENV_FILE}"
+[[ -n "$pykrete_config_file" && -r "$pykrete_config_file" ]] || \
+  append_prereq pykrete "missing_config=${pykrete_config_file:-PYKRETE_CONFIG_FILE}"
+[[ -s "$grok_auth_file" ]] || append_prereq grok "missing_auth=$grok_auth_file"
+
+shutdown_prereq_blocked=0
+for shutdown_cli in "${shutdown_clis[@]}"; do
+  if [[ -n ${prereq_reasons[$shutdown_cli]:-} ]]; then
+    printf 'shutdown_%s=BLOCKED scopes=plain,bwrap %s\n' \
+      "$shutdown_cli" "${prereq_reasons[$shutdown_cli]}"
+    shutdown_prereq_blocked=1
+  fi
+done
+[[ "$shutdown_prereq_blocked" == 0 ]] || \
+  die "shutdown matrix has BLOCKED prerequisites"
 
 require_secret_file() {
   local path=$1
@@ -368,13 +539,6 @@ codex_root=$(dirname "$(dirname "$codex_entry")")
 opencode_root=$(dirname "$(dirname "$opencode_entry")")
 pykrete_root=$(dirname "$(dirname "$pykrete_entry")")
 pi_package_root=$(dirname "$(dirname "$pi_entry")")
-user_home=$(getent passwd "$(id -u)" | awk -F: '{print $6}')
-uv_cache_source=${UV_CACHE_SOURCE:-"$user_home/.cache/uv"}
-agy_token_file=${AGY_TOKEN_FILE:-"$user_home/.gemini/antigravity-cli/antigravity-oauth-token"}
-codex_auth_file=${CODEX_AUTH_FILE:-"$user_home/.codex/auth.json"}
-opencode_auth_file=${OPENCODE_AUTH_FILE:-"$user_home/.local/share/opencode/auth.json"}
-opencode_model_file=${OPENCODE_MODEL_FILE:-"$user_home/.local/state/opencode/model.json"}
-grok_auth_file=${GROK_AUTH_FILE:-"$user_home/.grok/auth.json"}
 
 [[ -x "$uv_binary" ]] || die "uv executable is not executable: $uv_binary"
 [[ -x "$claude_binary" ]] || die "Claude executable is not executable: $claude_binary"
@@ -389,32 +553,24 @@ grok_auth_file=${GROK_AUTH_FILE:-"$user_home/.grok/auth.json"}
 [[ -d "$pykrete_root/src" && -d "$pykrete_root/node_modules" ]] || \
   die "cannot derive pykrete source root from $pykrete_entry"
 [[ -d "$pi_package_root/node_modules" ]] || die "cannot derive pi package root from $pi_entry"
-[[ -d "$uv_cache_source" ]] || die "UV cache source is missing: $uv_cache_source"
-[[ -f /mnt/wsl/resolv.conf ]] || die "WSL resolver prerequisite missing: /mnt/wsl/resolv.conf"
-
-shutdown_prereq_blocked=0
-for shutdown_auth_spec in \
-  "agy:$agy_token_file" \
-  "codex:$codex_auth_file" \
-  "opencode:$opencode_auth_file" \
-  "grok:$grok_auth_file"; do
-  shutdown_cli=${shutdown_auth_spec%%:*}
-  shutdown_auth_path=${shutdown_auth_spec#*:}
-  if [[ ! -s "$shutdown_auth_path" ]]; then
-    printf 'shutdown_%s=BLOCKED scopes=plain,bwrap missing_auth=%s\n' \
-      "$shutdown_cli" "$shutdown_auth_path"
-    shutdown_prereq_blocked=1
-  fi
-done
-[[ "$shutdown_prereq_blocked" == 0 ]] || \
-  die "shutdown matrix has BLOCKED CLI authentication prerequisites"
-
+if [[ "$run_mode" == workload ]]; then
+  smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/mr-headless-workload-check.XXXXXXXX")
+  plain_workload_bin="$smoke_root/plain-bin"
+  build_plain_workload_path "$plain_workload_bin"
+  for shutdown_cli in claude agy codex opencode pykrete pi grok; do
+    PATH="$plain_workload_bin" "$plain_workload_bin/$shutdown_cli" --smoke-probe
+  done
+  printf 'plain_workload_overrides=PASS\n'
+  exit 0
+fi
 if [[ "$run_mode" == prereq ]]; then
   printf 'headless_driver_smoke_prereq=PASS\n'
   exit 0
 fi
 
 smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/mr-headless-smoke.XXXXXXXX")
+plain_workload_bin="$smoke_root/plain-bin"
+build_plain_workload_path "$plain_workload_bin"
 
 mkdir -p "$smoke_root/uv-cache"
 cp -a --reflink=auto "$uv_cache_source/." "$smoke_root/uv-cache/"
@@ -505,24 +661,6 @@ wait_for_direct_driver() {
       return 0
     fi
     kill -0 "$wrapper_pid" 2>/dev/null || return 1
-    sleep 0.05
-  done
-  return 1
-}
-
-wait_for_tree_patterns() {
-  local root_pid=$1
-  local snapshot=$2
-  local first_pattern=$3
-  local second_pattern=${4:-}
-  local attempt
-  for ((attempt = 0; attempt < 1200; attempt++)); do
-    snapshot_tree "$root_pid" "$snapshot"
-    if rg -q "$first_pattern" "$snapshot" && \
-        { [[ -z "$second_pattern" ]] || rg -q "$second_pattern" "$snapshot"; }; then
-      return 0
-    fi
-    kill -0 "$root_pid" 2>/dev/null || return 1
     sleep 0.05
   done
   return 1
@@ -659,6 +797,7 @@ run_plain_shutdown() {
       XDG_DATA_HOME="$case_home/.local/share" \
       XDG_STATE_HOME="$case_home/.local/state" \
       UV_CACHE_DIR="$smoke_root/uv-cache" \
+      PATH="$plain_workload_bin:/usr/bin:/bin" \
       PYKRETE_CONFIG="$pykrete_config_file" \
       PYKRETE_HEARTBEAT_SECONDS=1 \
       /bin/bash -c '
@@ -714,17 +853,12 @@ run_plain_shutdown() {
     signal_snapshot_reverse KILL "$snapshot"
     sleep 0.2
     assert_snapshot_gone "$snapshot" "plain $cli harness cleanup"
-    printf 'shutdown_%s_plain=PASS driver_rc=%s captured=%s post_driver_survivors=%s harness_cleanup=gone\n' \
-      "$cli" "$rc" "$captured" "$survivor_count"
   else
     assert_snapshot_gone "$snapshot" "plain $cli shutdown"
-    printf 'shutdown_%s_plain=PASS driver_rc=%s captured=%s post_driver_survivors=0\n' \
-      "$cli" "$rc" "$captured"
+    survivor_count=0
   fi
-  [[ "$rc" == 1 ]] || die "plain $cli driver exited $rc, expected 1"
-  [[ ! -e "$case_out/REVIEW.md" ]] || die "plain $cli shutdown wrote REVIEW.md"
-  ! rg -q 'Traceback \(most recent call last\)' "$stderr_log" || \
-    die "plain $cli shutdown emitted a traceback"
+  validate_and_report_shutdown plain "$cli" "$rc" "$case_out" "$stderr_log" \
+    "$captured" "$survivor_count" gone
   active_plain_wrapper=""
   active_plain_pgid=""
   active_plain_snapshot=""
@@ -843,10 +977,8 @@ run_bwrap_shutdown() {
   set -e
   sleep 2
   assert_snapshot_gone "$snapshot" "bwrap $cli shutdown"
-  [[ "$rc" == 143 ]] || die "bwrap $cli wrapper exited $rc, expected 143"
-  [[ ! -e "$case_out/REVIEW.md" ]] || die "bwrap $cli shutdown wrote REVIEW.md"
-  printf 'shutdown_%s_bwrap=PASS wrapper_rc=%s captured=%s post_wrapper_survivors=0\n' \
-    "$cli" "$rc" "$captured"
+  validate_and_report_shutdown bwrap "$cli" "$rc" "$case_out" "$stderr_log" \
+    "$captured" 0 gone
   active_bwrap_wrapper=""
   active_bwrap_pgid=""
   active_bwrap_snapshot=""

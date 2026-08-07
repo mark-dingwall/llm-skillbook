@@ -111,14 +111,30 @@ recursive descendant snapshots, targeted signals, and per-PID liveness checks.
    scratch-home/scratch-cwd case and one read-only-repository `bwrap` case for
    each of Claude, agy, Codex, OpenCode, pykrete, and Grok. Every plain driver
    returned 1 after targeted `SIGTERM`; every `bwrap` wrapper returned 143; no
-   case wrote `REVIEW.md` or emitted a Python traceback. Recursive snapshots
-   captured one reviewer descendant for plain Claude and agy, two for plain
-   Codex, OpenCode, pykrete/pi, and Grok, four descendants in the Claude and agy
-   bwrap trees, and five in each remaining bwrap tree. Every captured PID was
-   gone at the asserted cleanup boundary. The plain Codex and OpenCode runs
-   observed both launcher and engine descendants; neither left an engine alive
-   after the driver exited. The plain pykrete run likewise confirmed pi was gone.
+   case wrote `REVIEW.md` or emitted a Python traceback. The Codex and OpenCode
+   observations mechanically required distinct launcher and engine PIDs, rather
+   than allowing both patterns to match one snapshot row. Every captured PID was
+   gone at the asserted cleanup boundary. The plain pykrete run likewise
+   confirmed pi was gone.
 
-The harness emitted `case5=PASS shutdown_clis=6 plain_and_bwrap=ok` and
-`headless_driver_smoke=PASS cases=5`. Only this checked-in, reproducible rerun
-is the binding acceptance evidence.
+The final follow-up run emitted these exact binding fields (not simplified PASS
+labels):
+
+```text
+shutdown_claude_plain=PASS driver_rc=1 captured=1 post_driver_survivors=0 harness_cleanup=gone
+shutdown_claude_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
+shutdown_agy_plain=PASS driver_rc=1 captured=1 post_driver_survivors=0 harness_cleanup=gone
+shutdown_agy_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
+shutdown_codex_plain=PASS driver_rc=1 captured=3 post_driver_survivors=0 harness_cleanup=gone
+shutdown_codex_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
+shutdown_opencode_plain=PASS driver_rc=1 captured=2 post_driver_survivors=0 harness_cleanup=gone
+shutdown_opencode_bwrap=PASS wrapper_rc=143 captured=5 post_wrapper_survivors=0 harness_cleanup=gone
+shutdown_pykrete_plain=PASS driver_rc=1 captured=2 post_driver_survivors=0 harness_cleanup=gone
+shutdown_pykrete_bwrap=PASS wrapper_rc=143 captured=5 post_wrapper_survivors=0 harness_cleanup=gone
+shutdown_grok_plain=PASS driver_rc=1 captured=1 post_driver_survivors=0 harness_cleanup=gone
+shutdown_grok_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
+case5=PASS shutdown_clis=6 plain_and_bwrap=ok
+headless_driver_smoke=PASS cases=5
+```
+
+Only this checked-in, reproducible rerun is the binding acceptance evidence.
