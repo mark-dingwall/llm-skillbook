@@ -60,7 +60,7 @@ resolve_executable() {
     candidate=$(command -v "$command_name")
   fi
   candidate=$(readlink -f -- "$candidate") || die "cannot resolve $label: $candidate"
-  [[ -x "$candidate" ]] || die "$label is not executable: $candidate"
+  [[ -f "$candidate" && -x "$candidate" ]] || die "$label is not an executable file: $candidate"
   printf '%s\n' "$candidate"
 }
 
@@ -76,7 +76,7 @@ resolve_entry() {
     candidate=$(command -v "$command_name")
   fi
   candidate=$(readlink -f -- "$candidate") || die "cannot resolve $label: $candidate"
-  [[ -f "$candidate" ]] || die "$label is missing: $candidate"
+  [[ -f "$candidate" && -x "$candidate" ]] || die "$label is not an executable file: $candidate"
   printf '%s\n' "$candidate"
 }
 
@@ -477,15 +477,29 @@ append_prereq() {
   prereq_reasons[$cli]="${prereq_reasons[$cli]:+${prereq_reasons[$cli]} }$reason"
 }
 
+is_regular_executable() {
+  local candidate=$1
+  local resolved
+  [[ -f "$candidate" && -x "$candidate" ]] || return 1
+  resolved=$(readlink -f -- "$candidate") || return 1
+  [[ -f "$resolved" && -x "$resolved" ]]
+}
+
+is_regular_nonempty_file() {
+  [[ -f "$1" && -s "$1" ]]
+}
+
 check_binary_prereq() {
   local cli=$1
   local override=$2
   local command_name=$3
   local label=$4
+  local candidate
   if [[ -n "$override" ]]; then
-    [[ -x "$override" ]] || append_prereq "$cli" "missing_binary=$label:$override"
-  elif ! command -v "$command_name" >/dev/null 2>&1; then
-    append_prereq "$cli" "missing_binary=$command_name"
+    is_regular_executable "$override" || append_prereq "$cli" "missing_binary=$label:$override"
+  else
+    candidate=$(command -v "$command_name" 2>/dev/null || true)
+    is_regular_executable "$candidate" || append_prereq "$cli" "missing_binary=$command_name"
   fi
 }
 
@@ -494,11 +508,13 @@ check_entry_prereq() {
   local override=$2
   local command_name=$3
   local label=$4
+  local candidate
   if [[ -n "$override" ]]; then
-    [[ -f "$override" && -x "$override" ]] || \
+    is_regular_executable "$override" || \
       append_prereq "$cli" "missing_binary=$label:$override"
-  elif ! command -v "$command_name" >/dev/null 2>&1; then
-    append_prereq "$cli" "missing_binary=$command_name"
+  else
+    candidate=$(command -v "$command_name" 2>/dev/null || true)
+    is_regular_executable "$candidate" || append_prereq "$cli" "missing_binary=$command_name"
   fi
 }
 
@@ -506,7 +522,7 @@ check_secret_prereq() {
   local cli=$1
   local path=$2
   local label=$3
-  [[ -s "$path" ]] || return 0
+  is_regular_nonempty_file "$path" || return 0
   [[ $(stat -c '%a' "$path") == 600 ]] || \
     append_prereq "$cli" "invalid_auth_mode=$label:$path"
   [[ $(stat -c '%u' "$path") == "$(id -u)" ]] || \
@@ -532,11 +548,13 @@ check_package_prereq() {
 }
 
 for shutdown_cli in "${shutdown_clis[@]}"; do
-  command -v bwrap >/dev/null 2>&1 || append_prereq "$shutdown_cli" missing_containment=bwrap
+  bwrap_prereq=$(command -v bwrap 2>/dev/null || true)
+  is_regular_executable "$bwrap_prereq" || append_prereq "$shutdown_cli" missing_containment=bwrap
   if [[ -n ${UV_BIN:-} ]]; then
-    [[ -x ${UV_BIN} ]] || append_prereq "$shutdown_cli" "missing_runner=uv:${UV_BIN}"
-  elif ! command -v uv >/dev/null 2>&1; then
-    append_prereq "$shutdown_cli" missing_runner=uv
+    is_regular_executable "${UV_BIN}" || append_prereq "$shutdown_cli" "missing_runner=uv:${UV_BIN}"
+  else
+    uv_prereq=$(command -v uv 2>/dev/null || true)
+    is_regular_executable "$uv_prereq" || append_prereq "$shutdown_cli" missing_runner=uv
   fi
   [[ -d "$uv_cache_source" ]] || append_prereq "$shutdown_cli" "missing_cache=$uv_cache_source"
   [[ -f /mnt/wsl/resolv.conf ]] || \
@@ -549,23 +567,25 @@ check_entry_prereq opencode "${OPENCODE_ENTRY:-}" opencode opencode
 check_entry_prereq pykrete "${PYKRETE_ENTRY:-}" pykrete pykrete
 check_entry_prereq pykrete "${PI_ENTRY:-}" pi pi
 check_binary_prereq grok "${GROK_BIN:-}" grok grok
-[[ -n "$claude_token_file" && -s "$claude_token_file" ]] || \
+if [[ -z "$claude_token_file" ]] || ! is_regular_nonempty_file "$claude_token_file"; then
   append_prereq claude "missing_auth=${claude_token_file:-CLAUDE_TOKEN_FILE}"
-[[ -s "$agy_token_file" ]] || append_prereq agy "missing_auth=$agy_token_file"
-[[ -s "$codex_auth_file" ]] || append_prereq codex "missing_auth=$codex_auth_file"
-[[ -s "$opencode_auth_file" ]] || append_prereq opencode "missing_auth=$opencode_auth_file"
-[[ -n "$pykrete_env_file" && -s "$pykrete_env_file" ]] || \
+fi
+is_regular_nonempty_file "$agy_token_file" || append_prereq agy "missing_auth=$agy_token_file"
+is_regular_nonempty_file "$codex_auth_file" || append_prereq codex "missing_auth=$codex_auth_file"
+is_regular_nonempty_file "$opencode_auth_file" || append_prereq opencode "missing_auth=$opencode_auth_file"
+if [[ -z "$pykrete_env_file" ]] || ! is_regular_nonempty_file "$pykrete_env_file"; then
   append_prereq pykrete "missing_auth=${pykrete_env_file:-PYKRETE_ENV_FILE}"
-[[ -n "$pykrete_config_file" && -r "$pykrete_config_file" ]] || \
+fi
+[[ -n "$pykrete_config_file" && -f "$pykrete_config_file" && -r "$pykrete_config_file" ]] || \
   append_prereq pykrete "missing_config=${pykrete_config_file:-PYKRETE_CONFIG_FILE}"
-[[ -s "$grok_auth_file" ]] || append_prereq grok "missing_auth=$grok_auth_file"
+is_regular_nonempty_file "$grok_auth_file" || append_prereq grok "missing_auth=$grok_auth_file"
 check_secret_prereq claude "$claude_token_file" CLAUDE_TOKEN_FILE
 check_secret_prereq agy "$agy_token_file" AGY_TOKEN_FILE
 check_secret_prereq codex "$codex_auth_file" CODEX_AUTH_FILE
 check_secret_prereq opencode "$opencode_auth_file" OPENCODE_AUTH_FILE
 check_secret_prereq pykrete "$pykrete_env_file" PYKRETE_ENV_FILE
 check_secret_prereq grok "$grok_auth_file" GROK_AUTH_FILE
-if [[ -s "$pykrete_env_file" ]]; then
+if is_regular_nonempty_file "$pykrete_env_file"; then
   pykrete_noncomment_lines=$(awk 'NF && $1 !~ /^#/ {count++} END {print count + 0}' "$pykrete_env_file")
   pykrete_key_lines=$(awk '/^NANOGPT_API_KEY=.+$/ {count++} END {print count + 0}' "$pykrete_env_file")
   [[ "$pykrete_noncomment_lines" == 1 && "$pykrete_key_lines" == 1 ]] || \

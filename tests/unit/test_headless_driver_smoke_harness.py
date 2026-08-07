@@ -187,6 +187,50 @@ def test_prereq_check_honors_all_cli_overrides_without_ambient_commands(tmp_path
     assert "shutdown_codex=BLOCKED scopes=plain,bwrap" in invalid_package.stdout
     assert "invalid_package_root=" in invalid_package.stdout
 
+    (tmp_path / "codex" / "node_modules").mkdir()
+    directory_input = tmp_path / "directory-input"
+    directory_input.mkdir()
+    (directory_input / "nonempty").write_text("x")
+
+    env["UV_BIN"] = str(directory_input)
+    invalid_runner = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"], cwd=REPO_ROOT,
+        env=env, text=True, capture_output=True,
+    )
+    assert invalid_runner.returncode == 1
+    assert "shutdown_claude=BLOCKED scopes=plain,bwrap" in invalid_runner.stdout
+    assert "missing_runner=uv:" in invalid_runner.stdout
+
+    env["UV_BIN"] = str(fake_cli)
+    env["CLAUDE_BIN"] = str(directory_input)
+    invalid_binary = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"], cwd=REPO_ROOT,
+        env=env, text=True, capture_output=True,
+    )
+    assert invalid_binary.returncode == 1
+    assert "shutdown_claude=BLOCKED scopes=plain,bwrap" in invalid_binary.stdout
+    assert "missing_binary=claude:" in invalid_binary.stdout
+
+    env["CLAUDE_BIN"] = str(fake_cli)
+    env["CLAUDE_TOKEN_FILE"] = str(directory_input)
+    invalid_auth = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"], cwd=REPO_ROOT,
+        env=env, text=True, capture_output=True,
+    )
+    assert invalid_auth.returncode == 1
+    assert "shutdown_claude=BLOCKED scopes=plain,bwrap" in invalid_auth.stdout
+    assert "missing_auth=" in invalid_auth.stdout
+
+    env["CLAUDE_TOKEN_FILE"] = str(claude_token)
+    env["PYKRETE_CONFIG_FILE"] = str(directory_input)
+    invalid_config = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"], cwd=REPO_ROOT,
+        env=env, text=True, capture_output=True,
+    )
+    assert invalid_config.returncode == 1
+    assert "shutdown_pykrete=BLOCKED scopes=plain,bwrap" in invalid_config.stdout
+    assert "missing_config=" in invalid_config.stdout
+
 
 def test_prereq_check_reports_precise_blockers_for_every_cli_before_live_work(tmp_path):
     """Break caught: early die hid binary, containment, auth, and config blockers."""
@@ -357,9 +401,19 @@ def test_process_pattern_check_rejects_wrapper_regex_bait_as_engine(tmp_path):
     assert "process_patterns=PASS" not in result.stdout
 
 
-def run_result_check(tmp_path: Path, scope: str, *, rc: int, traceback: bool = False):
+def run_result_check(
+    tmp_path: Path,
+    scope: str,
+    *,
+    rc: int,
+    traceback: bool = False,
+    review: bool = False,
+    cleanup: str = "gone",
+):
     case_out = tmp_path / f"out-{scope}"
-    case_out.mkdir()
+    case_out.mkdir(parents=True)
+    if review:
+        (case_out / "REVIEW.md").write_text("partial\n")
     stderr_log = tmp_path / f"{scope}.stderr.log"
     stderr_log.write_text(
         "Traceback (most recent call last):\nRuntimeError: fake\n" if traceback else ""
@@ -368,7 +422,7 @@ def run_result_check(tmp_path: Path, scope: str, *, rc: int, traceback: bool = F
     return subprocess.run(
         [
             "/bin/bash", str(HARNESS), "--result-check", scope, "codex", str(rc),
-            str(case_out), str(stderr_log), "5", survivor_count, "gone",
+            str(case_out), str(stderr_log), "5", survivor_count, cleanup,
         ],
         cwd=REPO_ROOT,
         text=True,
@@ -392,6 +446,19 @@ def test_bwrap_result_check_rejects_python_traceback_before_printing_pass(tmp_pa
     assert result.returncode == 1
     assert "emitted a traceback" in result.stderr
     assert "=PASS" not in result.stdout
+
+
+def test_result_check_rejects_review_artifact_and_incomplete_cleanup_before_pass(tmp_path):
+    """Break caught: every required negative result assertion needs a subprocess pin."""
+    review = run_result_check(tmp_path / "review", "plain", rc=1, review=True)
+    cleanup = run_result_check(tmp_path / "cleanup", "bwrap", rc=143, cleanup="alive")
+
+    assert review.returncode == 1
+    assert "wrote REVIEW.md" in review.stderr
+    assert "=PASS" not in review.stdout
+    assert cleanup.returncode == 1
+    assert "cleanup result was alive" in cleanup.stderr
+    assert "=PASS" not in cleanup.stdout
 
 
 def test_result_check_emits_exact_mechanical_fields_after_all_assertions(tmp_path):
