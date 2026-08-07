@@ -125,8 +125,8 @@ shutdown_claude_plain=PASS driver_rc=1 captured=1 post_driver_survivors=0 harnes
 shutdown_claude_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
 shutdown_agy_plain=PASS driver_rc=1 captured=1 post_driver_survivors=0 harness_cleanup=gone
 shutdown_agy_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
-shutdown_codex_plain=PASS driver_rc=1 captured=3 post_driver_survivors=0 harness_cleanup=gone
-shutdown_codex_bwrap=PASS wrapper_rc=143 captured=4 post_wrapper_survivors=0 harness_cleanup=gone
+shutdown_codex_plain=PASS driver_rc=1 captured=2 post_driver_survivors=0 harness_cleanup=gone
+shutdown_codex_bwrap=PASS wrapper_rc=143 captured=5 post_wrapper_survivors=0 harness_cleanup=gone
 shutdown_opencode_plain=PASS driver_rc=1 captured=2 post_driver_survivors=0 harness_cleanup=gone
 shutdown_opencode_bwrap=PASS wrapper_rc=143 captured=5 post_wrapper_survivors=0 harness_cleanup=gone
 shutdown_pykrete_plain=PASS driver_rc=1 captured=2 post_driver_survivors=0 harness_cleanup=gone

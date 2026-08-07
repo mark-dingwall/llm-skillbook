@@ -16,11 +16,28 @@
 set +x
 set -Eeuo pipefail
 
+shutdown_clis=(claude agy codex opencode pykrete grok)
+if [[ -z ${1:-} || ${1:-} == --prereq-check || ${1:-} == --workload-path-check ]]; then
+  missing_harness_commands=""
+  for harness_command in awk chmod cp dirname find getent git id ln mkdir mktemp ps \
+    readlink rg rm setsid sleep sort stat wc; do
+    command -v "$harness_command" >/dev/null 2>&1 || \
+      missing_harness_commands="${missing_harness_commands:+$missing_harness_commands,}$harness_command"
+  done
+  if [[ -n "$missing_harness_commands" ]]; then
+    for shutdown_cli in "${shutdown_clis[@]}"; do
+      printf 'shutdown_%s=BLOCKED scopes=plain,bwrap missing_harness_commands=%s\n' \
+        "$shutdown_cli" "$missing_harness_commands"
+    done
+    printf 'headless-driver-smoke: shutdown matrix has BLOCKED prerequisites\n' >&2
+    exit 1
+  fi
+fi
+
 script_path=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "$script_path")
 repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
 fixture_dir="$script_dir/fixtures/headless-driver-smoke"
-shutdown_clis=(claude agy codex opencode pykrete grok)
 
 die() {
   printf 'headless-driver-smoke: %s\n' "$*" >&2
@@ -212,8 +229,23 @@ snapshot_has_distinct_patterns() {
   [[ -n "$second_pids" ]] || return 1
   for first_pid in $first_pids; do
     for second_pid in $second_pids; do
-      [[ "$first_pid" != "$second_pid" ]] && return 0
+      snapshot_pid_is_descendant "$snapshot" "$second_pid" "$first_pid" && return 0
     done
+  done
+  return 1
+}
+
+snapshot_pid_is_descendant() {
+  local snapshot=$1
+  local pid=$2
+  local ancestor=$3
+  local parent=$pid
+  local depth=0
+  while ((depth < 100)); do
+    parent=$(awk -v p="$parent" '$1 == p {print $2; exit}' "$snapshot")
+    [[ -n "$parent" && "$parent" != 0 ]] || return 1
+    [[ "$parent" == "$ancestor" ]] && return 0
+    ((depth += 1))
   done
   return 1
 }
@@ -394,7 +426,7 @@ case "${1:-}" in
     require_command ps
     require_command rg
     wait_for_tree_patterns "$2" "$3" "$4" "$5" || \
-      die "process patterns did not match distinct PIDs"
+      die "process patterns did not match launcher/descendant PIDs"
     matched_pids=$(rg "$4|$5" "$3" | awk '{print $1}' | sort -u | wc -l)
     printf 'matched_pids=%s\nprocess_patterns=PASS\n' "$matched_pids"
     exit 0
@@ -463,10 +495,40 @@ check_entry_prereq() {
   local command_name=$3
   local label=$4
   if [[ -n "$override" ]]; then
-    [[ -f "$override" ]] || append_prereq "$cli" "missing_binary=$label:$override"
+    [[ -f "$override" && -x "$override" ]] || \
+      append_prereq "$cli" "missing_binary=$label:$override"
   elif ! command -v "$command_name" >/dev/null 2>&1; then
     append_prereq "$cli" "missing_binary=$command_name"
   fi
+}
+
+check_secret_prereq() {
+  local cli=$1
+  local path=$2
+  local label=$3
+  [[ -s "$path" ]] || return 0
+  [[ $(stat -c '%a' "$path") == 600 ]] || \
+    append_prereq "$cli" "invalid_auth_mode=$label:$path"
+  [[ $(stat -c '%u' "$path") == "$(id -u)" ]] || \
+    append_prereq "$cli" "invalid_auth_owner=$label:$path"
+}
+
+check_package_prereq() {
+  local cli=$1
+  local entry=$2
+  local label=$3
+  shift 3
+  [[ -f "$entry" && -x "$entry" ]] || return 0
+  local resolved root required
+  resolved=$(readlink -f -- "$entry") || {
+    append_prereq "$cli" "invalid_package_root=$label:$entry"
+    return 0
+  }
+  root=$(dirname "$(dirname "$resolved")")
+  for required in "$@"; do
+    [[ -d "$root/$required" ]] || \
+      append_prereq "$cli" "invalid_package_root=$label:$root/$required"
+  done
 }
 
 for shutdown_cli in "${shutdown_clis[@]}"; do
@@ -497,6 +559,26 @@ check_binary_prereq grok "${GROK_BIN:-}" grok grok
 [[ -n "$pykrete_config_file" && -r "$pykrete_config_file" ]] || \
   append_prereq pykrete "missing_config=${pykrete_config_file:-PYKRETE_CONFIG_FILE}"
 [[ -s "$grok_auth_file" ]] || append_prereq grok "missing_auth=$grok_auth_file"
+check_secret_prereq claude "$claude_token_file" CLAUDE_TOKEN_FILE
+check_secret_prereq agy "$agy_token_file" AGY_TOKEN_FILE
+check_secret_prereq codex "$codex_auth_file" CODEX_AUTH_FILE
+check_secret_prereq opencode "$opencode_auth_file" OPENCODE_AUTH_FILE
+check_secret_prereq pykrete "$pykrete_env_file" PYKRETE_ENV_FILE
+check_secret_prereq grok "$grok_auth_file" GROK_AUTH_FILE
+if [[ -s "$pykrete_env_file" ]]; then
+  pykrete_noncomment_lines=$(awk 'NF && $1 !~ /^#/ {count++} END {print count + 0}' "$pykrete_env_file")
+  pykrete_key_lines=$(awk '/^NANOGPT_API_KEY=.+$/ {count++} END {print count + 0}' "$pykrete_env_file")
+  [[ "$pykrete_noncomment_lines" == 1 && "$pykrete_key_lines" == 1 ]] || \
+    append_prereq pykrete "invalid_auth_format=PYKRETE_ENV_FILE:$pykrete_env_file"
+fi
+codex_prereq_entry=${CODEX_ENTRY:-$(command -v codex 2>/dev/null || true)}
+opencode_prereq_entry=${OPENCODE_ENTRY:-$(command -v opencode 2>/dev/null || true)}
+pykrete_prereq_entry=${PYKRETE_ENTRY:-$(command -v pykrete 2>/dev/null || true)}
+pi_prereq_entry=${PI_ENTRY:-$(command -v pi 2>/dev/null || true)}
+check_package_prereq codex "$codex_prereq_entry" codex node_modules
+check_package_prereq opencode "$opencode_prereq_entry" opencode node_modules
+check_package_prereq pykrete "$pykrete_prereq_entry" pykrete src node_modules extensions
+check_package_prereq pykrete "$pi_prereq_entry" pi node_modules
 
 shutdown_prereq_blocked=0
 for shutdown_cli in "${shutdown_clis[@]}"; do
@@ -521,11 +603,6 @@ require_secret_file() {
 require_secret_file "$claude_token_file" "CLAUDE_TOKEN_FILE"
 require_secret_file "$pykrete_env_file" "PYKRETE_ENV_FILE"
 [[ -r "$pykrete_config_file" ]] || die "PYKRETE_CONFIG_FILE is not readable: $pykrete_config_file"
-
-pykrete_noncomment_lines=$(awk 'NF && $1 !~ /^#/ {count++} END {print count + 0}' "$pykrete_env_file")
-pykrete_key_lines=$(awk '/^NANOGPT_API_KEY=.+$/ {count++} END {print count + 0}' "$pykrete_env_file")
-[[ "$pykrete_noncomment_lines" == 1 && "$pykrete_key_lines" == 1 ]] || \
-  die "PYKRETE_ENV_FILE must contain exactly one NANOGPT_API_KEY assignment"
 
 uv_binary=$(resolve_executable "${UV_BIN:-}" uv "uv executable")
 claude_binary=$(resolve_executable "${CLAUDE_BIN:-}" claude "Claude executable")
@@ -557,9 +634,33 @@ if [[ "$run_mode" == workload ]]; then
   smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/mr-headless-workload-check.XXXXXXXX")
   plain_workload_bin="$smoke_root/plain-bin"
   build_plain_workload_path "$plain_workload_bin"
-  for shutdown_cli in claude agy codex opencode pykrete pi grok; do
-    PATH="$plain_workload_bin" "$plain_workload_bin/$shutdown_cli" --smoke-probe
-  done
+  workload_home="$smoke_root/home"
+  workload_cwd="$smoke_root/cwd"
+  workload_out="$smoke_root/out"
+  workload_prompt="$smoke_root/prompt.yaml"
+  mkdir -p "$workload_home" "$workload_cwd" "$workload_out"
+  printf '%s\n' \
+    'prompt_format_version: 1' \
+    'task: code' \
+    "files: [$fixture_dir/subject.py]" \
+    'mode: inline' \
+    'reviewers: [claude, agy, codex, opencode, pykrete, grok]' \
+    'synthesizer: none' > "$workload_prompt"
+  set +e
+  (
+    cd "$workload_cwd"
+    HOME="$workload_home" \
+      PATH="$plain_workload_bin:/usr/bin:/bin" \
+      PYKRETE_CONFIG="$pykrete_config_file" \
+      "$uv_binary" run --offline --project "$repo_root" python "$repo_root/multi_review.py" \
+        --prompt-file "$workload_prompt" --out-dir "$workload_out" --timeout 5
+  ) </dev/null > "$smoke_root/workload.stdout.log" 2> "$smoke_root/workload.stderr.log"
+  workload_rc=$?
+  set -e
+  [[ "$workload_rc" == 0 || "$workload_rc" == 1 ]] || \
+    die "plain workload override probe exited $workload_rc"
+  PATH="$plain_workload_bin:/usr/bin:/bin" "$plain_workload_bin/pi" --smoke-probe
+  printf 'plain_workload_driver_rc=%s\n' "$workload_rc"
   printf 'plain_workload_overrides=PASS\n'
   exit 0
 fi

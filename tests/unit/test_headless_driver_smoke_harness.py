@@ -93,8 +93,9 @@ def test_prereq_check_honors_all_cli_overrides_without_ambient_commands(tmp_path
     tool_dir = tmp_path / "tools"
     tool_dir.mkdir()
     for command in (
-        "awk", "bwrap", "cp", "dirname", "find", "getent", "git", "id", "ps", "readlink",
-        "rg", "setsid", "sleep", "stat",
+        "awk", "bwrap", "chmod", "cp", "dirname", "find", "getent", "git", "id", "ln",
+        "mkdir", "mktemp", "ps", "readlink", "rg", "rm", "setsid", "sleep", "sort",
+        "stat", "wc",
     ):
         target = shutil.which(command)
         assert target is not None
@@ -115,6 +116,7 @@ def test_prereq_check_honors_all_cli_overrides_without_ambient_commands(tmp_path
         tmp_path / "opencode" / "node_modules",
         tmp_path / "pykrete" / "src",
         tmp_path / "pykrete" / "node_modules",
+        tmp_path / "pykrete" / "extensions",
         tmp_path / "pi" / "node_modules",
         tmp_path / "uv-cache",
     ):
@@ -160,14 +162,39 @@ def test_prereq_check_honors_all_cli_overrides_without_ambient_commands(tmp_path
     assert result.stdout.strip().endswith("headless_driver_smoke_prereq=PASS")
     assert "required command not found" not in result.stderr
 
+    claude_token.chmod(0o644)
+    blocked = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert blocked.returncode == 1
+    assert "shutdown_claude=BLOCKED scopes=plain,bwrap" in blocked.stdout
+    assert "invalid_auth_mode=" in blocked.stdout
+
+    claude_token.chmod(0o600)
+    (tmp_path / "codex" / "node_modules").rmdir()
+    invalid_package = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert invalid_package.returncode == 1
+    assert "shutdown_codex=BLOCKED scopes=plain,bwrap" in invalid_package.stdout
+    assert "invalid_package_root=" in invalid_package.stdout
+
 
 def test_prereq_check_reports_precise_blockers_for_every_cli_before_live_work(tmp_path):
     """Break caught: early die hid binary, containment, auth, and config blockers."""
     tool_dir = tmp_path / "tools"
     tool_dir.mkdir()
     for command in (
-        "awk", "cp", "dirname", "find", "getent", "git", "id", "ps", "readlink",
-        "rg", "setsid", "sleep", "sort", "stat", "wc",
+        "awk", "chmod", "cp", "dirname", "find", "getent", "git", "id", "ln", "mkdir",
+        "mktemp", "ps", "readlink", "rg", "rm", "setsid", "sleep", "sort", "stat", "wc",
     ):
         target = shutil.which(command)
         assert target is not None
@@ -209,6 +236,22 @@ def test_prereq_check_reports_precise_blockers_for_every_cli_before_live_work(tm
     assert "shutdown_claude=BLOCKED" in result.stdout and "missing_auth=" in result.stdout
     assert "shutdown_pykrete=BLOCKED" in result.stdout and "missing_config=" in result.stdout
     assert "shutdown matrix has BLOCKED prerequisites" in result.stderr
+
+
+def test_prereq_check_attributes_missing_harness_commands_to_every_cli(tmp_path):
+    """Break caught: foundational command failure used to die before BLOCKED rows."""
+    result = subprocess.run(
+        ["/bin/bash", str(HARNESS), "--prereq-check"],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PATH": str(tmp_path)},
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 1
+    for cli in ("claude", "agy", "codex", "opencode", "pykrete", "grok"):
+        assert f"shutdown_{cli}=BLOCKED scopes=plain,bwrap" in result.stdout
+    assert "missing_harness_commands=" in result.stdout
 
 
 def test_exit_trap_kills_fake_child_and_grandchild_without_network(tmp_path):
@@ -262,7 +305,7 @@ def test_process_pattern_check_rejects_one_pid_matching_both_patterns(tmp_path):
         )
 
     assert result.returncode == 1
-    assert "distinct PIDs" in result.stderr
+    assert "launcher/descendant PIDs" in result.stderr
     assert "process_patterns=PASS" not in result.stdout
 
 
@@ -270,8 +313,8 @@ def test_process_pattern_check_accepts_distinct_launcher_and_engine_pids(tmp_pat
     """Break caught: distinct launcher/engine evidence must remain observable."""
     snapshot = tmp_path / "distinct-pids.snapshot"
     with fake_process_tree(
-        "/bin/bash -c \"exec -a 'node /tmp/codex' /bin/sleep 30\" & "
-        "/bin/bash -c \"exec -a 'codex-engine exec' /bin/sleep 30\" & wait"
+        "/bin/bash -c \"exec -a 'node /tmp/codex' /bin/bash -c "
+        "'/bin/bash -c \\\"exec -a codex-engine-exec /bin/sleep 30\\\" & wait'\" & wait"
     ) as process:
         result = subprocess.run(
             [
@@ -288,6 +331,30 @@ def test_process_pattern_check_accepts_distinct_launcher_and_engine_pids(tmp_pat
     assert result.returncode == 0, result.stderr
     assert "matched_pids=2" in result.stdout
     assert result.stdout.strip().endswith("process_patterns=PASS")
+
+
+def test_process_pattern_check_rejects_wrapper_regex_bait_as_engine(tmp_path):
+    """Break caught: bwrap argv could impersonate an engine on a distinct PID."""
+    snapshot = tmp_path / "wrapper-bait.snapshot"
+    with fake_process_tree(
+        "/bin/bash -c \"exec -a 'codex wrapper exec' /bin/bash -c "
+        "'/bin/bash -c \\\"exec -a node-codex /bin/sleep 30\\\" & wait'\" & wait"
+    ) as process:
+        result = subprocess.run(
+            [
+                "/bin/bash", str(HARNESS), "--pattern-check", str(process.pid),
+                str(snapshot), "node.*codex", "codex.*exec",
+            ],
+            cwd=REPO_ROOT,
+            env={**os.environ, "PATTERN_WAIT_ATTEMPTS": "5"},
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+    assert result.returncode == 1
+    assert "launcher/descendant" in result.stderr
+    assert "process_patterns=PASS" not in result.stdout
 
 
 def run_result_check(tmp_path: Path, scope: str, *, rc: int, traceback: bool = False):
@@ -349,7 +416,7 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
     tool_dir = tmp_path / "tools"
     tool_dir.mkdir()
     for command in (
-        "awk", "bwrap", "cp", "dirname", "find", "getent", "git", "id", "ln",
+        "awk", "bwrap", "chmod", "cp", "dirname", "find", "getent", "git", "id", "ln",
         "mkdir", "mktemp", "ps", "readlink", "rg", "rm", "setsid", "sleep",
         "sort", "stat", "wc",
     ):
@@ -374,6 +441,7 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
     for directory in (
         tmp_path / "codex" / "node_modules", tmp_path / "opencode" / "node_modules",
         tmp_path / "pykrete" / "src", tmp_path / "pykrete" / "node_modules",
+        tmp_path / "pykrete" / "extensions",
         tmp_path / "pi" / "node_modules", tmp_path / "uv-cache",
     ):
         directory.mkdir()
@@ -389,7 +457,7 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
         **os.environ,
         "PATH": str(tool_dir),
         "FAKE_LAUNCH_LOG": str(launch_log),
-        "UV_BIN": str(fake_cli), "CLAUDE_BIN": str(fake_cli),
+        "UV_BIN": str(Path(shutil.which("uv") or "")), "CLAUDE_BIN": str(fake_cli),
         "AGY_BIN": str(fake_cli), "CODEX_ENTRY": str(codex_entry),
         "OPENCODE_ENTRY": str(opencode_entry), "PYKRETE_ENTRY": str(pykrete_entry),
         "PI_ENTRY": str(pi_entry), "GROK_BIN": str(fake_cli),
@@ -408,7 +476,8 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
     )
 
     assert result.returncode == 0, result.stderr
-    assert launch_log.read_text().splitlines() == [
-        "claude", "agy", "codex", "opencode", "pykrete", "pi", "grok"
-    ]
+    assert sorted(launch_log.read_text().splitlines()) == sorted(
+        ["claude", "agy", "codex", "opencode", "pykrete", "pi", "grok"]
+    )
+    assert "plain_workload_driver_rc=" in result.stdout
     assert result.stdout.strip().endswith("plain_workload_overrides=PASS")
