@@ -57,10 +57,15 @@ def fill_defaults(raw: dict) -> PromptFile:
         raise ValidationError(str(exc)) from exc
 
 def _resolve_path(p: str, base: Path | None) -> Path:
-    pp = Path(p)
-    if pp.is_absolute() or base is None:
-        return pp
-    return (base / pp).resolve()
+    try:
+        if "\0" in p:
+            raise ValueError("embedded null byte")
+        pp = Path(p)
+        if pp.is_absolute() or base is None:
+            return pp
+        return (base / pp).resolve()
+    except (OSError, ValueError) as exc:
+        raise ValidationError(f"invalid path {p!r}: {exc}") from exc
 
 def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
     # Required-field + type + enum checks (cheap; catches malformed prompts upstream
@@ -121,7 +126,11 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
             raise ValidationError(f"context_files: path does not exist on disk: {p}")
 
 def load_promptfile(path: Path) -> PromptFile:
-    raw = yaml.safe_load(path.read_text())
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise ValidationError(f"{path}: prompt file is not valid UTF-8: {exc}") from exc
+    raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
         raise ValidationError(f"{path}: top-level must be a mapping")
     pf = fill_defaults(raw)

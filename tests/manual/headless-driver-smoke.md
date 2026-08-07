@@ -75,7 +75,9 @@ Do not mark this task complete with blank outcomes. For each case above record:
 
 Environment: Ubuntu 22.04.5 LTS on WSL2
 (`6.18.33.2-microsoft-standard-WSL2`, x86_64), `uv 0.10.7`,
-`bubblewrap 0.6.1`, Claude Code 2.1.223, pykrete 0.1.0, and pi 0.80.10.
+`bubblewrap 0.6.1`, Claude Code 2.1.223, agy 1.1.11, Codex CLI
+0.146.1, OpenCode 1.14.33, pykrete 0.1.0, pi 0.80.10, and Grok
+0.2.117 (`a422116`).
 The earlier ad hoc commands and ignored fixtures are superseded by the committed
 harness and fixtures named above. Reproduce the exact gate with mode-0600 secret
 files (values are read on stdin with tracing disabled, never passed on argv):
@@ -93,8 +95,6 @@ KEEP_SMOKE_ARTIFACTS=1 \
 The harness contains the complete bwrap mount mappings, fresh-home setup,
 token-to-stdin shell sequence, foreign-cwd construction, driver-PID resolution,
 recursive descendant snapshots, targeted signals, and per-PID liveness checks.
-`bash -n`, ShellCheck, the harness `--check`, and its unit contract all passed
-before this live run.
 
 1. **PASS — `claude -p` under `bwrap`.** Exit 0 in 8.7s. `REVIEW.md` recorded
    Claude as succeeded and contained `INLINE_DRIVER_SMOKE_20260807` plus the
@@ -107,13 +107,18 @@ before this live run.
 4. **PASS — foreign cwd.** The no-project run completed in 9.0s and its directory
    stayed empty; the own-project run completed in 7.6s and retained only its
    original `pyproject.toml`. Neither directory gained `.venv/` or `uv.lock`.
-5. **PASS — shutdown.** The plain harness resolved Python driver PID 793336 before
-   signaling it; captured pykrete PID 793346 and pi PID 793365 were both gone,
-   the wrapper returned 1, no traceback appeared, and no `REVIEW.md` existed.
-   The separate bwrap wrapper PID 793419 reached descendants 793424, 793425,
-   795588, 795661, and 796048 (namespace/reaper, uv, Python, pykrete, pi). The
-   wrapper returned 143 after SIGTERM; every captured PID was gone and no
-   `REVIEW.md` existed.
+5. **PASS — complete shutdown matrix.** The checked-in gate ran one plain
+   scratch-home/scratch-cwd case and one read-only-repository `bwrap` case for
+   each of Claude, agy, Codex, OpenCode, pykrete, and Grok. Every plain driver
+   returned 1 after targeted `SIGTERM`; every `bwrap` wrapper returned 143; no
+   case wrote `REVIEW.md` or emitted a Python traceback. Recursive snapshots
+   captured one reviewer descendant for plain Claude and agy, two for plain
+   Codex, OpenCode, pykrete/pi, and Grok, four descendants in the Claude and agy
+   bwrap trees, and five in each remaining bwrap tree. Every captured PID was
+   gone at the asserted cleanup boundary. The plain Codex and OpenCode runs
+   observed both launcher and engine descendants; neither left an engine alive
+   after the driver exited. The plain pykrete run likewise confirmed pi was gone.
 
-The harness emitted `headless_driver_smoke=PASS cases=5`. Only this checked-in,
-reproducible rerun is the binding acceptance evidence.
+The harness emitted `case5=PASS shutdown_clis=6 plain_and_bwrap=ok` and
+`headless_driver_smoke=PASS cases=5`. Only this checked-in, reproducible rerun
+is the binding acceptance evidence.

@@ -88,6 +88,30 @@ def test_missing_prompt_file_exits_2(tmp_path):
     assert driver.main(["--prompt-file", str(tmp_path / "nope.yaml"), "--out-dir", str(out)]) == 2
 
 
+def test_invalid_utf8_prompt_file_exits_2_without_traceback(tmp_path, capsys):
+    pf = tmp_path / "prompt.yaml"
+    pf.write_bytes(b"\xff\xfe")
+    out = tmp_path / "round-1"
+
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert "UTF-8" in err
+    assert "Traceback" not in err
+
+
+def test_nul_path_prompt_file_exits_2_without_traceback(tmp_path, capsys):
+    pf = _write_promptfile(
+        tmp_path,
+        'prompt_format_version: 1\ntask: code\nfiles: ["bad\\0path"]\n',
+    )
+    out = tmp_path / "round-1"
+
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert "invalid path" in err
+    assert "Traceback" not in err
+
+
 def test_schema_violation_exits_2(tmp_path):
     pf = _write_promptfile(tmp_path, BASE_YAML.replace("task: code", "task: nonsense"))
     out = tmp_path / "round-1"

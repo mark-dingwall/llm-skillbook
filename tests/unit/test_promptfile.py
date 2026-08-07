@@ -173,6 +173,36 @@ def test_internal_typeerror_is_not_relabelled_as_invalid_config(tmp_path, monkey
         load_promptfile(prompt)
 
 
+def test_invalid_utf8_is_reported_as_a_validation_error(tmp_path):
+    """A malformed byte stream is invalid configuration, not a driver crash."""
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(ValidationError, match="UTF-8"):
+        load_promptfile(prompt)
+
+
+def test_nul_in_file_path_is_reported_as_a_validation_error(tmp_path):
+    """Path resolution failures stay inside the prompt-file validation boundary."""
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        'prompt_format_version: 1\ntask: code\nfiles: ["bad\\0path"]\n'
+    )
+
+    with pytest.raises(ValidationError, match="invalid path"):
+        load_promptfile(prompt)
+
+
+def test_nul_in_absolute_file_path_is_reported_as_a_validation_error(tmp_path):
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        'prompt_format_version: 1\ntask: code\nfiles: ["/bad\\0path"]\n'
+    )
+
+    with pytest.raises(ValidationError, match="invalid path"):
+        load_promptfile(prompt)
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
