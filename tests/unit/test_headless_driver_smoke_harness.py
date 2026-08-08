@@ -93,7 +93,7 @@ def test_prereq_check_honors_all_cli_overrides_without_ambient_commands(tmp_path
     tool_dir = tmp_path / "tools"
     tool_dir.mkdir()
     for command in (
-        "awk", "bwrap", "chmod", "cp", "dirname", "find", "getent", "git", "id", "ln",
+        "awk", "bwrap", "chmod", "cp", "dirname", "env", "find", "getent", "git", "id", "ln",
         "mkdir", "mktemp", "ps", "readlink", "rg", "rm", "setsid", "sleep", "sort",
         "stat", "wc",
     ):
@@ -237,7 +237,7 @@ def test_prereq_check_reports_precise_blockers_for_every_cli_before_live_work(tm
     tool_dir = tmp_path / "tools"
     tool_dir.mkdir()
     for command in (
-        "awk", "chmod", "cp", "dirname", "find", "getent", "git", "id", "ln", "mkdir",
+        "awk", "chmod", "cp", "dirname", "env", "find", "getent", "git", "id", "ln", "mkdir",
         "mktemp", "ps", "readlink", "rg", "rm", "setsid", "sleep", "sort", "stat", "wc",
     ):
         target = shutil.which(command)
@@ -401,6 +401,21 @@ def test_process_pattern_check_rejects_wrapper_regex_bait_as_engine(tmp_path):
     assert "process_patterns=PASS" not in result.stdout
 
 
+def test_process_group_check_detects_late_descendant_missing_from_initial_snapshot():
+    """Break caught: shutdown assertions only examined PIDs captured before SIGTERM."""
+    with fake_process_tree("/bin/sleep 30 & wait") as process:
+        result = subprocess.run(
+            ["/bin/bash", str(HARNESS), "--process-group-check", str(process.pid), "late-fork"],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+    assert result.returncode == 1
+    assert "late-fork left process-group PIDs alive" in result.stderr
+
+
 def run_result_check(
     tmp_path: Path,
     scope: str,
@@ -469,12 +484,14 @@ def test_result_check_emits_exact_mechanical_fields_after_all_assertions(tmp_pat
     assert plain.returncode == 0, plain.stderr
     assert plain.stdout.strip() == (
         "shutdown_codex_plain=PASS driver_rc=1 captured=5 "
-        "post_driver_survivors=1 harness_cleanup=gone"
+        "post_driver_survivors=1 harness_cleanup=gone environment=clean "
+        "process_group_check=passed"
     )
     assert bwrap.returncode == 0, bwrap.stderr
     assert bwrap.stdout.strip() == (
         "shutdown_codex_bwrap=PASS wrapper_rc=143 captured=5 "
-        "post_wrapper_survivors=0 harness_cleanup=gone"
+        "post_wrapper_survivors=0 harness_cleanup=gone environment=clean "
+        "process_group_check=passed"
     )
 
 
@@ -483,7 +500,7 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
     tool_dir = tmp_path / "tools"
     tool_dir.mkdir()
     for command in (
-        "awk", "bwrap", "chmod", "cp", "dirname", "find", "getent", "git", "id", "ln",
+        "awk", "bwrap", "chmod", "cp", "dirname", "env", "find", "getent", "git", "id", "ln",
         "mkdir", "mktemp", "ps", "readlink", "rg", "rm", "setsid", "sleep",
         "sort", "stat", "wc",
     ):
@@ -491,10 +508,23 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
         assert target is not None
         (tool_dir / command).symlink_to(target)
     launch_log = tmp_path / "launch.log"
+    uv_binary = shutil.which("uv")
+    assert uv_binary is not None
+    cache_source = Path(subprocess.run(
+        [uv_binary, "cache", "dir"], text=True, capture_output=True, check=True,
+    ).stdout.strip())
+    assert cache_source.is_dir()
 
     def fake_entry(path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("#!/bin/sh\nprintf '%s\\n' \"${0##*/}\" >> \"$FAKE_LAUNCH_LOG\"\n")
+        path.write_text(
+            "#!/bin/sh\ncache=missing\nhome=ambient\n"
+            "[ -n \"${UV_CACHE_DIR:-}\" ] && "
+            "[ -n \"$(find \"$UV_CACHE_DIR\" -mindepth 1 -print -quit)\" ] && cache=seeded\n"
+            "[ -n \"${HOME:-}\" ] && [ \"$HOME\" != /ambient-home-canary ] && home=scratch\n"
+            "printf '%s:%s:%s:%s\\n' \"${0##*/}\" \"${AWS_SECRET_ACCESS_KEY:-}\" \"$cache\" \"$home\" "
+            ">> \"$FAKE_LAUNCH_LOG\"\n"
+        )
         path.chmod(0o755)
 
     fake_cli = tmp_path / "fake-cli"
@@ -522,16 +552,18 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
     pykrete_env.chmod(0o600)
     env = {
         **os.environ,
+        "HOME": "/ambient-home-canary",
         "PATH": str(tool_dir),
         "FAKE_LAUNCH_LOG": str(launch_log),
-        "UV_BIN": str(Path(shutil.which("uv") or "")), "CLAUDE_BIN": str(fake_cli),
+        "UV_BIN": uv_binary, "CLAUDE_BIN": str(fake_cli),
         "AGY_BIN": str(fake_cli), "CODEX_ENTRY": str(codex_entry),
         "OPENCODE_ENTRY": str(opencode_entry), "PYKRETE_ENTRY": str(pykrete_entry),
         "PI_ENTRY": str(pi_entry), "GROK_BIN": str(fake_cli),
         "CLAUDE_TOKEN_FILE": str(secret), "PYKRETE_ENV_FILE": str(pykrete_env),
-        "PYKRETE_CONFIG_FILE": str(config), "UV_CACHE_SOURCE": str(tmp_path / "uv-cache"),
+        "PYKRETE_CONFIG_FILE": str(config), "UV_CACHE_SOURCE": str(cache_source),
         "AGY_TOKEN_FILE": str(secret), "CODEX_AUTH_FILE": str(secret),
         "OPENCODE_AUTH_FILE": str(secret), "GROK_AUTH_FILE": str(secret),
+        "AWS_SECRET_ACCESS_KEY": "canary",
     }
 
     result = subprocess.run(
@@ -544,7 +576,12 @@ def test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_p
 
     assert result.returncode == 0, result.stderr
     assert sorted(launch_log.read_text().splitlines()) == sorted(
-        ["claude", "agy", "codex", "opencode", "pykrete", "pi", "grok"]
+        [
+            "claude::seeded:scratch", "agy::seeded:scratch", "codex::seeded:scratch",
+            "opencode::seeded:scratch", "pykrete::seeded:scratch", "pi::seeded:scratch",
+            "grok::seeded:scratch",
+        ]
     )
     assert "plain_workload_driver_rc=" in result.stdout
+    assert "plain_workload_uv_environment=isolated" in result.stdout
     assert result.stdout.strip().endswith("plain_workload_overrides=PASS")

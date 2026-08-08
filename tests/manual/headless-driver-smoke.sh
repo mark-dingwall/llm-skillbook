@@ -19,7 +19,7 @@ set -Eeuo pipefail
 shutdown_clis=(claude agy codex opencode pykrete grok)
 if [[ -z ${1:-} || ${1:-} == --prereq-check || ${1:-} == --workload-path-check ]]; then
   missing_harness_commands=""
-  for harness_command in awk chmod cp dirname find getent git id ln mkdir mktemp ps \
+  for harness_command in awk chmod cp dirname env find getent git id ln mkdir mktemp ps \
     readlink rg rm setsid sleep sort stat wc; do
     command -v "$harness_command" >/dev/null 2>&1 || \
       missing_harness_commands="${missing_harness_commands:+$missing_harness_commands,}$harness_command"
@@ -268,6 +268,19 @@ wait_for_tree_patterns() {
   return 1
 }
 
+process_group_survivors() {
+  local pgid=$1
+  ps -eo pid=,pgid=,stat= | awk -v p="$pgid" '$2 == p && $3 !~ /^Z/ {print $1}'
+}
+
+assert_process_group_gone() {
+  local pgid=$1
+  local label=$2
+  local survivors
+  survivors=$(process_group_survivors "$pgid")
+  [[ -z "$survivors" ]] || die "$label left process-group PIDs alive: $survivors"
+}
+
 validate_and_report_shutdown() {
   local scope=$1
   local cli=$2
@@ -284,12 +297,12 @@ validate_and_report_shutdown() {
   case "$scope" in
     plain)
       [[ "$rc" == 1 ]] || die "plain $cli driver exited $rc, expected 1"
-      printf 'shutdown_%s_plain=PASS driver_rc=%s captured=%s post_driver_survivors=%s harness_cleanup=%s\n' \
+      printf 'shutdown_%s_plain=PASS driver_rc=%s captured=%s post_driver_survivors=%s harness_cleanup=%s environment=clean process_group_check=passed\n' \
         "$cli" "$rc" "$captured" "$survivor_count" "$cleanup_result"
       ;;
     bwrap)
       [[ "$rc" == 143 ]] || die "bwrap $cli wrapper exited $rc, expected 143"
-      printf 'shutdown_%s_bwrap=PASS wrapper_rc=%s captured=%s post_wrapper_survivors=%s harness_cleanup=%s\n' \
+      printf 'shutdown_%s_bwrap=PASS wrapper_rc=%s captured=%s post_wrapper_survivors=%s harness_cleanup=%s environment=clean process_group_check=passed\n' \
         "$cli" "$rc" "$captured" "$survivor_count" "$cleanup_result"
       ;;
     *) die "unknown shutdown result scope: $scope" ;;
@@ -429,6 +442,13 @@ case "${1:-}" in
       die "process patterns did not match launcher/descendant PIDs"
     matched_pids=$(rg "$4|$5" "$3" | awk '{print $1}' | sort -u | wc -l)
     printf 'matched_pids=%s\nprocess_patterns=PASS\n' "$matched_pids"
+    exit 0
+    ;;
+  --process-group-check)
+    [[ $# == 3 ]] || die "--process-group-check requires pgid and label"
+    require_command ps
+    assert_process_group_gone "$2" "$3"
+    printf 'process_group=PASS\n'
     exit 0
     ;;
   --result-check)
@@ -658,7 +678,11 @@ if [[ "$run_mode" == workload ]]; then
   workload_cwd="$smoke_root/cwd"
   workload_out="$smoke_root/out"
   workload_prompt="$smoke_root/prompt.yaml"
-  mkdir -p "$workload_home" "$workload_cwd" "$workload_out"
+  workload_uv_cache="$smoke_root/uv-cache"
+  mkdir -p "$workload_home" "$workload_cwd" "$workload_out" "$workload_uv_cache" \
+    "$workload_home/.config" "$workload_home/.local/share" "$workload_home/.local/state"
+  cp -a --reflink=auto "$uv_cache_source/." "$workload_uv_cache/"
+  chmod -R u+rwX "$workload_uv_cache"
   printf '%s\n' \
     'prompt_format_version: 1' \
     'task: code' \
@@ -669,18 +693,35 @@ if [[ "$run_mode" == workload ]]; then
   set +e
   (
     cd "$workload_cwd"
-    HOME="$workload_home" \
+    env -i \
+      HOME="$workload_home" \
       PATH="$plain_workload_bin:/usr/bin:/bin" \
       PYKRETE_CONFIG="$pykrete_config_file" \
-      "$uv_binary" run --offline --project "$repo_root" python "$repo_root/multi_review.py" \
+      UV_CACHE_DIR="$workload_uv_cache" \
+      LANG=C.UTF-8 \
+      FAKE_LAUNCH_LOG="${FAKE_LAUNCH_LOG:-}" \
+      "$uv_binary" run --offline --isolated "$repo_root/multi_review.py" \
         --prompt-file "$workload_prompt" --out-dir "$workload_out" --timeout 5
   ) </dev/null > "$smoke_root/workload.stdout.log" 2> "$smoke_root/workload.stderr.log"
   workload_rc=$?
   set -e
-  [[ "$workload_rc" == 0 || "$workload_rc" == 1 ]] || \
+  if [[ "$workload_rc" != 0 && "$workload_rc" != 1 ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      printf 'plain workload stderr: %s\n' "$line" >&2
+    done < "$smoke_root/workload.stderr.log"
     die "plain workload override probe exited $workload_rc"
-  PATH="$plain_workload_bin:/usr/bin:/bin" "$plain_workload_bin/pi" --smoke-probe
+  fi
+  env -i \
+    HOME="$workload_home" \
+    XDG_CONFIG_HOME="$workload_home/.config" \
+    XDG_DATA_HOME="$workload_home/.local/share" \
+    XDG_STATE_HOME="$workload_home/.local/state" \
+    PATH="$plain_workload_bin:/usr/bin:/bin" \
+    UV_CACHE_DIR="$workload_uv_cache" \
+    FAKE_LAUNCH_LOG="${FAKE_LAUNCH_LOG:-}" \
+    "$plain_workload_bin/pi" --help
   printf 'plain_workload_driver_rc=%s\n' "$workload_rc"
+  printf 'plain_workload_uv_environment=isolated\n'
   printf 'plain_workload_overrides=PASS\n'
   exit 0
 fi
@@ -909,7 +950,7 @@ run_plain_shutdown() {
   active_plain_snapshot=$snapshot
   (
     cd "$case_cwd"
-    exec setsid env \
+    exec setsid env -i \
       HOME="$case_home" \
       CLAUDE_CONFIG_DIR="$case_home/.claude" \
       CODEX_HOME="$case_home/.codex" \
@@ -921,6 +962,7 @@ run_plain_shutdown() {
       PATH="$plain_workload_bin:/usr/bin:/bin" \
       PYKRETE_CONFIG="$pykrete_config_file" \
       PYKRETE_HEARTBEAT_SECONDS=1 \
+      LANG=C.UTF-8 \
       /bin/bash -c '
         set +x
         cli=$1
@@ -964,17 +1006,19 @@ run_plain_shutdown() {
   set -e
   sleep 2
   local survivors
-  survivors=$(snapshot_survivors "$snapshot")
   if [[ "$cli" == codex || "$cli" == opencode ]]; then
     local survivor_count=0
+    survivors=$(process_group_survivors "$active_plain_pgid")
     [[ -z "$survivors" ]] || survivor_count=$(wc -w <<< "$survivors")
     signal_group TERM "$active_plain_pgid"
     sleep 0.2
     signal_group KILL "$active_plain_pgid"
     signal_snapshot_reverse KILL "$snapshot"
     sleep 0.2
+    assert_process_group_gone "$active_plain_pgid" "plain $cli harness cleanup"
     assert_snapshot_gone "$snapshot" "plain $cli harness cleanup"
   else
+    assert_process_group_gone "$active_plain_pgid" "plain $cli shutdown"
     assert_snapshot_gone "$snapshot" "plain $cli shutdown"
     survivor_count=0
   fi
@@ -1097,6 +1141,7 @@ run_bwrap_shutdown() {
   local rc=$?
   set -e
   sleep 2
+  assert_process_group_gone "$active_bwrap_pgid" "bwrap $cli shutdown"
   assert_snapshot_gone "$snapshot" "bwrap $cli shutdown"
   validate_and_report_shutdown bwrap "$cli" "$rc" "$case_out" "$stderr_log" \
     "$captured" 0 gone

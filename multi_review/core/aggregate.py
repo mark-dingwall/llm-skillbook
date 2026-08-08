@@ -54,6 +54,7 @@ def write_review_md(
     path: Path,
     results: list[ReviewerResult],
     synthesis_text: str | None,
+    synthesis_error: str | None = None,
     mode: str,
     task: str,
     reviewers_attempted: list[str],
@@ -149,6 +150,13 @@ def write_review_md(
         if not body.lstrip().startswith("## Consensus Summary"):
             body = "## Consensus Summary\n\n" + body.lstrip()
         lines.append(body)
+    elif synthesis_error is not None:
+        lines.append("## Consensus Summary")
+        lines.append("")
+        lines.append("_Consensus synthesis failed._")
+        lines.append("")
+        diagnostic = synthesis_error.strip()[:2000] or "unknown error"
+        lines.append(f"Diagnostic: {json.dumps(diagnostic)}")
     elif len(succeeded) < 2:
         lines.append("## Consensus Summary")
         lines.append("")

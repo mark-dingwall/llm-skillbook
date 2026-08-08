@@ -35,6 +35,10 @@ STDERR_TAIL_CHARS = 2000
 # assistant messages larger than the 64 KiB default.
 STREAM_BUFFER_LIMIT = 64 * 1024 * 1024
 
+# SIGKILL normally reaps immediately. Bound the exceptional wait so a broken
+# subprocess watcher cannot turn a cancellation into an indefinite hang.
+PROCESS_REAP_TIMEOUT = 0.1
+
 
 # -------- Data types --------
 
@@ -82,8 +86,11 @@ class ReviewerState:
 async def kill_proc(proc: asyncio.subprocess.Process) -> None:
     try:
         proc.kill()
-        await proc.wait()
     except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=PROCESS_REAP_TIMEOUT)
+    except (asyncio.TimeoutError, ProcessLookupError):
         pass
 
 
@@ -123,13 +130,30 @@ async def run_reviewer(
     if state_callback is not None:
         state_callback(cli, state)
 
+    stderr_chunks: list[bytes] = []
+    deadline = time.monotonic() + timeout if timeout is not None else None
     try:
-        proc = await asyncio.create_subprocess_exec(
+        create_process = asyncio.create_subprocess_exec(
             *cmd,
             limit=STREAM_BUFFER_LIMIT,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+        )
+        if deadline is None:
+            proc = await create_process
+        else:
+            proc = await asyncio.wait_for(
+                create_process, timeout=max(0.0, deadline - time.monotonic()),
+            )
+    except asyncio.TimeoutError:
+        state.status = "timeout"
+        state.finished_at = time.time()
+        if state_callback is not None:
+            state_callback(cli, state)
+        return ReviewerResult(
+            cli, False, "", "", adapter.usage, state.elapsed,
+            error=f"timeout after {timeout}s",
         )
     except FileNotFoundError as e:
         state.status = "error"
@@ -144,20 +168,10 @@ async def run_reviewer(
             state_callback(cli, state)
         return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=str(e))
 
-    stderr_chunks: list[bytes] = []
     try:
         state.status = "running"
         if state_callback is not None:
             state_callback(cli, state)
-
-        if proc.stdin is not None:
-            try:
-                if delivery == "stdin":
-                    proc.stdin.write(prompt.encode())
-                    await proc.stdin.drain()
-                proc.stdin.close()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
 
         async def drain_stdout() -> None:
             assert proc.stdout is not None
@@ -179,12 +193,23 @@ async def run_reviewer(
                     return
                 stderr_chunks.append(chunk)
 
-        if timeout is None:
+        async def run_process() -> None:
+            if proc.stdin is not None:
+                try:
+                    if delivery == "stdin":
+                        proc.stdin.write(prompt.encode())
+                        await proc.stdin.drain()
+                    proc.stdin.close()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
             await asyncio.gather(drain_stdout(), drain_stderr(), proc.wait())
+
+        if timeout is None:
+            await run_process()
         else:
+            assert deadline is not None
             await asyncio.wait_for(
-                asyncio.gather(drain_stdout(), drain_stderr(), proc.wait()),
-                timeout=timeout,
+                run_process(), timeout=max(0.0, deadline - time.monotonic()),
             )
     except asyncio.TimeoutError:
         await kill_proc(proc)

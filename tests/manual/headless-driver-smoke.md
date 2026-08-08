@@ -48,13 +48,14 @@ Procedure:
 2. Send `kill -TERM <driver-pid>`.
 3. Wait for the driver and record its status. It must exit `1`, without an uncaught traceback, and
    `<out-dir>/REVIEW.md` must not exist.
-4. Re-check every PID from the snapshot individually.
+4. Re-check every PID from the snapshot individually and rescan the process group for descendants
+   that appeared after the snapshot.
 
 Expect `claude`/`agy`/`grok` children gone. `codex`/`opencode` grandchildren may
 survive this specific test — that is exactly the scenario the caller-side
-`bwrap --unshare-pid --die-with-parent` contract exists for, so also confirm
-separately that killing a `bwrap`-wrapped driver that way tears down the *entire*
-tree including those grandchildren, regardless of the driver's own handler.
+`bwrap --unshare-pid --die-with-parent` contract exists for. The headless driver
+is an internal-only interface, but its supported shutdown contract still requires
+that wrapper and signaling the wrapper itself to tear down the full tree.
 
 **Also record whether `pykrete`'s engine survives the plain (non-`bwrap`) kill.**
 The design leaves it as "possibly affected" but unconfirmed; this pass resolves it.
@@ -71,7 +72,13 @@ Do not mark this task complete with blank outcomes. For each case above record:
 - for BLOCKED, the missing binary/auth/containment prerequisite;
 - for FAIL, the plan task reopened and the contract change or implementation fix required.
 
-### 2026-08-07 checked-in harness rerun — PASS
+### 2026-08-07 checked-in harness rerun — historical PASS (not current acceptance)
+
+This run predates the harness's clean-environment and post-signal process-group
+assertions. Its results remain useful historical evidence, but they are **not**
+binding acceptance evidence for the current revision. Re-run the full six-CLI
+matrix with the current script before treating this section as a passing manual
+gate; record that fresh date, environment, and output below it.
 
 Environment: Ubuntu 22.04.5 LTS on WSL2
 (`6.18.33.2-microsoft-standard-WSL2`, x86_64), `uv 0.10.7`,
@@ -117,8 +124,7 @@ recursive descendant snapshots, targeted signals, and per-PID liveness checks.
    gone at the asserted cleanup boundary. The plain pykrete run likewise
    confirmed pi was gone.
 
-The final follow-up run emitted these exact binding fields (not simplified PASS
-labels):
+The historical follow-up run emitted these fields (not simplified PASS labels):
 
 ```text
 shutdown_claude_plain=PASS driver_rc=1 captured=1 post_driver_survivors=0 harness_cleanup=gone
@@ -137,4 +143,6 @@ case5=PASS shutdown_clis=6 plain_and_bwrap=ok
 headless_driver_smoke=PASS cases=5
 ```
 
-Only this checked-in, reproducible rerun is the binding acceptance evidence.
+A fresh successful rerun of the current script, retaining these fields and the
+current `environment=clean process_group_check=passed` markers, is the binding
+acceptance evidence.

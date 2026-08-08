@@ -3,7 +3,7 @@ import asyncio
 import sys
 import pytest
 from multi_review.core.fanout import (
-    ReviewerResult, ReviewerState, run_all_reviewers, run_reviewer,
+    ReviewerResult, ReviewerState, kill_proc, run_all_reviewers, run_reviewer,
 )
 from multi_review.core.adapters import ClaudeAdapter, Usage
 
@@ -190,3 +190,88 @@ def test_run_reviewer_cancellation_during_stdin_drain_kills_process(monkeypatch)
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(run_reviewer("codex", "prompt", model=None, timeout=None, state=state))
     assert killed == [proc]
+
+
+def test_kill_proc_does_not_hang_when_process_wait_never_resolves():
+    """Break caught: a dead child could leave cancellation waiting on proc.wait()."""
+    class StuckProcess:
+        def __init__(self):
+            self.killed = False
+
+        def kill(self):
+            self.killed = True
+
+        async def wait(self):
+            await asyncio.Event().wait()
+
+    process = StuckProcess()
+
+    async def scenario():
+        await asyncio.wait_for(kill_proc(process), timeout=0.2)
+
+    asyncio.run(scenario())
+    assert process.killed is True
+
+
+def test_run_reviewer_timeout_covers_blocked_stdin_drain(monkeypatch):
+    """Break caught: the deadline started only after prompt delivery completed."""
+    class BlockingStdin:
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            await asyncio.Event().wait()
+
+        def close(self):
+            pass
+
+    class FakeProc:
+        stdin = BlockingStdin()
+
+    proc = FakeProc()
+    killed = []
+
+    async def fake_create(*args, **kwargs):
+        return proc
+
+    async def fake_kill(actual_proc):
+        killed.append(actual_proc)
+
+    import multi_review.core.fanout as fanout_mod
+    monkeypatch.setattr(fanout_mod, "build_command", lambda *args, **kwargs: ["fake"])
+    monkeypatch.setattr(fanout_mod.asyncio, "create_subprocess_exec", fake_create)
+    monkeypatch.setattr(fanout_mod, "kill_proc", fake_kill)
+    state = ReviewerState(cli="codex", adapter=ClaudeAdapter())
+
+    async def scenario():
+        return await asyncio.wait_for(
+            run_reviewer("codex", "x" * 10_000_000, model=None, timeout=0.01, state=state),
+            timeout=0.2,
+        )
+
+    result = asyncio.run(scenario())
+    assert result.ok is False
+    assert result.error == "timeout after 0.01s"
+    assert killed == [proc]
+
+
+def test_run_reviewer_timeout_covers_blocked_process_creation(monkeypatch):
+    """Break caught: the deadline started only after subprocess creation."""
+    async def blocked_create(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    import multi_review.core.fanout as fanout_mod
+    monkeypatch.setattr(fanout_mod, "build_command", lambda *args, **kwargs: ["fake"])
+    monkeypatch.setattr(fanout_mod.asyncio, "create_subprocess_exec", blocked_create)
+    state = ReviewerState(cli="codex", adapter=ClaudeAdapter())
+
+    async def scenario():
+        return await asyncio.wait_for(
+            run_reviewer("codex", "prompt", model=None, timeout=0.01, state=state),
+            timeout=0.2,
+        )
+
+    result = asyncio.run(scenario())
+    assert result.ok is False
+    assert result.error == "timeout after 0.01s"
+    assert state.status == "timeout"

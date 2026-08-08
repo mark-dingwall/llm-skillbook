@@ -1,6 +1,11 @@
 import asyncio
 import importlib.util
+import os
+import signal
+import subprocess
+import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -63,6 +68,30 @@ def test_empty_out_dir_is_accepted(tmp_path, monkeypatch):
     monkeypatch.setattr(driver, "run_all_reviewers", _RecordingFanout())
     driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
     assert (out / "prompt.txt").exists()
+
+
+def test_output_claim_allows_only_one_active_owner(tmp_path):
+    """Break caught: two racing drivers could both write a fresh output directory."""
+    out = tmp_path / "round-1"
+
+    claim = driver.claim_output_dir(out)
+
+    assert claim == out / ".multi-review.claim"
+    with pytest.raises(FileExistsError):
+        driver.claim_output_dir(out)
+    claim.unlink()
+
+
+def test_output_claim_rejects_directory_that_became_non_empty(tmp_path):
+    """Break caught: an output created after preflight could still be overwritten."""
+    out = tmp_path / "round-1"
+    out.mkdir()
+    (out / "other-run.txt").write_text("do not overwrite")
+
+    with pytest.raises(FileExistsError):
+        driver.claim_output_dir(out)
+
+    assert not (out / ".multi-review.claim").exists()
 
 
 def test_mode_both_exits_2(tmp_path):
@@ -148,6 +177,53 @@ def test_prompt_output_write_failure_exits_1_without_traceback(tmp_path, monkeyp
 
     monkeypatch.setattr(Path, "write_text", _write)
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
+    assert not (out / ".multi-review.claim").exists()
+
+
+def test_sigterm_during_prompt_write_releases_output_claim(tmp_path, monkeypatch):
+    """Break caught: TERM before asyncio started stranded the claim marker."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    handlers = []
+    real_write_text = Path.write_text
+
+    def record_signal(sig, handler):
+        handlers.append(handler)
+        return driver.signal.getsignal(sig)
+
+    def interrupt_prompt_write(path, text, *args, **kwargs):
+        if path.name == "prompt.txt":
+            handlers[-1](driver.signal.SIGTERM, None)
+        return real_write_text(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(driver.signal, "signal", record_signal)
+    monkeypatch.setattr(Path, "write_text", interrupt_prompt_write)
+    with pytest.raises(SystemExit) as exc:
+        driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+
+    assert exc.value.code == 1
+    assert not (out / ".multi-review.claim").exists()
+
+
+@pytest.mark.skipif(not hasattr(signal, "pthread_sigmask"), reason="requires POSIX signals")
+def test_sigterm_during_claim_creation_releases_output_claim(tmp_path, monkeypatch):
+    """Break caught: TERM between O_EXCL claim creation and assignment stranded it."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    real_touch = Path.touch
+
+    def interrupt_claim_touch(path, *args, **kwargs):
+        result = real_touch(path, *args, **kwargs)
+        if path.name == ".multi-review.claim":
+            os.kill(os.getpid(), signal.SIGTERM)
+        return result
+
+    monkeypatch.setattr(Path, "touch", interrupt_claim_touch)
+    with pytest.raises(SystemExit) as exc:
+        driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+
+    assert exc.value.code == 1
+    assert not (out / ".multi-review.claim").exists()
 
 
 def test_argparse_usage_error_raises_systemexit(tmp_path):
@@ -189,7 +265,11 @@ def _run(tmp_path, monkeypatch, yaml_body, fanout, extra_argv=()):
     pf = _write_promptfile(tmp_path, yaml_body)
     out = tmp_path / "round-1"
     monkeypatch.setattr(driver, "run_all_reviewers", fanout)
-    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out), *extra_argv])
+    prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out), *extra_argv])
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm_handler)
     return code, out
 
 
@@ -287,8 +367,8 @@ def test_review_write_failure_returns_1_without_raising(tmp_path, monkeypatch, c
 
 
 class _RecordingSynth:
-    def __init__(self, ok=True, text="## Consensus Summary\n\nAgreed.\n", raises=None):
-        self.ok, self.text, self.raises = ok, text, raises
+    def __init__(self, ok=True, text="## Consensus Summary\n\nAgreed.\n", err="", raises=None):
+        self.ok, self.text, self.err, self.raises = ok, text, err, raises
         self.calls = []
 
     async def __call__(self, cli, body, nonce, model=None, timeout=None):
@@ -296,7 +376,7 @@ class _RecordingSynth:
                            "model": model, "timeout": timeout})
         if self.raises is not None:
             raise self.raises
-        return self.ok, self.text, "", None, ["<default>"]
+        return self.ok, self.text, self.err, None, ["<default>"]
 
 
 SYNTH_YAML = """\
@@ -394,6 +474,27 @@ def test_synthesis_returning_not_ok_leaves_review_intact(tmp_path, monkeypatch):
     assert "synthesizer: claude" not in (out / "REVIEW.md").read_text()
 
 
+def test_failed_synthesis_is_reported_in_review_md(tmp_path, monkeypatch):
+    """Break caught: an attempted failed synthesis was rendered as "skipped"."""
+    synth = _RecordingSynth(ok=False, text="", err="synthesis timeout after 1s")
+    code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
+
+    text = (out / "REVIEW.md").read_text()
+    assert code == 0
+    assert "Consensus synthesis failed" in text
+    assert "synthesis timeout after 1s" in text
+    assert "Consensus synthesis skipped" not in text
+
+
+def test_failed_synthesis_diagnostic_cannot_inject_markdown_structure(tmp_path, monkeypatch):
+    synth = _RecordingSynth(ok=False, text="", err="bad` detail\n## forged heading")
+    _, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, _RecordingFanout(), synth)
+
+    text = (out / "REVIEW.md").read_text()
+    assert 'Diagnostic: "bad` detail\\n## forged heading"' in text
+    assert text.count("## forged heading") == 1
+
+
 def test_cancellation_during_fanout_returns_1_not_a_traceback(tmp_path, monkeypatch):
     # The outer cancellation a SIGTERM triggers propagates through the shared
     # fanout, out of the coroutine, and out of asyncio.run(). Without the catch
@@ -408,21 +509,154 @@ def test_cancellation_during_fanout_returns_1_not_a_traceback(tmp_path, monkeypa
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
 
 
-def test_sigterm_handler_is_installed(tmp_path, monkeypatch):
+def test_sigterm_during_report_rendering_returns_1_without_publishing_review(tmp_path, monkeypatch):
+    """Break caught: a queued SIGTERM was ignored after the last await in _amain."""
+    def interrupted_write(**kwargs):
+        kwargs["path"].write_text("incomplete")
+        os.kill(os.getpid(), driver.signal.SIGTERM)
+
+    monkeypatch.setattr(driver, "write_review_md", interrupted_write)
+    code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+
+    assert code == 1
+    assert not (out / "REVIEW.md").exists()
+
+
+def test_sigterm_queued_before_report_handler_handoff_returns_1(tmp_path, monkeypatch):
+    """Break caught: removing asyncio's handler discarded a pending SIGTERM."""
+    async def fanout_then_signal(*args, **kwargs):
+        loop = asyncio.get_running_loop()
+        active_task = asyncio.current_task()
+        assert active_task is not None
+        loop.call_soon(active_task.cancel)
+        return [_result("codex")]
+
+    code, out = _run(tmp_path, monkeypatch, BASE_YAML, fanout_then_signal)
+
+    assert code == 1
+    assert not (out / "REVIEW.md").exists()
+
+
+@pytest.mark.skipif(not hasattr(signal, "pthread_sigmask"), reason="requires POSIX signals")
+def test_sigterm_queued_during_report_handler_handoff_returns_1(tmp_path, monkeypatch):
+    """Break caught: a self-pipe SIGTERM was discarded while changing handlers."""
+    real_install = driver.install_report_sigterm_handler
+
+    def queue_sigterm_before_install(loop, out_dir):
+        os.kill(os.getpid(), signal.SIGTERM)
+        return real_install(loop, out_dir)
+
+    monkeypatch.setattr(driver, "install_report_sigterm_handler", queue_sigterm_before_install)
+    code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+
+    assert code == 1
+    assert not (out / "REVIEW.md").exists()
+
+
+def test_sigterm_immediately_after_report_publication_removes_review(tmp_path, monkeypatch):
+    """Break caught: cancellation queued after replace was never observed."""
+    real_replace = Path.replace
+
+    def interrupted_replace(path, target):
+        result = real_replace(path, target)
+        if path.name == ".REVIEW.md.tmp":
+            os.kill(os.getpid(), driver.signal.SIGTERM)
+        return result
+
+    monkeypatch.setattr(Path, "replace", interrupted_replace)
+    code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+
+    assert code == 1
+    assert not (out / "REVIEW.md").exists()
+
+
+def test_sigterm_after_event_loop_closes_removes_review_and_exits_1(tmp_path, monkeypatch):
+    handlers = []
+
+    def record_handler(sig, handler):
+        handlers.append((sig, handler))
+        return driver.signal.getsignal(sig)
+
+    monkeypatch.setattr(driver.signal, "signal", record_handler)
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", _RecordingFanout())
+    prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+
+        assert code == 0
+        report_handler = [
+            handler for sig, handler in handlers
+            if sig == driver.signal.SIGTERM and callable(handler)
+        ][-1]
+        with pytest.raises(SystemExit) as exc:
+            report_handler(driver.signal.SIGTERM, None)
+        assert exc.value.code == 1
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm_handler)
+    assert not (out / "REVIEW.md").exists()
+
+
+def test_sigterm_to_real_driver_kills_direct_reviewer_and_publishes_no_review(tmp_path):
+    """Break caught: driver cancellation could regress without exercising a real child process."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    reviewer_pid = tmp_path / "reviewer.pid"
+    fake_claude = fake_bin / "claude"
+    fake_claude.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$$\" > \"$REVIEWER_PID_FILE\"\nexec /bin/sleep 30\n"
+    )
+    fake_claude.chmod(0o755)
+    prompt_file = _write_promptfile(
+        tmp_path, BASE_YAML.replace("reviewers: [codex]", "reviewers: [claude]")
+    )
+    out = tmp_path / "round-1"
+    proc = subprocess.Popen(
+        [sys.executable, str(REPO_ROOT / "multi_review.py"),
+         "--prompt-file", str(prompt_file), "--out-dir", str(out)],
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "REVIEWER_PID_FILE": str(reviewer_pid),
+        },
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    child_pid = None
+    try:
+        deadline = time.monotonic() + 5
+        while not reviewer_pid.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert reviewer_pid.exists(), "fake reviewer did not start"
+        child_pid = int(reviewer_pid.read_text().strip())
+
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=5) == 1
+        assert not (out / "REVIEW.md").exists()
+
+        deadline = time.monotonic() + 2
+        while Path(f"/proc/{child_pid}").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not Path(f"/proc/{child_pid}").exists()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if child_pid is not None and Path(f"/proc/{child_pid}").exists():
+            os.kill(child_pid, signal.SIGKILL)
+
+
+def test_sigterm_handler_is_installed_synchronously(tmp_path, monkeypatch):
     installed = []
-    real_get_loop = driver.asyncio.get_running_loop
 
-    class _Spy:
-        def __init__(self, loop):
-            self._loop = loop
+    real_signal = driver.signal.signal
 
-        def __getattr__(self, name):
-            return getattr(self._loop, name)
+    def recording_signal(sig, handler):
+        installed.append(sig)
+        return real_signal(sig, handler)
 
-        def add_signal_handler(self, sig, cb):
-            installed.append(sig)
-            return self._loop.add_signal_handler(sig, cb)
-
-    monkeypatch.setattr(driver.asyncio, "get_running_loop", lambda: _Spy(real_get_loop()))
+    monkeypatch.setattr(driver.signal, "signal", recording_signal)
     _run(tmp_path, monkeypatch, THREE_YAML, _RecordingFanout())
     assert driver.signal.SIGTERM in installed

@@ -38,15 +38,82 @@ from multi_review.core.promptfile import ValidationError, _resolve_path, load_pr
 from multi_review.core.synthesis import build_synthesis_input, run_synthesis
 
 
+def claim_output_dir(out_dir: Path) -> Path:
+    """Atomically claim an otherwise-fresh output directory for one driver."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    claim = out_dir / ".multi-review.claim"
+    claim.touch(exist_ok=False)
+    try:
+        if any(path != claim for path in out_dir.iterdir()):
+            raise FileExistsError(out_dir)
+    except OSError:
+        claim.unlink(missing_ok=True)
+        raise
+    return claim
+
+
+def abort_report_on_sigterm(out_dir: Path):
+    """Return the report-phase TERM handler for this one-shot driver."""
+    def _abort(_signum, _frame) -> None:
+        for path in (out_dir / ".REVIEW.md.tmp", out_dir / "REVIEW.md"):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise SystemExit(1)
+
+    return _abort
+
+
+async def install_report_sigterm_handler(
+    loop: asyncio.AbstractEventLoop,
+    out_dir: Path,
+) -> None:
+    """Atomically hand TERM from asyncio cancellation to report cleanup."""
+    if not hasattr(signal, "pthread_sigmask"):
+        await asyncio.sleep(0)
+        loop.remove_signal_handler(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, abort_report_on_sigterm(out_dir))
+        return
+
+    # Block future delivery before servicing asyncio's existing self-pipe.
+    # A TERM received just before this handoff has already been written there;
+    # the checkpoint below runs its cancellation callback while no new TERM can
+    # arrive. Only then is it safe to remove the reader and install the direct
+    # cleanup handler.
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        # A positive delay leaves this task waiting while the selector drains
+        # the existing self-pipe and runs its cancellation callback. (A zero
+        # delay requeues this task ahead of that callback.)
+        await asyncio.sleep(0.001)
+        loop.remove_signal_handler(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, abort_report_on_sigterm(out_dir))
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+
+def claim_output_dir_with_sigterm_mask(out_dir: Path, claim_ref: list[Path | None]) -> None:
+    """Claim ``out_dir`` without leaving a TERM window before cleanup owns it."""
+    if not hasattr(signal, "pthread_sigmask"):
+        claim_ref[0] = claim_output_dir(out_dir)
+        return
+
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        claim_ref[0] = claim_output_dir(out_dir)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+
 async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
                  out_dir: Path, timeout: int | None, prompt_file: Path) -> int:
-    # Must be installed from inside the coroutine, not from main(): before
-    # asyncio.run() starts there is no running loop and no current task to cancel.
-    # Best-effort only — see the spec's Shutdown section; the caller-side
-    # `bwrap --unshare-pid --die-with-parent` contract is the load-bearing one,
-    # because SIGKILL to a node shim does not reach codex/opencode's real engine.
-    asyncio.get_running_loop().add_signal_handler(
-        signal.SIGTERM, asyncio.current_task().cancel)
+    # Fanout and synthesis retain asyncio's native signal wakeup handler so a
+    # TERM cancels active subprocess work and awaits its cleanup.
+    loop = asyncio.get_running_loop()
+    active_task = asyncio.current_task()
+    assert active_task is not None
+    loop.add_signal_handler(signal.SIGTERM, active_task.cancel)
 
     def _report(result: ReviewerResult) -> None:
         print(f"[multi_review] {result.cli}: {'ok' if result.ok else 'failed'} "
@@ -70,10 +137,11 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
 
     synthesis_text = None
     synthesis_ok = False
+    synthesis_error = None
     if pf.synthesizer != "none" and sum(1 for r in raw_results if r.ok) >= 2:
         body, nonce = build_synthesis_input(raw_results)
         try:
-            ok, text, _err, _suggested, _attempts = await run_synthesis(
+            ok, text, synthesis_error, _suggested, _attempts = await run_synthesis(
                 pf.synthesizer, body, nonce,
                 model=pf.models.get(pf.synthesizer), timeout=timeout,
             )
@@ -81,7 +149,7 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             # NamedTemporaryFile in _run_synthesis_attempt runs before its own
             # try block, so an OSError there can escape. Preserve the collected
             # reviewer results and write REVIEW.md even when synthesis crashes.
-            ok, text, _err, _suggested, _attempts = False, "", str(exc), None, []
+            ok, text, synthesis_error, _suggested, _attempts = False, "", str(exc), None, []
             print(f"[multi_review] synthesis ({pf.synthesizer}): crashed: {exc}",
                   file=sys.stderr, flush=True)
         synthesis_ok = ok
@@ -90,11 +158,18 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
         print(f"[multi_review] synthesis ({pf.synthesizer}): {'ok' if ok else 'failed'}",
               file=sys.stderr, flush=True)
 
+    staged_review = out_dir / ".REVIEW.md.tmp"
+    final_review = out_dir / "REVIEW.md"
+    # No reviewer or synthesizer process remains at this point. Replace the
+    # loop handler with a synchronous report-phase handler, so TERM cannot be
+    # queued past the final event-loop checkpoint after publication.
     try:
+        await install_report_sigterm_handler(loop, out_dir)
         write_review_md(
-            path=out_dir / "REVIEW.md",
+            path=staged_review,
             results=classified_results,
             synthesis_text=synthesis_text,
+            synthesis_error=(synthesis_error if not synthesis_ok else None),
             mode=pf.mode,
             task=pf.task,
             reviewers_attempted=reviewers,
@@ -104,8 +179,18 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             synthesized_at=(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                             if synthesis_ok else None),
         )
+        staged_review.replace(final_review)
+    except asyncio.CancelledError:
+        staged_review.unlink(missing_ok=True)
+        final_review.unlink(missing_ok=True)
+        raise
     except SystemExit as exc:
+        staged_review.unlink(missing_ok=True)
         print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        staged_review.unlink(missing_ok=True)
+        print(f"error: cannot publish REVIEW.md: {exc}", file=sys.stderr)
         return 1
     return 0 if any(result.ok for result in classified_results) else 1
 
@@ -165,21 +250,43 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    claim_ref: list[Path | None] = [None]
+    async_started = False
+    prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+    def abort_startup_on_sigterm(_signum, _frame) -> None:
+        if claim_ref[0] is not None:
+            claim_ref[0].unlink(missing_ok=True)
+        raise SystemExit(1)
+
+    # Protect the claim/prompt setup interval before _amain installs asyncio's
+    # active-process handler. A TERM here must not strand a claim marker.
+    signal.signal(signal.SIGTERM, abort_startup_on_sigterm)
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        prompt_path = out_dir / "prompt.txt"
-        prompt_path.write_text(prompt_text)
-    except OSError as exc:
-        # Operational output failure, before dispatch: failed run, no traceback.
-        print(f"error: cannot write driver output: {exc}", file=sys.stderr)
-        return 1
-    try:
-        return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
-                                  args.timeout, prompt_file))
-    except asyncio.CancelledError:
-        # SIGTERM during fanout or synthesis: no REVIEW.md was written; the caller
-        # sees a failed round. review-loop treats any non-zero exit identically.
-        return 1
+        try:
+            claim_output_dir_with_sigterm_mask(out_dir, claim_ref)
+            prompt_path = out_dir / "prompt.txt"
+            prompt_path.write_text(prompt_text)
+        except FileExistsError:
+            print(f"error: --out-dir is already claimed: {out_dir}", file=sys.stderr)
+            return 2
+        except OSError as exc:
+            # Operational output failure, before dispatch: failed run, no traceback.
+            print(f"error: cannot write driver output: {exc}", file=sys.stderr)
+            return 1
+        try:
+            async_started = True
+            return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
+                                      args.timeout, prompt_file))
+        except asyncio.CancelledError:
+            # SIGTERM during fanout or synthesis: no REVIEW.md was written; the caller
+            # sees a failed round. review-loop treats any non-zero exit identically.
+            return 1
+    finally:
+        if claim_ref[0] is not None:
+            claim_ref[0].unlink(missing_ok=True)
+        if not async_started:
+            signal.signal(signal.SIGTERM, prior_sigterm_handler)
 
 
 if __name__ == "__main__":
