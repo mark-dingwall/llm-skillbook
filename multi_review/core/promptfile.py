@@ -64,7 +64,7 @@ def _resolve_path(p: str, base: Path | None) -> Path:
         if pp.is_absolute() or base is None:
             return pp
         return (base / pp).resolve()
-    except (OSError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise ValidationError(f"invalid path {p!r}: {exc}") from exc
 
 def validate(pf: PromptFile, base_dir: Path | None = None) -> None:

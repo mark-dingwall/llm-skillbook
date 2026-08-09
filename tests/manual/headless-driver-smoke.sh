@@ -931,6 +931,60 @@ shutdown_secret_input() {
   esac
 }
 
+complete_shutdown() {
+  local scope=$1
+  local cli=$2
+  local signal_pid=$3
+  local wrapper_pid=$4
+  local pgid=$5
+  local snapshot=$6
+  local case_out=$7
+  local stderr_log=$8
+  local captured=$9
+  local label="$scope $cli shutdown"
+  local survivor_count=0
+  local survivors=""
+
+  kill -TERM "$signal_pid"
+  set +e
+  wait "$wrapper_pid"
+  local rc=$?
+  set -e
+  sleep 2
+
+  if [[ "$scope" == plain && ( "$cli" == codex || "$cli" == opencode ) ]]; then
+    survivors=$(process_group_survivors "$pgid")
+    [[ -z "$survivors" ]] || survivor_count=$(wc -w <<< "$survivors")
+    signal_group TERM "$pgid"
+    sleep 0.2
+    signal_group KILL "$pgid"
+    signal_snapshot_reverse KILL "$snapshot"
+    sleep 0.2
+    assert_process_group_gone "$pgid" "$label harness cleanup"
+    assert_snapshot_gone "$snapshot" "$label harness cleanup"
+  else
+    assert_process_group_gone "$pgid" "$label"
+    assert_snapshot_gone "$snapshot" "$label"
+  fi
+
+  validate_and_report_shutdown "$scope" "$cli" "$rc" "$case_out" "$stderr_log" \
+    "$captured" "$survivor_count" gone
+  case "$scope" in
+    plain)
+      active_plain_wrapper=""
+      active_plain_pgid=""
+      active_plain_snapshot=""
+      ;;
+    bwrap)
+      active_bwrap_wrapper=""
+      active_bwrap_pgid=""
+      active_bwrap_snapshot=""
+      ;;
+    *) die "unknown shutdown completion scope: $scope" ;;
+  esac
+  scrub_scratch_secrets
+}
+
 run_plain_shutdown() {
   local cli=$1
   local case_home="$smoke_root/home-shutdown-plain-$cli"
@@ -998,36 +1052,8 @@ run_plain_shutdown() {
     die "plain $cli shutdown did not observe its expected process tree (see $stderr_log)"
   local captured
   captured=$(wc -l < "$snapshot")
-
-  kill -TERM "$driver_pid"
-  set +e
-  wait "$active_plain_wrapper"
-  local rc=$?
-  set -e
-  sleep 2
-  local survivors
-  if [[ "$cli" == codex || "$cli" == opencode ]]; then
-    local survivor_count=0
-    survivors=$(process_group_survivors "$active_plain_pgid")
-    [[ -z "$survivors" ]] || survivor_count=$(wc -w <<< "$survivors")
-    signal_group TERM "$active_plain_pgid"
-    sleep 0.2
-    signal_group KILL "$active_plain_pgid"
-    signal_snapshot_reverse KILL "$snapshot"
-    sleep 0.2
-    assert_process_group_gone "$active_plain_pgid" "plain $cli harness cleanup"
-    assert_snapshot_gone "$snapshot" "plain $cli harness cleanup"
-  else
-    assert_process_group_gone "$active_plain_pgid" "plain $cli shutdown"
-    assert_snapshot_gone "$snapshot" "plain $cli shutdown"
-    survivor_count=0
-  fi
-  validate_and_report_shutdown plain "$cli" "$rc" "$case_out" "$stderr_log" \
-    "$captured" "$survivor_count" gone
-  active_plain_wrapper=""
-  active_plain_pgid=""
-  active_plain_snapshot=""
-  scrub_scratch_secrets
+  complete_shutdown plain "$cli" "$driver_pid" "$active_plain_wrapper" \
+    "$active_plain_pgid" "$snapshot" "$case_out" "$stderr_log" "$captured"
 }
 
 run_bwrap_shutdown() {
@@ -1134,21 +1160,8 @@ run_bwrap_shutdown() {
     die "bwrap $cli shutdown did not observe its expected process tree (see $stderr_log)"
   local captured
   captured=$(wc -l < "$snapshot")
-
-  kill -TERM "$active_bwrap_wrapper"
-  set +e
-  wait "$active_bwrap_wrapper"
-  local rc=$?
-  set -e
-  sleep 2
-  assert_process_group_gone "$active_bwrap_pgid" "bwrap $cli shutdown"
-  assert_snapshot_gone "$snapshot" "bwrap $cli shutdown"
-  validate_and_report_shutdown bwrap "$cli" "$rc" "$case_out" "$stderr_log" \
-    "$captured" 0 gone
-  active_bwrap_wrapper=""
-  active_bwrap_pgid=""
-  active_bwrap_snapshot=""
-  scrub_scratch_secrets
+  complete_shutdown bwrap "$cli" "$active_bwrap_wrapper" "$active_bwrap_wrapper" \
+    "$active_bwrap_pgid" "$snapshot" "$case_out" "$stderr_log" "$captured"
 }
 
 run_claude_case inline inline.yaml

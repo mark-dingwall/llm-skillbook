@@ -18,6 +18,7 @@ import re
 import secrets
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 from multi_review.core.fanout import (
@@ -64,6 +65,7 @@ async def _run_synthesis_attempt(
     # pass its path on argv; agy reads it itself (no stdin, avoids E2BIG).
     delivery = CLI_SPEC[cli].get("prompt_delivery", "stdin")
     tmp_path: Path | None = None
+    deadline = time.monotonic() + timeout if timeout is not None else None
     if delivery == "argv_file":
         tf = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8")
         tf.write(prompt)
@@ -72,13 +74,22 @@ async def _run_synthesis_attempt(
     try:
         cmd = build_command(cli, model, streaming=False, prompt_path=tmp_path)
         try:
-            proc = await asyncio.create_subprocess_exec(
+            create_process = asyncio.create_subprocess_exec(
                 *cmd,
                 limit=STREAM_BUFFER_LIMIT,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            if deadline is None:
+                proc = await create_process
+            else:
+                proc = await asyncio.wait_for(
+                    create_process,
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+        except asyncio.TimeoutError:
+            return False, "", f"synthesis timeout after {timeout}s", None
         except FileNotFoundError as e:
             return False, "", f"synthesizer not found: {e}", None
         except Exception as e:
@@ -89,9 +100,10 @@ async def _run_synthesis_attempt(
             if timeout is None:
                 stdout_b, stderr_b = await proc.communicate(stdin_payload)
             else:
+                assert deadline is not None
                 stdout_b, stderr_b = await asyncio.wait_for(
                     proc.communicate(stdin_payload),
-                    timeout=timeout,
+                    timeout=max(0.0, deadline - time.monotonic()),
                 )
         except asyncio.TimeoutError:
             await kill_proc(proc)

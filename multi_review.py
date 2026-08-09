@@ -52,8 +52,8 @@ def claim_output_dir(out_dir: Path) -> Path:
     return claim
 
 
-def abort_report_on_sigterm(out_dir: Path):
-    """Return the report-phase TERM handler for this one-shot driver."""
+def abort_report_on_signal(out_dir: Path):
+    """Return the report-phase TERM/INT handler for this one-shot driver."""
     def _abort(_signum, _frame) -> None:
         for path in (out_dir / ".REVIEW.md.tmp", out_dir / "REVIEW.md"):
             try:
@@ -65,30 +65,33 @@ def abort_report_on_sigterm(out_dir: Path):
     return _abort
 
 
-async def install_report_sigterm_handler(
+async def install_report_signal_handlers(
     loop: asyncio.AbstractEventLoop,
     out_dir: Path,
 ) -> None:
-    """Atomically hand TERM from asyncio cancellation to report cleanup."""
+    """Atomically hand TERM/INT from cancellation to report cleanup."""
+    report_signals = {signal.SIGTERM, signal.SIGINT}
+    abort = abort_report_on_signal(out_dir)
     if not hasattr(signal, "pthread_sigmask"):
         await asyncio.sleep(0)
         loop.remove_signal_handler(signal.SIGTERM)
-        signal.signal(signal.SIGTERM, abort_report_on_sigterm(out_dir))
+        signal.signal(signal.SIGTERM, abort)
+        signal.signal(signal.SIGINT, abort)
         return
 
-    # Block future delivery before servicing asyncio's existing self-pipe.
-    # A TERM received just before this handoff has already been written there;
-    # the checkpoint below runs its cancellation callback while no new TERM can
-    # arrive. Only then is it safe to remove the reader and install the direct
-    # cleanup handler.
-    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    # Block future delivery before servicing asyncio's existing signal state.
+    # A TERM received just before this handoff has already reached the loop's
+    # self-pipe; the checkpoint below runs its cancellation callback while no
+    # new TERM or INT can arrive. Only then is it safe to replace the handlers.
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, report_signals)
     try:
         # A positive delay leaves this task waiting while the selector drains
         # the existing self-pipe and runs its cancellation callback. (A zero
         # delay requeues this task ahead of that callback.)
         await asyncio.sleep(0.001)
         loop.remove_signal_handler(signal.SIGTERM)
-        signal.signal(signal.SIGTERM, abort_report_on_sigterm(out_dir))
+        signal.signal(signal.SIGTERM, abort)
+        signal.signal(signal.SIGINT, abort)
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
@@ -113,7 +116,16 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
     loop = asyncio.get_running_loop()
     active_task = asyncio.current_task()
     assert active_task is not None
-    loop.add_signal_handler(signal.SIGTERM, active_task.cancel)
+    cancellation_requested = False
+
+    def cancel_once() -> None:
+        nonlocal cancellation_requested
+        if cancellation_requested:
+            return
+        cancellation_requested = True
+        active_task.cancel()
+
+    loop.add_signal_handler(signal.SIGTERM, cancel_once)
 
     def _report(result: ReviewerResult) -> None:
         print(f"[multi_review] {result.cli}: {'ok' if result.ok else 'failed'} "
@@ -161,10 +173,10 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
     staged_review = out_dir / ".REVIEW.md.tmp"
     final_review = out_dir / "REVIEW.md"
     # No reviewer or synthesizer process remains at this point. Replace the
-    # loop handler with a synchronous report-phase handler, so TERM cannot be
-    # queued past the final event-loop checkpoint after publication.
+    # loop/Runner handlers with synchronous report-phase handlers, so TERM or
+    # INT cannot be queued past the final event-loop checkpoint after publication.
     try:
-        await install_report_sigterm_handler(loop, out_dir)
+        await install_report_signal_handlers(loop, out_dir)
         write_review_md(
             path=staged_review,
             results=classified_results,
@@ -205,7 +217,11 @@ def main(argv: list[str] | None = None) -> int:
     # Resolve once while the caller's foreign cwd is still the reference point.
     # This same absolute path drives loading, relative input resolution, and
     # REVIEW.md attribution.
-    prompt_file = args.prompt_file.resolve()
+    try:
+        prompt_file = args.prompt_file.resolve()
+    except (OSError, RuntimeError) as exc:
+        print(f"error: invalid --prompt-file {args.prompt_file}: {exc}", file=sys.stderr)
+        return 2
 
     out_dir: Path = args.out_dir
     try:
@@ -266,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             claim_output_dir_with_sigterm_mask(out_dir, claim_ref)
             prompt_path = out_dir / "prompt.txt"
-            prompt_path.write_text(prompt_text)
+            prompt_path.write_text(prompt_text, encoding="utf-8")
         except FileExistsError:
             print(f"error: --out-dir is already claimed: {out_dir}", file=sys.stderr)
             return 2

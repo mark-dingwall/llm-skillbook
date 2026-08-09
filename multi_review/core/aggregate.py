@@ -168,6 +168,6 @@ def write_review_md(
     lines.append("")
 
     try:
-        path.write_text("\n".join(lines))
+        path.write_text("\n".join(lines), encoding="utf-8")
     except OSError as e:
         raise SystemExit(f"Error writing {path}: {e}")

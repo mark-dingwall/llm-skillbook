@@ -1,8 +1,13 @@
 """tests/unit/test_aggregate.py — unit tests for core/aggregate.py"""
+import os
+import subprocess
+import sys
 from pathlib import Path
 import yaml
 from multi_review.core.aggregate import write_review_md, resolve_output_path
 from multi_review.core.fanout import ReviewerResult
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write_and_read(tmp_path, synthesis_text):
@@ -128,3 +133,41 @@ def test_aggregate_prompt_file_is_yaml_safe(tmp_path):
     )
     frontmatter = out.read_text().split("---", 2)[1]
     assert yaml.safe_load(frontmatter)["prompt_file"] == prompt_file
+
+
+def test_review_artifact_is_utf8_under_ascii_locale(tmp_path):
+    """Unicode reviewer output must be writable under a non-UTF default locale."""
+    out = tmp_path / "REVIEW.md"
+    script = f"""
+from pathlib import Path
+from multi_review.core.aggregate import write_review_md
+from multi_review.core.fanout import ReviewerResult
+
+write_review_md(
+    path=Path({str(out)!r}),
+    results=[ReviewerResult("codex", True, "## Summary\\n\\ncaf\\u00e9", "", None, 1.0)],
+    synthesis_text=None,
+    mode="inline",
+    task="code",
+    reviewers_attempted=["codex"],
+)
+"""
+    env = {
+        **os.environ,
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONPATH": str(REPO_ROOT),
+        "PYTHONUTF8": "0",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "café" in out.read_bytes().decode("utf-8")

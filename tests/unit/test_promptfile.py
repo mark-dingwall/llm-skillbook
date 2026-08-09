@@ -203,6 +203,19 @@ def test_nul_in_absolute_file_path_is_reported_as_a_validation_error(tmp_path):
         load_promptfile(prompt)
 
 
+def test_symlink_loop_in_input_path_is_reported_as_a_validation_error(tmp_path):
+    """A supported-runtime Path.resolve RuntimeError stays inside validation."""
+    loop = tmp_path / "cycle"
+    loop.symlink_to(loop.name)
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        'prompt_format_version: 1\ntask: code\nfiles: ["cycle/target.py"]\n'
+    )
+
+    with pytest.raises(ValidationError, match="invalid path"):
+        load_promptfile(prompt)
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

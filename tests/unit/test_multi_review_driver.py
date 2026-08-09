@@ -117,6 +117,21 @@ def test_missing_prompt_file_exits_2(tmp_path):
     assert driver.main(["--prompt-file", str(tmp_path / "nope.yaml"), "--out-dir", str(out)]) == 2
 
 
+def test_symlink_loop_prompt_file_exits_2_without_traceback(tmp_path, capsys):
+    """The CLI prompt path itself is invalid input, not an internal crash."""
+    prompt = tmp_path / "prompt.yaml"
+    prompt.symlink_to(prompt.name)
+    out = tmp_path / "round-1"
+
+    try:
+        code = driver.main(["--prompt-file", str(prompt), "--out-dir", str(out)])
+    except RuntimeError as exc:
+        pytest.fail(f"prompt path RuntimeError escaped the CLI boundary: {exc}")
+
+    assert code == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
 def test_invalid_utf8_prompt_file_exits_2_without_traceback(tmp_path, capsys):
     pf = tmp_path / "prompt.yaml"
     pf.write_bytes(b"\xff\xfe")
@@ -178,6 +193,34 @@ def test_prompt_output_write_failure_exits_1_without_traceback(tmp_path, monkeyp
     monkeypatch.setattr(Path, "write_text", _write)
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
     assert not (out / ".multi-review.claim").exists()
+
+
+def test_prompt_artifact_is_utf8_under_ascii_locale(tmp_path):
+    """Valid Unicode prompt content must not depend on the process locale."""
+    prompt = _write_promptfile(
+        tmp_path,
+        BASE_YAML.replace("task: code", "task: custom")
+        + '    custom_prompt: "Review café handling."\n',
+    )
+    out = tmp_path / "round-1"
+    env = {
+        **os.environ,
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "multi_review.py"),
+         "--prompt-file", str(prompt), "--out-dir", str(out), "--timeout", "0"],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+    assert "Traceback" not in result.stderr
+    assert "café" in (out / "prompt.txt").read_bytes().decode("utf-8")
 
 
 def test_sigterm_during_prompt_write_releases_output_claim(tmp_path, monkeypatch):
@@ -266,10 +309,12 @@ def _run(tmp_path, monkeypatch, yaml_body, fanout, extra_argv=()):
     out = tmp_path / "round-1"
     monkeypatch.setattr(driver, "run_all_reviewers", fanout)
     prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    prior_sigint_handler = signal.getsignal(signal.SIGINT)
     try:
         code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out), *extra_argv])
     finally:
         signal.signal(signal.SIGTERM, prior_sigterm_handler)
+        signal.signal(signal.SIGINT, prior_sigint_handler)
     return code, out
 
 
@@ -509,6 +554,55 @@ def test_cancellation_during_fanout_returns_1_not_a_traceback(tmp_path, monkeypa
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
 
 
+def test_repeated_sigterm_requests_cancellation_only_once(tmp_path, monkeypatch):
+    """A second TERM must not interrupt cleanup started by the first."""
+    callbacks = {}
+    started = asyncio.Event()
+
+    class ActiveTask:
+        cancel_calls = 0
+
+        def cancel(self):
+            self.cancel_calls += 1
+
+    active_task = ActiveTask()
+
+    async def blocking_fanout(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    class Prompt:
+        models = {}
+        task = "code"
+        synthesizer = "none"
+        mode = "inline"
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(
+            loop,
+            "add_signal_handler",
+            lambda sig, callback: callbacks.__setitem__(sig, callback),
+        )
+        monkeypatch.setattr(driver.asyncio, "current_task", lambda: active_task)
+        monkeypatch.setattr(driver, "run_all_reviewers", blocking_fanout)
+        task = asyncio.create_task(driver._amain(
+            Prompt(), ["codex"], "prompt", tmp_path / "prompt.txt",
+            tmp_path, None, tmp_path / "prompt.yaml",
+        ))
+        await started.wait()
+
+        callbacks[signal.SIGTERM]()
+        callbacks[signal.SIGTERM]()
+
+        assert active_task.cancel_calls == 1
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+
 def test_sigterm_during_report_rendering_returns_1_without_publishing_review(tmp_path, monkeypatch):
     """Break caught: a queued SIGTERM was ignored after the last await in _amain."""
     def interrupted_write(**kwargs):
@@ -517,6 +611,22 @@ def test_sigterm_during_report_rendering_returns_1_without_publishing_review(tmp
 
     monkeypatch.setattr(driver, "write_review_md", interrupted_write)
     code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+
+    assert code == 1
+    assert not (out / "REVIEW.md").exists()
+
+
+def test_sigint_during_report_rendering_returns_1_without_publishing_review(tmp_path, monkeypatch):
+    """Ctrl-C during synchronous rendering must not publish a cancelled run."""
+    def interrupted_write(**kwargs):
+        kwargs["path"].write_text("incomplete")
+        os.kill(os.getpid(), driver.signal.SIGINT)
+
+    monkeypatch.setattr(driver, "write_review_md", interrupted_write)
+    try:
+        code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+    except KeyboardInterrupt:
+        pytest.fail("SIGINT escaped after report publication")
 
     assert code == 1
     assert not (out / "REVIEW.md").exists()
@@ -540,13 +650,13 @@ def test_sigterm_queued_before_report_handler_handoff_returns_1(tmp_path, monkey
 @pytest.mark.skipif(not hasattr(signal, "pthread_sigmask"), reason="requires POSIX signals")
 def test_sigterm_queued_during_report_handler_handoff_returns_1(tmp_path, monkeypatch):
     """Break caught: a self-pipe SIGTERM was discarded while changing handlers."""
-    real_install = driver.install_report_sigterm_handler
+    real_install = driver.install_report_signal_handlers
 
     def queue_sigterm_before_install(loop, out_dir):
         os.kill(os.getpid(), signal.SIGTERM)
         return real_install(loop, out_dir)
 
-    monkeypatch.setattr(driver, "install_report_sigterm_handler", queue_sigterm_before_install)
+    monkeypatch.setattr(driver, "install_report_signal_handlers", queue_sigterm_before_install)
     code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
 
     assert code == 1
@@ -565,6 +675,26 @@ def test_sigterm_immediately_after_report_publication_removes_review(tmp_path, m
 
     monkeypatch.setattr(Path, "replace", interrupted_replace)
     code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+
+    assert code == 1
+    assert not (out / "REVIEW.md").exists()
+
+
+def test_sigint_immediately_after_report_publication_removes_review(tmp_path, monkeypatch):
+    """Ctrl-C after replace must remove the just-published report."""
+    real_replace = Path.replace
+
+    def interrupted_replace(path, target):
+        result = real_replace(path, target)
+        if path.name == ".REVIEW.md.tmp":
+            os.kill(os.getpid(), driver.signal.SIGINT)
+        return result
+
+    monkeypatch.setattr(Path, "replace", interrupted_replace)
+    try:
+        code, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
+    except KeyboardInterrupt:
+        pytest.fail("SIGINT escaped after publishing REVIEW.md")
 
     assert code == 1
     assert not (out / "REVIEW.md").exists()
