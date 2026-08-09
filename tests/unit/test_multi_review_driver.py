@@ -700,6 +700,32 @@ def test_sigint_immediately_after_report_publication_removes_review(tmp_path, mo
     assert not (out / "REVIEW.md").exists()
 
 
+def test_main_restores_caller_signal_handlers_after_success(tmp_path, monkeypatch):
+    """An embedded run must not retain handlers that can delete its finished report."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", _RecordingFanout())
+
+    def caller_sigterm(_signum, _frame):
+        pass
+
+    def caller_sigint(_signum, _frame):
+        pass
+
+    prior_sigterm = signal.signal(signal.SIGTERM, caller_sigterm)
+    prior_sigint = signal.signal(signal.SIGINT, caller_sigint)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+
+        assert code == 0
+        assert signal.getsignal(signal.SIGTERM) is caller_sigterm
+        assert signal.getsignal(signal.SIGINT) is caller_sigint
+        assert (out / "REVIEW.md").exists()
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm)
+        signal.signal(signal.SIGINT, prior_sigint)
+
+
 def test_sigterm_after_event_loop_closes_removes_review_and_exits_1(tmp_path, monkeypatch):
     handlers = []
 

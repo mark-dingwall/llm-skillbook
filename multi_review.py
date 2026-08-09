@@ -267,8 +267,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     claim_ref: list[Path | None] = [None]
-    async_started = False
     prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    prior_sigint_handler = signal.getsignal(signal.SIGINT)
 
     def abort_startup_on_sigterm(_signum, _frame) -> None:
         if claim_ref[0] is not None:
@@ -291,7 +291,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: cannot write driver output: {exc}", file=sys.stderr)
             return 1
         try:
-            async_started = True
             return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
                                       args.timeout, prompt_file))
         except asyncio.CancelledError:
@@ -301,8 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if claim_ref[0] is not None:
             claim_ref[0].unlink(missing_ok=True)
-        if not async_started:
-            signal.signal(signal.SIGTERM, prior_sigterm_handler)
+        signal.signal(signal.SIGTERM, prior_sigterm_handler)
+        signal.signal(signal.SIGINT, prior_sigint_handler)
 
 
 if __name__ == "__main__":
