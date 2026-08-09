@@ -726,6 +726,58 @@ def test_main_restores_caller_signal_handlers_after_success(tmp_path, monkeypatc
         signal.signal(signal.SIGINT, prior_sigint)
 
 
+def test_main_restores_signal_handlers_when_claim_cleanup_fails(tmp_path, monkeypatch):
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", _RecordingFanout())
+    real_unlink = Path.unlink
+
+    def failed_claim_cleanup(path, *args, **kwargs):
+        if path.name == ".multi-review.claim":
+            raise OSError("claim cleanup failed")
+        return real_unlink(path, *args, **kwargs)
+
+    def caller_sigterm(_signum, _frame):
+        pass
+
+    def caller_sigint(_signum, _frame):
+        pass
+
+    monkeypatch.setattr(Path, "unlink", failed_claim_cleanup)
+    prior_sigterm = signal.signal(signal.SIGTERM, caller_sigterm)
+    prior_sigint = signal.signal(signal.SIGINT, caller_sigint)
+    try:
+        with pytest.raises(OSError, match="claim cleanup failed"):
+            driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+
+        assert signal.getsignal(signal.SIGTERM) is caller_sigterm
+        assert signal.getsignal(signal.SIGINT) is caller_sigint
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm)
+        signal.signal(signal.SIGINT, prior_sigint)
+
+
+def test_cli_keeps_report_signal_handler_until_process_exit(tmp_path, monkeypatch):
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", _RecordingFanout())
+    prior_sigterm = signal.getsignal(signal.SIGTERM)
+    prior_sigint = signal.getsignal(signal.SIGINT)
+    try:
+        code = driver.cli(["--prompt-file", str(pf), "--out-dir", str(out)])
+
+        assert code == 0
+        report_handler = signal.getsignal(signal.SIGTERM)
+        assert callable(report_handler)
+        with pytest.raises(SystemExit) as exc:
+            report_handler(signal.SIGTERM, None)
+        assert exc.value.code == 1
+        assert not (out / "REVIEW.md").exists()
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm)
+        signal.signal(signal.SIGINT, prior_sigint)
+
+
 def test_sigterm_after_event_loop_closes_removes_review_and_exits_1(tmp_path, monkeypatch):
     handlers = []
 

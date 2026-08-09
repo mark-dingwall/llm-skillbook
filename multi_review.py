@@ -207,7 +207,7 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
     return 0 if any(result.ok for result in classified_results) else 1
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int:
     p = argparse.ArgumentParser(prog="multi_review.py")
     p.add_argument("--prompt-file", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, required=True)
@@ -298,11 +298,24 @@ def main(argv: list[str] | None = None) -> int:
             # sees a failed round. review-loop treats any non-zero exit identically.
             return 1
     finally:
-        if claim_ref[0] is not None:
-            claim_ref[0].unlink(missing_ok=True)
-        signal.signal(signal.SIGTERM, prior_sigterm_handler)
-        signal.signal(signal.SIGINT, prior_sigint_handler)
+        try:
+            if claim_ref[0] is not None:
+                claim_ref[0].unlink(missing_ok=True)
+        finally:
+            if restore_signal_handlers:
+                signal.signal(signal.SIGTERM, prior_sigterm_handler)
+                signal.signal(signal.SIGINT, prior_sigint_handler)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the driver as an embedded call and restore the caller's handlers."""
+    return _run_driver(argv, restore_signal_handlers=True)
+
+
+def cli(argv: list[str] | None = None) -> int:
+    """Run the one-shot CLI, retaining report cleanup handlers until exit."""
+    return _run_driver(argv, restore_signal_handlers=False)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())
