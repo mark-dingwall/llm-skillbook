@@ -306,6 +306,11 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             # SIGTERM during fanout or synthesis: no REVIEW.md was written; the caller
             # sees a failed round. review-loop treats any non-zero exit identically.
             return 1
+    except SystemExit as exc:
+        # The synchronous startup SIGTERM handler raises SystemExit before
+        # asyncio.run() owns signal delivery. Keep the embedded main() API's
+        # integer-return contract while the outer CLI still exits with it.
+        return exc.code if isinstance(exc.code, int) else 1
     except KeyboardInterrupt:
         # asyncio.run translates its first SIGINT cancellation into
         # KeyboardInterrupt after awaiting task cleanup. The same exception can

@@ -265,10 +265,9 @@ def test_sigterm_during_prompt_write_releases_output_claim(tmp_path, monkeypatch
 
     monkeypatch.setattr(driver.signal, "signal", record_signal)
     monkeypatch.setattr(Path, "write_text", interrupt_prompt_write)
-    with pytest.raises(SystemExit) as exc:
-        driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
 
-    assert exc.value.code == 1
+    assert code == 1
     assert not (out / ".multi-review.claim").exists()
 
 
@@ -286,10 +285,9 @@ def test_sigterm_during_claim_creation_releases_output_claim(tmp_path, monkeypat
         return result
 
     monkeypatch.setattr(Path, "touch", interrupt_claim_touch)
-    with pytest.raises(SystemExit) as exc:
-        driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
 
-    assert exc.value.code == 1
+    assert code == 1
     assert not (out / ".multi-review.claim").exists()
 
 
@@ -616,6 +614,28 @@ def test_keyboard_interrupt_from_asyncio_run_returns_1_and_releases_claim(tmp_pa
         code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
     except KeyboardInterrupt:
         pytest.fail("KeyboardInterrupt escaped the fanout CLI boundary")
+
+    assert code == 1
+    assert not (out / ".multi-review.claim").exists()
+
+
+def test_system_exit_during_startup_returns_1_and_releases_claim(tmp_path, monkeypatch):
+    """A startup SIGTERM must stay inside the ``main() -> int`` boundary."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+
+    def interrupted_claim(out_dir, claim_ref):
+        out_dir.mkdir(parents=True)
+        claim = out_dir / ".multi-review.claim"
+        claim.touch()
+        claim_ref[0] = claim
+        raise SystemExit(1)
+
+    monkeypatch.setattr(driver, "claim_output_dir_with_sigterm_mask", interrupted_claim)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+    except SystemExit:
+        pytest.fail("SystemExit escaped the startup CLI boundary")
 
     assert code == 1
     assert not (out / ".multi-review.claim").exists()
