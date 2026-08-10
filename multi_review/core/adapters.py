@@ -290,7 +290,7 @@ class GrokAdapter(ProgressAdapter):
             # Absolute totals for the whole run — assign, never accumulate.
             # Coerce per counter: Usage declares ints, and a drifted schema
             # (null, a string, a nested object) would otherwise flow straight
-            # into <cli>.state.json and the harvest row as a non-int.
+            # into <cli>.state.json.
             u = ev.get("usage")
             if isinstance(u, dict):
                 self.usage.input_tokens = _int0(u.get("input_tokens"))

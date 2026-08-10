@@ -231,21 +231,6 @@ Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--
 
 See `CLAUDE.md` — every bugfix in an untested path backfills the test that would have caught it. Skill-level interactive flows that genuinely cannot be automated → document a manual smoke step in `tests/manual/` instead.
 
-## Deprecated v0.1 migration helpers
-
-Two helper CLIs handle the migration:
-
-- **`mr-migrate-harvest`** (`multi_review.cli.migrate_harvest`) — backfills v1 harvest rows to schema v2 (`usage` → `usage_by_reviewer`, new nullable fields). Interactive, row-by-row; groups candidate pairs by project + input-file set + mode-flip + time window. Takes a `.bak` copy of `runs.jsonl` before any rewrite.
-
-- **`mr-migrate-sidecars`** (`multi_review.cli.migrate_sidecars`) — interactive sidecar reorganisation. Maps existing `runs/notes/*.md` sidecars to candidate pairs or marks them legacy. Emits format-C reports to the resolved central `reports/` directory.
-
-```bash
-uv run python -m multi_review.cli.migrate_harvest
-uv run python -m multi_review.cli.migrate_sidecars
-```
-
-Both are one-shot and idempotent if re-run. Run harvest migration first, then sidecar migration.
-
 ## License
 
 MIT. See `LICENSE`.
