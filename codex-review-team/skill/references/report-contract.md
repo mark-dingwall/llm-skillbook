@@ -129,10 +129,27 @@ targetScope
 summary
 ```
 
-`changedFiles[]` contains canonical repository-relative paths. `summary` is a
-short factual change description, not review judgment. A Scope failure or
-invalid result receives one fresh retry with the identical package; stop after
-a second failure.
+Accept the response only when every listed field is an own field with this
+literal shape:
+
+- `canonicalRepoRoot`, `targetScope`, and `summary` are strings;
+- `emptyScope` is a boolean;
+- every `[]` field is an actual array whose items are strings; and
+- every `changedFiles[]` item is one literal canonical repository-relative
+  changed path, never a count, summary, glob, ellipsis, placeholder, or
+  reference to another block.
+
+For `emptyScope: false`, require a non-empty `changedFiles[]` and at least one
+`diffCommands[]` entry that produces content hunks for inspection. A
+name-only, name-status, stat, numstat, shortstat, or summary command does not
+satisfy that content-diff slot, though it may accompany one. For
+`emptyScope: true`, require an empty `changedFiles[]`.
+
+`summary` is a short factual change description, not review judgment. If any
+field is absent, has the wrong type, contains a nonliteral path item, or fails
+the empty/content consistency rules, discard the whole Scope response and
+retry once with the identical package and a fresh worker. Stop after a second
+invalid response.
 
 ## Path canonicalization
 
@@ -365,7 +382,21 @@ refuted
 refinements
 independentlyVerifiedReplacements
 reported
+ceilings: {
+  initial
+  sweep
+  finderOutput
+  replacement
+  allRecords
+  reportCap
+}
 ```
+
+Emit that same closed `ceilings` record when presenting scheduling decisions,
+before dispatch begins. Copy its values from the level table in “Identity,
+category, and ceilings”: `high` is `48/0/48/48/96/10`; `xhigh` and `max` are
+`80/8/88/88/176/15`, in the field order above. Do not make readers reconstruct
+aggregate ceilings from per-role caps.
 
 If no record survives, report: “No findings survived independent verification.”
 Do not claim that the reviewed change is safe.

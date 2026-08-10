@@ -131,8 +131,13 @@ Apply this identity test:
 
 If yes, return the appropriate verdict plus `refinement`; the controller keeps
 the original `candidateId` and category while applying only supported corrected
-fields. If no, refute the original and, when allowed, use the new-claim path
-below. Never use refinement to smuggle a second defect into a survivor.
+fields. When universal or frequency wording is false but the same mechanism has
+a narrower realistic trigger and one change fixes both wordings, refine to the
+supported condition. Classify that narrower mechanism as `PLAUSIBLE` when its
+trigger depends on uncertain runtime state; do not refute it merely because the
+original said “always.” If the one-fix test is no, refute the original and,
+when allowed, use the new-claim path below. Never use refinement to smuggle a
+second defect into a survivor.
 
 ## Replacement candidates
 
