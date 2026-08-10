@@ -24,18 +24,7 @@ Run setup once from the cloned repository:
 uv run python -m multi_review.cli.setup --source-repo $(pwd)
 ```
 
-Setup copies `skills/multi-review/` and `agents/*.md` into `~/.claude/`, resolves the central state path (see §4.2 of spec), and writes `~/.claude/skills/multi-review/config.json`.
-
-Until the real harvest opt-out lands, the interactive skill writes deprecated
-telemetry for every run, including supported single-pass runs. To avoid a
-per-run permission prompt for that write, `--write-allowlist` inserts the
-resolved `runs.jsonl` path into `~/.claude/settings.local.json`:
-
-```bash
-uv run python -m multi_review.cli.setup --source-repo $(pwd) --write-allowlist
-```
-
-The allowlist entry is the only write that setup makes to your Claude settings. It is unnecessary for the headless driver, which does not harvest.
+Setup copies `skills/multi-review/` and `agents/*.md` into `~/.claude/`.
 
 For iterating on the skill itself, `--dev` symlinks instead of copying so edits take effect without re-running setup:
 
