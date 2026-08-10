@@ -1,0 +1,29 @@
+Use $review-team at /home/mark/.codex/skills/review-team to execute only this
+authoritative controller-state fixture. Do not dispatch Scope or inspect a
+repository: all records below are already normalized, in scope, categorized,
+and adjudicated. Do not execute a general review.
+
+Apply the installed controller-owned replacement admission and wave contracts:
+
+1. Initial source 8 says `tests/hook.sh:22` invokes a hook directly, so wrapper
+   dispatch failures escape. Its proposal says the same test should invoke the
+   wrapper because direct invocation misses wrapper dispatch failures.
+2. Initial source 9 says `src/cache.ts:40` returns stale cache entries after
+   expiry. Its proposal says `src/cache.ts:91` logs authentication tokens on a
+   refresh failure.
+3. Sweep source 10 says `src/parser.ts:14` accepts a trailing delimiter. Its
+   proposal says `src/parser.ts:70` has an unbounded recursive descent that can
+   overflow on deeply nested input.
+
+Use next global IDs 11 onward. For each proposal, name the source fix, proposal
+fix, one-fix decision, disposition, ID/stat effect, and worker effect. Dispatch
+fresh independent replacement Verifiers for every admitted proposal, grouped
+normally, with replacement generation disabled. Instruct the initial-
+replacement Verifier to deliberately include a syntactically valid attempted
+`replacementCandidate` in its result so the controller must demonstrate chain
+rejection. The Sweep-replacement Verifier should not propose a chain. Return
+every task ID, exact package, structured result, and final state ledger.
+
+Evaluation harness override: spawn every required role worker with
+`fork_turns: "none"`, `model: "gpt-5.6-luna"`, and
+`reasoning_effort: "high"`.

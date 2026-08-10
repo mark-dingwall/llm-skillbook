@@ -1,0 +1,18 @@
+attempt: Real-max/attempt-3
+outcome: accepted
+reason: completed evaluation attempt retained as accepted evidence
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m gpt-5.6-luna -c model_reasoning_effort=high -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: 019fed37-15b8-7103-9f22-c55cd244aadc
+controllerModel: gpt-5.6-luna
+controllerReasoningEffort: high
+workerModels: gpt-5.6-luna
+workerReasoningEfforts: high
+startedAt: 2026-08-10T19:47:18.353Z
+endedAt: 2026-08-10T20:15:44.267Z
+exitStatus: 0
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 1
+eventStreamWarnings: 1
+parentRollout: parent-rollout.jsonl
+childRolloutCount: 17

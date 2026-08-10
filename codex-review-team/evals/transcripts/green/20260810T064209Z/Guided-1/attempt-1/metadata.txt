@@ -1,0 +1,8 @@
+command=codex exec --json --enable multi_agent -C /home/mark/kramtime/llm-skillbook-review-team-worktree -s read-only -c model_reasoning_effort=high -
+workingDirectory=/home/mark/kramtime/llm-skillbook-review-team-worktree
+reasoningEffort=high
+startTime=2026-08-10T07:18:14Z
+endTime=2026-08-10T07:42:00Z
+exitStatus=0
+captureMode=persistent parent and 37 child rollout exports plus stdout JSONL
+parentThreadId=019fea89-4b0b-74c3-aa05-221363d7714d

@@ -1,0 +1,18 @@
+attempt: Guided-5/shard-E/attempt-3
+outcome: rejected
+reason: controller reported interrupted collaboration run and incomplete case matrix
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m gpt-5.6-luna -c model_reasoning_effort=high -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: 019fec71-0d1d-7f70-9b6e-144390b42a2e
+controllerModel: gpt-5.6-luna
+controllerReasoningEffort: high
+workerModels: gpt-5.6-luna
+workerReasoningEfforts: high
+startedAt: 2026-08-10T16:10:59.950Z
+endedAt: 2026-08-10T16:36:32.411Z
+exitStatus: 0
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 1
+eventStreamWarnings: 0
+parentRollout: parent-rollout.jsonl
+childRolloutCount: 23

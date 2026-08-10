@@ -1,0 +1,10 @@
+command=codex exec --json --enable multi_agent -C /home/mark/kramtime/llm-skillbook-review-team-worktree -s read-only -c model_reasoning_effort=high -
+workingDirectory=/home/mark/kramtime/llm-skillbook-review-team-worktree
+reasoningEffort=high
+workerModel=gpt-5.6-luna
+startTime=2026-08-10T07:50:02Z
+endTime=2026-08-10T08:02:05Z
+exitStatus=0
+captureMode=persistent parent and 23 child rollout exports plus stdout JSONL
+parentThreadId=019feaa6-6971-7882-b3ec-49940ac5e2b9
+terminalOutcome=fail-closed after collaboration harness rejected the 24th required fresh worker

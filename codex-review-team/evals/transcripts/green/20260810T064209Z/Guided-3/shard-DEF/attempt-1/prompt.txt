@@ -1,0 +1,11 @@
+Use $review-team at /home/mark/.codex/skills/review-team to execute only
+Scenarios D, E, and F in codex-review-team/evals/scenarios.md. Read the skill
+first and follow it. Use actual fresh Scope, Finder, Verifier, Sweep, and
+Synthesizer workers as required; do not narrate hypothetical dispatches. Return
+every actual worker task ID, role, exact package, and structured result. Do not
+review or critique the skill. Do not read codex-review-team/evals/oracle.md or
+any evaluation rubric.
+
+Evaluation harness override: spawn every role worker with
+`fork_turns: "none"` and `model: "gpt-5.6-luna"`. This model selection is a
+test-cost control; all review-team contracts remain unchanged.

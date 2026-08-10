@@ -1,0 +1,25 @@
+Use $review-team at /home/mark/.codex/skills/review-team to execute only this
+controller-contract fixture. Do not run a repository review.
+
+An initial Verifier returns these proposals after valid verdicts:
+
+1. Source candidate 8 says `tests/hooks/test-session-start-codex.sh:22` invokes
+   `session-start-codex` directly and never exercises the packaged
+   `run-hook.cmd`, so dispatcher/path/executable failures escape. Its proposal
+   says the same file and line should execute the configured packaged wrapper,
+   because direct invocation misses dispatcher/path/executable failures.
+2. Source candidate 9 says `src/cache.ts:40` returns stale cache entries after
+   expiry. Its proposal says `src/cache.ts:91` logs authentication tokens on a
+   refresh failure.
+
+Apply the installed controller-owned replacement admission gate before any new
+ID or worker dispatch. For each proposal, state the source fix, proposal fix,
+one-fix decision, disposition, whether an ID is assigned, whether a replacement
+Verifier is dispatched, and whether it contributes to replacement stats.
+Actually dispatch every fresh role that the resulting contract requires, and
+return its task ID, exact package, and structured result. Do not invent source
+code or adjudicate the underlying claims; this fixture tests state transitions.
+
+Evaluation harness override: spawn every required role worker with
+`fork_turns: "none"`, `model: "gpt-5.6-luna"`, and
+`reasoning_effort: "high"`.

@@ -1,0 +1,6 @@
+command=codex exec --ephemeral --json -C /home/mark/tools/superpowers -s read-only -c model_reasoning_effort=high -
+workingDirectory=/home/mark/tools/superpowers
+reasoningEffort=high
+startTime=2026-08-10T04:46:16Z
+endTime=2026-08-10T04:47:07Z
+exitStatus=1

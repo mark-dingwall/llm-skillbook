@@ -1,0 +1,8 @@
+parentThreadId=019fea69-2a7a-7b52-b5e0-2d873fdabeb2
+parentSource=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T16-43-08-019fea69-2a7a-7b52-b5e0-2d873fdabeb2.jsonl
+parentExport=parent-rollout.jsonl
+childThreadId=019fea69-b5ae-7161-b857-179930906a69 source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T16-43-44-019fea69-b5ae-7161-b857-179930906a69.jsonl export=child-scope-019fea69-b5ae-7161-b857-179930906a69.jsonl
+childThreadId=019fea6b-a2e4-7e43-886b-59c77d7e8f2a source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T16-45-50-019fea6b-a2e4-7e43-886b-59c77d7e8f2a.jsonl export=child-finder-a-019fea6b-a2e4-7e43-886b-59c77d7e8f2a.jsonl
+childThreadId=019fea6c-006f-7081-ae7c-c381f3a70f14 source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T16-46-14-019fea6c-006f-7081-ae7c-c381f3a70f14.jsonl export=child-finder-b-019fea6c-006f-7081-ae7c-c381f3a70f14.jsonl
+childThreadId=019fea6c-470a-7e60-be98-f249ad669995 source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T16-46-32-019fea6c-470a-7e60-be98-f249ad669995.jsonl export=child-finder-c-019fea6c-470a-7e60-be98-f249ad669995.jsonl
+childThreadId=019fea73-4197-7c03-aa82-1d2433e43b89 source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T16-54-09-019fea73-4197-7c03-aa82-1d2433e43b89.jsonl export=child-cleanup-019fea73-4197-7c03-aa82-1d2433e43b89.jsonl

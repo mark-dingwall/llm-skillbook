@@ -1,0 +1,18 @@
+attempt: Guided-5/attempt-1
+outcome: rejected
+reason: controller launch produced no stdout artifact
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m unknown -c model_reasoning_effort=unknown -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: none
+controllerModel: unknown
+controllerReasoningEffort: unknown
+workerModels: none
+workerReasoningEfforts: none
+startedAt: unknown
+endedAt: unknown
+exitStatus: unavailable
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 0
+eventStreamWarnings: 0
+parentRollout: none
+childRolloutCount: 0

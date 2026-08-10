@@ -1,0 +1,7 @@
+command=codex exec --json --enable multi_agent -C /home/mark/tools/superpowers -s read-only -c model_reasoning_effort=high -
+workingDirectory=/home/mark/tools/superpowers
+reasoningEffort=high
+startTime=2026-08-10T06:42:00Z
+exitStatus=1
+captureMode=stdout JSONL
+rejectedReason=nested Codex app-server initialization blocked by sandbox before model startup

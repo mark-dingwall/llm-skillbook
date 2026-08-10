@@ -1,0 +1,18 @@
+attempt: Postfix-F/attempt-1
+outcome: rejected
+reason: synthetic Scope failed strict validation twice; controller stopped fail-closed before Scenario F records
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m gpt-5.6-luna -c model_reasoning_effort=high -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: 019fed57-9452-7123-bb9f-aa53e4a82f77
+controllerModel: gpt-5.6-luna
+controllerReasoningEffort: high
+workerModels: gpt-5.6-luna
+workerReasoningEfforts: high
+startedAt: 2026-08-10T20:22:47.851Z
+endedAt: 2026-08-10T20:28:16.986Z
+exitStatus: 0
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 1
+eventStreamWarnings: 0
+parentRollout: parent-rollout.jsonl
+childRolloutCount: 2

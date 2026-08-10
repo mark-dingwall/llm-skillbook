@@ -1,0 +1,7 @@
+command=codex exec --json --enable multi_agent -C /home/mark/tools/superpowers -s read-only -c model_reasoning_effort=high -
+workingDirectory=/home/mark/tools/superpowers
+reasoningEffort=high
+startTime=2026-08-10T07:00:58Z
+endTime=2026-08-10T07:16:30Z
+exitStatus=0
+captureMode=persistent parent and child rollout export plus stdout JSONL
