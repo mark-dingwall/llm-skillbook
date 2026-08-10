@@ -239,14 +239,24 @@ confirm its replacement.
 
 For the initial replacement wave:
 
-1. Collect valid proposals only after all initial groups are complete.
-2. Sort proposals by source `candidateId`.
-3. Preserve the source category; reject cross-category use of this path.
-4. Canonicalize the path and scope-check it.
-5. Assign the next global `candidateId`.
-6. Group accepted replacements by canonical location.
-7. Dispatch fresh independent Verifiers with replacement generation disabled.
-8. Apply whole-group completeness and the one-retry/fail-closed policy.
+1. Collect proposals only after all initial groups are complete.
+2. Before assigning an ID, independently apply the one-fix identity test to
+   each source record's effective claim and its proposal. Name the code or test
+   change that would fix each. If one change fixes both—or two independent
+   fixes cannot be named—the proposal is a same-defect restatement, not a
+   replacement: ignore it without assigning an ID, dispatching a worker, or
+   counting it in replacement stats. Different wording, evidence, location, or
+   a more prescriptive remedy does not make the defect materially new.
+3. Do not delegate this admission gate to the replacement Verifier. Independent
+   verification cannot retroactively make an invalid same-defect proposal a
+   valid replacement.
+4. Sort admitted proposals by source `candidateId`.
+5. Preserve the source category; reject cross-category use of this path.
+6. Canonicalize the path and scope-check it.
+7. Assign the next global `candidateId`.
+8. Group accepted replacements by canonical location.
+9. Dispatch fresh independent Verifiers with replacement generation disabled.
+10. Apply whole-group completeness and the one-retry/fail-closed policy.
 
 Repeat the same bounded process after Sweep for Sweep-verifier replacements.
 A replacement Verifier is forbidden from emitting another replacement. Ignore
