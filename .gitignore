@@ -35,6 +35,7 @@ runs/*
 
 # Multi-review v0.2 state
 .multi-review/
+.worktrees/
 *.egg-info/
 
 # Skill install artifacts (config.json written by mr-setup; not checked in)
