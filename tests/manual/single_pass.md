@@ -7,6 +7,11 @@
    - Two `## <reviewer>` sections
    - Consensus Summary section
    - Filename derived from synth
-   - Harvest row queued in `pending-harvest/`
-   - Permission prompt for harvest write at end
-4. After approving harvest, verify `<CENTRAL_PATH>/EXPERIMENTS.md` regenerated with the new row visible.
+   - Deprecated harvest row appended directly to `<CENTRAL_PATH>/runs.jsonl`
+     (or buffered in `pending-harvest/` only if that write fails)
+   - Permission prompt, if the `runs.jsonl` path is not allowlisted, occurs for
+     the direct write
+4. After permitting the direct write, verify the new row in
+   `<CENTRAL_PATH>/runs.jsonl`; regenerate `<CENTRAL_PATH>/EXPERIMENTS.md` with
+   `uv run python -m multi_review.cli.report regen` if you need the historical
+   log refreshed.

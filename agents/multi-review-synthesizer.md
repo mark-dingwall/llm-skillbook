@@ -42,15 +42,12 @@ Your output is body only (plain prose). Optional inner `### Headline` is fine.
 
 - (item where reviewers disagree — describe both sides)
 
-<filename>some-short-kebab-case-name.md</filename>
 ```
 
-Append a single trailing `<filename>suggested-name.md</filename>` line (no `### Filename suggestion` heading). Filename: 2-5 kebab-case words capturing the review subject, no `REVIEW-` prefix, with `.md` extension. Used as a hint by the aggregator.
-
-When invoked for a **paired-run report build**, the prompt will include both pass-1 and pass-2 REVIEW.md as separate `<pass-1 …>` and `<pass-2 …>` blocks. In that case, your output also includes:
+When invoked for a **deprecated paired-run report build**, the prompt will include both pass-1 and pass-2 REVIEW.md as separate `<pass-1 …>` and `<pass-2 …>` blocks. In that case, your output also includes:
 
 ```
 ### Mode-divergence observations
 
-(strictly descriptive: per-reviewer verdict per mode, mode-unique findings, whether modes diverge in severity calls. **Forbidden:** load-bearing comparative claims like "mode X outperformed mode Y" or "reference is better for reviewer Z" at the single-run level — n=1 by construction per CLAUDE.md ≥5-paired-run rule.)
+(strictly descriptive historical record only. Do not make comparative claims like "mode X outperformed mode Y" or "reference is better for reviewer Z".)
 ```

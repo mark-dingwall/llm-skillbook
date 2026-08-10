@@ -24,7 +24,7 @@ From `multi_review/core/reviewers.py` `CLI_SPEC["pykrete"]`:
 - `PykreteAdapter` (`multi_review/core/adapters.py`) buffers stdout verbatim — no step-narration trim like agy's adapter.
 - `DEFAULT_REVIEWERS = ["claude", "agy", "codex", "opencode", "pykrete"]` — pykrete is **default-on**, same posture as agy. Until configured it will surface as a failed section in every run, not just ones that explicitly ask for it. `ALL_REVIEWERS` now also contains opt-in `grok`, which is nameable but never auto-selected — its presence in the known/valid set does not make it default-on.
 - `build_row` in `multi_review/core/harvest.py`: `comparison_eligible = not drift_blocks_eligibility and not r.downgraded`. This is set **per reviewer** inside `usage_by_reviewer.pykrete`, not as a row-level flag — a downgraded pykrete run does not mark other reviewers in the same row ineligible.
-- The `## Summary` heading failure classifier (SKILL.md Step 7) applies to pykrete's output exactly like every other reviewer: `<REVIEWS_DIR>/pykrete.md` must start with a heading matching `^#{1,3}\s+(summary|executive summary)\b` or the reviewer gets demoted to `ok: false` regardless of exit code.
+- The `## Summary` heading failure classifier (SKILL.md Step 7) applies to pykrete's output exactly like every other reviewer: `<REVIEWS_DIR>/pykrete.md` must contain a Summary or Executive Summary heading. Narration may precede it; a missing heading is rendered and harvested as an effective failure without rewriting the raw state JSON.
 
 ## How pykrete picks a model (verified against its source, 2026-08-04)
 
@@ -115,12 +115,11 @@ Run it:
 ```
 
 Confirm:
-- `REVIEW.md` (cwd root) has a **Pykrete** section.
-- That section starts with a `## Summary` heading (or the reviewer will have
-  been demoted to a failure — check `<REVIEWS_DIR>/pykrete.state.json`
-  `ok: true` if the heading looks present but the section still reads as
-  failed).
-- Harvest row (once flushed) has `usage_by_reviewer.pykrete.final_model` in
+- The named single-pass report path printed by the skill (normally
+  `<cwd>/REVIEW-<slug>.md`) has a **Pykrete** section.
+- That section contains a `## Summary` heading (or the reviewer is rendered as
+  a failure even though `<REVIEWS_DIR>/pykrete.state.json` keeps raw `ok: true`).
+- Deprecated harvest data, when written, has `usage_by_reviewer.pykrete.final_model` in
   the shape `"family:glm"`, `telemetry_quality: "degraded"`, and
   `comparison_eligible: true` (this run is a clean success, not a downgrade).
 
@@ -134,7 +133,7 @@ glm = ["glm-9-nonexistent-lead", "glm-4.6"]
 ```
 
 Re-run the same prompt YAML from B. Confirm:
-- The review still lands — `REVIEW.md` has a **Pykrete** section with a
+- The review still lands — the named single-pass report has a **Pykrete** section with a
   `## Summary` heading, same as B (success-via-downgrade is still success).
 - `<REVIEWS_DIR>/pykrete.state.json` shows `ok: true`, `downgraded: true`.
 - The harvest row's `usage_by_reviewer.pykrete.comparison_eligible` is
@@ -156,7 +155,7 @@ Re-run the same prompt YAML from B (or any run with pykrete in `reviewers`).
 Confirm:
 - The overall run still completes — other reviewers (if any) succeed
   normally; the fanout does not abort.
-- `REVIEW.md` has a **Pykrete** section reporting failure, with the config
+- The named single-pass report has a **Pykrete** section reporting failure, with the config
   error text surfaced (should read something like `pykrete requires
   $PYKRETE_CONFIG to point at a pykrete.toml`).
 - `<REVIEWS_DIR>/pykrete.state.json` shows `ok: false` and `error` containing
@@ -209,9 +208,9 @@ Delete the copy afterwards.
 ## Pass criteria
 
 - [x] A: `--list-reviewers` shows pykrete available.
-- [x] B: `REVIEW.md` has a Pykrete `## Summary` section; harvest row
+- [x] B: named single-pass report has a Pykrete `## Summary` section; deprecated harvest data
       `comparison_eligible: true`, `final_model: "family:<family>"`.
-- [x] C: downgrade still produces a landed review; harvest row
+- [x] C: downgrade still produces a landed review; deprecated harvest data
       `comparison_eligible: false` for pykrete only.
 - [x] D: missing config is a recorded failed-reviewer section, not a run
       crash; no traceback.

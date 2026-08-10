@@ -1,5 +1,9 @@
 # PR #1 Review Follow-up Implementation Plan
 
+> **Completed historical plan.** All listed fixes landed in `e30d621` and were
+> included in PR #1, merged at `6e48d3f`. Retain this record for rationale; do
+> not re-execute its tasks.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the five confirmed headless-driver review findings without adding abstractions for the five unsupported or low-value cleanup suggestions.

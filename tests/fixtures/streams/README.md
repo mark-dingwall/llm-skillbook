@@ -4,7 +4,7 @@ Captured upstream-CLI JSONL output used to test ProgressAdapter parsers without 
 
 ## Capture commands
 
-Verified working as of 2026-05-19. Cross-check against `CLI_SPEC` in `multi_review.py`
+Verified working as of 2026-05-19. Cross-check against `CLI_SPEC` in `multi_review/core/reviewers.py`
 when re-capturing — upstream flags drift.
 
 The capture prompt must produce assistant text of at least
@@ -17,10 +17,6 @@ PROMPT='Reply with one or two short sentences describing what makes for good cod
 # claude (sanitize after — see Sanitization note below)
 claude -p --output-format=stream-json --include-partial-messages "$PROMPT" \
   > tests/fixtures/streams/claude/success.jsonl
-
-# gemini
-gemini -p "" -o stream-json -m gemini-3.1-pro-preview "$PROMPT" \
-  > tests/fixtures/streams/gemini/success.jsonl
 
 # codex
 codex exec --skip-git-repo-check --json - <<<"$PROMPT" \
@@ -41,14 +37,13 @@ absolute `cwd`, and session UUIDs. Before committing:
 - Trim `tools`/`slash_commands`/`agents`/`skills`/`plugins` arrays to 2-3 placeholder entries.
 - Replace session_id / UUIDs / request_ids with `session-xxxxx` / `uuid-yyyyy` / `req_zzzzz`.
 
-Preserved fields the adapter reads (see `multi_review.py` adapter classes):
+Preserved fields the adapter reads (see `multi_review/core/adapters.py`):
 `type`, `subtype`, `event.type`, `event.delta.type`/`text`, `event.content_block.type`/`name`,
 `message.usage.{input_tokens,output_tokens,cache_read_input_tokens}`,
 `message.content[].{type,text}`, `result` (string on the `result` event).
 
 ## Synthetic fixtures
 
-`gemini/capacity_429.jsonl` and `claude/empty.jsonl` are hand-written; both reproduce
-known failure modes.
+`claude/empty.jsonl` is hand-written and reproduces a known failure mode.
 
 Re-capture on every release prep to catch upstream schema drift.

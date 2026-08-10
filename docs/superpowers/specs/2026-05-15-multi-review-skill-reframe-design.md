@@ -1,10 +1,10 @@
 # multi-review v0.2 — skill reframe design
 
-> **Archival.** Historical record of the work as planned. Line references point at the pre-split `multi_review.py` and may not match current code. Current behaviour lives in `CLAUDE.md`, `README.md` and `skills/multi-review/SKILL.md`.
+> **Archival — implemented and superseded.** Historical record of the work as planned. Line references point at the pre-split `multi_review.py` and may not match current code. The anticipated `claude -p` billing change is deferred indefinitely; current behaviour lives in `CLAUDE.md`, `README.md` and `skills/multi-review/SKILL.md`.
 
 **Date:** 2026-05-15
-**Status:** brainstorm complete, awaiting plan
-**Driver:** Anthropic's June 15 2026 billing change moves `claude -p` and Agent SDK usage off interactive Pro/Max plan limits onto separate Agent SDK credit pools. For multi_review's per-PR review workflow this is a ~10x effective cost increase, and the existing CLI is the workflow squarely targeted by the change.
+**Status:** historical design implemented through v0.2 and superseded by later headless-driver work.
+**Driver (historical):** The anticipated Anthropic billing change was the original motivation for the Claude Code skill split. That change is now deferred indefinitely.
 
 ## 1. Background
 

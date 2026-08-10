@@ -1,7 +1,11 @@
 # Headless single-pass driver — design
 
+> **Historical — implemented and superseded.** PR #1 merged the headless driver at
+> `6e48d3f`; its implementation plan, remediation plan, and PR follow-up are the
+> authoritative historical execution record. Do not execute this design directly.
+
 **Status:** revised after 3 rounds of multi-reviewer review (see Review history below) — the review
-process caps at 3 rounds; this is the final revision. Ready for `writing-plans`.
+process caps at 3 rounds; this is the final revision. Superseded by implementation.
 **Requested by:** the `review-loop` skill (`~/kramtime/claude-skills/review-loop`), via handoff doc
 **Repo state at design time:** branch `worktree-review-loop-compatibility`, 237 tests green — **6
 commits behind `main`**, missing the agy `bypass_perms_flag` fix (`main:multi_review/core/reviewers.py:141,201-202`).

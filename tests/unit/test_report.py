@@ -36,6 +36,39 @@ def test_render_experiments_filters_ineligible_pairs(tmp_path):
     assert "pair-good" in md
     assert REPORT_FORMAT_VERSION >= 1
 
+
+def test_render_experiments_marks_comparison_log_deprecated_and_names_real_command(tmp_path):
+    log = tmp_path / "runs.jsonl"
+    log.write_text("")
+
+    md = render_experiments_markdown(log_path=log, reports_dir=tmp_path / "reports")
+
+    assert "deprecated historical material" in md
+    assert "multi_review.cli.report regen" in md
+    assert "multi_review.py --report" not in md
+    assert "`--no-harvest` is not a supported command" in md
+
+
+def test_render_experiments_uses_sibling_notes_for_an_archived_log(tmp_path):
+    archive = tmp_path / "runs" / "archive"
+    log = archive / "data" / "runs.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("")
+    legacy_note = archive / "notes" / "legacy" / "original-study.md"
+    legacy_note.parent.mkdir(parents=True)
+    legacy_note.write_text("# Original study\n")
+    reports_dir = archive / "reports"
+    reports_dir.mkdir()
+    (reports_dir / "original-study-pair.md").write_text("# Original study report\n")
+
+    md = render_experiments_markdown(
+        log_path=log, reports_dir=reports_dir
+    )
+
+    assert "Pre-schema-stabilisation narrative" in md
+    assert "legacy/original-study.md" in md
+    assert "(../reports/original-study-pair.md)" in md
+
 def test_render_experiments_links_paired_reports(tmp_path):
     """Plan §11.2 / Task 30 step 5: regen surfaces paired-report file links
     under `runs/reports/` so the run-log table isn't the only entry point

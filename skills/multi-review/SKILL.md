@@ -1,6 +1,6 @@
 ---
 name: multi-review
-description: Fan out a code review across claude/agy/codex/opencode/pykrete/grok, aggregate into REVIEW.md, optionally synthesize. Supports inline + reference modes including automated paired-pass runs with drift detection.
+description: Fan out a code review across claude/agy/codex/opencode/pykrete/grok, aggregate into REVIEW.md, and optionally synthesize. The legacy paired comparison workflow remains for compatibility but is deprecated.
 ---
 
 # multi-review
@@ -13,8 +13,8 @@ Orchestrate a multi-model code review.
 - `/multi-review "text"` — interactive build with seed
 - `/multi-review --use-defaults "text"` — autonomous build, no prompts
 - `/multi-review --prompt-files A.yaml,B.yaml` — run one or more pre-written prompt files
-- `/multi-review --resume-pair <pair-id>` — resume pass 2 of a paired run
-- `/multi-review --report` — regenerate EXPERIMENTS.md from harvest log
+- `/multi-review --resume-pair <pair-id>` — deprecated: resume pass 2 of a paired run
+- `/multi-review --report` — deprecated: regenerate the local historical EXPERIMENTS.md log
 
 ## Procedure
 
@@ -73,7 +73,7 @@ For each validated prompt file:
 
 a. Generate `pass1_run_id` (`uv run python -c "from multi_review.core.paths import generate_run_id; print(generate_run_id())"`).
 
-b. If `mode == both`:
+b. If `mode == both` (deprecated; do not use for new reviews):
    - Generate `pair_id` (same helper, `generate_pair_id`).
    - Determine pass-1 mode from EXPERIMENTS.md `next_recommended_order` — if absent or stale, default to reference first.
    - If `if_drift != ignore`: plan a snapshot before pass 1 fanout.
@@ -144,18 +144,19 @@ the configuration that still needs to be resumable. Step 11 removes the whole
 Wait until all reviewers have finished. The mechanism depends on how each
 was dispatched:
 
-- **`claude` reviewer** (Task tool, `multi-review-reviewer` subagent):
-  `TaskGet <task_id>` returns its status; poll until `status == "complete"`.
-  Read the final state via the state.json the reviewer writes (or via
-  `TaskOutput` for the agent's return text — but state.json is authoritative).
+- **`claude` reviewer** (Task tool, `multi-review-reviewer` subagent): the
+  Task call in Step 5 already returned synchronously, and the host immediately
+  persisted that return value. Do not issue a follow-up polling call; use
+  `<REVIEWS_DIR>/claude.state.json` as the authoritative state.
 - **External reviewers** (whichever of `agy`, `codex`, `opencode`, `pykrete`,
   `grok` are in `resolved.reviewers`, dispatched via `Bash run_in_background`
   running `multi_review.cli.spawn`):
   `BashOutput <bash_id>` returns the latest stdout/stderr lines + an `exited`
   flag. Poll until `exited: true` for every external bash_id.
 
-Don't mix the two: `TaskGet` against a Bash background id will fail; vice
-versa. Track the dispatch type for each reviewer when you launch them.
+Use `BashOutput` only with external-reviewer Bash background ids. The Claude
+review has no outstanding task id at this point because its synchronous return
+was already captured in Step 5.
 
 Total wall ≈ max(claude Task, max(other reviewers)).
 
@@ -200,7 +201,7 @@ uv run python -m multi_review.cli.build_synth_input \
 
 ### Step 7 — Aggregate
 
-**Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<REVIEWS_DIR>/<cli>.md` against the canonical regex `^#{1,3}\s+(summary|executive summary)\b` (case-insensitive — see `SUMMARY_HEADING_CONTRACT` and spec §5.2). Any reviewer whose output fails to match is demoted to `ok: false` and its body moved to `partial` in the state JSON. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
+**Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<REVIEWS_DIR>/<cli>.md` for a `Summary` or `Executive Summary` heading (case-insensitive; it may be preceded by narration). Any reviewer whose output fails this presence check is rendered and harvested as an effective failure; the raw state JSON remains unchanged. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
 
 **Output path branches by mode** (spec §4.2):
 
@@ -223,7 +224,7 @@ uv run python -m multi_review.cli.build_synth_input \
 
 Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies only to cwd-root paths (single-pass here, paired after Step 10 promotion); staged session-dir paths are unique per `run_id` so cannot collide.
 
-### Step 8 — Build harvest row + (deferred) write
+### Step 8 — Build and write deprecated harvest row
 
 ```bash
 uv run python -m multi_review.cli.write_harvest_row \
@@ -250,7 +251,13 @@ non-empty file instead of the `ok` field, records `synthesizer: null` /
 `synthesis_ok: false`-or-wrong — which the report layer then reads as "no
 synthesis ran" (or wrongly as success), silently mislabelling runs.
 
-### Step 9 — Pass 2 + flush harvest rows (paired only)
+`write_harvest_row` appends directly to `<CENTRAL_PATH>/runs.jsonl`. If that
+write fails, it buffers a row under `<cwd>/.multi-review/pending-harvest/`.
+The `harvest` YAML field does not yet suppress this write. This deprecated
+comparison data is retained for compatibility only; do not start new
+comparison runs.
+
+### Step 9 — Deprecated pass 2 and recovery flush (paired only)
 
 If `mode != both`: nothing to do here; skip to Step 10. **Tie-break:** when EXPERIMENTS counters tie at 0 (post-reset reality + every fresh codebase), default pass-1 mode is `reference` (spec §11.3).
 
@@ -265,16 +272,14 @@ a. If `if_drift != ignore`:
 
 b. Run pass 2 fanout, synthesis, aggregate — same as Steps 5–7, using the same resolved.reviewers / resolved.synthesizer as pass 1, with `mode_override` = pass 2 mode and `pair-id` flag passed through, **but resolve `SESSION_DIR` and `REVIEWS_DIR` against `pass2_run_id`** (not the pass-1 id). All prepare / fanout / aggregate invocations during pass 2 use `<cwd>/.multi-review/sessions/<pass2_run_id>` so pass-2 artifacts never collide with pass-1's.
 
-c. Build pass 2 harvest row (pending).
+c. Build and write the pass 2 harvest row. It is pending only if the direct
+write in Step 8 failed.
 
-d. Flush both pass rows so the Step 10 report sees current data:
+d. If either direct write failed, recover pending rows before Step 10:
 
-   - Tell user: "Writing this pair's 2 harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if the user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
-   - On approval:
-     ```
-     uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
-     ```
-   - On denial: rows stay pending; skip Step 10's report build for this pair and print the resume command. Step 12's batched flush still runs at batch end as a backstop.
+   ```
+   uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
+   ```
 
 ### Step 10 — Post-paired report
 
@@ -316,17 +321,15 @@ Remove `.multi-review/pending/<pair_id>/`.
 
 Step 10 promoted both staged `REVIEW.md` files out of `.multi-review/sessions/<run_id>/`, so the session directories now contain only ephemeral artifacts (per-reviewer state/.md, synthesis input/output, prepared prompt). Cleaning or pruning these directories will not lose user-visible output.
 
-### Step 12 — Batch end: harvest flush + regen
+### Step 12 — Batch end: deprecated harvest recovery + regen
 
-Flush any still-pending harvest rows (spec §5.3). For paired runs Step 9 already flushed each pair eagerly, so this pass is a no-op when only paired prompts ran; it still matters for single-pass prompts in a batch, or paired pairs whose Step 9 flush the user denied.
+Flush any harvest rows buffered because their direct write failed. For a normal
+successful write this is a no-op.
 
-- Tell user: "Writing N harvest rows to `<CENTRAL_PATH>/runs.jsonl` requires write permission. Continue?" (Silent if user installed the allowlist entry from `setup.py` per spec §4.3 step 5.)
-- On approval:
-  ```
-  uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
-  ```
-  The flag scans `<cwd>/.multi-review/pending-harvest/*.json`, appends each row, and deletes each pending file only after successful write.
-- On denial: pending files stay in place (spec §12 error-table behaviour); print the resume command.
+```
+uv run python -m multi_review.cli.harvest_row --flush-pending --log <CENTRAL_PATH>/runs.jsonl
+```
+The flag scans `<cwd>/.multi-review/pending-harvest/*.json`, appends each row, and deletes each pending file only after successful write.
 
 After harvest:
 ```
@@ -339,6 +342,16 @@ uv run python -m multi_review.cli.report regen \
 ### Step 13 — Final summary
 
 Print per-prompt: REVIEW.md path, reviewer pass/fail counts, comparison eligibility (paired only).
+
+## Comparison workflow deprecation
+
+`mode: both`, `if_drift`, snapshots, paired reports, harvest, persisted
+telemetry, the local `runs/` tree, and EXPERIMENTS.md are deprecated. They
+remain implemented for compatibility, but no new inline-vs-reference studies
+should be started: existing evidence found no meaningful difference for
+sufficiently capable frontier models. `inline` and `reference` single-pass
+delivery remain supported, with no claimed preference. Follow-up work will add
+a real harvest opt-out before retiring the comparison implementation.
 
 ## Notes on `mode: both` + `if_drift: ignore`
 

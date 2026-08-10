@@ -53,9 +53,9 @@ Procedure:
 
 Expect `claude`/`agy`/`grok` children gone. `codex`/`opencode` grandchildren may
 survive this specific test — that is exactly the scenario the caller-side
-`bwrap --unshare-pid --die-with-parent` contract exists for. The headless driver
-is an internal-only interface, but its supported shutdown contract still requires
-that wrapper and signaling the wrapper itself to tear down the full tree.
+`bwrap --unshare-pid --die-with-parent` contract exists for. The supported
+headless driver still requires that wrapper, and signaling the wrapper itself,
+to tear down the full process tree.
 
 **Also record whether `pykrete`'s engine survives the plain (non-`bwrap`) kill.**
 The design leaves it as "possibly affected" but unconfirmed; this pass resolves it.

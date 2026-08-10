@@ -9,7 +9,8 @@ Runs one fan-out pass with no LLM in the loop, from any working directory:
 
     uv run <absolute-path-to-repo>/multi_review.py --prompt-file <yaml> --out-dir <dir>
 
-Design: docs/superpowers/specs/2026-08-04-headless-driver-design.md
+Implementation history: docs/superpowers/plans/2026-08-04-headless-driver.md
+(the linked design is historical and superseded where it conflicts with code).
 
 The PEP 723 header above is load-bearing: uv's project discovery runs from the
 invoking cwd, so without it a run from a foreign directory resolves no

@@ -24,8 +24,8 @@ If a run returns no review, check argv order before suspecting the model.
    Are there any bugs?") --out-dir /tmp/agy-smoke --timeout 120
    ```
 2. Wait for completion.
-3. Check `/tmp/agy-smoke/REVIEW.md` exists, ≥50 bytes, plain prose review.
-4. Check `/tmp/agy-smoke/state.json` — `ok: true`, `usage.input_tokens` and friends all 0 (expected — agy --print has no telemetry).
+3. Check `/tmp/agy-smoke/agy.md` exists, ≥50 bytes, plain prose review.
+4. Check `/tmp/agy-smoke/agy.state.json` — `ok: true`, `usage.input_tokens` and friends all 0 (expected — agy --print has no telemetry).
 5. With `--model` override:
    ```bash
    uv run python -m multi_review.cli.spawn --cli agy --model "Gemini 3.5 Flash (Low)" ...
@@ -34,11 +34,11 @@ If a run returns no review, check argv order before suspecting the model.
 
 ## Pass criteria
 - rc 0
-- REVIEW.md plausible
-- state.json valid JSON with `ok: true`
+- agy.md plausible
+- agy.state.json valid JSON with `ok: true`
 - No crashes from empty stream_flags
 
 ## Failure modes seen
 - agy refusing to read `/proc/...` etc. — use real cwd files.
-- `--print-timeout 5m0s` default; our default `--timeout None` overrides.
+- An unset multi-review `--timeout` does not pass or override an agy timeout flag.
 - Empty output + a permission-denial line on stderr — the bypass flag is missing or landed immediately after `--print` (see Invocation shape).

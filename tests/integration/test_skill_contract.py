@@ -465,3 +465,20 @@ def test_skill_step5_passes_task_to_spawn():
         "SKILL.md Step 5 must forward the prompt's task to spawn — without it "
         "pykrete always resolves its [defaults.general] lead"
     )
+
+
+def test_skill_marks_comparison_workflow_deprecated_and_joins_claude_synchronously():
+    """The comparison stack remains implemented for compatibility, but new
+    runs must not be encouraged to use it. The Claude Task also blocks until
+    it returns, so a later TaskGet join is both impossible and misleading.
+    """
+    skill = SKILL.read_text()
+    assert "## Comparison workflow deprecation" in skill, (
+        "SKILL.md must clearly mark paired comparison infrastructure deprecated"
+    )
+    assert "mode: both" in skill.split("## Comparison workflow deprecation", 1)[1], (
+        "SKILL.md deprecation notice must name mode: both"
+    )
+    assert "TaskGet" not in skill, (
+        "SKILL.md must not poll a Claude Task after its synchronous result returned"
+    )

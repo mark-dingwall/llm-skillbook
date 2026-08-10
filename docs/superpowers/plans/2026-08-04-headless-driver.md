@@ -1,5 +1,9 @@
 # Headless Single-Pass Driver Implementation Plan
 
+> **Completed historical plan.** The headless driver shipped through PR #1,
+> merged at `6e48d3f`. Retain this plan for rationale; do not execute its
+> unchecked steps against the current tree.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Revive `multi_review.py` at the repo root as a headless, no-LLM-in-the-loop driver that runs one multi-review fan-out pass from an arbitrary working directory and writes `<out-dir>/REVIEW.md`.

@@ -1,5 +1,9 @@
 # Headless Driver Remediation Implementation Plan
 
+> **Completed historical plan.** The remediation shipped with the PR #1 hardening
+> commits. Retain this record for rationale; do not execute its unchecked steps
+> against the current tree.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Correct the headless driver's timeout, output publication, synthesis-status, and shutdown-evidence defects found in PR #1 review round 1.
