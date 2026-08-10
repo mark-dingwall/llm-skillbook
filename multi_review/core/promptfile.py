@@ -51,17 +51,51 @@ def fill_defaults(raw: dict) -> PromptFile:
     raw.setdefault("output_dir", None)
     raw.setdefault("save_as", None)
     raw.setdefault("harvest", True)
-    return PromptFile(**raw)
+    try:
+        return PromptFile(**raw)
+    except TypeError as exc:
+        raise ValidationError(str(exc)) from exc
 
 def _resolve_path(p: str, base: Path | None) -> Path:
-    pp = Path(p)
-    if pp.is_absolute() or base is None:
-        return pp
-    return (base / pp).resolve()
+    try:
+        if "\0" in p:
+            raise ValueError("embedded null byte")
+        pp = Path(p)
+        if pp.is_absolute() or base is None:
+            return pp
+        return (base / pp).resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValidationError(f"invalid path {p!r}: {exc}") from exc
 
 def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
     # Required-field + type + enum checks (cheap; catches malformed prompts upstream
     # of fanout so we never burn ~thousands of tokens × N reviewers on garbage).
+    if type(pf.prompt_format_version) is not int:
+        raise ValidationError("prompt_format_version must be an integer")
+    if not isinstance(pf.task, str):
+        raise ValidationError("task must be a string")
+    if not isinstance(pf.mode, str):
+        raise ValidationError("mode must be a string")
+    if not isinstance(pf.synthesizer, str):
+        raise ValidationError("synthesizer must be a string")
+    if not isinstance(pf.if_drift, str):
+        raise ValidationError("if_drift must be a string")
+    for field_name in ("files", "context_files", "reviewers"):
+        value = getattr(pf, field_name)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValidationError(f"{field_name} must be a list of strings")
+    for field_name in ("models", "model_effort"):
+        value = getattr(pf, field_name)
+        if not isinstance(value, dict) or not all(
+            isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+        ):
+            raise ValidationError(f"{field_name} must be a mapping of strings to strings")
+    for field_name in ("custom_prompt", "output_dir", "save_as"):
+        value = getattr(pf, field_name)
+        if value is not None and not isinstance(value, str):
+            raise ValidationError(f"{field_name} must be a string or null")
+    if type(pf.harvest) is not bool:
+        raise ValidationError("harvest must be a boolean")
     if pf.prompt_format_version != 1:
         raise ValidationError(f"unknown prompt_format_version: {pf.prompt_format_version}")
     if pf.task not in _VALID_TASKS:
@@ -92,7 +126,11 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
             raise ValidationError(f"context_files: path does not exist on disk: {p}")
 
 def load_promptfile(path: Path) -> PromptFile:
-    raw = yaml.safe_load(path.read_text())
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise ValidationError(f"{path}: prompt file is not valid UTF-8: {exc}") from exc
+    raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
         raise ValidationError(f"{path}: top-level must be a mapping")
     pf = fill_defaults(raw)

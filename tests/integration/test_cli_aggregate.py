@@ -45,7 +45,7 @@ def test_aggregate_demotes_reviewer_missing_summary_heading(tmp_path):
     (rdir / "claude.md").write_text(refusal)
     (rdir / "claude.state.json").write_text(json.dumps({
         "cli": "claude", "ok": True, "duration_seconds": 1.0,
-        "stderr_tail": "", "usage": None,
+        "stderr_tail": "real subprocess warning", "usage": None,
         "final_model": "claude-opus-4-7",
     }))
     out = tmp_path / "REVIEW.md"
@@ -61,6 +61,10 @@ def test_aggregate_demotes_reviewer_missing_summary_heading(tmp_path):
     assert "## Claude Review (FAILED)" in body
     assert 'reviewers_succeeded: []' in body
     assert 'reviewers_failed: ["claude"]' in body
+    reason = "no ## Summary heading in review body"
+    assert f"**Status:** failed — {reason}" in body
+    assert body.count(reason) == 1
+    assert "real subprocess warning" in body
     # Refusal body should surface in the partial-output block since text was
     # carried through to the failed ReviewerResult.
     assert "Partial output:" in body
@@ -138,5 +142,4 @@ def test_aggregate_renders_with_null_duration(tmp_path):
     body = Path(json.loads(r.stdout)["output_path"]).read_text()
     assert "## Claude Review" in body
     assert "elapsed_s: 0.0" in body
-
 

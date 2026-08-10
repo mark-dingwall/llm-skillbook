@@ -35,6 +35,10 @@ STDERR_TAIL_CHARS = 2000
 # assistant messages larger than the 64 KiB default.
 STREAM_BUFFER_LIMIT = 64 * 1024 * 1024
 
+# SIGKILL normally reaps immediately. Bound the exceptional wait so a broken
+# subprocess watcher cannot turn a cancellation into an indefinite hang.
+PROCESS_REAP_TIMEOUT = 0.1
+
 
 # -------- Data types --------
 
@@ -82,8 +86,11 @@ class ReviewerState:
 async def kill_proc(proc: asyncio.subprocess.Process) -> None:
     try:
         proc.kill()
-        await proc.wait()
     except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=PROCESS_REAP_TIMEOUT)
+    except (asyncio.TimeoutError, ProcessLookupError):
         pass
 
 
@@ -123,13 +130,30 @@ async def run_reviewer(
     if state_callback is not None:
         state_callback(cli, state)
 
+    stderr_chunks: list[bytes] = []
+    deadline = time.monotonic() + timeout if timeout is not None else None
     try:
-        proc = await asyncio.create_subprocess_exec(
+        create_process = asyncio.create_subprocess_exec(
             *cmd,
             limit=STREAM_BUFFER_LIMIT,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+        )
+        if deadline is None:
+            proc = await create_process
+        else:
+            proc = await asyncio.wait_for(
+                create_process, timeout=max(0.0, deadline - time.monotonic()),
+            )
+    except asyncio.TimeoutError:
+        state.status = "timeout"
+        state.finished_at = time.time()
+        if state_callback is not None:
+            state_callback(cli, state)
+        return ReviewerResult(
+            cli, False, "", "", adapter.usage, state.elapsed,
+            error=f"timeout after {timeout}s",
         )
     except FileNotFoundError as e:
         state.status = "error"
@@ -144,48 +168,48 @@ async def run_reviewer(
             state_callback(cli, state)
         return ReviewerResult(cli, False, "", "", Usage(), state.elapsed, error=str(e))
 
-    state.status = "running"
-    if state_callback is not None:
-        state_callback(cli, state)
-
-    if proc.stdin is not None:
-        try:
-            if delivery == "stdin":
-                proc.stdin.write(prompt.encode())
-                await proc.stdin.drain()
-            proc.stdin.close()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-
-    stderr_chunks: list[bytes] = []
-
-    async def drain_stdout() -> None:
-        assert proc.stdout is not None
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                return
-            try:
-                decoded = line.decode("utf-8", errors="replace")
-            except Exception:
-                continue
-            adapter.feed_line(decoded)
-
-    async def drain_stderr() -> None:
-        assert proc.stderr is not None
-        while True:
-            chunk = await proc.stderr.read(4096)
-            if not chunk:
-                return
-            stderr_chunks.append(chunk)
-
     try:
-        if timeout is None:
+        state.status = "running"
+        if state_callback is not None:
+            state_callback(cli, state)
+
+        async def drain_stdout() -> None:
+            assert proc.stdout is not None
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    return
+                try:
+                    decoded = line.decode("utf-8", errors="replace")
+                except Exception:
+                    continue
+                adapter.feed_line(decoded)
+
+        async def drain_stderr() -> None:
+            assert proc.stderr is not None
+            while True:
+                chunk = await proc.stderr.read(4096)
+                if not chunk:
+                    return
+                stderr_chunks.append(chunk)
+
+        async def run_process() -> None:
+            if proc.stdin is not None:
+                try:
+                    if delivery == "stdin":
+                        proc.stdin.write(prompt.encode())
+                        await proc.stdin.drain()
+                    proc.stdin.close()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
             await asyncio.gather(drain_stdout(), drain_stderr(), proc.wait())
+
+        if timeout is None:
+            await run_process()
         else:
+            assert deadline is not None
             await asyncio.wait_for(
-                asyncio.gather(drain_stdout(), drain_stderr(), proc.wait()),
-                timeout=timeout,
+                run_process(), timeout=max(0.0, deadline - time.monotonic()),
             )
     except asyncio.TimeoutError:
         await kill_proc(proc)
@@ -257,6 +281,9 @@ async def run_all_reviewers(
     timeout: int | None,
     *,
     state_callback: "Callable[[str, ReviewerState], None] | None" = None,
+    prompt_path: Path | None = None,
+    task: str | None = None,
+    result_callback: "Callable[[ReviewerResult], None] | None" = None,
 ) -> list[ReviewerResult]:
     """Spawn one asyncio Task per reviewer, await all, return results.
 
@@ -266,19 +293,50 @@ async def run_all_reviewers(
     """
     states = [ReviewerState(cli=c, adapter=make_adapter(c)) for c in reviewers]
 
+    def _notify(callback, *args) -> None:
+        if callback is None:
+            return
+        try:
+            callback(*args)
+        except Exception as exc:
+            asyncio.get_running_loop().call_exception_handler({
+                "message": "multi-review observer callback failed",
+                "exception": exc,
+            })
+
+    def _state_notify(cli: str, state: ReviewerState) -> None:
+        _notify(state_callback, cli, state)
+
     async def runner_for(state: ReviewerState) -> ReviewerResult:
-        return await run_reviewer(
-            state.cli, prompt,
-            model=models.get(state.cli),
-            timeout=timeout,
-            state=state,
-            state_callback=state_callback,
-        )
+        try:
+            result = await run_reviewer(
+                state.cli, prompt,
+                model=models.get(state.cli),
+                timeout=timeout,
+                state=state,
+                state_callback=_state_notify,
+                prompt_path=prompt_path,
+                task=task,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            state.status = "error"
+            if not state.finished_at:
+                state.finished_at = time.time()
+            result = ReviewerResult(
+                cli=state.cli, ok=False, text=state.adapter.get_response_text(),
+                stderr_tail="", usage=state.adapter.usage, elapsed=state.elapsed,
+                error=f"unhandled {type(exc).__name__}: {exc}",
+            )
+        state.result = result
+        _notify(result_callback, result)
+        return result
 
     tasks = [asyncio.create_task(runner_for(s)) for s in states]
 
     try:
-        await asyncio.gather(*tasks)
+        raw = await asyncio.gather(*tasks, return_exceptions=True)
     except (asyncio.CancelledError, KeyboardInterrupt):
         for t in tasks:
             if not t.done():
@@ -287,20 +345,19 @@ async def run_all_reviewers(
         raise
 
     results = []
-    for s, t in zip(states, tasks):
-        try:
-            res = t.result()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            s.status = "error"
-            if not s.finished_at:
-                s.finished_at = time.time()
-            res = ReviewerResult(
-                cli=s.cli, ok=False, text=s.adapter.get_response_text(),
-                stderr_tail="", usage=s.adapter.usage, elapsed=s.elapsed,
-                error=f"unhandled {type(exc).__name__}: {exc}",
-            )
-        s.result = res
-        results.append(res)
+    for state, item in zip(states, raw):
+        if isinstance(item, ReviewerResult):
+            results.append(item)
+            continue
+        state.status = "error"
+        if not state.finished_at:
+            state.finished_at = time.time()
+        result = ReviewerResult(
+            cli=state.cli, ok=False, text=state.adapter.get_response_text(),
+            stderr_tail="", usage=state.adapter.usage, elapsed=state.elapsed,
+            error=f"unhandled {type(item).__name__}: {item}",
+        )
+        state.result = result
+        _notify(result_callback, result)
+        results.append(result)
     return results

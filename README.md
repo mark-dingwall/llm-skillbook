@@ -226,7 +226,13 @@ Runs that fail any check are harvested (so the data is preserved) but are exclud
 
 - **Drift detection covers explicitly-submitted files only.** Files the pass-1 reviewer happened to read via tools (reference mode) but are not listed in `files` or `context_files` are not tracked. Untracked-tool-read drift is a documented v0.2 gap.
 - **agy is an agentic, uncontained reviewer.** `agy --print` runs as an autonomous agent and reads its prompt from a file (agy has no stdin input mode). Headless agy auto-denies every permission-gated tool call, including reading that prompt file, so multi-review passes `--dangerously-skip-permissions` unconditionally — without it, no agy review produces output at all. The cost is that agy can run arbitrary commands on your working tree during a review: **don't point agy at untrusted code** until sandbox containment lands (BACKLOG). Its step-narration preamble is trimmed to the first `## Summary` heading before aggregation.
-- **v0.1 standalone CLI removed.** `./multi_review.py file.ts` prints a deprecation banner and exits 1. The v0.1 entry script will be removed entirely in v0.3.
+- **The v0.1 positional standalone CLI remains removed.** `./multi_review.py file.ts` is not a
+  supported interface. The root script path now hosts a separate headless single-pass contract for
+  contained callers: run `uv run <absolute-repo-path>/multi_review.py --prompt-file <yaml> --out-dir
+  <dir> [--timeout <sec>]` inside `bwrap --unshare-pid --die-with-parent`, and send termination
+  signals to the `bwrap` wrapper. This is required for full-tree shutdown because Codex/OpenCode may
+  run engines below their direct shim. This driver is internal-only and does not replace the
+  `/multi-review` skill or implement its pairing, drift, harvest, promotion, or cleanup workflow.
 - **No timeouts in v0.2.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
 - **claude token telemetry is null.** Task subagents do not surface JSONL-level usage; `input_tokens` / `output_tokens` / `cached_tokens` for the claude reviewer are `null` in all harvest rows. Comparisons needing claude token data should filter on `telemetry_quality == "reliable"` (will return zero rows until a future path adds reliable telemetry).
 - **grok tool-call telemetry is unavailable, and `0` is a sentinel.** grok emits

@@ -63,7 +63,7 @@ def test_dead_fallback_delay_schema_removed():
     assert not hasattr(pf, "delay")
     assert not hasattr(pf, "delay_type")
     for legacy in ("fallback_models", "delay", "delay_type"):
-        with pytest.raises(TypeError):  # PromptFile(**raw) rejects unknown kwarg
+        with pytest.raises(ValidationError):
             fill_defaults({
                 "prompt_format_version": 1, "task": "code", "files": ["x.py"],
                 "mode": "inline", legacy: {} if legacy == "fallback_models" else 1,
@@ -81,7 +81,7 @@ def test_legacy_delay_key_rejected(tmp_path):
     src = tmp_path / "x.py"
     src.write_text("")
     p.write_text(f"prompt_format_version: 1\ntask: code\nfiles: [{src}]\nmode: inline\ndelay: 1800\n")
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError):
         load_promptfile(p)
 
 def test_missing_required_field_rejected(tmp_path):
@@ -157,3 +157,98 @@ def test_unknown_reviewer_and_synthesizer_still_rejected(tmp_path):
                                "files": ["a.py"], "synthesizer": "grok3"})
     with pytest.raises(ValidationError):
         validate(bad_synth, base_dir=tmp_path)
+
+
+def test_internal_typeerror_is_not_relabelled_as_invalid_config(tmp_path, monkeypatch):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(f"prompt_format_version: 1\ntask: code\nfiles: [{src}]\n")
+
+    def _bug(*args, **kwargs):
+        raise TypeError("internal bug")
+
+    monkeypatch.setattr("multi_review.core.promptfile.validate", _bug)
+    with pytest.raises(TypeError, match="internal bug"):
+        load_promptfile(prompt)
+
+
+def test_invalid_utf8_is_reported_as_a_validation_error(tmp_path):
+    """A malformed byte stream is invalid configuration, not a driver crash."""
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(ValidationError, match="UTF-8"):
+        load_promptfile(prompt)
+
+
+def test_nul_in_file_path_is_reported_as_a_validation_error(tmp_path):
+    """Path resolution failures stay inside the prompt-file validation boundary."""
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        'prompt_format_version: 1\ntask: code\nfiles: ["bad\\0path"]\n'
+    )
+
+    with pytest.raises(ValidationError, match="invalid path"):
+        load_promptfile(prompt)
+
+
+def test_nul_in_absolute_file_path_is_reported_as_a_validation_error(tmp_path):
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        'prompt_format_version: 1\ntask: code\nfiles: ["/bad\\0path"]\n'
+    )
+
+    with pytest.raises(ValidationError, match="invalid path"):
+        load_promptfile(prompt)
+
+
+def test_symlink_loop_in_input_path_is_reported_as_a_validation_error(tmp_path):
+    """A supported-runtime Path.resolve RuntimeError stays inside validation."""
+    loop = tmp_path / "cycle"
+    loop.symlink_to(loop.name)
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        'prompt_format_version: 1\ntask: code\nfiles: ["cycle/target.py"]\n'
+    )
+
+    with pytest.raises(ValidationError, match="invalid path"):
+        load_promptfile(prompt)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("prompt_format_version", True),
+        ("prompt_format_version", 1.5),
+        ("task", 1),
+        ("mode", 1),
+        ("synthesizer", 1),
+        ("if_drift", 1),
+        ("files", "x.py"),
+        ("files", ["x.py", 1]),
+        ("context_files", "x.py"),
+        ("context_files", ["x.py", 1]),
+        ("reviewers", "codex"),
+        ("reviewers", ["codex", 1]),
+        ("models", ["codex"]),
+        ("models", {1: "model"}),
+        ("models", {"codex": 1}),
+        ("model_effort", ["codex"]),
+        ("model_effort", {1: "high"}),
+        ("model_effort", {"codex": 1}),
+        ("custom_prompt", 1),
+        ("output_dir", 1),
+        ("save_as", 1),
+        ("harvest", 1),
+    ],
+)
+def test_malformed_field_types_raise_validation_error(tmp_path, field, value):
+    """Every malformed field is rejected before downstream iteration or path use."""
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {"prompt_format_version": 1, "task": "code", "files": [str(src)]}
+    raw[field] = value
+
+    with pytest.raises(ValidationError):
+        validate(fill_defaults(raw), base_dir=tmp_path)

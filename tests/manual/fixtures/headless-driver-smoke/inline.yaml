@@ -1,0 +1,14 @@
+prompt_format_version: 1
+task: custom
+files:
+  - subject.py
+custom_prompt: |
+  Review this trusted synthetic Python fixture. Do not run commands or modify files.
+  Your Markdown response must begin with `## Summary`, mention the exact marker
+  `INLINE_DRIVER_SMOKE_20260807`, and identify the missing zero-denominator policy.
+mode: inline
+reviewers:
+  - claude
+models:
+  claude: haiku
+synthesizer: none

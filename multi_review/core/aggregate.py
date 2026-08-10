@@ -54,6 +54,7 @@ def write_review_md(
     path: Path,
     results: list[ReviewerResult],
     synthesis_text: str | None,
+    synthesis_error: str | None = None,
     mode: str,
     task: str,
     reviewers_attempted: list[str],
@@ -99,7 +100,7 @@ def write_review_md(
     if pair_id is not None:
         lines.append(f"pair_id: {pair_id}")
     if prompt_file is not None:
-        lines.append(f"prompt_file: {prompt_file}")
+        lines.append(f"prompt_file: {json.dumps(prompt_file)}")
     lines.append("models:")
     for k, v in (models or {}).items():
         lines.append(f"  {k}: {json.dumps(v)}")
@@ -149,6 +150,13 @@ def write_review_md(
         if not body.lstrip().startswith("## Consensus Summary"):
             body = "## Consensus Summary\n\n" + body.lstrip()
         lines.append(body)
+    elif synthesis_error is not None:
+        lines.append("## Consensus Summary")
+        lines.append("")
+        lines.append("_Consensus synthesis failed._")
+        lines.append("")
+        diagnostic = synthesis_error.strip()[:2000] or "unknown error"
+        lines.append(f"Diagnostic: {json.dumps(diagnostic)}")
     elif len(succeeded) < 2:
         lines.append("## Consensus Summary")
         lines.append("")
@@ -160,6 +168,6 @@ def write_review_md(
     lines.append("")
 
     try:
-        path.write_text("\n".join(lines))
+        path.write_text("\n".join(lines), encoding="utf-8")
     except OSError as e:
         raise SystemExit(f"Error writing {path}: {e}")
