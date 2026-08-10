@@ -1,0 +1,6 @@
+controllerThreadId=019feacb-1917-7e50-ac99-40bdc7666b98
+workerModel=gpt-5.6-luna
+exitStatus=0
+childRollouts=6
+scope=Scenarios D-F
+terminalOutcome=fail-closed in Scenario D after repeated invalid Scope results

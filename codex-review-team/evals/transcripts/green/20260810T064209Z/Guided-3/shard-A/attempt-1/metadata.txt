@@ -1,0 +1,5 @@
+controllerThreadId=019feab4-37d2-7992-8b65-c1529ca3286d
+workerModel=gpt-5.6-luna
+exitStatus=0
+childRollouts=11
+scope=Scenario A

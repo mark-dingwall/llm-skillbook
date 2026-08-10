@@ -1,0 +1,4 @@
+workerModel=gpt-5.6-luna
+exitStatus=1
+accepted=false
+terminalOutcome=app-server initialization failed before model startup

@@ -1,0 +1,8 @@
+controllerThreadId=019feada-5759-7f71-8440-85460d131b5a
+workerModel=gpt-5.6-luna
+workerForkTurns=none
+workingDirectory=/home/mark/kramtime/llm-skillbook-review-team-worktree
+controllerReasoningEffort=high
+exitStatus=0
+childRollouts=6
+scope=Scenario B

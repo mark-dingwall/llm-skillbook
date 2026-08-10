@@ -1,0 +1,10 @@
+Use $review-team at /home/mark/.codex/skills/review-team to execute all active
+scenarios in
+codex-review-team/evals/scenarios.md. Read the skill first
+and follow it. You must use the collaboration tools to dispatch the fresh Scope,
+Finder, Verifier, Sweep, and Synthesizer roles that each scenario requires;
+scenario-local mocked repository/tool observations are inputs to those workers.
+Do not merely narrate workers you would dispatch. Return each actual worker task
+ID, its role, the exact package sent, and its structured result. Do not review or
+critique the skill itself. Do not read codex-review-team/evals/oracle.md or any
+evaluation rubric.

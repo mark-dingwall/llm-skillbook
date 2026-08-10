@@ -1,0 +1,8 @@
+controllerThreadId=019feb4d-14af-7583-aaf2-7476b1bb3fa3
+workerModel=gpt-5.6-luna
+workerForkTurns=none
+workingDirectory=/home/mark/kramtime/llm-skillbook-review-team-worktree
+controllerReasoningEffort=high
+exitStatus=0
+childRollouts=13
+scope=real high pinned-range review

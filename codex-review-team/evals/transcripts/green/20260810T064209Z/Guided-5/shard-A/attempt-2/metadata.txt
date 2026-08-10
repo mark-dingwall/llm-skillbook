@@ -1,0 +1,7 @@
+controllerThreadId=019feb0b-13e2-7a43-a139-95407483d278
+workerModel=gpt-5.6-luna
+workerForkTurns=none
+controllerReasoningEffort=high
+exitStatus=0
+accepted=false
+terminalOutcome=behaviorally complete but ephemeral child rollouts were not persisted

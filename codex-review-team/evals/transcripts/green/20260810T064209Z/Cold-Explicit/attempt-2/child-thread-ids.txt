@@ -1,0 +1,5 @@
+019fea69-b5ae-7161-b857-179930906a69 /root/scope
+019fea6b-a2e4-7e43-886b-59c77d7e8f2a /root/finder_a
+019fea6c-006f-7081-ae7c-c381f3a70f14 /root/finder_b
+019fea6c-470a-7e60-be98-f249ad669995 /root/finder_c
+019fea73-4197-7c03-aa82-1d2433e43b89 /root/finder_cleanup
