@@ -43,11 +43,3 @@ Your output is body only (plain prose). Optional inner `### Headline` is fine.
 - (item where reviewers disagree — describe both sides)
 
 ```
-
-When invoked for a **deprecated paired-run report build**, the prompt will include both pass-1 and pass-2 REVIEW.md as separate `<pass-1 …>` and `<pass-2 …>` blocks. In that case, your output also includes:
-
-```
-### Mode-divergence observations
-
-(strictly descriptive historical record only. Do not make comparative claims like "mode X outperformed mode Y" or "reference is better for reviewer Z".)
-```

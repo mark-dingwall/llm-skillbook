@@ -4,8 +4,6 @@ Fan out a code review across multiple AI models in parallel, aggregate results i
 
 **Two supported entry points.** Use `/multi-review` inside Claude Code for the interactive workflow, or `multi_review.py --prompt-file … --out-dir …` for a contained headless single pass. The skill runs `claude` as a Task subagent; the headless driver runs it through `claude -p`. The proposed `claude -p` billing change that originally motivated this split is deferred indefinitely, so choose the entry point that fits the caller rather than a presumed billing distinction.
 
-> **Deprecated comparison workflow.** `mode: both`, drift handling, harvest and persisted telemetry, `runs/`, experiment logs, sidecars, and paired reports are retained for compatibility but are not recommended for new work. The existing evidence found no meaningful inline-vs-reference difference for sufficiently capable frontier models. A later release will provide a real harvest opt-out and remove the comparison subsystem. `inline` and `reference` single-pass delivery remain supported; neither is preferred.
-
 ## Requirements
 
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
@@ -104,8 +102,6 @@ Invoke from inside a Claude Code session:
 | `/multi-review "seed text"` | Interactive build with seed — subagent skips discovery questions, starts from your seed |
 | `/multi-review --use-defaults "seed text"` | Autonomous build — subagent does a shallow cwd scan, infers defaults, writes YAML without prompting |
 | `/multi-review --prompt-files A.yaml,B.yaml` | Run one or more pre-written prompt files directly (skips build subagent) |
-| `/multi-review --resume-pair <pair-id>` | Deprecated: resume pass 2 of a paired comparison run |
-| `/multi-review --report` | Deprecated: regenerate the local historical `EXPERIMENTS.md` log, then exit |
 | `/multi-review --list-reviewers` | Probe each CLI via `shutil.which` + `<cli> --version`, print availability and detected models |
 
 ## Prompt YAML schema
@@ -204,27 +200,6 @@ Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--
 
 > Fallback chain (gemini capacity recovery) scrapped 2026-06-19. See BACKLOG v0.2.1 quota-proximity probe for the planned replacement.
 
-## Deprecated paired runs and drift
-
-`mode: both` runs the same prompt twice — once inline, once reference — for legacy inline-vs-reference comparison. Do not start new paired runs; this mechanism is retained only while the removal path is prepared.
-
-**Pass order** is read from the legacy `EXPERIMENTS.md` `next_recommended_order` field. When counters tie, the current implementation chooses `reference` first; that order does not imply a quality preference.
-
-**Drift detection** (default `if_drift: ignore`) is available only for this deprecated workflow. Set `if_drift: ask` to snapshot `files` and `context_files` before pass 1 and diff them before pass 2; on drift, the skill asks whether to proceed, abort, or investigate (dispatches `multi-review-investigate` to classify each changed file against pass-1 findings).
-
-Manual smoke procedures:
-- `tests/manual/paired_pass.md` — full paired-run procedure
-- `tests/manual/drift_ask.md` — drift-ask flow
-
-## Deprecated comparison eligibility
-
-A paired run contributes to `sessions_reference_first` / `sessions_inline_first` counters in `EXPERIMENTS.md` only when:
-
-- **Per-reviewer**: default model used AND reviewer finished `ok`
-- **Pair-level**: both passes satisfy the per-reviewer check for every reviewer; `if_drift` was not `ignore`; and the user did not choose "proceed" after drift was detected
-
-Runs that fail any check are harvested (so the data is preserved) but are excluded from comparison stats. This legacy accounting remains implemented only for compatibility.
-
 ## Limitations
 
 - **Drift detection covers explicitly-submitted files only.** Files the pass-1 reviewer happened to read via tools (reference mode) but are not listed in `files` or `context_files` are not tracked. Untracked-tool-read drift is a documented v0.2 gap.
@@ -235,8 +210,7 @@ Runs that fail any check are harvested (so the data is preserved) but are exclud
   <dir> [--timeout <sec>]` inside `bwrap --unshare-pid --die-with-parent`, and send termination
   signals to the `bwrap` wrapper. This is required for full-tree shutdown because Codex/OpenCode may
   run engines below their direct shim. This supported driver is for contained callers; it does not
-  replace the `/multi-review` skill or implement its deprecated pairing, drift, harvest, promotion,
-  or cleanup workflow.
+  replace the `/multi-review` skill.
 - **No timeouts in v0.2.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
 - **Persisted telemetry is deprecated.** Task subagents do not surface JSONL-level usage, and
   `grok` tool-call telemetry is unavailable. Existing rows retain `0` as an unavailable sentinel:

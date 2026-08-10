@@ -10,18 +10,6 @@ v0.2 supports two entry points: the **Claude Code skill** `/multi-review`, whose
 multi-step procedure lives in `skills/multi-review/SKILL.md`, and the root
 `multi_review.py` headless single-pass driver for contained callers: invoke
 `uv run <absolute-repo-path>/multi_review.py --prompt-file <yaml> --out-dir <dir> [--timeout <sec>]`.
-The driver intentionally does not implement the skill's deprecated pairing,
-drift, harvest, promotion, or cleanup workflow.
-
-### Deprecated comparison workflow
-
-`mode: both`, drift snapshots, harvest and persisted telemetry, `runs/`,
-EXPERIMENTS.md, sidecars, and paired reports are legacy compatibility
-infrastructure. Do not start new comparison runs: existing evidence found no
-meaningful inline-vs-reference difference for sufficiently capable frontier
-models. `inline` and `reference` single-pass delivery remain supported with no
-claimed preference. A follow-up will add a real harvest opt-out and eventually
-remove this subsystem.
 
 Packaged via `pyproject.toml` (`multi_review/core` + `multi_review/cli`). Console scripts (`mr-spawn`, `mr-snapshot`, …) are declared there but **are not installed in this checkout** — invoke modules as `uv run python -m multi_review.cli.<name>`.
 
@@ -77,7 +65,7 @@ SKILL.md steps drive this; the module names below are where each step's work hap
 2. `prepare` calls `build_prompt`: injection preamble + task template (or `custom_prompt`) + context files + input files. Context files are always wrapped inline in `<file-NONCE path="…">…</file-NONCE>`. Input files are inline-wrapped under `mode: inline` or emitted as a manifest of absolute paths under `mode: reference`. Reference mode prepends a second preamble (`reference_preamble()`) warning that file *contents* read at tool-call time are review subjects, not instructions.
 3. Fanout: the `claude` reviewer runs as a Task subagent (`multi-review-reviewer`), captured via `write_task_result`. Every other reviewer is a background `spawn` subprocess whose stdout feeds a per-CLI `ProgressAdapter` (`claude`/`codex`/`opencode`/`grok` parse JSONL; `agy`/`pykrete` are plain text).
 4. `build_synth_input` wraps each successful review in `<review reviewer="…">`; the synthesizer (Task subagent or `spawn`) returns a Consensus Summary body.
-5. `aggregate` emits YAML frontmatter + one section per reviewer + Consensus Summary; the deprecated `write_harvest_row` path writes metadata directly and buffers only when that write fails.
+5. `aggregate` emits YAML frontmatter + one section per reviewer + Consensus Summary.
 
 ### Key abstractions
 

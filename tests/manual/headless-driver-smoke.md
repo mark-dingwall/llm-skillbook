@@ -15,8 +15,8 @@ writable scratch `HOME`/`CLAUDE_CONFIG_DIR` and a script-scoped token from
 ## 2. Does headless `claude -p` auto-deny permission-gated tool calls?
 
 `agy --print` does (CLAUDE.md documents it). If `claude -p` does too, **reference
-mode systematically fails for `claude` through this driver** and needs its own fix,
-not a caveat. Test: a `mode: reference` run with `reviewers: [claude]`, and check
+delivery systematically fails for `claude` through this driver** and needs its own fix,
+not a caveat. Test: a run with `reviewers: [claude]`, and check
 whether the review body shows it actually read the manifest's files.
 
 ## 3. WSL2 DNS

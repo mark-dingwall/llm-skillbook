@@ -1,6 +1,6 @@
 # multi-review-synthesizer smoke
 
-1. Run two CLIs in inline mode against a small file (e.g. `multi_review/core/paths.py`):
+1. Run two CLIs against a small file (e.g. `multi_review/core/paths.py`):
    ```bash
    uv run python -m multi_review.cli.spawn --cli <cli> \
      --prompt-file <prepared prompt> --out-dir /tmp/synth-smoke/reviews
