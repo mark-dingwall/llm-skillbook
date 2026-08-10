@@ -1,0 +1,6 @@
+parentThreadId=019fea09-951d-7dc3-8a4f-1e331d77d3dd
+parentSource=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T14-58-44-019fea09-951d-7dc3-8a4f-1e331d77d3dd.jsonl
+parentExport=parent-rollout.jsonl
+childThreadId=019fea0a-4ffd-7fd3-9889-b9369ed549ad source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T14-59-32-019fea0a-4ffd-7fd3-9889-b9369ed549ad.jsonl export=child-1-019fea0a-4ffd-7fd3-9889-b9369ed549ad.jsonl
+childThreadId=019fea0a-697f-7801-bb4e-ee7ac654fe52 source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T14-59-38-019fea0a-697f-7801-bb4e-ee7ac654fe52.jsonl export=child-2-019fea0a-697f-7801-bb4e-ee7ac654fe52.jsonl
+childThreadId=019fea0a-834f-7dd1-ab02-2aee2070fc7f source=/home/mark/.codex/sessions/2026/08/10/rollout-2026-08-10T14-59-45-019fea0a-834f-7dd1-ab02-2aee2070fc7f.jsonl export=child-3-019fea0a-834f-7dd1-ab02-2aee2070fc7f.jsonl
