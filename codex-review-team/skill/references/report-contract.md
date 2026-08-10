@@ -290,6 +290,24 @@ numeric strings are invalid. Reject duplicate candidate IDs. Ignore invalid
 individual decisions and backfill their verified records deterministically
 while capacity remains.
 
+Require structured Synthesis output in this shape:
+
+```text
+summary: string
+decisions[]: {
+  reportIndex: non-negative integer,
+  candidateId: non-negative integer,
+  merge?: {
+    reportIndex: non-negative integer,
+    candidateId: non-negative integer
+  }[]
+}
+```
+
+Validate every primary and merged identity pair against the dispatched ordered
+survivor list. A record may be claimed only once across primary and merge
+positions. Synthesis never re-emits or rewrites candidate text.
+
 Allow a semantic merge only when the supplied summaries and verifier evidence
 make the same root cause explicit. Synthesis has no diff access; when causality
 is ambiguous, keep records separate. Preserve every affected location. One
