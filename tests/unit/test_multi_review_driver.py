@@ -193,15 +193,23 @@ def test_validation_failure_does_not_create_out_dir(tmp_path):
     assert not out.exists()
 
 
-def test_unreadable_input_file_exits_1(tmp_path, monkeypatch):
+def test_unreadable_input_file_is_rejected_before_fanout(tmp_path, monkeypatch):
     pf = _write_promptfile(tmp_path, BASE_YAML)
     out = tmp_path / "round-1"
+    source = (tmp_path / "target.py").resolve()
+    real_open = Path.open
+    fanout = _RecordingFanout()
 
-    def _boom(*args, **kwargs):
-        raise SystemExit("error: cannot read target.py")
+    def deny_input_read(path, mode="r", *args, **kwargs):
+        if path == source and mode == "rb":
+            raise PermissionError("read denied")
+        return real_open(path, mode, *args, **kwargs)
 
-    monkeypatch.setattr(driver, "build_prompt", _boom)
+    monkeypatch.setattr(Path, "open", deny_input_read)
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
+    assert fanout.calls == []
+    assert not out.exists()
 
 
 def test_build_time_path_validation_error_exits_2(tmp_path, monkeypatch, capsys):

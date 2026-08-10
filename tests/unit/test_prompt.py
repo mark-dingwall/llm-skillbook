@@ -38,6 +38,40 @@ def test_build_prompt_reference_omits_contents(tmp_path):
     assert str(f.resolve()) in out
     assert "Files to Review" in out
 
+
+def test_build_prompt_rejects_unreadable_regular_input_file(tmp_path, monkeypatch):
+    source = tmp_path / "unreadable.py"
+    source.write_text("SECRET_BODY_MUST_NOT_BE_INLINED\n")
+    resolved = source.resolve()
+    real_open = Path.open
+
+    def deny_input_read(path, mode="r", *args, **kwargs):
+        if path == resolved and mode == "rb":
+            raise PermissionError("read denied")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", deny_input_read)
+
+    with pytest.raises(SystemExit, match="cannot read input file"):
+        build_prompt(task="code", files=[source], nonce="N2")
+
+
+def test_build_prompt_rejects_directory_input(tmp_path):
+    source = tmp_path / "source-dir"
+    source.mkdir()
+
+    with pytest.raises(SystemExit, match="not a regular file"):
+        build_prompt(task="code", files=[source], nonce="N2")
+
+
+@pytest.mark.parametrize("separator", ["\n", "\r"])
+def test_build_prompt_rejects_line_breaking_manifest_path(tmp_path, separator):
+    source = tmp_path / f"line{separator}break.py"
+    source.write_text("pass\n")
+
+    with pytest.raises(SystemExit, match="line-breaking characters"):
+        build_prompt(task="code", files=[source], nonce="N2")
+
 def test_build_prompt_reference_includes_both_preambles():
     out = build_prompt(
         task="code", files=[], context_files=[], custom_prompt=None,

@@ -1,8 +1,11 @@
 # tests/integration/test_cli_prepare.py
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 def test_prepare_writes_prompt(tmp_path):
     src = tmp_path / "a.py"
@@ -46,7 +49,6 @@ def test_prepare_resolves_relative_paths_against_promptfile_dir(tmp_path):
     out_dir = tmp_path / "run"
     out_dir.mkdir()
 
-    import os
     project_root = Path(__file__).resolve().parents[2]
     env = {**os.environ, "PYTHONPATH": str(project_root)}
     r = subprocess.run(
@@ -111,3 +113,30 @@ def test_prepare_removed_key_returns_json_error(tmp_path):
     payload = json.loads(lines[0])
     assert payload["ok"] is False
     assert "mode" in payload["error"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permissions required")
+def test_prepare_rejects_unreadable_input_before_writing_prompt(tmp_path):
+    src = tmp_path / "unreadable.py"
+    src.write_text("SECRET_BODY_MUST_NOT_BE_INLINED\n")
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        "prompt_format_version: 2\n"
+        "task: code\n"
+        f"files: [\"{src}\"]\n"
+    )
+    out_dir = tmp_path / "run"
+    src.chmod(0)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "multi_review.cli.prepare",
+             "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        src.chmod(0o600)
+
+    assert result.returncode == 1
+    assert "cannot read input file" in result.stderr
+    assert not (out_dir / "prompt.txt").exists()

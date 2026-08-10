@@ -341,6 +341,20 @@ def build_prompt(
                 raise SystemExit(f"error: cannot resolve input file {f}: {e}")
             print(f"Warning: cannot resolve input file {f}: {e}", file=sys.stderr)
             continue
+        manifest_path = str(resolved)
+        if "\n" in manifest_path or "\r" in manifest_path:
+            raise SystemExit(
+                f"error: input file path contains line-breaking characters: {manifest_path!r}"
+            )
+        if not resolved.is_file():
+            raise SystemExit(f"error: input path is not a regular file: {resolved}")
+        try:
+            # Open-only preflight: prove reviewers can read the manifested file
+            # without copying its contents into the prompt.
+            with resolved.open("rb"):
+                pass
+        except OSError as e:
+            raise SystemExit(f"error: cannot read input file {resolved}: {e}")
         manifest_paths.append(resolved)
 
     if nonce is None:

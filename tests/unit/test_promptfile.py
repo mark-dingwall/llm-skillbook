@@ -57,18 +57,21 @@ def test_promptfile_reports_all_removed_keys_present_at_once():
         "prompt_format_version": 2,
         "task": "code",
         "files": ["x.py"],
-        "mode": "",
-        "harvest": False,
+        "model_effort": {},
         "save_as": None,
+        "output_dir": None,
+        "harvest": False,
+        "if_drift": "",
+        "mode": "",
     }
 
     with pytest.raises(ValidationError) as exc:
         fill_defaults(raw)
 
-    message = str(exc.value)
-    assert "mode" in message
-    assert "harvest" in message
-    assert "save_as" in message
+    assert str(exc.value) == (
+        "prompt YAML key(s) removed in v0.3.0, delete before retrying: "
+        "mode, if_drift, harvest, output_dir, save_as, model_effort"
+    )
 
 
 def test_omitting_removed_keys_still_validates():
@@ -159,6 +162,33 @@ def test_nonexistent_file_path_rejected(tmp_path):
     with pytest.raises(ValidationError) as e:
         load_promptfile(p)
     assert "exist" in str(e.value).lower() or "not found" in str(e.value).lower()
+
+
+def test_directory_in_required_files_is_rejected(tmp_path):
+    source_dir = tmp_path / "source-dir"
+    source_dir.mkdir()
+    pf = fill_defaults({
+        "prompt_format_version": 2,
+        "task": "code",
+        "files": [str(source_dir)],
+    })
+
+    with pytest.raises(ValidationError, match="regular file"):
+        validate(pf, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("separator", ["\n", "\r"])
+def test_line_breaking_required_file_path_is_rejected(tmp_path, separator):
+    source = tmp_path / f"line{separator}break.py"
+    source.write_text("pass\n")
+    pf = fill_defaults({
+        "prompt_format_version": 2,
+        "task": "code",
+        "files": [str(source)],
+    })
+
+    with pytest.raises(ValidationError, match="line-breaking characters"):
+        validate(pf, base_dir=tmp_path)
 
 def test_unknown_reviewer_in_models_rejected(tmp_path):
     src = tmp_path / "x.py"

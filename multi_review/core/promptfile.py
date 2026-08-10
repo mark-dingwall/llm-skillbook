@@ -26,7 +26,7 @@ _KNOWN_REVIEWERS = set(ALL_REVIEWERS)  # valid set (includes opt-in reviewers li
 _VALID_SYNTHESIZERS = _KNOWN_REVIEWERS | {"none"}
 
 _REQUIRED_FIELDS = {"prompt_format_version", "task", "files"}
-_REMOVED_KEYS = ("mode", "model_effort", "if_drift", "output_dir", "save_as", "harvest")
+_REMOVED_KEYS = ("mode", "if_drift", "harvest", "output_dir", "save_as", "model_effort")
 
 def fill_defaults(raw: dict) -> PromptFile:
     found = [key for key in _REMOVED_KEYS if key in raw]
@@ -73,20 +73,16 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         value = getattr(pf, field_name)
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise ValidationError(f"{field_name} must be a list of strings")
-    for field_name in ("models",):
-        value = getattr(pf, field_name)
-        if not isinstance(value, dict) or not all(
-            isinstance(key, str) and isinstance(item, str) for key, item in value.items()
-        ):
-            raise ValidationError(f"{field_name} must be a mapping of strings to strings")
-    for field_name in ("custom_prompt",):
-        value = getattr(pf, field_name)
-        if value is not None and not isinstance(value, str):
-            raise ValidationError(f"{field_name} must be a string or null")
+    if not isinstance(pf.models, dict) or not all(
+        isinstance(key, str) and isinstance(item, str) for key, item in pf.models.items()
+    ):
+        raise ValidationError("models must be a mapping of strings to strings")
+    if pf.custom_prompt is not None and not isinstance(pf.custom_prompt, str):
+        raise ValidationError("custom_prompt must be a string or null")
     if pf.prompt_format_version == 1:
         raise ValidationError(
             "prompt_format_version: 1 is no longer supported — v0.3 removed inline delivery "
-            "and 6 deprecated fields (mode, if_drift, harvest, output_dir, save_as, model_effort). "
+            f"and {len(_REMOVED_KEYS)} deprecated fields ({', '.join(_REMOVED_KEYS)}). "
             "Set prompt_format_version: 2."
         )
     if pf.prompt_format_version != 2:
@@ -108,8 +104,16 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         if cli not in _KNOWN_REVIEWERS:
             raise ValidationError(f"models.{cli!r} is not a known reviewer; known: {_KNOWN_REVIEWERS}")
     for p in pf.files:
-        if not _resolve_path(p, base_dir).exists():
+        resolved = _resolve_path(p, base_dir)
+        resolved_text = str(resolved)
+        if "\n" in resolved_text or "\r" in resolved_text:
+            raise ValidationError(
+                f"files: path contains line-breaking characters: {p!r}"
+            )
+        if not resolved.exists():
             raise ValidationError(f"files: path does not exist on disk: {p}")
+        if not resolved.is_file():
+            raise ValidationError(f"files: path is not a regular file: {p}")
     for p in pf.context_files:
         if not _resolve_path(p, base_dir).exists():
             raise ValidationError(f"context_files: path does not exist on disk: {p}")
