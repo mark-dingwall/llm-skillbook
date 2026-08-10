@@ -162,7 +162,7 @@ uv run python -m multi_review.cli.validate_prompt prompt.yaml
 
 Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--model X=Y` behaviour. Reviewers run single-attempt; 429/capacity errors → fail clean.
 
-> Fallback chain (gemini capacity recovery) scrapped 2026-06-19. See BACKLOG v0.2.1 quota-proximity probe for the planned replacement.
+> Fallback chain (gemini capacity recovery) scrapped 2026-06-19. See BACKLOG's quota-proximity probe for the planned replacement.
 
 ## Limitations
 
@@ -174,7 +174,7 @@ Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--
   signals to the `bwrap` wrapper. This is required for full-tree shutdown because Codex/OpenCode may
   run engines below their direct shim. This supported driver is for contained callers; it does not
   replace the `/multi-review` skill.
-- **No timeouts in v0.2.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
+- **No skill-level timeouts.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
 - **grok is an agentic, uncontained reviewer.** It auto-approves its own tool use
   in headless mode and can run commands on your working tree during a review.
   `--sandbox workspace` fences writes but is not a security boundary and does not

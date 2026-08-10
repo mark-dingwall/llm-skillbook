@@ -152,7 +152,7 @@ def test_classify_review_ok_accepts_glued_heading():
     violations (agy narration, claude Task narration, grok glue) all had the
     heading present with preamble in front of it — never absent. A gate that
     requires line-start position demotes a genuine review to a truncated
-    failure section and poisons its harvest row."""
+    failure section."""
     from multi_review.core.prompt import classify_review_ok
 
     ok, note = classify_review_ok(True, GLUED_HEADING_BODY)

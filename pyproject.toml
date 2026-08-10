@@ -1,6 +1,6 @@
 [project]
 name = "multi-review"
-version = "0.2.0a0"
+version = "0.3.0"
 requires-python = ">=3.11"
 dependencies = [
   "rich>=13.7",

@@ -27,7 +27,7 @@ REVIEW-*.md
 .claude/
 .codex
 
-# Multi-review v0.2 state
+# Multi-review local state
 .multi-review/
 .worktrees/
 *.egg-info/
