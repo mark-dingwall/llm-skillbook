@@ -1,7 +1,7 @@
 # Codex Review Team Repository Design
 
 **Date:** 2026-08-10
-**Status:** Approved repository design; behavioral design migration pending
+**Status:** Approved
 
 ## Purpose
 
@@ -11,9 +11,8 @@ skill package, design and implementation documents, evaluation evidence, and
 change history. Codex's personal skills directory contains only an installed
 copy used at runtime.
 
-The existing frozen review-team behavioral design remains authoritative until
-the implementation plan migrates it into this component. This document changes
-repository ownership and deployment mechanics only. It does not reopen the
+The component's behavioral design is the authority for review-team behavior.
+This repository design changes ownership and deployment mechanics only. It does not reopen the
 workflow topology, effort budgets, role boundaries, verification rules, failure
 policy, or report contract.
 
