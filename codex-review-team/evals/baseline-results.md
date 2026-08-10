@@ -176,3 +176,13 @@ demonstrate a repeatable guidance failure that the skill must correct. Sweep
 suppression completeness and, in Control 2, inherited worker context provide
 additional observed failures. No causal RED→GREEN claim is made for the D-F
 acceptance contracts, which remain design-derived tests.
+
+## Scenario D fixture repair
+
+Task 5 classified Scenario D's standalone repository and symbolic observation
+text as a scenario ambiguity. The controller-visible Scenario D stimulus and
+its scorer-only oracle now name `/home/mark/tools/superpowers`, repeat the
+pinned range literally, and provide concrete authoritative mocked outcomes for
+every branch. This D-F-only clarification does not alter Scenarios A-C, the
+five accepted no-guidance control prompts, their transcript hashes, or the RED
+gate; therefore the combined A-C baseline was not rerun.

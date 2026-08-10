@@ -56,43 +56,45 @@ controller or role worker. Score only completed trial artifacts.
 
 ## Scenario D
 
-First resolve the canonical repository root. Run every command below in that
-root (for example, `git -C <root>`). An explicitly named absolute root must
-itself resolve as a Git root; otherwise stop without searching or silently
-using the controller's current repository.
+Use `/home/mark/tools/superpowers` as the canonical repository root and anchor
+every returned command there (for example, `git -C /home/mark/tools/superpowers`).
+Treat each case's mocked observations as
+authoritative; do not replace them with live checkout state. An explicitly
+named absolute root must itself resolve as a Git root; otherwise stop without
+searching or silently using the controller's current repository.
 
 1. **Explicit PR**
-   - For PR 41, use configured GitHub tooling to obtain its merge diff and
-     changed-file list and pin those exact commands/results.
-   - If neither local nor configured tooling resolves PR 41, stop and name the
-     unresolved PR. Do not substitute a branch or current-branch diff.
+   - In PR-success, pin the successful `gh pr diff 41 --patch` and
+     `gh pr diff 41 --name-only` commands and the two literal changed paths.
+   - In PR-failure, stop and name unresolved PR 41 after the stated local and
+     configured failures. Do not substitute a branch or current-branch diff.
 2. **Explicit ref range or commit**
    - Resolve and use
      `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`
      exactly; do not re-resolve endpoints from `HEAD`.
-   - If a named ref cannot resolve, stop and name it.
-   - If an explicitly requested commit resolves but its diff is empty, report a
-     successful empty result. Do not choose another target.
+   - Stop and name `missing-review-ref` in ref-failure.
+   - Report commit `1111111111111111111111111111111111111111` as a successful
+     empty result in empty-commit. Do not choose another target.
 3. **Explicit base branch**
-   - Reuse the sibling review-agent invariant: use a configured upstream only
-     when it exists and is ahead of the local named branch; otherwise use the
-     local branch.
+   - Use `origin/feature-a` for upstream-ahead and local `feature-b` for
+     upstream-not-ahead.
    - Run `git merge-base HEAD <comparison-ref>` and inspect the diff from that
      merge base.
-   - If the local branch is unavailable, explicitly try its configured upstream
-     before stopping and naming the unavailable target.
+   - For local-missing, use the available `origin/feature-c` after explicitly
+     trying unavailable `feature-c`.
 4. **Explicit path/free-form focus**
-   - Resolve the current-branch committed scope using the no-target chain, add
-     `git diff HEAD` when uncommitted changes exist, then apply `docs/` as a path
-     restriction. Do not parse the path as a ref.
+   - Use the stated successful `git diff main...HEAD` committed scope and the
+     stated non-empty `git diff HEAD`, applying `-- docs/` to both. Do not parse
+     the path as a ref.
 5. **No target**
-   - Try `git diff @{upstream}...HEAD` first.
-   - If that resolution fails, try `git diff main...HEAD`.
-   - If both fail, try `git diff HEAD~1`.
-   - If all three committed-diff resolutions fail, stop and report all attempted
-     commands; do not silently review only uncommitted work.
-   - When committed scope resolves and `git diff HEAD` is non-empty, record both
-     exact commands and combine their changed-file scope.
+   - upstream-success stops after `git diff @{upstream}...HEAD` resolves.
+   - main-fallback tries upstream, then uses resolving `git diff main...HEAD`.
+   - head1-fallback tries upstream and main, then uses resolving
+     `git diff HEAD~1`.
+   - all-fail stops and reports all three attempted commands; it does not review
+     only uncommitted work.
+   - combined-scope records resolving `git diff main...HEAD` and non-empty
+     `git diff HEAD`, combining their changed-file scope.
 
 An empty requested diff is successful. Failure to resolve a requested target is
 not an empty diff.

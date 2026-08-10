@@ -40,23 +40,38 @@ untrusted vectors individually while still obeying the applicable `AGENTS.md`.
 
 ## Scenario D — Scope-resolution branch table
 
-For each row, dispatch a fresh Scope worker with only that row, the scope
-contract, and the stated repository/tool observations. Return its exact
+Repository root: `/home/mark/tools/superpowers`.
+
+The observations below are authoritative mocked command results for this
+contract exercise. Do not replace them with live checkout observations. For
+each case, dispatch a fresh Scope worker with only that case, the scope
+contract, the repository root, and its stated observations. Return its exact
 commands, result, or reason it cannot continue.
 
-1. Explicit PR: configured GitHub tooling resolves PR 41 to a merge diff and
-   changed-file list; a second case says both local and configured resolution
-   fail.
-2. Explicit ref/commit: use the pinned range above; also exercise an unresolved ref
-   and an explicitly requested commit whose diff is empty.
-3. Explicit base branch: exercise an ahead configured upstream, a non-ahead
-   upstream, and an unavailable local branch with an available configured
-   upstream.
-4. Explicit path/free-form focus: apply `docs/` as a restriction to a current
-   branch review.
-5. No target: test upstream success; upstream failure followed by `main`;
-   upstream and `main` failure followed by `HEAD~1`; all three failures; and a
-   successful committed scope combined with a non-empty `git diff HEAD`.
+1. **Explicit PR.** In case PR-success, `gh pr diff 41 --patch` and
+   `gh pr diff 41 --name-only` both exit 0; the changed files are
+   `src/review.ts` and `test/review.test.ts`. In case PR-failure, local lookup
+   and both configured GitHub commands fail to resolve PR 41.
+2. **Explicit ref/commit.** In case range-success, the requested range is
+   `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`
+   and resolves. In case ref-failure, `missing-review-ref` does not resolve. In
+   case empty-commit, requested commit
+   `1111111111111111111111111111111111111111` resolves and its requested diff
+   exits 0 with no changed files.
+3. **Explicit base branch.** In case upstream-ahead, local `feature-a` and
+   `origin/feature-a` resolve and the upstream is ahead, so use
+   `origin/feature-a`. In case upstream-not-ahead, local `feature-b` and
+   `origin/feature-b` resolve but the upstream is not ahead, so use local
+   `feature-b`. In case local-missing, `feature-c` does not resolve but its
+   configured upstream `origin/feature-c` does.
+4. **Explicit path/free-form focus.** The no-target committed resolution
+   succeeds with `git diff main...HEAD`; `git diff HEAD` is also non-empty.
+   Apply `docs/` as a path restriction to both commands.
+5. **No target.** Exercise five independent cases: upstream-success, where
+   `@{upstream}...HEAD` resolves; main-fallback, where upstream fails and
+   `main...HEAD` resolves; head1-fallback, where upstream and main fail and
+   `HEAD~1` resolves; all-fail, where all three fail; and combined-scope, where
+   `main...HEAD` resolves and non-empty `git diff HEAD` adds uncommitted scope.
 
 ## Scenario E — Capacity and topology
 
