@@ -186,3 +186,9 @@ pinned range literally, and provide concrete authoritative mocked outcomes for
 every branch. This D-F-only clarification does not alter Scenarios A-C, the
 five accepted no-guidance control prompts, their transcript hashes, or the RED
 gate; therefore the combined A-C baseline was not rerun.
+
+The first five repaired-fixture trials then showed that nine successful branch
+observations still lacked the literal changed paths/content outcomes required
+by the strict Scope result. Scenario D and its oracle now supply those concrete
+mock results as well. This remains a D-only stimulus correction and likewise
+does not change or require rerunning the A-C RED controls.

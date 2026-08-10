@@ -54,24 +54,32 @@ commands, result, or reason it cannot continue.
    and both configured GitHub commands fail to resolve PR 41.
 2. **Explicit ref/commit.** In case range-success, the requested range is
    `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`
-   and resolves. In case ref-failure, `missing-review-ref` does not resolve. In
-   case empty-commit, requested commit
+   and resolves to a non-empty content diff changing `README.md`. In case
+   ref-failure, `missing-review-ref` does not resolve. In case empty-commit,
+   requested commit
    `1111111111111111111111111111111111111111` resolves and its requested diff
    exits 0 with no changed files.
 3. **Explicit base branch.** In case upstream-ahead, local `feature-a` and
    `origin/feature-a` resolve and the upstream is ahead, so use
-   `origin/feature-a`. In case upstream-not-ahead, local `feature-b` and
-   `origin/feature-b` resolve but the upstream is not ahead, so use local
-   `feature-b`. In case local-missing, `feature-c` does not resolve but its
-   configured upstream `origin/feature-c` does.
+   `origin/feature-a`; its merge-base content diff changes `src/a.ts`. In case
+   upstream-not-ahead, local `feature-b` and `origin/feature-b` resolve but the
+   upstream is not ahead, so use local `feature-b`; its merge-base content diff
+   changes `src/b.ts`. In case local-missing, `feature-c` does not resolve but
+   its configured upstream `origin/feature-c` does; its merge-base content diff
+   changes `src/c.ts`.
 4. **Explicit path/free-form focus.** The no-target committed resolution
    succeeds with `git diff main...HEAD`; `git diff HEAD` is also non-empty.
-   Apply `docs/` as a path restriction to both commands.
+   Apply `docs/` as a path restriction to both commands. The restricted content
+   diffs change `docs/guide.md` and uncommitted `docs/note.md`, respectively.
 5. **No target.** Exercise five independent cases: upstream-success, where
-   `@{upstream}...HEAD` resolves; main-fallback, where upstream fails and
-   `main...HEAD` resolves; head1-fallback, where upstream and main fail and
-   `HEAD~1` resolves; all-fail, where all three fail; and combined-scope, where
-   `main...HEAD` resolves and non-empty `git diff HEAD` adds uncommitted scope.
+   `@{upstream}...HEAD` resolves to a non-empty content diff changing
+   `src/upstream.ts`; main-fallback, where upstream fails and `main...HEAD`
+   resolves to a non-empty content diff changing `src/main.ts`;
+   head1-fallback, where upstream and main fail and `HEAD~1` resolves to a
+   non-empty content diff changing `src/head1.ts`; all-fail, where all three
+   fail; and combined-scope, where `main...HEAD` resolves changing
+   `src/committed.ts` and non-empty `git diff HEAD` adds
+   `src/uncommitted.ts`.
 
 ## Scenario E — Capacity and topology
 

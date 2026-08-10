@@ -27,6 +27,13 @@ repair affects only Scenario D, the A-C no-guidance baseline and its causal RED
 claim are unchanged and were not rerun. `red.sha256` was regenerated and all
 six entries verified `OK` before commit.
 
+Five targeted D trials then correctly refused to invent changed paths or diff
+content for nine nominally successful cases. The fixture was still incomplete:
+it specified branch resolution but not enough authoritative output to form a
+strict non-empty Scope result. A second D-only repair adds concrete literal
+paths and non-empty content outcomes for every successful case; the oracle was
+updated in lockstep and the A-C baseline remains unaffected.
+
 ## Package wording changes
 
 ### Scope result

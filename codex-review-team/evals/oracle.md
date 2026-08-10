@@ -71,30 +71,36 @@ searching or silently using the controller's current repository.
 2. **Explicit ref range or commit**
    - Resolve and use
      `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`
-     exactly; do not re-resolve endpoints from `HEAD`.
+     exactly; do not re-resolve endpoints from `HEAD`. Return the literal
+     changed path `README.md` and a content-bearing diff command.
    - Stop and name `missing-review-ref` in ref-failure.
    - Report commit `1111111111111111111111111111111111111111` as a successful
      empty result in empty-commit. Do not choose another target.
 3. **Explicit base branch**
    - Use `origin/feature-a` for upstream-ahead and local `feature-b` for
-     upstream-not-ahead.
+     upstream-not-ahead. Return `src/a.ts` and `src/b.ts`, respectively, from
+     their stated non-empty merge-base content diffs.
    - Run `git merge-base HEAD <comparison-ref>` and inspect the diff from that
      merge base.
    - For local-missing, use the available `origin/feature-c` after explicitly
-     trying unavailable `feature-c`.
+     trying unavailable `feature-c`; return `src/c.ts` from its stated
+     non-empty merge-base content diff.
 4. **Explicit path/free-form focus**
    - Use the stated successful `git diff main...HEAD` committed scope and the
      stated non-empty `git diff HEAD`, applying `-- docs/` to both. Do not parse
-     the path as a ref.
+     the path as a ref. Combine literal paths `docs/guide.md` and
+     `docs/note.md`.
 5. **No target**
-   - upstream-success stops after `git diff @{upstream}...HEAD` resolves.
+   - upstream-success stops after `git diff @{upstream}...HEAD` resolves and
+     returns `src/upstream.ts`.
    - main-fallback tries upstream, then uses resolving `git diff main...HEAD`.
+     Return `src/main.ts`.
    - head1-fallback tries upstream and main, then uses resolving
-     `git diff HEAD~1`.
+     `git diff HEAD~1`. Return `src/head1.ts`.
    - all-fail stops and reports all three attempted commands; it does not review
      only uncommitted work.
    - combined-scope records resolving `git diff main...HEAD` and non-empty
-     `git diff HEAD`, combining their changed-file scope.
+     `git diff HEAD`, combining `src/committed.ts` and `src/uncommitted.ts`.
 
 An empty requested diff is successful. Failure to resolve a requested target is
 not an empty diff.
