@@ -46,7 +46,7 @@
 - Delete: `tests/manual/drift_ask.md`
 - Delete: `tests/manual/paired_pass.md`
 - Modify: `tests/manual/agent_synthesizer_smoke.md` (drop "inline mode" phrase from Step 1)
-- Modify: `tests/manual/single_pass.md` (drop `mode: inline` parenthetical; drop the harvest-row/EXPERIMENTS.md verification bullets — that step no longer exists)
+- Modify: `tests/manual/single_pass.md` (drop `mode: inline` parenthetical; delete the entire harvest verification tail, including the `runs.jsonl` permission-prompt/allowlist bullet and the report-regeneration step — none survives v0.3)
 - Modify: `tests/manual/headless-driver-smoke.md` (Section 2: drop the "a `mode: reference` run" framing — low priority wording only)
 - Test: `tests/integration/test_skill_contract.py`
 
@@ -59,7 +59,7 @@
 - [ ] **Step 1: Add a failing "no deprecated content" contract test**
 
   In `tests/integration/test_skill_contract.py`:
-  - Add `test_skill_has_no_deprecated_workflow_content` asserting none of `{"mode: both", "write_harvest_row", "snapshot create", "if_drift: ask", "pending/<pair_id>", "build-paired", "TaskGet", "## Comparison workflow deprecation"}` appear anywhere in `SKILL.md`.
+  - Add `test_skill_has_no_deprecated_workflow_content` asserting none of `{"mode: both", "write_harvest_row", "snapshot create", "if_drift: ask", "pending/<pair_id>", "build-paired", "harvested", "comparison eligibility", "TaskGet", "## Comparison workflow deprecation"}` appear anywhere in `SKILL.md`.
   - Delete `test_skill_harvest_invocation_records_the_synthesizer` outright — its `skill.split("write_harvest_row", 1)[1]` would `IndexError` once Step 8's text is gone, not fail cleanly.
   - In `test_skill_dispatch_binds_to_resolved_reviewers`, delete the three resume-pointer assertions (`prompt-source.txt` in Step 2 and Step 5, `prompt-source.sha256` in Step 5). Keep the fanout/synthesis `resolved.reviewers`/`resolved.synthesizer` binding assertions verbatim — CLAUDE.md-pinned opt-in-enforcement invariant, do not touch.
   - In `test_skill_marks_comparison_workflow_deprecated_and_joins_claude_synchronously`, delete the `## Comparison workflow deprecation`/`mode: both` assertions; rename the function to `test_skill_never_polls_a_claude_task` and keep only the `"TaskGet" not in skill` assertion (a real, still-true invariant independent of the deleted section).
@@ -82,9 +82,9 @@
   - Step 5: drop `--mode-override <pass1_mode>` from the `prepare` invocation (becomes flagless on that axis); delete the snapshot-create block; delete the "Persist the prompt location for resume" block (mkdir + `prompt-source.txt`/`.sha256` + its explanatory paragraph); delete the `<EFFORT_FLAG>` construction and its use in the spawn invocation, keeping only `<MODEL_FLAG>` + `<TASK_FLAG>`. Keep the spawn dispatch loop and the claude Task dispatch + `write_task_result` call verbatim.
   - Join barrier: unchanged.
   - Step 6 (Synthesis): unchanged.
-  - Step 7 (Aggregate): collapse "Output path branches by mode" to one unconditional `<cwd>/REVIEW-<slug>.md` path; drop `--mode <pass1_mode>` and `--pair-id <pair_id_or_omit>` from the `aggregate` invocation. Keep the `## Summary` heading classifier paragraph verbatim. Append the one-line "(Steps 3, 8–12 removed in v0.3.0.)" note here.
+  - Step 7 (Aggregate): collapse "Output path branches by mode" to one unconditional `<cwd>/REVIEW-<slug>.md` path; drop `--mode <pass1_mode>` and `--pair-id <pair_id_or_omit>` from the `aggregate` invocation. Keep the `## Summary` heading classifier behavior, but rewrite "rendered and harvested as an effective failure" to "rendered as an effective failure" because Step 8 no longer exists. Append the one-line "(Steps 3, 8–12 removed in v0.3.0.)" note here.
   - Delete Steps 8, 9, 10, 11, 12 wholesale (harvest row, pass-2+drift, post-paired report, cleanup, batch harvest/regen).
-  - Step 13 (Final summary): drop the "(paired only)" comparison-eligibility clause.
+  - Step 13 (Final summary): delete the entire `, comparison eligibility (paired only)` fragment — not merely the parenthetical — so the instruction becomes exactly `Print per-prompt: REVIEW.md path, reviewer pass/fail counts.` No comparison-eligibility value has a surviving computation path.
   - Delete `## Comparison workflow deprecation` section wholesale.
   - Delete `## Notes on mode: both + if_drift: ignore` section wholesale.
   - Keep `## Notes on claude not in reviewers` verbatim.
@@ -95,7 +95,7 @@
   - `## Modes`: delete the "Comparison warning: do not author `mode: both`…" bullet.
   - `## Defaults`: delete the `mode:`, `if_drift:`, `model_effort:` lines. Keep `task`/`reviewers`/`synthesizer`/`models.*` lines byte-identical (pinned by `test_builder_autonomous_default_matches_DEFAULT_REVIEWERS` / `test_builder_autonomous_default_synthesizer_is_claude`).
 
-  `agents/multi-review-reviewer.md`: rewrite the frontmatter `description`, `## Tools` section, and `## Inputs` bullet 1 ("An injection preamble naming a `<file-NONCE…>` wrapper format (inline mode) or a `## Files to Review` manifest… (reference mode)") — this is no longer an inline-vs-reference branch, it's a permanent dual state (context files arrive inline under `<file-NONCE>`, input files arrive as a manifest the reviewer must read via Read/Grep/Glob, every run).
+  `agents/multi-review-reviewer.md`: rewrite the frontmatter `description`, `## Tools` section, and both stale `## Inputs` branches: bullet 1 ("An injection preamble naming a `<file-NONCE…>` wrapper format (inline mode) or a `## Files to Review` manifest… (reference mode)") and bullet 4 ("Either inline file contents or a path manifest"). This is no longer an inline-vs-reference choice: context files arrive inline under `<file-NONCE>`, input files arrive as a manifest the reviewer must read via Read/Grep/Glob, every run.
 
   `agents/multi-review-synthesizer.md`: delete the trailing "When invoked for a deprecated paired-run report build…" block (`### Mode-divergence observations`).
 
@@ -160,6 +160,7 @@
 - Modify: `tests/manual/fixtures/headless-driver-smoke/reference.yaml`, `tests/manual/fixtures/headless-driver-smoke/shutdown.yaml`, `tests/manual/fixtures/headless-driver-smoke/subject.py`
 - Delete: `tests/manual/fixtures/headless-driver-smoke/inline.yaml`
 - Modify: `tests/manual/headless-driver-smoke.sh`
+- Modify: `tests/manual/headless-driver-smoke.md` (live procedure/case numbering and current-acceptance wording; retain the explicitly historical five-case output verbatim)
 - Modify: `README.md` (Prompt YAML schema example + field reference table; `## Limitations`)
 - Modify: `CLAUDE.md` ("Prompt shape (--mode)" bullet, "Injection posture" bullet, "Context files always inline" bullet, grok `--sandbox workspace` bullet, "Architecture > Data flow" steps 1–2, "Output paths never overwrite" bullet)
 
@@ -170,7 +171,7 @@
 - [ ] **Step 1: Write/adjust failing tests**
 
   `tests/unit/test_promptfile.py`:
-  - Add `test_promptfile_rejects_removed_key`, parametrized over `mode`/`if_drift`/`harvest`/`output_dir`/`save_as`/`model_effort`: `fill_defaults({...minimal valid..., key: value})` raises `ValidationError` whose message contains the key name and `v0.3.0`.
+  - Add `test_promptfile_rejects_removed_key`, parametrized over falsy values for all six removed keys — `("mode", "")`, `("if_drift", "")`, `("harvest", False)`, `("output_dir", None)`, `("save_as", None)`, `("model_effort", {})`. For each, `fill_defaults({...minimal valid..., key: value})` raises `ValidationError` whose message contains the key name and `v0.3.0`. Falsy cases pin presence (`key in raw`) rather than truthiness semantics.
   - Add `test_promptfile_reports_all_removed_keys_present_at_once` (2+ removed keys in one dict → message names all of them).
   - Add `test_omitting_removed_keys_still_validates` (a dict with none of the six keys constructs fine — the omission-is-fine regression guard).
   - Add `test_prompt_format_version_1_rejected_even_with_no_removed_keys`: a minimal `task`/`files`-only YAML declaring `prompt_format_version: 1` raises `ValidationError` with a message distinct from the removed-key one.
@@ -233,6 +234,8 @@
 
   `tests/manual/headless-driver-smoke.sh`: rewrite `run_self_check`'s embedded Python heredoc to drop `root / "inline.yaml"` from `required`, the `inline = load_promptfile(...)` call, and the `.mode` assertions (L126-135), plus the `mode=` kwarg to `build_prompt`. In the two literal `prompt_format_version: 1` / `mode: inline` prompt blocks (`--workload-path-check` L687-690, `write_shutdown_prompt()` L918-921), bump the version to `2` and delete the `mode:` line. Collapse case1+case2 (the inline-vs-reference comparison) into one reference-only case; renumber case3→case2, case4→case3 (switching its foreign-cwd fixture from `inline.yaml` to `reference.yaml`), case5→case4.
 
+  `tests/manual/headless-driver-smoke.md`: mirror the executable harness's current four-case structure: merge live Sections 1–2 into one reference-only sandbox/tool-read case, then renumber WSL2 DNS→2, foreign cwd→3, shutdown→4. Update the live outcome-record instructions and final binding-acceptance wording to expect `case1`–`case4`/`cases=4`. Preserve the dated 2026-08-07 five-case results and literal output block verbatim as explicitly historical evidence; add one sentence that those old labels are not the current harness contract.
+
   `README.md`: drop `mode`/`model_effort`/`if_drift`/`output_dir`/`save_as`/`harvest` from the schema example and field reference table; bump the example's `prompt_format_version` to 2. Rewrite the `context_files` example comment and field-reference row to say only that context is always inlined; delete the obsolete "regardless of mode"/"both modes" and snapshot-for-drift wording. `## Limitations`: delete the drift-detection bullet; trim the v0.1-positional-CLI bullet's now-vacuous "deprecated pairing/drift/harvest/promotion/cleanup" clause; delete the "Persisted telemetry is deprecated" bullet.
 
   `CLAUDE.md`: replace the "Prompt shape (--mode)" bullet with an unconditional description (input always manifest, context always inline, both preambles always apply). Rewrite "Injection posture" so it no longer claims all file content is tag-wrapped: only inline context content uses `<file-NONCE>` tags; input files are manifested and their tool-read contents are still review data, not instructions. Reword "Context files always inline" to drop the "both `--mode inline` and `--mode reference`" framing. Reword the grok `--sandbox workspace` bullet's "reference mode is unaffected" clause (no more contrast partner). In "Architecture > Data flow", remove `mode` from `resolved` in step 1 and rewrite step 2 to describe unconditional manifest+inline behavior. Drop "paired legacy runs can otherwise clobber findings" from "Output paths never overwrite by default".
@@ -266,7 +269,7 @@
 
 - [ ] **Step 1: Write/adjust failing tests**
 
-  `tests/integration/test_cli_setup.py`: rewrite `test_setup_installs_skill_and_writes_config` → `test_setup_installs_skill_and_agents_only`, asserting skill+agents copied and `assert not (skill_dst / "config.json").exists()` (fails today — file exists). Delete `test_setup_heals_stale_config` outright (its premise, healing a stale `central_path` field, no longer exists). Reword `test_setup_dev_mode_symlinks`'s inline comment (drops the now-dead `central_runs_dir()` mention) — assertions/behavior unchanged.
+  `tests/integration/test_cli_setup.py`: rewrite `test_setup_installs_skill_and_writes_config` → `test_setup_installs_skill_and_agents_only`, asserting skill+agents copied and `assert not (skill_dst / "config.json").exists()` (fails today — file exists). Delete `test_setup_heals_stale_config` outright (its premise, healing a stale `central_path` field, no longer exists). In the two surviving setup tests, remove the `XDG_DATA_HOME`/`MULTI_REVIEW_NO_DEV_CHECKOUT` monkeypatches and subprocess-environment entries; their sole consumer is the central-path code deleted in this task. Reword `test_setup_dev_mode_symlinks`'s inline comment to drop the now-dead `central_runs_dir()`/config-write explanation; keep only why a staged source copy is useful to this symlink test.
 
   `tests/unit/test_paths.py`: delete `test_generate_pair_id_format` and the three `central_runs_dir` tests (`honours_config`, `falls_back_to_xdg`, `ignore_config_skips_config`). Update the module-level import to retain only `project_state_dir`, `run_dir`, `generate_run_id`, and `slugify`; otherwise test collection fails as soon as the deleted names disappear from `paths.py`.
 
@@ -280,7 +283,7 @@
 
   `multi_review/cli/setup.py`: remove step 1 (central-dir creation), step 4 (config.json write), step 5 (`--write-allowlist` arg + allowlist print/write). `_copy_tree` gains an `exclude: set[str] = frozenset()` param that skips matching child names; the skill-install call passes `exclude={"config.json"}` so a stray dev-checkout `config.json` under `skills/multi-review/` (or a real one left by a pre-0.3.0 install) is never copied over a fresh destination. Surviving `main()` does: resolve `home`, install skill (copy/symlink), install agents (copy/symlink + reviewer-template render), print a JSON summary with `skill`/`agents` paths only.
 
-  This checkout currently has a stray `skills/multi-review/config.json` (gitignored, untracked, dev leftover from a pre-0.3.0 `mr-setup` run against this repo). `rm -f skills/multi-review/config.json` — tolerate it already being absent when this plan is executed. The `exclude` param above stops it recurring, but any existing file must go or `--dev` mode's symlink (which symlinks the whole `skills/multi-review` dir, bypassing `_copy_tree` entirely) would still expose it at `skill_dst`.
+  This checkout currently has a stray `./skills/multi-review/config.json` (gitignored, untracked, dev leftover from a pre-0.3.0 `mr-setup` run against this repo). `rm -f ./skills/multi-review/config.json` — tolerate it already being absent when this plan is executed. This is explicitly the checkout-relative file, not the protected user-data path `~/.claude/skills/multi-review/config.json` named in Global Constraints. The `exclude` param above stops it recurring, but any existing checkout file must go or `--dev` mode's symlink (which symlinks the whole `skills/multi-review` dir, bypassing `_copy_tree` entirely) would still expose it at `skill_dst`.
 
   `tests/conftest.py` / `CLAUDE.md`: nothing writes `config.json` anymore — reword the `_no_test_may_mutate_the_live_checkout_config` fixture's docstring and CLAUDE.md's matching invariant bullet to say so. Keep the fixture itself (harmless precaution against a future regression).
 
@@ -328,9 +331,9 @@
 
 - [ ] **Step 2: Repo-wide staleness grep**
 
-  Run: `rg -n "mode: (inline|reference|both)|model_effort|if_drift|output_dir:|save_as:|harvest|snapshot|sidecar|write_harvest_row|EXPERIMENTS\\.md|runs\\.jsonl|config\\.json|report regen|central_path|central_runs_dir|generate_pair_id|comparison_eligible|drift_blocks_eligibility|pending-harvest|resume-pair|pair_id|paired[- ]run|pairing" README.md CLAUDE.md BACKLOG.md skills/ agents/ multi_review/ tests/ .gitignore`
+  Run: `rg -n "mode: (inline|reference|both)|model_effort|if_drift|output_dir:|save_as:|harvest|snapshot|sidecar|write_harvest_row|EXPERIMENTS\\.md|runs\\.jsonl|config\\.json|report regen|central_path|central_runs_dir|generate_pair_id|MULTI_REVIEW_NO_DEV_CHECKOUT|XDG_DATA_HOME|comparison_eligible|drift_blocks_eligibility|pending-harvest|resume-pair|pair_id|paired[- ]run|pairing" README.md CLAUDE.md BACKLOG.md skills/ agents/ multi_review/ tests/ .gitignore`
 
-  Fix genuine staleness; do not mechanically replace generic uses such as an upstream event-schema "snapshot" or a schema that "drifts". Expected test hits must be inspected rather than blindly removed: keep deliberate removed-key/version-rejection cases, the retained `config.json` regression guard, and `tests/manual/{pykrete,grok}-smoke.md` (Open Decision 6). In `BACKLOG.md`, already-labelled FIXED/DROPPED passages may retain historical implementation names when their status is unambiguous; open guidance must not point at deleted code. Also leave intentional historical mentions alone in `docs/superpowers/plans/*.md` (pre-dated, self-marked archival), including this plan file itself.
+  Fix genuine staleness; do not mechanically replace generic uses such as an upstream event-schema "snapshot" or a schema that "drifts". Expected test hits must be inspected rather than blindly removed: keep deliberate removed-key/version-rejection cases, the retained `config.json` regression guard, `XDG_DATA_HOME` in the headless sandbox harness (real environment isolation, unrelated to central-path resolution), and `tests/manual/{pykrete,grok}-smoke.md` (Open Decision 6). In `BACKLOG.md`, already-labelled FIXED/DROPPED passages may retain historical implementation names when their status is unambiguous; open guidance must not point at deleted code. Also leave intentional historical mentions alone in `docs/superpowers/plans/*.md` (pre-dated, self-marked archival), including this plan file itself.
 
 - [ ] **Step 3: BACKLOG.md re-tag**
 
@@ -342,4 +345,6 @@
 
   Run: `git diff --check && git status --short` → no whitespace errors, review the diff for anything unintended.
 
-  Run: `uv run python -m multi_review.cli.harvest_row` (and one per other deleted CLI: `snapshot`, `report`, `migrate_harvest`, `migrate_sidecars`, `write_harvest_row`) → `ModuleNotFoundError` in each case, confirming clean removal (console scripts aren't installed in this checkout, so this is the only way to verify the `pyproject.toml` edit).
+  Run: `rg -n '^mr-(harvest-row|snapshot|report|migrate-sidecars|migrate-harvest|write-harvest-row)\\s*=' pyproject.toml` → no output (exit 1), directly confirming all six deleted `[project.scripts]` entries are absent.
+
+  Run: `uv run python -m multi_review.cli.harvest_row` (and one per other deleted CLI: `snapshot`, `report`, `migrate_harvest`, `migrate_sidecars`, `write_harvest_row`) → `ModuleNotFoundError` in each case, independently confirming the source modules are gone.
