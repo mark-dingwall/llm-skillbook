@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Team"
+  short_description: "Run rigorous independent code reviews"
+  default_prompt: "Use $review-team at high effort to review the current branch."
