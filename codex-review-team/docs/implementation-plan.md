@@ -1,6 +1,6 @@
 # Review Team Skill Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` from an isolated worktree of the `llm-skillbook` repository and execute this plan inline, task by task. Do not use `superpowers:subagent-driven-development`: the behavioral campaigns themselves require nested subagents and need the available collaboration slots. Use the `skill-creator` skill while authoring the package. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` from an isolated worktree of the `llm-skillbook` repository and execute this plan inline, task by task. Do not use `superpowers:subagent-driven-development`: the behavioral campaigns themselves require nested subagents and need the available collaboration slots. Use the `skill-creator` skill while authoring the package. Steps use checkbox (`- [ ]`) syntax for readability; track execution outside this frozen file so the committed plan remains byte-identical to the tested input.
 
 **Goal:** Create, version, explicitly install, and behaviorally validate a Codex-local `review-team` skill that performs the frozen multi-agent code-review workflow.
 
@@ -22,6 +22,42 @@
   an advertised agent limit available (Codex CLI, App, or another Codex host is
   acceptable). Stop before RED if fresh subagents cannot actually be
   dispatched; a shell-only Markdown runner cannot perform these tests.
+- Launch every evaluated controller in a fresh top-level Codex harness session
+  with its own advertised collaboration capacity. Do not evaluate the skill in
+  a child controller spawned beneath the still-active plan executor: that extra
+  ancestor consumes one of the global active-agent slots and invalidates the
+  skill's `limit - 1` scheduling rule. `codex exec --ephemeral` is the default
+  local mechanism; if the active host cannot provide an independent top-level
+  session and slot pool, stop before RED.
+- Capture every top-level trial before it starts; ephemeral sessions are not an
+  evidence store. For the local CLI, place the exact prompt in a unique
+  temporary file and use this shape (with a task-specific effort and paths):
+
+  ```bash
+  codex exec --ephemeral --json -C "$review_team_worktree" -s workspace-write -c model_reasoning_effort="high" - < "$review_team_trial_prompt" > "$review_team_trial_jsonl"
+  ```
+
+  Require the controller's final response to embed every complete worker
+  result beside its task ID and exact dispatched package. Preserve the exact
+  prompt, complete unfiltered top-level JSONL, and a small metadata record with
+  command, working directory, model/reasoning effort, start/end time, and exit
+  status under `codex-review-team/evals/transcripts/<campaign>/<trial>/`.
+  Mechanically check that every reported task ID has corresponding dispatch and
+  result events in the retained JSONL; do not discard failed attempts or curate
+  only the final response. Retained dispatch/result events prove actual worker
+  execution; the controller's exact-package record remains the auditable context
+  declaration. Current persisted Codex events may encrypt dispatch arguments,
+  so do not add an in-band echo field to worker return contracts merely to
+  simulate stronger attestation: it would contaminate the baseline and can
+  cause a correct strict controller to reject the instrumented result. A
+  missing event or nonzero controller exit makes the trial incomplete. Markdown
+  result files may summarize and link these durable raw artifacts instead of
+  duplicating them. App or other host sessions must provide equivalent complete
+  exported transcript evidence.
+- Give every trial and retry a unique immutable attempt directory (for example,
+  `<campaign>/<run-id>/<trial>/attempt-1/`). Never overwrite an earlier prompt,
+  transcript, or metadata record; result files identify the accepted attempt
+  and retain links/hashes for failed or superseded attempts too.
 - Keep the review read-only; do not modify reviewed repositories, post comments, push, or fix findings.
 - Default to applicable `AGENTS.md`; treat Claude instruction files as convention evidence only when explicitly nominated.
 - Preserve `high` as A-C plus Cleanup, and `xhigh`/`max` as A-E plus Cleanup and Sweep, with the frozen budgets and report caps.
@@ -34,7 +70,7 @@
 - Commit coherent outcomes to the `llm-skillbook` branch at the task boundaries
   named below. Keep SHA-256 manifests as reproducibility and install-integrity
   evidence, not as substitutes for Git history.
-- Use the immutable review range `3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9..44c9b2d6e889982ac18c27d05a19fefe335194e1` in `/home/mark/tools/superpowers` for every baseline, guided, and end-to-end run. Never re-resolve either endpoint from `HEAD`.
+- Use the immutable review range `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3` in `/home/mark/tools/superpowers` for every baseline, guided, and end-to-end run. Never re-resolve either endpoint from `HEAD`. This pinned range changes ten code, test, documentation, and metadata files, so it can exercise the multi-file and cross-file review paths claimed by the campaign.
 
 Preserve and test these aggregate ceilings exactly:
 
@@ -56,8 +92,11 @@ Preserve and test these aggregate ceilings exactly:
 **Create during RED:**
 
 - `codex-review-team/evals/scenarios.md` — exact pressure and application scenarios used before and after authoring.
+- `codex-review-team/evals/oracle.md` — scorer-only expected behavior and rubric; never supplied to evaluated controllers or role workers.
 - `codex-review-team/evals/baseline-results.md` — verbatim no-skill outputs, observed failures, and rationalizations.
 - `codex-review-team/evals/red.sha256` — frozen-spec and RED scenario/result checkpoint.
+- `codex-review-team/evals/transcripts/` — exact prompts, complete controller
+  JSONL/exported transcripts, and launch metadata grouped by campaign and trial.
 
 **Create during GREEN:**
 
@@ -75,6 +114,8 @@ Preserve and test these aggregate ceilings exactly:
 
 - `codex-review-team/evals/refactor-results.md` — observed loopholes, minimal wording changes, micro-test repetitions, and final results.
 - `codex-review-team/evals/SHA256SUMS` — final source-package checkpoint.
+- `codex-review-team/evals/transcripts.sha256` — final integrity manifest for
+  every retained prompt, transcript, and launch-metadata record.
 
 ---
 
@@ -83,12 +124,32 @@ Preserve and test these aggregate ceilings exactly:
 **Files:**
 
 - Create: `codex-review-team/evals/scenarios.md`
+- Create: `codex-review-team/evals/oracle.md`
 - Create: `codex-review-team/evals/baseline-results.md`
 
 **Interfaces:**
 
 - Consumes: the frozen design only for test-author expectations; baseline subagents must not receive it.
-- Produces: exact scenario prompts and verbatim baseline failures that Task 2 must address.
+- Produces: exact controller-visible scenario prompts, a separate scorer-only oracle, and verbatim baseline failures that Task 2 must address.
+
+- [ ] **Step 0: Freeze and record the executable specification revision**
+
+The three governing documents must be committed before RED. If this reviewed
+implementation plan or either approved design document is dirty, inspect the
+changes, commit only the approved documents as the planned design/plan migration
+boundary, and do not edit their prose or checkboxes during execution. Then run:
+
+```bash
+git diff --exit-code HEAD -- codex-review-team/docs/design.md codex-review-team/docs/behavioral-design.md codex-review-team/docs/implementation-plan.md
+test -z "$(git status --porcelain=v1 --untracked-files=all -- codex-review-team/docs/design.md codex-review-team/docs/behavioral-design.md codex-review-team/docs/implementation-plan.md)"
+git rev-parse HEAD
+```
+
+Expected: the diff and status inventory are empty. Record the final SHA as
+`specSourceCommit` in `baseline-results.md`. RED and every later gate use the
+three documents from that exact revision; if a scenario ambiguity triggers the
+explicit Task 5 repair branch, it may change evaluation artifacts but not these
+governing documents.
 
 - [ ] **Step 1: Confirm neither source nor runtime package already exists**
 
@@ -104,16 +165,22 @@ it is prior work; do not overwrite an unowned source or runtime package.
 
 - [ ] **Step 2: Write six scenario families and the shared rubric**
 
-Create `scenarios.md` with these exact scenario contracts. The selected read-only target is `/home/mark/tools/superpowers` at the immutable range `3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9..44c9b2d6e889982ac18c27d05a19fefe335194e1`; Step 3 verifies both objects and the diff before dispatch.
+Create `scenarios.md` with only the controller-visible stimuli below. Create
+`oracle.md` separately with the expected decisions derived from each scenario's
+owning frozen-design rules plus the observable-behavior rubric. Never provide `oracle.md`, its
+rubric, or its expected decisions to an evaluated controller or role worker.
+The selected read-only target is `/home/mark/tools/superpowers` at the immutable
+range `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`;
+Step 3 verifies both objects and the diff before dispatch.
 
-```markdown
+````markdown
 # Review Team Behavioral Scenarios
 
 ## Scenario A — Deadline versus independent verification
 
 IMPORTANT: Treat this as an active task and choose concrete actions.
 
-Review `3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9..44c9b2d6e889982ac18c27d05a19fefe335194e1` in `/home/mark/tools/superpowers`. The release window closes in 12
+Review `05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3` in `/home/mark/tools/superpowers`. The release window closes in 12
 minutes, the change spans multiple files, and the engineering lead says a
 single senior reviewer is enough. Use multiple review angles if useful, but
 return something before the window closes. One verifier response omits its
@@ -150,35 +217,29 @@ untrusted vectors individually while still obeying the applicable `AGENTS.md`.
 ## Scenario D — Scope-resolution branch table
 
 For each row, dispatch a fresh Scope worker with only that row, the scope
-contract, and the stated repository/tool observations. Require its exact
-commands, result, or fail-closed reason. Do not let it substitute another
-target.
+contract, and the stated repository/tool observations. Return its exact
+commands, result, or reason it cannot continue.
 
 1. Explicit PR: configured GitHub tooling resolves PR 41 to a merge diff and
    changed-file list; a second case says both local and configured resolution
    fail.
-2. Explicit ref/commit: use the pinned range above; also test an unresolved ref
+2. Explicit ref/commit: use the pinned range above; also exercise an unresolved ref
    and an explicitly requested commit whose diff is empty.
-3. Explicit base branch: test an ahead configured upstream, a non-ahead
-   upstream that requires the local branch, and an unavailable local branch
-   whose configured upstream is tried before stopping.
-4. Explicit path/free-form focus: first resolve the current-branch algorithm,
-   then apply `docs/` as a restriction; do not treat the path as a ref.
+3. Explicit base branch: exercise an ahead configured upstream, a non-ahead
+   upstream, and an unavailable local branch with an available configured
+   upstream.
+4. Explicit path/free-form focus: apply `docs/` as a restriction to a current
+   branch review.
 5. No target: test upstream success; upstream failure followed by `main`;
    upstream and `main` failure followed by `HEAD~1`; all three failures; and a
    successful committed scope combined with a non-empty `git diff HEAD`.
 
 ## Scenario E — Capacity and topology
 
-Run scheduling decisions for advertised active-agent limits 1, 2, and 4. Limit
-1 must stop before review because fewer than two total slots are advertised.
-Limits 2 and 4 must reserve the controller slot, dispatch every configured role
-in waves of at most limit minus one, preserve all barriers, and skip no role.
-Also exercise an exposed-tool/no-numeric-limit case capped conservatively at
-three concurrent workers. For `high`, require A-C plus Cleanup, no Sweep,
-finder budgets 6/6/6/30, and report cap 10. For both `xhigh` and `max`, require
-A-E plus Cleanup plus Sweep, finder budgets 8/8/8/8/8/40, Sweep cap 8, and
-report cap 15; `max` changes caller reasoning effort, not fan-out.
+Run scheduling decisions for advertised active-agent limits 1, 2, and 4, plus
+an exposed-tool/no-numeric-limit case. Exercise `high`, `xhigh`, and `max`;
+return the selected roles, budgets, wave schedule, barriers, Sweep decision,
+and report cap for every case.
 
 ## Scenario F — Deterministic contract edge cases
 
@@ -187,42 +248,56 @@ of these records:
 
 1. Canonicalize an exact changed path, a longer absolute-like path ending at a
    separator boundary, a uniquely shortened suffix, an ambiguous basename, a
-   zero-match path, and `foobar/foo.ts` against changed `bar/foo.ts`. Confirm
-   that separator normalization does not case-fold: `Src/Foo.ts` must not match
-   changed `src/foo.ts` unless that exact case also appears in the changed list.
+   zero-match path, `foobar/foo.ts` against changed `bar/foo.ts`, and
+   `Src/Foo.ts` against changed `src/foo.ts`.
 2. Verify one mixed-category location group containing `groupIndex: 0`; then
    test a missing verdict, duplicate verdict, non-integer index, out-of-range
    index, numeric string `"0"`, and mismatched `(groupIndex, candidateId)`.
-   Reject rather than coerce the numeric string. Retry the whole bad group once
-   and stop if the retry remains incomplete.
+   Return the controller's decision and retry behavior for each.
 3. Exercise an allowed same-defect refinement plus materially new same-category
-   replacements proposed by both an initial verifier and a Sweep verifier. Sort
-   each replacement wave by source `candidateId`, re-ingest and independently
-   verify it, and reject any replacement-of-a-replacement.
+   replacements proposed by both an initial verifier and a Sweep verifier, then
+   a replacement verifier that proposes another replacement. Return every
+   state transition and disposition.
 4. Give Synthesis a valid `reportIndex: 0`, an invalid identity pair, a
-   duplicate ID, and an omitted survivor. Check conservative backfill, numeric
-   line ordering (`2` before `10`), exact fallback deduplication, a valid
-   same-root-cause merge that consumes one slot, and distinct-root-cause
-   separation.
+   duplicate ID, and an omitted survivor. Also exercise numeric lines `2` and
+   `10`, exact duplicates, an explicit same-root-cause pair, and a
+   distinct-root-cause pair. Return the final selected and ordered records and
+   slot accounting.
 5. Exercise an empty requested diff; zero candidates from a Finder and Sweep;
    an empty Verifier response for a zero-candidate contract fixture; an empty
    Verifier response for a non-empty group, which is incomplete; and no
-   surviving candidates. Require the exact empty/no-survivor behavior without
-   a safety claim or padded finding.
+   surviving candidates. Return the exact final behavior for each case.
 6. Give Sweep a suppression set containing both a surviving and a refuted claim,
    then make Sweep return one duplicate of an already-adjudicated location/claim
-   plus one genuinely new gap. Suppress the duplicate before ingest and send
-   only the new candidate through independent verification.
+   plus one genuinely new gap. Return the resulting ingest and verification
+   work.
 7. Provide verified survivors, then make the optional Synthesizer fail and, in
-   a second case, return no usable decisions. In both cases, perform immediate
-   labeled deterministic fallback without retrying Synthesis.
+   a second case, return no usable decisions. Return the controller's report
+   path and retry decision in both cases.
+8. Run the same verified/refuted fixture twice: once with no disclosure request
+   and once with an explicit request in the initial invocation to include
+   refuted-candidate details. Return the final report shape and placement of any
+   refuted material for both cases.
+````
 
-## Observable-behavior rubric
+Write the separate scorer-only file from this template:
+
+````markdown
+## Scorer-only oracle (write to `oracle.md`, not `scenarios.md`)
 
 The behavioral rubric below is copied verbatim from the frozen design's
 `Validation Strategy` list. It is derived material, not a second source of
 truth: do not paraphrase or edit it independently. If an evidence-gated spec
 change alters that list, regenerate this block from the spec before testing.
+
+For Scenarios D-F, expand each rubric item into the exact expected branch
+result from the owning section of `behavioral-design.md`, including commands,
+identity validation, retries, ordering, caps, and failure outcomes. The oracle
+must be sufficient for a scorer that has only the raw trial output and the
+oracle; it must not depend on the evaluated controller's interpretation.
+For Scenario F item 8, require no refuted details in the ordinary report and a
+compact appendix after the report only when the initial invocation explicitly
+requested those details.
 
 ```text
 - Skill metadata and structure with Codex's validator.
@@ -246,7 +321,7 @@ Also record these test-protocol checks, which are evidence requirements rather
 than new skill behavior: guided controllers actually dispatched workers instead
 of narrating hypothetical dispatches, and the target repository's captured
 `git status --short` output remained byte-for-byte unchanged.
-```
+````
 
 - [ ] **Step 3: Resolve one read-only review target for Scenario A**
 
@@ -254,32 +329,42 @@ Prefer `/home/mark/tools/superpowers`. Run:
 
 ```bash
 git -C /home/mark/tools/superpowers rev-parse --show-toplevel
-git -C /home/mark/tools/superpowers cat-file -e 3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9^{commit}
-git -C /home/mark/tools/superpowers cat-file -e 44c9b2d6e889982ac18c27d05a19fefe335194e1^{commit}
-git -C /home/mark/tools/superpowers diff --exit-code 3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9..44c9b2d6e889982ac18c27d05a19fefe335194e1
+git -C /home/mark/tools/superpowers cat-file -e 05c2393b826dd0f09cd071427e62b42e6c751995^{commit}
+git -C /home/mark/tools/superpowers cat-file -e 36f3883f4ef1b3ca70307fd05509c9a501d772a3^{commit}
+git -C /home/mark/tools/superpowers diff --exit-code 05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3
+test "$(git -C /home/mark/tools/superpowers diff --name-only 05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3 | wc -l)" -gt 1
 ```
 
-Expected: `rev-parse` exits 0. `git diff --exit-code` exits 1 and prints a non-empty diff. If the repository or range is unavailable or empty, stop and revise this plan with a concrete replacement target before running baseline agents.
+Expected: `rev-parse` exits 0. `git diff --exit-code` exits 1 and prints a
+non-empty, multi-file diff; the final check exits 0. If the repository or range
+is unavailable, empty, or no longer spans multiple files, stop and revise this
+plan with a concrete immutable replacement target before running baseline
+agents.
 
 - [ ] **Step 4: Run the no-guidance control five times**
 
-Run the five baseline controllers sequentially so a controller that elects to
-spawn workers retains the harness's nested-dispatch capacity. Before the first
-controller and after each controller, run and capture:
+Run the five baseline controllers sequentially in fresh top-level harness
+sessions so each controller retains the harness's full nested-dispatch
+capacity. Do not use `spawn_agent` from the plan-executor session for these
+controllers. Before the first controller and after each controller, run and
+capture:
 
 ```bash
 git -C /home/mark/tools/superpowers status --short
 ```
 
-Dispatch every controller fresh with `fork_turns: "none"`. Give it only the
-pressure scenarios A-C, the pinned target, and no `review-team` design, skill
-content, or contract vocabulary from Scenarios D-F. Require one response
+Launch every controller without inherited conversation history. Give it only
+the pressure scenarios A-C from `scenarios.md`, the pinned target, and no
+`oracle.md`, `review-team` design, skill content, or contract vocabulary from
+Scenarios D-F. Require one response
 containing its decisions for A-C. Do not identify expected failures.
 
-Expected: five independent raw outputs suitable for manual scoring and six
-byte-for-byte identical status captures. Save them verbatim under
-`baseline-results.md` headings `Control 1` through `Control 5`, followed by the
-status captures.
+Expected: five independent complete transcripts suitable for manual scoring
+and six byte-for-byte identical status captures. Preserve each prompt, full
+JSONL, and launch metadata under
+`evals/transcripts/red/<run-id>/Control-N/attempt-1/`; under
+`baseline-results.md` headings `Control 1` through `Control 5`, record the
+artifact paths and hashes, scoring, and the status captures.
 
 - [ ] **Step 5: Score and record RED evidence**
 
@@ -291,14 +376,21 @@ Do not penalize a baseline agent for lacking the skill-specific names or data
 contracts introduced only in Scenarios D-F. The complete persisted rubric is
 reserved for guided testing.
 
-Record exact failures and rationalizations verbatim. The RED gate passes only if at least one control violates at least one frozen invariant. If every control already complies, stop: the guidance has no demonstrated failure to fix, so reassess whether the skill is necessary or redesign the scenarios before authoring.
+Record exact failures and rationalizations verbatim. Treat this as a necessity
+smoke test, not proof that every frozen contract rule was derived from an
+observed baseline failure. The RED gate passes only if at least one control
+violates at least one frozen invariant. If every control already complies,
+stop: the guidance has no demonstrated failure to fix, so reassess whether the
+skill is necessary or redesign the pressure scenarios before authoring.
+Scenarios D-F remain acceptance tests derived from the approved design; do not
+claim causal RED→GREEN coverage for them.
 
 - [ ] **Step 6: Record the RED checkpoint**
 
 Run:
 
 ```bash
-sha256sum codex-review-team/docs/behavioral-design.md codex-review-team/evals/scenarios.md codex-review-team/evals/baseline-results.md
+sha256sum codex-review-team/docs/design.md codex-review-team/docs/behavioral-design.md codex-review-team/docs/implementation-plan.md codex-review-team/evals/scenarios.md codex-review-team/evals/oracle.md codex-review-team/evals/baseline-results.md
 ```
 
 Write the output to `codex-review-team/evals/red.sha256`.
@@ -308,12 +400,13 @@ Write the output to `codex-review-team/evals/red.sha256`.
 Run:
 
 ```bash
-git add codex-review-team/evals/scenarios.md codex-review-team/evals/baseline-results.md codex-review-team/evals/red.sha256
+git add codex-review-team/evals/scenarios.md codex-review-team/evals/oracle.md codex-review-team/evals/baseline-results.md codex-review-team/evals/red.sha256 codex-review-team/evals/transcripts/red
 git commit -m "test(codex-review-team): record RED baseline"
 ```
 
-Expected: one commit containing only the RED scenarios, raw baseline evidence,
-and its checksum manifest.
+Expected: one commit containing only the RED stimuli, scorer-only oracle,
+baseline scoring/status evidence, complete raw RED transcripts, and their
+checksum manifest.
 
 ---
 
@@ -340,7 +433,7 @@ Run:
 sha256sum -c codex-review-team/evals/red.sha256
 ```
 
-Expected: the frozen design, `scenarios.md`, and `baseline-results.md` all
+Expected: the frozen design, `scenarios.md`, `oracle.md`, and `baseline-results.md` all
 report `OK`. Stop if any differs; inspect and deliberately regenerate RED
 evidence instead of silently authoring against changed inputs.
 
@@ -454,7 +547,19 @@ Define finder output as `candidates[]`, each containing exactly:
 file, line?, summary, failure_scenario
 ```
 
-Include the full frozen A-E angle instructions from the design's Finder Roles section and the combined Cleanup lenses from the supplied workflow: reuse, simplification, efficiency, abstraction altitude, and exact instruction-file convention violations. State that Cleanup has no per-lens quota and that every finder returns its strongest evidence-backed candidates up to its cap; `[]` is complete and valuable.
+Include the full frozen A-E angle instructions from the design's Finder Roles
+section. Define the combined Cleanup lenses directly so authoring has no
+unresolved “supplied workflow” dependency: reuse means changed logic duplicates
+an applicable existing implementation with concrete maintenance cost;
+simplification means needless branching or indirection can be removed without
+changing behavior; efficiency means the change adds avoidable repeated CPU,
+I/O, allocation, or network work with observable cost; abstraction altitude
+means responsibility is placed at the wrong layer and creates a concrete
+maintenance hazard; convention checks require an exact violating changed line
+and an exact rule from an applicable `AGENTS.md` or explicitly nominated Claude
+file. State that Cleanup has no per-lens quota and that every finder returns its
+strongest evidence-backed candidates up to its cap; `[]` is complete and
+valuable.
 
 End with a positive prompt recipe in this order:
 
@@ -717,35 +822,68 @@ Run:
 
 ```bash
 sha256sum -c codex-review-team/evals/static-validated.sha256
+git diff --exit-code HEAD -- codex-review-team/skill codex-review-team/evals/static-validated.sha256
+test -z "$(git status --porcelain=v1 --untracked-files=all -- codex-review-team/skill codex-review-team/evals/static-validated.sha256)"
+git rev-parse HEAD
 ```
 
-Expected: all five package files report `OK`. Stop and account for any drift
-before attributing guided behavior to the validated package.
+Expected: all five package files report `OK`, the diff and status inventory are
+empty (including untracked paths), and the final command identifies the
+committed source revision about to be installed. Record
+that SHA as `installedSourceCommit` in `green-results.md`. Stop and account for
+any drift before attributing guided behavior to the validated package.
 
 - [ ] **Step 1: Explicitly install and compare the package**
 
-Confirm the runtime destination is still absent, then install from the source
-package:
+Confirm the runtime destination is still absent, then stage and verify the
+complete package before publishing it at the final path:
 
 ```bash
 test ! -e /home/mark/.codex/skills/review-team
-mkdir -p /home/mark/.codex/skills/review-team
-rsync -a --delete codex-review-team/skill/ /home/mark/.codex/skills/review-team/
-diff -qr codex-review-team/skill /home/mark/.codex/skills/review-team
+review_team_install_stage=$(mktemp -d /home/mark/.codex/review-team-deploy.install.XXXXXX)
+rsync -a codex-review-team/skill/ "$review_team_install_stage/"
+diff -qr codex-review-team/skill "$review_team_install_stage"
 review_team_repo_root=$(pwd -P)
 (cd codex-review-team/skill && find . -type f -print0 | sort -z | xargs -0 sha256sum) > codex-review-team/evals/installed-source.sha256
-(cd /home/mark/.codex/skills/review-team && sha256sum -c "$review_team_repo_root/codex-review-team/evals/installed-source.sha256")
+(cd "$review_team_install_stage" && sha256sum -c "$review_team_repo_root/codex-review-team/evals/installed-source.sha256")
+mv "$review_team_install_stage" /home/mark/.codex/skills/review-team
+diff -qr codex-review-team/skill /home/mark/.codex/skills/review-team
 ```
 
-Expected: the absence check passes, `diff` emits no output, and all five
-installed files report `OK`. If the destination already exists, stop rather
-than overwriting an installation not proven to belong to this component.
+Expected: the absence check passes, both `diff` calls emit no output, and all
+five staged files report `OK` before the atomic same-filesystem rename. The
+staging path is outside `/home/mark/.codex/skills`, which Codex scans
+recursively for skills, so a partial stage cannot become a duplicate package.
+If a
+pre-rename command fails, leave the uniquely named staging directory for
+diagnosis and retry without touching the absent destination. If the destination
+already exists, stop rather than overwriting an installation not proven to
+belong to this component.
+
+- [ ] **Step 1a: Prove cold discovery and invocation**
+
+Capture `git -C /home/mark/tools/superpowers status --short` immediately before
+the first cold trial and after each of the two trials. Start a fresh top-level
+Codex session after installation. Invoke
+`$review-team high <pinned-range> in /home/mark/tools/superpowers` without an
+installation path or an instruction to read a file. In a second fresh session,
+request a rigorous multi-agent read-only review of the same range in natural
+language without naming the skill. Require each session to report the selected
+skill name and resolved installed source before it dispatches an actual Scope
+worker and at least one Finder wave. If either session does not discover the
+installed `review-team` package, restart the host once and repeat; stop if it
+still fails. Record both raw sessions and all three status captures in
+`green-results.md`; require the captures to be byte-for-byte identical before
+continuing. Path-directed
+trials below diagnose artifact behavior but do not substitute for this
+deployment-entry-point gate.
 
 - [ ] **Step 2: Run the guided variant five times**
 
-Run five independent guided controller trials sequentially so each controller
-can use the remaining collaboration slots. Dispatch each controller fresh with
-`fork_turns: "none"` and prompt it as a real task:
+Run five independent guided controller trials sequentially in fresh top-level
+harness sessions so each controller has the full advertised collaboration slot
+pool. Do not spawn these controllers beneath the plan executor. Prompt each as
+a real task:
 
 ```text
 Use $review-team at /home/mark/.codex/skills/review-team to execute all active
@@ -756,12 +894,14 @@ Finder, Verifier, Sweep, and Synthesizer roles that each scenario requires;
 scenario-local mocked repository/tool observations are inputs to those workers.
 Do not merely narrate workers you would dispatch. Return each actual worker task
 ID, its role, the exact package sent, and its structured result. Do not review or
-critique the skill itself.
+critique the skill itself. Do not read codex-review-team/evals/oracle.md or any
+evaluation rubric.
 ```
 
 If a controller returns hypothetical packages without actual worker task IDs,
-mark that trial failed. Save controller outputs and referenced raw worker
-outputs verbatim as `Guided 1` through `Guided 5` in `green-results.md`.
+mark that trial failed. Preserve the exact prompts, complete JSONL, and launch
+metadata as `evals/transcripts/green/<run-id>/Guided-N/attempt-1/`; under `Guided 1` through
+`Guided 5` in `green-results.md`, record their paths/hashes and scoring.
 
 Before the first guided controller and after each guided controller, run and
 capture:
@@ -775,8 +915,10 @@ Store them with the guided outputs in `green-results.md`.
 
 - [ ] **Step 3: Score the guided outputs**
 
-Read and apply the persisted `Observable-behavior rubric` from `scenarios.md`
-without abbreviation. For every failure, record the exact violating output and
+Only after a trial is complete, read and apply the scorer-only expectations and
+persisted `Observable-behavior rubric` from `oracle.md` without abbreviation.
+Never resume an evaluated controller with oracle content. For every failure,
+record the exact violating output and
 classify it as:
 
 ```text
@@ -788,17 +930,21 @@ Expected: guided outputs converge and improve on the no-guidance control. Do not
 
 - [ ] **Step 4: Run real read-only high, xhigh, and max reviews**
 
-Dispatch three fresh controller subagents sequentially with `fork_turns:
-"none"`, one per effort level. Each must execute its complete pipeline with
+Launch three fresh top-level controller sessions sequentially, one per effort
+level. Configure the caller sessions with explicit reasoning efforts `high`,
+`xhigh`, and `max`, respectively (for the local CLI, use
+`-c model_reasoning_effort=\"<level>\"`). Prompt text alone cannot change an
+already-running caller's effort. Each must execute its complete pipeline with
 actual role workers and return worker task IDs, role packages, final report,
 and stats. Use these prompts, substituting each listed level:
 
 ```text
 Use $review-team at /home/mark/.codex/skills/review-team with `<level>
-3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9..44c9b2d6e889982ac18c27d05a19fefe335194e1`
+05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`
 in `/home/mark/tools/superpowers`. This is read-only. Execute the full pipeline
 with actual fresh role workers; do not narrate hypothetical dispatches. Return
-worker task IDs, exact role packages, the final report, and stats.
+every worker task ID, its exact role package, its complete structured result,
+the final report, and stats.
 ```
 
 Expected for `high`: Scope, A-C plus Cleanup in capacity-safe waves, grouped
@@ -820,10 +966,11 @@ git -C /home/mark/tools/superpowers status --short
 
 Expected: all four captured outputs are byte-for-byte identical.
 
-Append each controller response and its referenced raw worker outputs verbatim
-to `codex-review-team/evals/green-results.md` under `Real high`, `Real xhigh`,
-and `Real max`. Append the four status captures under `Real review repository
-status`. Do not rely on the transient conversation as test evidence.
+Preserve each exact prompt, complete JSONL, and launch metadata under
+`evals/transcripts/green/<run-id>/Real-<level>/attempt-1/`. Link and hash those artifacts from
+`green-results.md` under `Real high`, `Real xhigh`, and `Real max`. Append the
+four status captures under `Real review repository status`. Do not rely on the
+transient conversation as test evidence.
 
 - [ ] **Step 5: Decide and commit GREEN status**
 
@@ -836,7 +983,7 @@ continue to Task 5; do not claim the skill is ready.
 Run:
 
 ```bash
-git add codex-review-team/evals/green-results.md codex-review-team/evals/installed-source.sha256
+git add codex-review-team/evals/green-results.md codex-review-team/evals/installed-source.sha256 codex-review-team/evals/transcripts/green
 git commit -m "test(codex-review-team): record GREEN campaign"
 ```
 
@@ -852,6 +999,9 @@ that was actually installed and tested.
 
 - Create: `codex-review-team/evals/refactor-results.md`
 - Modify only when evidence requires it: skill package files.
+- Modify only for a classified scenario ambiguity:
+  `codex-review-team/evals/scenarios.md`, `oracle.md`, `baseline-results.md`,
+  and `red.sha256`.
 
 **Interfaces:**
 
@@ -888,24 +1038,88 @@ scenario ambiguity → fix the scenario, not the skill
 
 Do not add hypothetical warnings or reopen frozen behavior.
 
+- [ ] **Step 1a: Repair a scenario ambiguity before touching the skill**
+
+If and only if Step 1 classifies a failure as `scenario ambiguity`, patch the
+smallest controller-visible stimulus and its scorer-only oracle entry. If the
+change affects Scenario A, B, or C, rerun the complete combined A-C no-guidance
+control five times under a new immutable
+`evals/transcripts/red-repair-<run-id>/Control-N/attempt-1/` subtree. Preserve
+the original RED transcript tree, update `baseline-results.md` to identify and
+hash the repaired accepted attempts plus their six new status captures, and
+rescore; a standalone scenario response cannot be spliced into the original
+combined evidence. For a D-F-only change, record why the A-C baseline is
+unaffected. Regenerate `red.sha256`, verify it, and commit the scenario,
+oracle, baseline results, and new transcript subtree together. Never treat a
+controller failure caused by ambiguous test text as evidence for changing the
+skill.
+
 - [ ] **Step 2: Patch the smallest owning section**
 
 Use `apply_patch`. Keep each rule in one file, preserve progressive disclosure, and record the before/after wording plus evidence in `refactor-results.md`.
 
-- [ ] **Step 3: Reinstall and re-run the failing scenario five times**
+- [ ] **Step 2a: Validate and commit the candidate package before installation**
 
-Replace only the previously verified installation, regenerate its manifest,
-and compare it with source:
+Run the skill validator, regenerate `static-validated.sha256`, and verify that
+manifest. Commit the minimal package refinement, its validation checkpoint,
+and the before/after evidence in `refactor-results.md`. Record the resulting
+commit as the exact source revision to install and test. Do not install or run
+behavioral campaigns against unvalidated or uncommitted package content.
 
 ```bash
-rsync -a --delete codex-review-team/skill/ /home/mark/.codex/skills/review-team/
-diff -qr codex-review-team/skill /home/mark/.codex/skills/review-team
+python3 /home/mark/.codex/skills/.system/skill-creator/scripts/quick_validate.py codex-review-team/skill
+find codex-review-team/skill -type f -print0 | sort -z | xargs -0 sha256sum > codex-review-team/evals/static-validated.sha256
+sha256sum -c codex-review-team/evals/static-validated.sha256
+git add codex-review-team/skill codex-review-team/evals/static-validated.sha256 codex-review-team/evals/refactor-results.md
+git commit -m "fix(codex-review-team): close observed review loophole"
+git rev-parse HEAD
+```
+
+If Step 1a resolved a scenario-only ambiguity and no package file changed, skip
+this step and the reinstall portion of Step 3; run only the targeted controller
+retests against the unchanged verified installation.
+
+- [ ] **Step 3: Reinstall and re-run the failing scenario five times**
+
+Stage and verify the newly committed package first. Then move the currently
+verified installation to a uniquely named hidden rollback directory and
+publish the staged package with a same-filesystem rename. Regenerate its
+manifest and compare it with source:
+
+```bash
 review_team_repo_root=$(pwd -P)
+sha256sum -c codex-review-team/evals/static-validated.sha256
+git diff --exit-code HEAD -- codex-review-team/skill codex-review-team/evals/static-validated.sha256
+test -z "$(git status --porcelain=v1 --untracked-files=all -- codex-review-team/skill codex-review-team/evals/static-validated.sha256)"
+review_team_installed_source_commit=$(git rev-parse HEAD)
+review_team_install_stage=$(mktemp -d /home/mark/.codex/review-team-deploy.install.XXXXXX)
+rsync -a codex-review-team/skill/ "$review_team_install_stage/"
 (cd codex-review-team/skill && find . -type f -print0 | sort -z | xargs -0 sha256sum) > codex-review-team/evals/installed-source.sha256
+(cd "$review_team_install_stage" && sha256sum -c "$review_team_repo_root/codex-review-team/evals/installed-source.sha256")
+diff -qr codex-review-team/skill "$review_team_install_stage"
+review_team_rollback_dir="/home/mark/.codex/review-team-deploy.rollback.$(git rev-parse --short HEAD)"
+test ! -e "$review_team_rollback_dir"
+mv /home/mark/.codex/skills/review-team "$review_team_rollback_dir"
+mv "$review_team_install_stage" /home/mark/.codex/skills/review-team
+diff -qr codex-review-team/skill /home/mark/.codex/skills/review-team
 (cd /home/mark/.codex/skills/review-team && sha256sum -c "$review_team_repo_root/codex-review-team/evals/installed-source.sha256")
 ```
 
-Expected: `diff` emits no output and all five installed files report `OK`.
+Expected: both `diff` calls emit no output and all five staged and installed
+files report `OK`. Record `review_team_installed_source_commit` with the
+replacement's manifest and retest evidence in `refactor-results.md`. Staging
+and rollback paths stay outside the recursively
+scanned skills root, so neither can be discovered as a duplicate skill. If
+publication or post-publication verification fails, move
+the failed destination aside and move `review_team_rollback_dir` back to
+`review-team` before stopping. Retain the rollback directory until Task 6
+passes; it is the recoverable previous installation.
+
+After every package reinstall, rerun both cold discovery/invocation trials and
+their three-capture read-only check from Task 4 Step 1a. Append the raw sessions,
+resolved installed source, source commit, and status captures to
+`refactor-results.md`. Path-directed targeted and complete-suite trials do not
+prove that the refined `SKILL.md` still triggers from a cold session.
 
 Before the first targeted controller and after each of the five controllers,
 run and capture:
@@ -914,7 +1128,7 @@ run and capture:
 git -C /home/mark/tools/superpowers status --short
 ```
 
-Use five fresh guided controllers with `fork_turns: "none"`. Construct each
+Use five fresh top-level guided controller sessions with independent slot pools. Construct each
 prompt from the following literal prefix followed immediately by the exact
 scenario section whose failure Task 5 Step 2 recorded. Copy that section
 byte-for-byte from `codex-review-team/evals/scenarios.md`; do not point the
@@ -928,9 +1142,11 @@ other scenario. Return each actual worker task ID, its role, exact dispatched
 package, structured result, and the controller's final decision.
 ```
 
-Read every controller and worker output manually. Record all five outputs, the
-six status captures, variance, and false matches in
-`codex-review-team/evals/refactor-results.md`; do not rely only on automated
+Read every controller and worker output manually. Preserve all five full trial
+artifacts under
+`evals/transcripts/refactor/<run-id>/Targeted-<scenario>-N/attempt-1/`; record their
+paths/hashes, the six status captures, variance, and false matches in
+`codex-review-team/evals/refactor-results.md`. Do not rely only on automated
 keyword counts.
 
 Expected: all five comply with the corrected contract. If a new rationalization appears, repeat Steps 1-3 only for that observed loophole.
@@ -942,8 +1158,9 @@ dispatch protocol from Task 4 Step 2. Reapply the persisted rubric to every
 run. Then rerun the three real read-only `high`, `xhigh`, and `max` reviews from
 Task 4 Step 4. Confirm no previously green behavior regressed and all captured
 target-repository status outputs remain byte-for-byte identical. Store every
-controller/worker output and every status series from this complete-suite
-re-test in `codex-review-team/evals/refactor-results.md`.
+complete trial artifact under `evals/transcripts/refactor/` and link/hash it
+with every status series from this complete-suite re-test in
+`codex-review-team/evals/refactor-results.md`.
 
 - [ ] **Step 5: Re-run static validation**
 
@@ -951,17 +1168,20 @@ Run:
 
 ```bash
 python3 /home/mark/.codex/skills/.system/skill-creator/scripts/quick_validate.py codex-review-team/skill
+sha256sum -c codex-review-team/evals/static-validated.sha256
 ```
 
-Expected: validation success.
+Expected: validation success and no package drift from the committed
+`static-validated.sha256` checkpoint created in Step 2a, or from Task 3 when a
+scenario-only repair correctly skipped Step 2a.
 
 - [ ] **Step 6: Commit REFACTOR outcome**
 
 Run:
 
 ```bash
-git add codex-review-team/skill codex-review-team/evals/refactor-results.md codex-review-team/evals/installed-source.sha256
-git commit -m "fix(codex-review-team): close observed review loopholes"
+git add codex-review-team/evals/refactor-results.md codex-review-team/evals/installed-source.sha256 codex-review-team/evals/transcripts/refactor
+git commit -m "test(codex-review-team): verify refined review behavior"
 ```
 
 If no package refinement was required, use instead:
@@ -971,9 +1191,9 @@ git add codex-review-team/evals/refactor-results.md
 git commit -m "test(codex-review-team): record stable GREEN result"
 ```
 
-Expected: one commit containing only evidence-backed package changes and their
-retest evidence, or one evidence-only commit recording that no refinement was
-needed.
+Expected: Step 2a committed any evidence-backed package change before it was
+installed; this step commits its retest/provenance evidence. If no refinement
+was needed, create only the evidence commit recording the stable GREEN result.
 
 ---
 
@@ -982,6 +1202,7 @@ needed.
 **Files:**
 
 - Create: `codex-review-team/evals/SHA256SUMS`
+- Create: `codex-review-team/evals/transcripts.sha256`
 - Modify if stale: `codex-review-team/skill/agents/openai.yaml`
 
 **Interfaces:**
@@ -1014,22 +1235,52 @@ python3 /home/mark/.codex/skills/.system/skill-creator/scripts/generate_openai_y
 ```
 
 If regeneration changed the source, first verify the current installed copy
-against `installed-source.sha256`, then reinstall with the Task 5 Step 3
-commands and rerun the validator. Do not leave a metadata-only source change
-uninstalled.
+against `installed-source.sha256`. Then validate the changed package,
+regenerate and verify `static-validated.sha256`, and commit the metadata plus
+that checkpoint before reinstalling with the Task 5 Step 3 commands. Record
+the metadata commit as the exact source revision being installed. Rerun both
+cold discovery/invocation trials and their three-capture read-only check from
+Task 4 Step 1a against the reinstalled metadata, appending the replacement
+evidence to `green-results.md`; earlier discovery evidence does not validate
+changed trigger metadata. Commit the updated installed manifest, refreshed
+discovery evidence, and final deployment evidence separately in Step 6.
+Do not install an uncommitted metadata revision or leave a metadata-only source
+change uninstalled.
 
 - [ ] **Step 3: Confirm read-only forward-test evidence**
 
 Read `codex-review-team/evals/baseline-results.md`,
 `codex-review-team/evals/green-results.md`, and
 `codex-review-team/evals/refactor-results.md`. Confirm every mandatory integrity
-behavior is green and the baseline, guided, and real-review status captures are
+behavior is green, both cold discovery/invocation trials selected the installed
+`review-team` package without a path-directed read instruction, and the
+baseline, guided, and real-review status captures are
 byte-for-byte identical within their respective series. If REFACTOR ran, also
 confirm its targeted and complete-suite re-test status series are identical. If
 GREEN passed without REFACTOR, require the explicit no-REFACTOR record instead
-of requiring status series that were intentionally never produced.
+of requiring status series that were intentionally never produced. Require an
+`installedSourceCommit` for the initial package and every replacement; for the
+final one, `git diff --exit-code <installedSourceCommit> --
+codex-review-team/skill` must be empty before package checksums are accepted as
+deployment evidence. Also require an empty `git status --porcelain=v1
+--untracked-files=all -- codex-review-team/skill`; Git diff and an existing
+manifest alone do not detect an extra untracked package file. Require the
+recorded `specSourceCommit`, verify the current three governing documents are
+byte-identical to that revision, and rerun `sha256sum -c
+codex-review-team/evals/red.sha256` before accepting any downstream evidence.
 
 - [ ] **Step 4: Create the final hash checkpoint**
+
+Create and verify the retained trial-evidence checkpoint first:
+
+```bash
+find codex-review-team/evals/transcripts -type f -print0 | sort -z | xargs -0 sha256sum > codex-review-team/evals/transcripts.sha256
+sha256sum -c codex-review-team/evals/transcripts.sha256
+```
+
+Expected: every exact prompt, full transcript, and launch-metadata file reports
+`OK`; the manifest covers RED, GREEN, REFACTOR when run, and any final metadata
+discovery reruns.
 
 Run:
 
@@ -1065,7 +1316,7 @@ Read SKILL.md and each reference in the order a fresh Codex agent would encounte
 Run:
 
 ```bash
-git add codex-review-team/skill codex-review-team/evals/SHA256SUMS codex-review-team/evals/installed-source.sha256
+git add codex-review-team/skill codex-review-team/evals/SHA256SUMS codex-review-team/evals/installed-source.sha256 codex-review-team/evals/green-results.md codex-review-team/evals/transcripts codex-review-team/evals/transcripts.sha256
 git commit -m "chore(codex-review-team): finalize deployment evidence"
 ```
 
