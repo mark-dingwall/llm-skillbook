@@ -11,7 +11,7 @@ tools: Read, Write, AskUserQuestion, Glob
 Build a YAML prompt file matching this schema (see `multi_review.core.promptfile`):
 
 ```yaml
-prompt_format_version: 1
+prompt_format_version: 2
 task: code | plan | security | generic | custom
 files: [...]
 context_files: [...]

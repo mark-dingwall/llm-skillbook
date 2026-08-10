@@ -270,6 +270,23 @@ def _builder_schema_block() -> str:
     return blocks[0]
 
 
+def test_builder_schema_prompt_format_version_is_current(tmp_path):
+    from multi_review.core.promptfile import fill_defaults, validate
+
+    block = _builder_schema_block()
+    matches = re.findall(r"^prompt_format_version:\s*(\d+)\s*$", block, re.MULTILINE)
+    assert matches == ["2"]
+
+    source = tmp_path / "subject.py"
+    source.write_text("")
+    pf = fill_defaults({
+        "prompt_format_version": int(matches[0]),
+        "task": "code",
+        "files": [str(source)],
+    })
+    validate(pf, base_dir=tmp_path)
+
+
 def test_builder_schema_reviewers_line_matches_DEFAULT_REVIEWERS():
     """Pins the schema block's `reviewers: [...]` template line, not just the
     `## Defaults` bullet — see `_builder_schema_block` for why both are needed.

@@ -53,7 +53,7 @@ a. Generate `run_id` (`uv run python -c "from multi_review.core.paths import gen
 
 Prepare prompt:
 ```
-uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSION_DIR> --mode-override reference
+uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSION_DIR>
 ```
 
 **Fanout sequencing — Task tool blocks the host turn (spec §6.2 step 3).** In a single assistant message:
@@ -145,7 +145,7 @@ Write to the cwd root:
 ```
 uv run python -m multi_review.cli.aggregate \
   --reviews-dir <REVIEWS_DIR> --output <cwd>/REVIEW-<slug>.md \
-  --mode reference --task <task> \
+  --task <task> \
   --synthesis-text-file <synth_output> --prompt-file <yaml_path>
 ```
 

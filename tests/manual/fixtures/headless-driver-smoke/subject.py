@@ -1,6 +1,5 @@
 """Trusted synthetic subject for the headless-driver acceptance smoke."""
 
-INLINE_MARKER = "INLINE_DRIVER_SMOKE_20260807"
 REFERENCE_MARKER = "REFERENCE_TOOL_READ_20260807"
 
 

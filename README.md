@@ -81,7 +81,7 @@ Install and authenticate the Grok Build CLI so `grok` is on `PATH`. Verify with
 multi-review invokes it as
 `grok --sandbox workspace --prompt-file /dev/stdin --output-format streaming-json`.
 The prompt travels on stdin; `--sandbox workspace` fences writes to cwd + tmp
-while leaving reads open, so reference-mode file manifests outside cwd still work.
+while leaving reads open, so file manifests outside cwd still work.
 The synthesis path runs the same binary without `--output-format` — plain-text
 output taken verbatim, not the streaming-json envelope — so don't assume the
 flag is unconditional.
@@ -109,7 +109,7 @@ Invoke from inside a Claude Code session:
 Reviews are driven by YAML prompt files. The `multi-review-build` subagent authors these interactively; you can also write them by hand and pass them with `--prompt-files`.
 
 ```yaml
-prompt_format_version: 1
+prompt_format_version: 2
 
 # Task preset. One of: code | plan | security | generic | custom
 task: code
@@ -119,7 +119,7 @@ files:
   - src/auth.ts
   - src/session.ts
 
-# Extra context — always inlined regardless of mode (optional)
+# Extra context — always inlined (optional)
 context_files:
   - docs/threat-model.md
 
@@ -127,12 +127,6 @@ context_files:
 # any task, it replaces that task's built-in template.
 custom_prompt: |
   Focus on dependency ordering and rollback paths
-
-# Prompt shape. One of: inline | reference | both
-# inline  — file contents embedded in <file-NONCE> tags
-# reference — manifest of absolute paths; reviewer reads via its own tools
-# both — deprecated paired comparison run; do not use for new work
-mode: inline
 
 # Synthesis pass. One of: claude | agy | codex | opencode | pykrete | grok | none
 synthesizer: claude
@@ -154,39 +148,20 @@ models:
   pykrete: glm      # names a NanoGPT *family*, not a specific model
   grok: grok-4.5-build
 
-# Deprecated comparison-only drift policy (mode: both only)
-# ignore — no snapshot, no diff; pair flagged comparison_eligible: false
-# abort  — abort pass 2 on any drift
-# ask    — AskUserQuestion: proceed | abort | investigate
-if_drift: ignore
-
-# Deprecated comparison logging. Current interactive-skill runs write a row
-# regardless of this value; `harvest: false` becomes a real opt-out in follow-up work.
-harvest: true
 ```
-
-Omit `model_effort`, `output_dir`, and `save_as`: each is still accepted for
-compatibility but is currently ignored. `harvest` is shown only to document the
-pending opt-out; it does not yet suppress an interactive-skill write.
 
 ### Field reference
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `prompt_format_version` | int | — | Required. Currently `1`. |
+| `prompt_format_version` | int | — | Required. Currently `2`. |
 | `task` | enum | — | Required. `code \| plan \| security \| generic \| custom`. |
 | `files` | list[path] | — | Required. Paths must exist at validation time. Relative paths resolve against the **prompt YAML's own directory**, not cwd. |
-| `context_files` | list[path] | `[]` | Always inlined (both modes). Also snapshotted for drift detection. |
+| `context_files` | list[path] | `[]` | Always inlined. |
 | `custom_prompt` | string | — | Required when `task == custom`. |
-| `mode` | enum | `inline` | `inline \| reference \| both`; `both` is deprecated comparison infrastructure. |
 | `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
 | `reviewers` | list[enum] | claude, agy, codex, opencode, pykrete | Subset of `claude \| agy \| codex \| opencode \| pykrete \| grok`. Default omits `grok` (opt-in). |
 | `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
-| `model_effort` | map | `{}` | Deprecated compatibility field; currently ignored for every reviewer. |
-| `if_drift` | enum | `ignore` | Deprecated comparison-only field. `ignore \| abort \| ask`. |
-| `output_dir` | path\|null | null | Deprecated compatibility field; currently ignored. |
-| `save_as` | string\|null | null | Deprecated compatibility field; currently ignored. |
-| `harvest` | bool | `true` | Deprecated comparison field. The interactive skill currently writes harvest data regardless; a real opt-out is planned. |
 
 Validate a YAML file without running a review:
 
@@ -202,7 +177,6 @@ Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--
 
 ## Limitations
 
-- **Drift detection covers explicitly-submitted files only.** Files the pass-1 reviewer happened to read via tools (reference mode) but are not listed in `files` or `context_files` are not tracked. Untracked-tool-read drift is a documented v0.2 gap.
 - **agy is an agentic, uncontained reviewer.** `agy --print` runs as an autonomous agent and reads its prompt from a file (agy has no stdin input mode). Headless agy auto-denies every permission-gated tool call, including reading that prompt file, so multi-review passes `--dangerously-skip-permissions` unconditionally — without it, no agy review produces output at all. The cost is that agy can run arbitrary commands on your working tree during a review: **don't point agy at untrusted code** until sandbox containment lands (BACKLOG). Its step-narration preamble is trimmed to the first `## Summary` heading before aggregation.
 - **The v0.1 positional standalone CLI remains removed.** `./multi_review.py file.ts` is not a
   supported interface. The root script path now hosts a supported headless single-pass contract for
@@ -212,15 +186,6 @@ Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--
   run engines below their direct shim. This supported driver is for contained callers; it does not
   replace the `/multi-review` skill.
 - **No timeouts in v0.2.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
-- **Persisted telemetry is deprecated.** Task subagents do not surface JSONL-level usage, and
-  `grok` tool-call telemetry is unavailable. Existing rows retain `0` as an unavailable sentinel:
-  grok emits
-  no tool-call events in any output format, so `tool_calls` is always `0` for the
-  grok reviewer **even on runs where it demonstrably used tools**. Read it as
-  "unknown", never as "grok used no tools" — the harvest schema has no way to
-  express unavailability for a single field. Token counts are complete and
-  reliable; harvest rows record `telemetry_quality: known-issues` to reflect the
-  split. Treat this only as legacy diagnostic data.
 - **grok is an agentic, uncontained reviewer.** It auto-approves its own tool use
   in headless mode and can run commands on your working tree during a review.
   `--sandbox workspace` fences writes but is not a security boundary and does not

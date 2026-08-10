@@ -1,10 +1,7 @@
-prompt_format_version: 1
+prompt_format_version: 2
 task: code
 files: ["sample_subject.py"]
-mode: reference
 synthesizer: agy
 reviewers: ["claude", "agy"]
 models:
   claude: claude-opus-4-7
-if_drift: ignore
-harvest: true

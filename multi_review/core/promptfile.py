@@ -17,40 +17,33 @@ class PromptFile:
     files: list[str]
     context_files: list[str] = field(default_factory=list)
     custom_prompt: str | None = None
-    mode: Literal["inline", "reference", "both"] = "inline"
     synthesizer: str = "claude"
     reviewers: list[str] = field(default_factory=lambda: list(DEFAULT_REVIEWERS))
     models: dict[str, str] = field(default_factory=dict)
-    model_effort: dict[str, str] = field(default_factory=dict)
-    if_drift: Literal["ignore", "abort", "ask"] = "ignore"
-    output_dir: str | None = None
-    save_as: str | None = None
-    harvest: bool = True
 
 _VALID_TASKS = {"code", "plan", "security", "generic", "custom"}
-_VALID_MODES = {"inline", "reference", "both"}
-_VALID_IF_DRIFT = {"ignore", "abort", "ask"}
 _KNOWN_REVIEWERS = set(ALL_REVIEWERS)  # valid set (includes opt-in reviewers like grok)
 _VALID_SYNTHESIZERS = _KNOWN_REVIEWERS | {"none"}
 
 _REQUIRED_FIELDS = {"prompt_format_version", "task", "files"}
+_REMOVED_KEYS = ("mode", "model_effort", "if_drift", "output_dir", "save_as", "harvest")
 
 def fill_defaults(raw: dict) -> PromptFile:
+    found = [key for key in _REMOVED_KEYS if key in raw]
+    if found:
+        raise ValidationError(
+            "prompt YAML key(s) removed in v0.3.0, delete before retrying: "
+            + ", ".join(found)
+        )
     raw = dict(raw)
     for f in _REQUIRED_FIELDS:
         if f not in raw:
             raise ValidationError(f"missing required field: {f!r}")
     raw.setdefault("context_files", [])
     raw.setdefault("custom_prompt", None)
-    raw.setdefault("mode", "inline")
     raw.setdefault("synthesizer", "claude")
     raw.setdefault("reviewers", list(DEFAULT_REVIEWERS))
     raw.setdefault("models", {})
-    raw.setdefault("model_effort", {})
-    raw.setdefault("if_drift", "ignore")
-    raw.setdefault("output_dir", None)
-    raw.setdefault("save_as", None)
-    raw.setdefault("harvest", True)
     try:
         return PromptFile(**raw)
     except TypeError as exc:
@@ -74,36 +67,32 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         raise ValidationError("prompt_format_version must be an integer")
     if not isinstance(pf.task, str):
         raise ValidationError("task must be a string")
-    if not isinstance(pf.mode, str):
-        raise ValidationError("mode must be a string")
     if not isinstance(pf.synthesizer, str):
         raise ValidationError("synthesizer must be a string")
-    if not isinstance(pf.if_drift, str):
-        raise ValidationError("if_drift must be a string")
     for field_name in ("files", "context_files", "reviewers"):
         value = getattr(pf, field_name)
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise ValidationError(f"{field_name} must be a list of strings")
-    for field_name in ("models", "model_effort"):
+    for field_name in ("models",):
         value = getattr(pf, field_name)
         if not isinstance(value, dict) or not all(
             isinstance(key, str) and isinstance(item, str) for key, item in value.items()
         ):
             raise ValidationError(f"{field_name} must be a mapping of strings to strings")
-    for field_name in ("custom_prompt", "output_dir", "save_as"):
+    for field_name in ("custom_prompt",):
         value = getattr(pf, field_name)
         if value is not None and not isinstance(value, str):
             raise ValidationError(f"{field_name} must be a string or null")
-    if type(pf.harvest) is not bool:
-        raise ValidationError("harvest must be a boolean")
-    if pf.prompt_format_version != 1:
+    if pf.prompt_format_version == 1:
+        raise ValidationError(
+            "prompt_format_version: 1 is no longer supported — v0.3 removed inline delivery "
+            "and 6 deprecated fields (mode, if_drift, harvest, output_dir, save_as, model_effort). "
+            "Set prompt_format_version: 2."
+        )
+    if pf.prompt_format_version != 2:
         raise ValidationError(f"unknown prompt_format_version: {pf.prompt_format_version}")
     if pf.task not in _VALID_TASKS:
         raise ValidationError(f"task must be one of {_VALID_TASKS}, got {pf.task!r}")
-    if pf.mode not in _VALID_MODES:
-        raise ValidationError(f"mode must be one of {_VALID_MODES}, got {pf.mode!r}")
-    if pf.if_drift not in _VALID_IF_DRIFT:
-        raise ValidationError(f"if_drift must be one of {_VALID_IF_DRIFT}")
     if pf.synthesizer not in _VALID_SYNTHESIZERS:
         raise ValidationError(f"synthesizer must be one of {_VALID_SYNTHESIZERS}, got {pf.synthesizer!r}")
     if not pf.files:
