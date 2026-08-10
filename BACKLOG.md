@@ -341,7 +341,8 @@ Phase 2 bwrap containment is more urgent than when it protected only an opt-in
 path.
 
 Phase 2 was originally gated on Phase 1 falsification. See the historical
-findings below; containment is now the remaining live phase.
+findings below; containment remains open for the surviving reviewer set
+(`claude`, `agy`, `codex`, `opencode`, `pykrete`, and opt-in `grok`).
 
 ### Phase 1 falsification findings (2026-04-29)
 
@@ -361,10 +362,12 @@ delivery; they are not current operational guidance.
 
 | CLI      | Mechanism                                              | Status |
 |----------|--------------------------------------------------------|--------|
-| claude   | `--dangerously-skip-permissions`                       | known  |
+| claude   | `--dangerously-skip-permissions`                       | known |
+| agy      | `--dangerously-skip-permissions`                       | currently unconditional; gate on containment |
 | codex    | `--dangerously-bypass-approvals-and-sandbox` or `--full-auto` | verify before locking |
-| gemini   | `--yolo`                                               | verify before locking |
 | opencode | per-user config: `~/.config/opencode/opencode.json` already set to "yolo" by user — no CLI flag needed | configured |
+| pykrete  | no bypass flag identified; wraps the unrestricted `pi` agent | containment required |
+| grok     | `--sandbox workspace` fences writes but is not containment | containment required |
 
 ### Network posture
 
@@ -388,10 +391,12 @@ symlink there).
 ```python
 def _bwrap_args(input_files, context_files, cli):
     home = Path.home()
+    # Verified locations only. Phase 2 must probe and add explicit auth/cache
+    # mounts for agy, pykrete, and grok before enabling them under bwrap; do
+    # not let an unmapped reviewer fall through with an empty state list.
     state_dirs = {
         "claude":   [home / ".claude"],
         "codex":    [home / ".codex"],
-        "gemini":   [home / ".gemini"],
         "opencode": [home / ".config" / "opencode",
                      home / ".local" / "share" / "opencode"],
     }[cli]
@@ -434,10 +439,11 @@ def _bwrap_args(input_files, context_files, cli):
     return args
 ```
 
-`_passthrough_api_keys` returns the env vars each CLI needs
-(`ANTHROPIC_API_KEY` for claude, `OPENAI_API_KEY` for codex, `GEMINI_API_KEY` /
-`GOOGLE_API_KEY` for gemini, `OPENROUTER_API_KEY` for opencode if used, etc.).
-Selective passlist, not bulk passthrough.
+`_passthrough_api_keys` returns only the env vars each supported CLI actually
+needs (`ANTHROPIC_API_KEY` for claude, `OPENAI_API_KEY` for codex,
+`OPENROUTER_API_KEY` for opencode if used, and `NANOGPT_API_KEY` plus
+`PYKRETE_CONFIG` for pykrete). Probe and document agy/grok authentication
+inputs before adding them. Selective passlist, not bulk passthrough.
 
 ### Reference-only prompt shape
 
@@ -468,13 +474,14 @@ Context files stay inline (they're framing docs, small).
 
 ### Files to modify (Phase 2)
 
-- `multi_review.py`:
-  - `parse_args`: `--sandbox`, `--bypass-perms`, plus validation.
-  - `CLI_SPEC`: new `bypass_args` field per CLI.
-  - New `_bwrap_args` + `_passthrough_api_keys` helpers.
-  - `build_command`: append `bypass_args` when `--bypass-perms`.
-  - `run_reviewer`, `run_synthesis`, `suggest_filename_haiku`: prepend bwrap
-    args when sandbox active.
+- `multi_review.py`: `_run_driver` owns `--sandbox`, `--bypass-perms`, and
+  validation.
+- `multi_review/core/reviewers.py`: `CLI_SPEC`, `build_command`, and the
+  per-reviewer bypass metadata.
+- `multi_review/core/fanout.py`: `run_reviewer` plus new bwrap/env helpers for
+  reviewer subprocesses.
+- `multi_review/core/synthesis.py`: `_run_synthesis_attempt` and
+  `suggest_filename_haiku` wrapping when sandboxing also covers synthesis.
 
 ### Verification (Phase 2)
 
@@ -497,9 +504,9 @@ Context files stay inline (they're framing docs, small).
 2. Synthesis pass operates on reviewer output text (not source) — no change.
 3. bwrap is Linux-only. macOS gets `--sandbox none` (manual risk acceptance)
    or future `sandbox-exec` work.
-4. Per-CLI cache sharing: claude/codex/gemini state dirs are writable bind,
-   so prompt-cache hits and login state survive across runs. Deliberate.
-   Document in README.
+4. Per-CLI cache sharing: verified claude/codex/opencode state dirs, plus each
+   explicitly mapped agy/pykrete/grok state dir, are writable binds so cache
+   and login state survive across runs. Deliberate; document in README.
 5. Path resolution: reference manifest uses absolute paths. Resolve relative
    inputs early (`Path.resolve()`) before building bwrap mounts.
 
@@ -507,16 +514,13 @@ Context files stay inline (they're framing docs, small).
 
 ### Motivation
 
-Reference-only delivery hands the model a manifest of absolute
-paths and expects the CLI to read files via its own tools. Most modern
-LLM CLIs default to a sandbox-to-cwd permission policy: claude refuses
-reads outside the launch cwd entirely; gemini refuses with "outside
-permitted workspace directory" the same way. So when `multi-review` is
-invoked from a directory other than the target repo, those reviewers
-exit early with a refusal message and produce no review content — but
-their refusal text is long enough to pass `FAILURE_MIN_BYTES`, so they
-register as `OK` in the dashboard and the output file. Silent
-degradation, not a loud failure.
+Reference-only delivery hands the model a manifest of absolute paths and
+expects the CLI to read files via its own tools. The dated evidence below
+showed cwd-scoped refusal from claude and the now-removed Gemini reviewer.
+Because supported reviewer policies differ and can change, revalidate the
+failure against the current reviewer set before implementing a blanket guard.
+The failure mode remains relevant: a refusal can be long enough to pass
+`FAILURE_MIN_BYTES` and register as `OK` despite containing no review.
 
 This is operator UX, not a model issue. The harness already has the
 absolute paths it would need to detect the mismatch.
@@ -528,8 +532,9 @@ absolute paths it would need to detect the mismatch.
   `paralife`. Claude refused on permission grounds. Documented in
   `runs/notes/paralife-2026-04-29.md` as the original Phase-1
   falsification observation, attributed to claude-specific behaviour.
-- **2026-05-02 multi-CLI reference, paralife-phase19**: same procedural
-  setup. **Both claude AND gemini refused**, generalising the failure
+- **Historical 2026-05-02 multi-CLI reference, paralife-phase19**: same
+  procedural setup. **Both claude AND the now-removed Gemini reviewer
+  refused**, generalising the failure
   beyond claude alone. Codex + opencode read files successfully (more
   permissive read-path posture today). Net: 2/4 reviewers structurally
   blocked, not detectable from the dashboard's `OK` status. Sidecar:
@@ -810,25 +815,22 @@ fully-cached run).
 
 - Doesn't affect review quality. Reviews still produce real output;
   this is a reviewer-state / cost-reporting bug.
-- Same audit may need to happen for the other adapters (codex/gemini/
-  opencode), but they're not currently complained about. Defer.
+- Same audit may need to happen for the other supported structured adapters,
+  but they're not currently complained about. Defer.
 
-## Default: no timeout if `--timeout` not specified
+## Default: no timeout if `--timeout` not specified — FIXED; lag evidence historical
 
-**Status (2026-05-01):** Policy fix shipped. `--timeout` default is now
-`None`; `_run_reviewer_attempt`, `_run_synthesis_attempt`, and
-`suggest_filename_haiku` all skip the `wait_for` wrapper when timeout is
-`None` and await the underlying `gather` / `communicate` directly.
-`DEFAULT_TIMEOUT` constant removed. Help text + README updated. The
-`wait_for` lag bug (goal 3) remains open — see "Remaining: wait_for
-lag" below.
+**Status (policy fixed 2026-05-01; evidence closed for v0.3):** `--timeout`
+defaults to `None`. `run_reviewer`, `_run_synthesis_attempt`, and
+`suggest_filename_haiku` skip deadline wrappers when timeout is `None` and
+await their subprocess work directly. The old lag observations below predate
+the module split and removal of Gemini/fallback attempts. They do not establish
+a current bug; reopen only with a reproducer against a supported reviewer.
 
-Long-running frontier models on 100k+ token prompts routinely exceed 10
-min — observed gemini-3.1-pro-preview running ~17 min on a 142 KB
-prompt before finishing. Worse, the wall-clock timeout did **not** fire
-at the 600 s deadline in that run (process kept running past 1000 s
-with output streaming). That's a separate bug — the policy fix above
-just stops imposing a timeout the user didn't ask for.
+Long-running frontier models on large prompts can exceed any sensible default,
+so the no-timeout policy remains deliberate. The original 142 KB observation
+used the now-removed Gemini reviewer and is retained below only as dated
+diagnostic history.
 
 ### Goals
 
@@ -836,13 +838,12 @@ just stops imposing a timeout the user didn't ask for.
    user-driven `Ctrl+C`).~~ **Done.**
 2. ~~`--timeout N` (explicit) → enforce N seconds, kill on exceed
    (today's behaviour).~~ **Done.**
-3. Investigate the `wait_for(gather(...), timeout=600)` no-fire bug
-   independently. Suspected cause: stdout pipe backpressure or
-   event-loop starvation under heavy JSONL throughput preventing the
-   timeout coro from being scheduled. Reproducer: gemini on a 100 KB+
-   prompt with stream-json output.
+3. ~~Investigate the historical `wait_for(gather(...), timeout=600)` no-fire
+   observation.~~ **Historical/closed pending revalidation.** Its Gemini
+   reproducer and fallback-attempt path no longer exist. A new issue should
+   start from `fanout.run_reviewer` and a supported reviewer.
 
-### Evidence (2026-04-30, 142 KB Guestflow wave-2 review)
+### Historical evidence (2026-04-30, 142 KB Guestflow wave-2 review)
 
 - Hop 1 `gemini-3.1-pro-preview`: ran ~1020s, exited with capacity-class
   stderr (gaxios `AbortSignal` / stream body redacted). Timeout never
@@ -853,7 +854,7 @@ just stops imposing a timeout the user didn't ask for.
   CPU time blocking the loop? `rich.Live` rebuild on every state poll?
   Run with `PYTHONASYNCIODEBUG=1` to log slow-callback warnings.
 
-### Evidence (2026-05-01, --timeout 5 smoke test)
+### Historical evidence (2026-05-01, `--timeout 5` smoke test)
 
 Tiny prompt ("nothing to do"), all four reviewers, fresh post-policy-fix
 build. claude fired clean at 5.0s. The other three lagged:
@@ -865,9 +866,10 @@ build. claude fired clean at 5.0s. The other three lagged:
 | opencode | 9.1s    | +4.1s | 0                 |
 | codex    | 13.6s   | +8.6s | 101               |
 
-Slop is reproducible even on a sub-second prompt with near-zero
-streaming. Rules out heavy `feed_line` JSON parses as the *sole* cause —
-gemini/opencode had 0 bytes streamed and still slopped 3-4s.
+At the time, slop reproduced even on a sub-second prompt with near-zero
+streaming. That ruled out heavy `feed_line` JSON parses as the *sole* cause in
+the removed implementation — Gemini/opencode had 0 bytes streamed and still
+slopped 3-4s. It has not been revalidated on v0.3.
 
 `state.elapsed` is recorded *after* `kill_proc` returns, so the slop
 includes SIGKILL + `proc.wait()` reap + cancelled drain-coro teardown.
@@ -878,15 +880,14 @@ with `PYTHONASYNCIODEBUG=1` and a `time.monotonic()` log line *between*
 the TimeoutError catch and the post-`kill_proc` `state.finished_at`
 assignment to localise the cost.
 
-### Files to modify
+### Current revalidation surface
 
-- `multi_review.py`:
-  - `DEFAULT_TIMEOUT` → `None` (or remove constant, use `default=None`).
-  - `_run_reviewer_attempt`, `run_synthesis`, `suggest_filename_haiku`:
-    skip the `wait_for` wrapper when `timeout is None`; await the
-    `gather` / `communicate` directly.
-  - `parse_args`: help text reflects the new default.
-- `README.md`: note the change.
+- `multi_review/core/fanout.py`: `run_reviewer` and `kill_proc`.
+- `multi_review/core/synthesis.py`: `_run_synthesis_attempt` and
+  `suggest_filename_haiku`.
+- `multi_review.py`: `_run_driver` owns `--timeout` CLI plumbing.
+- `README.md` / `CLAUDE.md`: update only if a current reproducer changes the
+  documented contract.
 
 ### Risks
 
@@ -902,7 +903,7 @@ assignment to localise the cost.
 
 ### Motivation (historical)
 
-When a reviewer (today: gemini fallback chain) hops models, the in-flight
+When a reviewer (at the time: Gemini fallback chain) hopped models, the in-flight
 stream is lost. We restart from token zero on the next model. Two costs:
 
 1. **Wasted compute / tokens.** Mid-stream 429 after 17 min of output
@@ -1100,10 +1101,11 @@ contemplated.
 
 ### Documented gaps (no fix planned, deliberate)
 
-- **H8 — `resolve_chain` with explicit_model**: `--model gemini=X` PINS to X
-  with no fallback. `--fallback-model gemini=A,B,C` is the chain entry point.
-  Documented in CLAUDE.md invariants; codex review misread the contract.
-  Not a bug.
+- **HISTORICAL/CLOSED — H8 `resolve_chain` with explicit_model**: in the
+  removed Gemini fallback subsystem, `--model gemini=X` pinned X while
+  `--fallback-model gemini=A,B,C` selected a chain. v0.3 has no
+  `resolve_chain` or fallback-model contract. Retained only as pre-smoke
+  history, not current guidance.
 
 - **H9 — Gemini JSONL error events bypass capacity fallback**: moot — fallback subsystem dropped 2026-06-19.
 
