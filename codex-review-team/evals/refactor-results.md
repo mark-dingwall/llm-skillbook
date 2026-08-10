@@ -59,3 +59,10 @@ controllers to emit it.
 After, scheduling evidence and final stats must include one closed `ceilings`
 record with the level's exact initial, Sweep, finder-output, replacement,
 all-record, and report-cap values.
+
+The first five Scenario E micro-tests exposed residual variance: trials 3, 4,
+and 5 emitted the aggregate record, while trials 1 and 2 still emitted only
+per-role budgets and report/Sweep caps. This was an observed structural
+omission, not a new ceiling rule. The main workflow recipe now requires the
+reference-owned closed `ceilings` record before dispatch and in final stats;
+the numeric values remain owned only by `report-contract.md`.

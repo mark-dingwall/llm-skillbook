@@ -42,6 +42,9 @@ Scope → Find barrier → normalize and group → Verify
 
 1. Dispatch one fresh Scope worker and pin the repository, diff commands,
    changed files, instruction files, restrictions, and factual summary.
+   Before dispatch, emit scheduling evidence containing the closed `ceilings`
+   record required by the report contract. Return that same record in final
+   stats; per-role caps are not a substitute.
 2. Dispatch every configured Finder in capacity-safe waves. Wait for the
    complete Finder barrier before ingesting any results.
 3. Apply the controller-owned normalization, identity, category, grouping, and
