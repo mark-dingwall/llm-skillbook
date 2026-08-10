@@ -1,0 +1,16 @@
+Perform a rigorous multi-agent read-only review at high effort of
+`05c2393b826dd0f09cd071427e62b42e6c751995..36f3883f4ef1b3ca70307fd05509c9a501d772a3`
+in `/home/mark/tools/superpowers`.
+
+This is a cold-discovery gate. Select the appropriate installed skill without
+being told its name or installation path. Before dispatching, state the
+selected skill name and the resolved installed SKILL.md source. Then use the
+collaboration tools to dispatch an actual fresh Scope worker and at least one
+actual configured Finder wave. Return every dispatched worker task ID, its
+role, the exact minimal package sent, and its structured result. After that
+Finder wave completes, you may stop and report the discovery-gate result; do
+not merely narrate workers you would dispatch.
+
+Evaluation harness override: spawn every role worker with
+`fork_turns: "none"` and `model: "gpt-5.6-luna"`. This model selection is a
+test-cost control; all review-team contracts remain unchanged.

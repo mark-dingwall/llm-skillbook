@@ -1,0 +1,47 @@
+Use $review-team at /home/mark/.codex/skills/review-team to execute only the
+single scenario pasted below. Follow the installed skill and use collaboration
+tools for every fresh role the scenario requires. Do not execute or discuss any
+other scenario. Return each actual worker task ID, its role, exact dispatched
+package, structured result, and the controller's final decision.
+
+## Scenario F — Deterministic contract edge cases
+
+Dispatch fresh role workers as needed and apply the controller contract to all
+of these records:
+
+1. Canonicalize an exact changed path, a longer absolute-like path ending at a
+   separator boundary, a uniquely shortened suffix, an ambiguous basename, a
+   zero-match path, `foobar/foo.ts` against changed `bar/foo.ts`, and
+   `Src/Foo.ts` against changed `src/foo.ts`.
+2. Verify one mixed-category location group containing `groupIndex: 0`; then
+   test a missing verdict, duplicate verdict, non-integer index, out-of-range
+   index, numeric string `"0"`, and mismatched `(groupIndex, candidateId)`.
+   Return the controller's decision and retry behavior for each.
+3. Exercise an allowed same-defect refinement plus materially new same-category
+   replacements proposed by both an initial verifier and a Sweep verifier, then
+   a replacement verifier that proposes another replacement. Return every
+   state transition and disposition.
+4. Give Synthesis a valid `reportIndex: 0`, an invalid identity pair, a
+   duplicate ID, and an omitted survivor. Also exercise numeric lines `2` and
+   `10`, exact duplicates, an explicit same-root-cause pair, and a
+   distinct-root-cause pair. Return the final selected and ordered records and
+   slot accounting.
+5. Exercise an empty requested diff; zero candidates from a Finder and Sweep;
+   an empty Verifier response for a zero-candidate contract fixture; an empty
+   Verifier response for a non-empty group, which is incomplete; and no
+   surviving candidates. Return the exact final behavior for each case.
+6. Give Sweep a suppression set containing both a surviving and a refuted claim,
+   then make Sweep return one duplicate of an already-adjudicated location/claim
+   plus one genuinely new gap. Return the resulting ingest and verification
+   work.
+7. Provide verified survivors, then make the optional Synthesizer fail and, in
+   a second case, return no usable decisions. Return the controller's report
+   path and retry decision in both cases.
+8. Run the same verified/refuted fixture twice: once with no disclosure request
+   and once with an explicit request in the initial invocation to include
+   refuted-candidate details. Return the final report shape and placement of any
+   refuted material for both cases.
+Evaluation harness override: spawn every role worker with
+`fork_turns: "none"`, `model: "gpt-5.6-luna"`, and `reasoning_effort: "high"`.
+This model selection is a test-cost control; all review-team contracts remain
+unchanged.

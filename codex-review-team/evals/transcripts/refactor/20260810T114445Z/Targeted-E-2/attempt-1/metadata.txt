@@ -1,0 +1,18 @@
+attempt: Targeted-E-2/attempt-1
+outcome: superseded
+reason: retained pre-refinement aggregate-ceiling evidence; replaced by attempt 2
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m gpt-5.6-terra -c model_reasoning_effort=high -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: 019feb8d-5c37-7bc2-bc8f-1325cff66265
+controllerModel: gpt-5.6-terra
+controllerReasoningEffort: high
+workerModels: gpt-5.6-luna
+workerReasoningEfforts: medium
+startedAt: 2026-08-10T12:02:17.976Z
+endedAt: 2026-08-10T12:07:59.901Z
+exitStatus: 0
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 1
+eventStreamWarnings: 0
+parentRollout: parent-rollout.jsonl
+childRolloutCount: 10

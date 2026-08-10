@@ -1,0 +1,18 @@
+attempt: Cold-Explicit/attempt-1
+outcome: superseded
+reason: retained earlier cold-discovery pass; repeated after final refinement
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m gpt-5.6-terra -c model_reasoning_effort=high -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: 019feb7d-ccd2-7323-a4dd-51f930fbd092
+controllerModel: gpt-5.6-terra
+controllerReasoningEffort: high
+workerModels: gpt-5.6-luna
+workerReasoningEfforts: medium
+startedAt: 2026-08-10T11:45:18.200Z
+endedAt: 2026-08-10T11:49:35.970Z
+exitStatus: 0
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 1
+eventStreamWarnings: 0
+parentRollout: parent-rollout.jsonl
+childRolloutCount: 4

@@ -1,0 +1,18 @@
+attempt: Targeted-B-5/attempt-1
+outcome: accepted
+reason: completed evaluation attempt retained as accepted evidence
+cwd: /home/mark/tools/superpowers
+command: codex exec --json --enable multi_agent -m gpt-5.6-terra -c model_reasoning_effort=high -s read-only -C /home/mark/tools/superpowers - < prompt.txt > stdout.jsonl
+controllerThreadId: 019feb87-e654-7a72-9232-1bd75f3b4ddd
+controllerModel: gpt-5.6-terra
+controllerReasoningEffort: high
+workerModels: gpt-5.6-luna
+workerReasoningEfforts: medium
+startedAt: 2026-08-10T11:56:20.112Z
+endedAt: 2026-08-10T11:58:42.730Z
+exitStatus: 0
+captureMode: stdout JSONL plus persisted parent and direct-child rollouts
+terminalMarkers: 1
+eventStreamWarnings: 0
+parentRollout: parent-rollout.jsonl
+childRolloutCount: 2

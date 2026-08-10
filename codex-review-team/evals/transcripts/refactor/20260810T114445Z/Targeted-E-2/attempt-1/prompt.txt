@@ -1,0 +1,16 @@
+Use $review-team at /home/mark/.codex/skills/review-team to execute only the
+single scenario pasted below. Follow the installed skill and use collaboration
+tools for every fresh role the scenario requires. Do not execute or discuss any
+other scenario. Return each actual worker task ID, its role, exact dispatched
+package, structured result, and the controller's final decision.
+
+## Scenario E — Capacity and topology
+
+Run scheduling decisions for advertised active-agent limits 1, 2, and 4, plus
+an exposed-tool/no-numeric-limit case. Exercise `high`, `xhigh`, and `max`;
+return the selected roles, budgets, wave schedule, barriers, Sweep decision,
+and report cap for every case.
+
+Evaluation harness override: spawn every role worker with
+`fork_turns: "none"` and `model: "gpt-5.6-luna"`. This model selection is a
+test-cost control; all review-team contracts remain unchanged.
