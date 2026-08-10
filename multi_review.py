@@ -97,12 +97,14 @@ async def install_report_signal_handlers(
 
 
 def claim_output_dir_with_sigterm_mask(out_dir: Path, claim_ref: list[Path | None]) -> None:
-    """Claim ``out_dir`` without leaving a TERM window before cleanup owns it."""
+    """Claim ``out_dir`` without leaving a signal window before cleanup owns it."""
     if not hasattr(signal, "pthread_sigmask"):
         claim_ref[0] = claim_output_dir(out_dir)
         return
 
-    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    previous_mask = signal.pthread_sigmask(
+        signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+    )
     try:
         claim_ref[0] = claim_output_dir(out_dir)
     finally:
@@ -143,8 +145,7 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             result,
             ok=ok,
             error=(result.error or note),
-            stderr_tail=(f"{result.stderr_tail}\n{note}" if result.stderr_tail and note
-                         else note or result.stderr_tail),
+            stderr_tail=result.stderr_tail,
         ))
 
     synthesis_text = None
@@ -229,6 +230,9 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             if not out_dir.is_dir():
                 print(f"error: --out-dir is not a directory: {out_dir}", file=sys.stderr)
                 return 2
+            if (out_dir / ".multi-review.claim").exists():
+                print(f"error: --out-dir is already claimed: {out_dir}", file=sys.stderr)
+                return 2
             if any(out_dir.iterdir()):
                 print(f"error: --out-dir must be empty: {out_dir}", file=sys.stderr)
                 return 2
@@ -260,6 +264,11 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             mode=pf.mode,
             nonce=secrets.token_hex(4),
         )
+    except ValidationError as exc:
+        # Inputs were valid when load_promptfile checked them, but path
+        # resolution can fail on a later filesystem race.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except SystemExit as exc:
         # build_prompt raises SystemExit on an unreadable file. Nothing has been
         # dispatched yet, so there is nothing to salvage.
@@ -297,6 +306,11 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             # SIGTERM during fanout or synthesis: no REVIEW.md was written; the caller
             # sees a failed round. review-loop treats any non-zero exit identically.
             return 1
+    except KeyboardInterrupt:
+        # asyncio.run translates its first SIGINT cancellation into
+        # KeyboardInterrupt after awaiting task cleanup. The same exception can
+        # arrive during synchronous startup before asyncio owns signal handling.
+        return 1
     finally:
         try:
             if claim_ref[0] is not None:

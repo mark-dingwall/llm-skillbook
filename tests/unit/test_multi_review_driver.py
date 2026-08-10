@@ -61,6 +61,16 @@ def test_non_empty_out_dir_is_rejected(tmp_path):
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
 
 
+def test_stale_claim_reports_already_claimed(tmp_path, capsys):
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    out.mkdir()
+    (out / ".multi-review.claim").touch()
+
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    assert "already claimed" in capsys.readouterr().err
+
+
 def test_empty_out_dir_is_accepted(tmp_path, monkeypatch):
     pf = _write_promptfile(tmp_path, BASE_YAML)
     out = tmp_path / "round-1"
@@ -180,6 +190,20 @@ def test_unreadable_input_file_exits_1(tmp_path, monkeypatch):
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
 
 
+def test_build_time_path_validation_error_exits_2(tmp_path, monkeypatch, capsys):
+    """A path that becomes invalid after prompt-file validation stays a CLI error."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+
+    def invalid_path(*args, **kwargs):
+        raise driver.ValidationError("path changed after validation")
+
+    monkeypatch.setattr(driver, "_resolve_path", invalid_path)
+
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    assert "path changed after validation" in capsys.readouterr().err
+
+
 def test_prompt_output_write_failure_exits_1_without_traceback(tmp_path, monkeypatch):
     pf = _write_promptfile(tmp_path, BASE_YAML)
     out = tmp_path / "round-1"
@@ -266,6 +290,29 @@ def test_sigterm_during_claim_creation_releases_output_claim(tmp_path, monkeypat
         driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
 
     assert exc.value.code == 1
+    assert not (out / ".multi-review.claim").exists()
+
+
+@pytest.mark.skipif(not hasattr(signal, "pthread_sigmask"), reason="requires POSIX signals")
+def test_sigint_during_claim_creation_returns_1_and_releases_claim(tmp_path, monkeypatch):
+    """Ctrl-C after O_EXCL creation must be delivered after claim_ref owns cleanup."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+    real_touch = Path.touch
+
+    def interrupt_claim_touch(path, *args, **kwargs):
+        result = real_touch(path, *args, **kwargs)
+        if path.name == ".multi-review.claim":
+            os.kill(os.getpid(), signal.SIGINT)
+        return result
+
+    monkeypatch.setattr(Path, "touch", interrupt_claim_touch)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+    except KeyboardInterrupt:
+        pytest.fail("SIGINT escaped the startup CLI boundary")
+
+    assert code == 1
     assert not (out / ".multi-review.claim").exists()
 
 
@@ -392,6 +439,7 @@ def test_exit_code_uses_classified_not_raw_ok(tmp_path, monkeypatch):
     assert code == 1
     assert 'reviewers_failed: ["codex", "agy"]' in text
     assert "failed — no ## Summary heading in review body" in text
+    assert text.count("no ## Summary heading in review body") == 1
     assert "unknown error" not in text
 
 
@@ -552,6 +600,25 @@ def test_cancellation_during_fanout_returns_1_not_a_traceback(tmp_path, monkeypa
     pf = _write_promptfile(tmp_path, BASE_YAML)
     out = tmp_path / "round-1"
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
+
+
+def test_keyboard_interrupt_from_asyncio_run_returns_1_and_releases_claim(tmp_path, monkeypatch):
+    """asyncio.run translates a real fanout SIGINT into KeyboardInterrupt."""
+    pf = _write_promptfile(tmp_path, BASE_YAML)
+    out = tmp_path / "round-1"
+
+    def interrupted_run(coro):
+        coro.close()
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(driver.asyncio, "run", interrupted_run)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out)])
+    except KeyboardInterrupt:
+        pytest.fail("KeyboardInterrupt escaped the fanout CLI boundary")
+
+    assert code == 1
+    assert not (out / ".multi-review.claim").exists()
 
 
 def test_repeated_sigterm_requests_cancellation_only_once(tmp_path, monkeypatch):
@@ -806,7 +873,8 @@ def test_sigterm_after_event_loop_closes_removes_review_and_exits_1(tmp_path, mo
     assert not (out / "REVIEW.md").exists()
 
 
-def test_sigterm_to_real_driver_kills_direct_reviewer_and_publishes_no_review(tmp_path):
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT], ids=["sigterm", "sigint"])
+def test_signal_to_real_driver_kills_direct_reviewer_and_publishes_no_review(tmp_path, signum):
     """Break caught: driver cancellation could regress without exercising a real child process."""
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -840,7 +908,7 @@ def test_sigterm_to_real_driver_kills_direct_reviewer_and_publishes_no_review(tm
         assert reviewer_pid.exists(), "fake reviewer did not start"
         child_pid = int(reviewer_pid.read_text().strip())
 
-        proc.send_signal(signal.SIGTERM)
+        proc.send_signal(signum)
         assert proc.wait(timeout=5) == 1
         assert not (out / "REVIEW.md").exists()
 
