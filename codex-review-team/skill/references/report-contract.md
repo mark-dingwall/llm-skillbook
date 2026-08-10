@@ -27,6 +27,7 @@ scope resolution
 → category assignment
 → group by (file, line)
 → verifier completeness
+→ controller one-fix admission gate
 → initial-replacement sort
 → path canonicalization
 → scope validation
@@ -37,6 +38,7 @@ scope resolution
 → Sweep suppression-set construction
 → gap-only Sweep dispatch with all prior adjudications
 → fresh independent Sweep verification
+→ controller one-fix admission gate
 → Sweep-replacement sort
 → path canonicalization
 → scope validation
