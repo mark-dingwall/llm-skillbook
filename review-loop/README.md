@@ -1,6 +1,6 @@
 # review-loop
 
-A Claude Code skill for multi-round external code review that actually
+A skill for multi-round external code review that actually
 converges. Born from hand-rolled review loops that ran a dozen rounds
 re-litigating the same findings; this skill makes termination a ledger
 fact instead of a vibe.
