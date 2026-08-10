@@ -2,7 +2,7 @@
 
 Pre-REFACTOR package commit: `b73bdb94f51d0033b98274be166e1daa91c3a7d9`
 
-Final installed source commit: `d4d2500`
+Final installed source commit: `4781cd3`
 
 Final result: **PASS**. The complete accepted suite, focused regression
 fixtures, and real read-only reviews satisfy the required orchestration and
@@ -178,6 +178,9 @@ verification for both, and rejection of a replacement-of-replacement without
 an ID. The broad `Postfix-F/attempt-1` is retained as rejected fixture evidence:
 two Scope workers returned a synthetic non-empty scope without a content diff,
 and the controller correctly stopped fail-closed before downstream dispatch.
+The final cold read then aligned the abbreviated state-machine diagram with the
+already-tested controller gate at `4781cd3`; this was a consistency-only edit
+to the same replacement behavior.
 
 ## Model and capture policy
 
@@ -203,5 +206,5 @@ A fresh reader can determine the final decision without conversation context:
 use only attempts whose metadata says `outcome: accepted`, verify their terminal
 markers and worker ledgers against the persisted rollouts, confirm the status
 series are identical, and verify the final source/install hashes against
-`d4d2500`. Rejected and superseded directories explain variance but do not
+`4781cd3`. Rejected and superseded directories explain variance but do not
 contribute to the PASS result.
