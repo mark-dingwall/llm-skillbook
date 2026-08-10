@@ -75,8 +75,6 @@ def main(argv: list[str] | None = None) -> int:
         # identical to write_harvest_row. state may lack "ok" → default False.
         ok, note = classify_review_ok(state.get("ok", False), review_text)
         stderr_tail = state.get("stderr_tail", "")
-        if note:
-            stderr_tail = f"{stderr_tail}\n{note}" if stderr_tail else note
 
         # Drift 2: state JSON uses "duration_seconds"; ReviewerResult field is "elapsed".
         # `or 0.0` guards explicit JSON null (absent-key default alone would let
@@ -89,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
             usage=usage,
             elapsed=state.get("duration_seconds") or 0.0,  # map JSON key → dataclass field
             model_used=state.get("final_model"),
-            error=state.get("error"),
+            error=state.get("error") or note,
         ))
 
     synthesis_text: str | None = None
