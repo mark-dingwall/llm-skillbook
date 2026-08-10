@@ -160,8 +160,10 @@ Run: `git diff --check && git status --short && rg -n 'multi_review\.py --report
 
 Expected: no whitespace errors or obsolete active-doc claims; only intentional historical occurrences, if any.
 
-- [ ] **Step 4: Commit and push the cleanup**
+- [x] **Step 4: Commit and push the cleanup**
 
 Run: `git add README.md CLAUDE.md BACKLOG.md agents docs multi_review/core/report.py skills tests && git commit -m "docs: tidy post-PR guidance and archive comparison artifacts" && git push origin main`
 
 Expected: one commit on `main` pushed to `origin/main`; ignored archive artifacts remain untracked by design.
+
+Completed as `d085404` (`docs: tidy post-PR guidance and archive comparison artifacts`), pushed to `origin/main`.
