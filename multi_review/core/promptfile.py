@@ -115,8 +115,11 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         if not resolved.is_file():
             raise ValidationError(f"files: path is not a regular file: {p}")
     for p in pf.context_files:
-        if not _resolve_path(p, base_dir).exists():
+        resolved = _resolve_path(p, base_dir)
+        if not resolved.exists():
             raise ValidationError(f"context_files: path does not exist on disk: {p}")
+        if not resolved.is_file():
+            raise ValidationError(f"context_files: path is not a regular file: {p}")
 
 def load_promptfile(path: Path) -> PromptFile:
     try:

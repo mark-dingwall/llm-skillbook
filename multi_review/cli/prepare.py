@@ -27,13 +27,17 @@ def main(argv: list[str] | None = None) -> int:
         return p if p.is_absolute() else (base / p).resolve()
 
     nonce = secrets.token_hex(4)
-    body = build_prompt(
-        task=pf.task,
-        files=[_norm(f) for f in pf.files],
-        context_files=[_norm(f) for f in pf.context_files],
-        custom_prompt=pf.custom_prompt,
-        nonce=nonce,
-    )
+    try:
+        body = build_prompt(
+            task=pf.task,
+            files=[_norm(f) for f in pf.files],
+            context_files=[_norm(f) for f in pf.context_files],
+            custom_prompt=pf.custom_prompt,
+            nonce=nonce,
+        )
+    except SystemExit as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+        return 2
     args.out_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = args.out_dir / "prompt.txt"
     prompt_path.write_text(body)
