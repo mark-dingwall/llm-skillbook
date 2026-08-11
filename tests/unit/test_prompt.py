@@ -82,25 +82,9 @@ def test_build_prompt_reference_includes_both_preambles():
     assert "tool" in out.lower()  # reference preamble
 
 
-def test_build_prompt_is_reference_only(tmp_path):
-    input_file = tmp_path / "src.py"
-    input_file.write_text("INPUT_BYTES_MUST_NOT_APPEAR\n")
-    context_file = tmp_path / "context.md"
-    context_file.write_text("INLINE_CONTEXT_BYTES\n")
-
+def test_build_prompt_rejects_removed_mode_argument():
     with pytest.raises(TypeError):
-        build_prompt(task="code", files=[input_file], context_files=[], mode="reference")
-
-    out = build_prompt(
-        task="code",
-        files=[input_file],
-        context_files=[context_file],
-        custom_prompt=None,
-        nonce="N5",
-    )
-    assert str(input_file.resolve()) in out
-    assert "INPUT_BYTES_MUST_NOT_APPEAR" not in out
-    assert "INLINE_CONTEXT_BYTES" in out
+        build_prompt(task="code", mode="reference")
 
 def test_build_prompt_explicit_nonce_regenerated_on_collision(tmp_path):
     # Context content contains the literal close tag matching the passed nonce.

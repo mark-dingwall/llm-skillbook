@@ -116,6 +116,11 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
             raise ValidationError(f"files: path is not a regular file: {p}")
     for p in pf.context_files:
         resolved = _resolve_path(p, base_dir)
+        resolved_text = str(resolved)
+        if "\n" in resolved_text or "\r" in resolved_text:
+            raise ValidationError(
+                f"context_files: path contains line-breaking characters: {p!r}"
+            )
         if not resolved.exists():
             raise ValidationError(f"context_files: path does not exist on disk: {p}")
         if not resolved.is_file():

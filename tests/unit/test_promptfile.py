@@ -194,6 +194,23 @@ def test_directory_in_context_files_is_rejected(tmp_path):
 
 
 @pytest.mark.parametrize("separator", ["\n", "\r"])
+def test_line_breaking_context_file_path_is_rejected(tmp_path, separator):
+    source = tmp_path / "source.py"
+    source.write_text("pass\n")
+    context = tmp_path / f"context{separator}file.md"
+    context.write_text("context\n")
+    pf = fill_defaults({
+        "prompt_format_version": 2,
+        "task": "code",
+        "files": [str(source)],
+        "context_files": [str(context)],
+    })
+
+    with pytest.raises(ValidationError, match="line-breaking characters"):
+        validate(pf, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("separator", ["\n", "\r"])
 def test_line_breaking_required_file_path_is_rejected(tmp_path, separator):
     source = tmp_path / f"line{separator}break.py"
     source.write_text("pass\n")

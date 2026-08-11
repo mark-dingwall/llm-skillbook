@@ -384,6 +384,8 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
     assert "--cli <resolved.synthesizer>" in step6, (
         "SKILL.md Step 6 synthesis dispatch lost its --cli <resolved.synthesizer> binding"
     )
+
+
 def test_skill_step2_pins_resolved_sole_source_provenance():
     """Step 5/6 above trust `resolved.<field>` blindly — none of those
     assertions can see WHERE `resolved` comes from. A rewrite of Step 2 that
