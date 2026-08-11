@@ -1,4 +1,4 @@
-"""Prompt assembly for multi-review — inline/reference modes, nonce tags.
+"""Prompt assembly for multi-review — reference-only inputs and inline context.
 
 Exports SUMMARY_HEADING_CONTRACT as the single source of truth for the
 clause instructing every reviewer to emit a ## Summary section.
@@ -10,7 +10,6 @@ import re
 import secrets
 import sys
 from pathlib import Path
-from typing import Literal
 
 # ---------------------------------------------------------------------------
 # Reviewer prompt output contract + shared success classifier
@@ -26,9 +25,7 @@ SUMMARY_HEADING_CONTRACT: str = (
 # heading `## Summary` (or `# Summary` / `### Summary`, or `Executive Summary`).
 # Anchored TRIM form: matches only at a true line start, so callers may slice
 # from the match onward (AgyAdapter, write_task_result). The gate applied by
-# BOTH aggregate (REVIEW.md) and write_harvest_row (runs.jsonl) via
-# classify_review_ok uses SUMMARY_PRESENT_RE below — one shared constant per
-# job, so the two artifacts can never disagree about a reviewer's success.
+# aggregate (REVIEW.md) via classify_review_ok uses SUMMARY_PRESENT_RE below.
 # Kept in lock-step with the TEMPLATES
 # above (each template leads with `## Summary`) by
 # test_templates_lead_with_summary_heading_matching_sentinel.
@@ -47,7 +44,7 @@ SUMMARY_HEADING_RE = re.compile(
 # contract can deliver: every observed violation (agy narration, claude Task
 # narration, grok's newline-less glue) had the heading present but not at a
 # line start, and demoting those loses the body to a 1000-char failure section
-# AND records a false failure in the harvest row.
+# and records a false failure in REVIEW.md.
 SUMMARY_PRESENT_RE = re.compile(
     r"#{1,3}\s+(summary|executive summary)\b",
     re.IGNORECASE,
@@ -294,7 +291,6 @@ def build_prompt(
     custom_prompt: str | None = None,
     prompt_file: Path | None = None,
     allow_missing: bool = False,
-    mode: Literal["inline", "reference"] = "inline",
     nonce: str | None = None,
 ) -> str:
     """Assemble a reviewer prompt.
@@ -304,12 +300,10 @@ def build_prompt(
     task:          Template key (``code``, ``plan``, ``design``, ``security``,
                    ``generic``, or any key falling back to ``generic``).
     files:         Input files to review.
-    context_files: Context files always inlined (both modes).
+    context_files: Context files always inlined.
     custom_prompt: Literal prompt text overriding the template.
     prompt_file:   Path to a file whose text overrides the template.
     allow_missing: If True, missing files produce warnings instead of SystemExit.
-    mode:          ``"inline"`` embeds file contents; ``"reference"`` emits a
-                   manifest of absolute paths only.
     nonce:         Override the random nonce (for deterministic tests).
     """
     if files is None:
@@ -317,47 +311,51 @@ def build_prompt(
     if context_files is None:
         context_files = []
 
-    bodies: list[tuple[str, Path, str]] = []
-    # Context files always read+inline regardless of mode. Input files only
-    # read when mode=="inline"; in reference mode we emit a manifest of
-    # absolute paths and let the model read via its own tools.
-    read_kinds: list[tuple[str, list[Path]]] = [("context", context_files)]
-    if mode == "inline":
-        read_kinds.append(("input", files))
-
-    for kind, file_list in read_kinds:
-        for f in file_list:
-            try:
-                body = f.read_text(errors="replace")
-            except OSError as e:
-                if not allow_missing:
-                    if isinstance(e, FileNotFoundError):
-                        raise SystemExit(f"error: {kind} file not found: {f}")
-                    raise SystemExit(f"error: cannot read {kind} file {f}: {e}")
+    bodies: list[tuple[Path, str]] = []
+    for f in context_files:
+        try:
+            body = f.read_text(errors="replace")
+        except OSError as e:
+            if not allow_missing:
                 if isinstance(e, FileNotFoundError):
-                    print(f"Warning: {kind} file not found: {f}", file=sys.stderr)
-                else:
-                    print(f"Warning: cannot read {kind} file {f}: {e}", file=sys.stderr)
-                continue
-            bodies.append((kind, f, body))
+                    raise SystemExit(f"error: context file not found: {f}")
+                raise SystemExit(f"error: cannot read context file {f}: {e}")
+            if isinstance(e, FileNotFoundError):
+                print(f"Warning: context file not found: {f}", file=sys.stderr)
+            else:
+                print(f"Warning: cannot read context file {f}: {e}", file=sys.stderr)
+            continue
+        bodies.append((f, body))
 
-    # Reference mode: resolve absolute paths for manifest, honoring allow_missing.
     manifest_paths: list[Path] = []
-    if mode == "reference":
-        for f in files:
-            try:
-                resolved = f.resolve(strict=True)
-            except FileNotFoundError:
-                if not allow_missing:
-                    raise SystemExit(f"error: input file not found: {f}")
-                print(f"Warning: input file not found: {f}", file=sys.stderr)
-                continue
-            except OSError as e:
-                if not allow_missing:
-                    raise SystemExit(f"error: cannot resolve input file {f}: {e}")
-                print(f"Warning: cannot resolve input file {f}: {e}", file=sys.stderr)
-                continue
-            manifest_paths.append(resolved)
+    for f in files:
+        try:
+            resolved = f.resolve(strict=True)
+        except FileNotFoundError:
+            if not allow_missing:
+                raise SystemExit(f"error: input file not found: {f}")
+            print(f"Warning: input file not found: {f}", file=sys.stderr)
+            continue
+        except OSError as e:
+            if not allow_missing:
+                raise SystemExit(f"error: cannot resolve input file {f}: {e}")
+            print(f"Warning: cannot resolve input file {f}: {e}", file=sys.stderr)
+            continue
+        manifest_path = str(resolved)
+        if "\n" in manifest_path or "\r" in manifest_path:
+            raise SystemExit(
+                f"error: input file path contains line-breaking characters: {manifest_path!r}"
+            )
+        if not resolved.is_file():
+            raise SystemExit(f"error: input path is not a regular file: {resolved}")
+        try:
+            # Open-only preflight: prove reviewers can read the manifested file
+            # without copying its contents into the prompt.
+            with resolved.open("rb"):
+                pass
+        except OSError as e:
+            raise SystemExit(f"error: cannot read input file {resolved}: {e}")
+        manifest_paths.append(resolved)
 
     if nonce is None:
         nonce = secrets.token_hex(4)
@@ -365,12 +363,11 @@ def build_prompt(
     # body contains the close tag for the chosen nonce it could prematurely
     # close its own <file> wrapper, breaking the injection boundary. A passed
     # nonce is only regenerated when it actually collides with file content.
-    while any(f"</file-{nonce}>" in body for _, _, body in bodies):
+    while any(f"</file-{nonce}>" in body for _, body in bodies):
         nonce = secrets.token_hex(4)
 
     parts = [injection_preamble(nonce)]
-    if mode == "reference":
-        parts.append(reference_preamble())
+    parts.append(reference_preamble())
     parts.append("# Cross-AI Review Request\n\n")
     if prompt_file:
         try:
@@ -385,32 +382,22 @@ def build_prompt(
 
     open_tag = f"file-{nonce}"
     close_tag = f"</file-{nonce}>"
-    context_section = [(f, body) for k, f, body in bodies if k == "context"]
-    if context_section:
+    if bodies:
         parts.append("## Context\n\n")
-        for f, body in context_section:
+        for f, body in bodies:
             parts.append(f'<{open_tag} path="{html.escape(str(f), quote=True)}">\n')
             parts.append(body)
             parts.append(f"\n{close_tag}\n\n")
 
-    if mode == "inline":
-        input_section = [(f, body) for k, f, body in bodies if k == "input"]
-        if input_section:
-            parts.append("## Files to Review\n\n")
-            for f, body in input_section:
-                parts.append(f'<{open_tag} path="{html.escape(str(f), quote=True)}">\n')
-                parts.append(body)
-                parts.append(f"\n{close_tag}\n\n")
-    else:
-        if manifest_paths:
-            parts.append("## Files to Review\n\n")
-            parts.append(
-                "You have file-reading tools available. Read each file from its absolute\n"
-                "path as your reasoning requires. Do NOT assume contents — read them.\n\n"
-                "Files (absolute paths):\n"
-            )
-            for p in manifest_paths:
-                parts.append(f"- {p}\n")
-            parts.append("\n")
+    if manifest_paths:
+        parts.append("## Files to Review\n\n")
+        parts.append(
+            "You have file-reading tools available. Read each file from its absolute\n"
+            "path as your reasoning requires. Do NOT assume contents — read them.\n\n"
+            "Files (absolute paths):\n"
+        )
+        for p in manifest_paths:
+            parts.append(f"- {p}\n")
+        parts.append("\n")
 
     return "".join(parts)

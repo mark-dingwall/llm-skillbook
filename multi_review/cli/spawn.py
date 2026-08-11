@@ -7,9 +7,6 @@ ProgressAdapter, and writes two files into --out-dir:
 
 Prints a JSON summary to stdout: {"ok": bool, "review_path": str, "state_path": str}
 Exit code: 0 if reviewer succeeded, 1 if it failed.
-
-The --effort flag is accepted but currently a no-op; it is forwarded via a
-future task that wires effort through CLI_SPEC/build_command.
 """
 from __future__ import annotations
 
@@ -39,8 +36,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--task", default=None,
                    help="Prompt task preset (code/plan/security/generic/custom); "
                         "forwarded to CLIs that declare a task_flag (pykrete).")
-    p.add_argument("--effort", default=None,
-                   help="Effort hint (accepted but no-op until wired through CLI_SPEC).")
     p.add_argument("--timeout", type=int, default=None,
                    help="Seconds before killing reviewer subprocess.")
     p.add_argument("--task-mode", choices=["review", "synthesize"], default="review")
@@ -57,12 +52,6 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --input-nonce is required with --task-mode synthesize", file=sys.stderr)
             return 2
         return _run_synthesize(args)
-
-    if args.effort is not None:
-        print(
-            f"note: --effort={args.effort!r} accepted but not yet wired through CLI_SPEC; ignored.",
-            file=sys.stderr,
-        )
 
     prompt = args.prompt_file.read_text()
 

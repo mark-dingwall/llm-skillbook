@@ -1,4 +1,4 @@
-prompt_format_version: 1
+prompt_format_version: 2
 task: custom
 files:
   - subject.py
@@ -7,7 +7,6 @@ custom_prompt: |
   do not modify files. Your Markdown response must begin with `## Summary`, report
   the exact string value assigned to `REFERENCE_MARKER`, and identify the missing
   zero-denominator policy. If you cannot read the file, state that instead of guessing.
-mode: reference
 reviewers:
   - claude
 models:

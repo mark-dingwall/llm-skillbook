@@ -184,7 +184,6 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             results=classified_results,
             synthesis_text=synthesis_text,
             synthesis_error=(synthesis_error if not synthesis_ok else None),
-            mode=pf.mode,
             task=pf.task,
             reviewers_attempted=reviewers,
             models=pf.models,
@@ -245,10 +244,6 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
     except (ValidationError, yaml.YAMLError, OSError) as exc:
         print(f"error: {prompt_file}: {exc}", file=sys.stderr)
         return 2
-    if pf.mode == "both":
-        print("error: driver takes mode inline|reference, not both", file=sys.stderr)
-        return 2
-
     # validate() checks ALL_REVIEWERS membership but not uniqueness: [codex, codex]
     # passes today. Two concurrent run_reviewer calls for one CLI would be
     # indistinguishable in the results list and double-count toward the synthesis gate.
@@ -262,7 +257,6 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             files=[_resolve_path(f, base) for f in pf.files],
             context_files=[_resolve_path(f, base) for f in pf.context_files],
             custom_prompt=pf.custom_prompt,
-            mode=pf.mode,
             nonce=secrets.token_hex(4),
         )
     except ValidationError as exc:

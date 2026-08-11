@@ -16,7 +16,6 @@ def _write_and_read(tmp_path, synthesis_text):
         path=out,
         results=[_r("claude"), _r("gemini")],
         synthesis_text=synthesis_text,
-        mode="inline",
         task="code",
         reviewers_attempted=["claude", "gemini"],
     )
@@ -41,22 +40,22 @@ def test_resolve_output_path_no_collision_returns_target(tmp_path):
     assert p == target
 
 
-def test_write_review_md_includes_mode_in_frontmatter(tmp_path):
+def test_write_review_md_frontmatter_has_no_mode_or_if_drift_keys(tmp_path):
     out = tmp_path / "REVIEW.md"
     write_review_md(
         path=out, results=[_r("claude")], synthesis_text=None,
-        mode="reference", task="code", reviewers_attempted=["claude"],
+        task="code", reviewers_attempted=["claude"],
     )
-    body = out.read_text()
-    assert "mode: reference" in body
-    assert "## Claude" in body or "## claude" in body.lower()
+    frontmatter = yaml.safe_load(out.read_text().split("---", 2)[1])
+    assert "mode" not in frontmatter
+    assert "if_drift" not in frontmatter
 
 
 def test_write_review_md_includes_failed_section(tmp_path):
     out = tmp_path / "REVIEW.md"
     write_review_md(
         path=out, results=[_r("gemini", ok=False, text="")],
-        synthesis_text=None, mode="inline", task="code",
+        synthesis_text=None, task="code",
         reviewers_attempted=["gemini"],
     )
     body = out.read_text()
@@ -68,7 +67,7 @@ def test_aggregate_no_fallbacks_frontmatter(tmp_path):
     out = tmp_path / "REVIEW.md"
     write_review_md(
         path=out, results=[_r("claude"), _r("gemini")],
-        synthesis_text=None, mode="inline", task="code",
+        synthesis_text=None, task="code",
         reviewers_attempted=["claude", "gemini"],
     )
     body = out.read_text()
@@ -90,22 +89,18 @@ def test_aggregate_synthesis_already_has_heading_no_double(tmp_path):
 
 
 def test_aggregate_frontmatter_parity(tmp_path):
-    """Frontmatter must emit models:, mode:, and if_drift: per build-agent template."""
+    """Frontmatter must emit models per build-agent template."""
     out = tmp_path / "REVIEW.md"
     write_review_md(
         path=out,
         results=[_r("claude")],
         synthesis_text=None,
-        mode="reference",
         task="code",
         reviewers_attempted=["claude"],
         models={"claude": "claude-opus-4-7"},
-        if_drift="ignore",
     )
     body = out.read_text()
     assert "models:" in body
-    assert "mode: reference" in body
-    assert "if_drift: ignore" in body
 
 
 def test_aggregate_frontmatter_empty_models(tmp_path):
@@ -115,7 +110,6 @@ def test_aggregate_frontmatter_empty_models(tmp_path):
         path=out,
         results=[_r("claude")],
         synthesis_text=None,
-        mode="inline",
         task="code",
         reviewers_attempted=["claude"],
     )
@@ -128,7 +122,7 @@ def test_aggregate_prompt_file_is_yaml_safe(tmp_path):
     out = tmp_path / "REVIEW.md"
     write_review_md(
         path=out, results=[_r("claude")], synthesis_text=None,
-        mode="inline", task="code", reviewers_attempted=["claude"],
+        task="code", reviewers_attempted=["claude"],
         prompt_file=prompt_file,
     )
     frontmatter = out.read_text().split("---", 2)[1]
@@ -147,7 +141,6 @@ write_review_md(
     path=Path({str(out)!r}),
     results=[ReviewerResult("codex", True, "## Summary\\n\\ncaf\\u00e9", "", None, 1.0)],
     synthesis_text=None,
-    mode="inline",
     task="code",
     reviewers_attempted=["codex"],
 )

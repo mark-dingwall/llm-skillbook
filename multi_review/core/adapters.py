@@ -106,7 +106,7 @@ class AgyAdapter(ProgressAdapter):
 
     agy does not expose a JSONL --output-format. The whole stdout is the
     review body. Token telemetry is not available via --print; usage stays
-    zero. v0.2.1 may probe --log-file for recoverable counters (BACKLOG).
+    zero.
     """
     def feed_line(self, line: str) -> None:
         super().feed_line(line)
@@ -290,7 +290,7 @@ class GrokAdapter(ProgressAdapter):
             # Absolute totals for the whole run — assign, never accumulate.
             # Coerce per counter: Usage declares ints, and a drifted schema
             # (null, a string, a nested object) would otherwise flow straight
-            # into <cli>.state.json and the harvest row as a non-int.
+            # into <cli>.state.json.
             u = ev.get("usage")
             if isinstance(u, dict):
                 self.usage.input_tokens = _int0(u.get("input_tokens"))

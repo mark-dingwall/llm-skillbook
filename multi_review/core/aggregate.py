@@ -55,21 +55,18 @@ def write_review_md(
     results: list[ReviewerResult],
     synthesis_text: str | None,
     synthesis_error: str | None = None,
-    mode: str,
     task: str,
     reviewers_attempted: list[str],
     input_files: list[Path] | None = None,
     models: dict[str, str] | None = None,
-    if_drift: str | None = None,
     synthesizer: str | None = None,
     synthesized_at: str | None = None,
-    pair_id: str | None = None,
     prompt_file: str | None = None,
 ) -> None:
     """Write REVIEW.md with YAML frontmatter + per-reviewer sections.
 
-    ``pair_id`` and ``prompt_file`` are accepted now (for forward-compat) but
-    wired in by later tasks. When non-null they appear in the frontmatter.
+    ``prompt_file`` is accepted for forward compatibility and appears in the
+    frontmatter when non-null.
     """
     succeeded = [r for r in results if r.ok]
     failed = [r for r in results if not r.ok]
@@ -91,21 +88,16 @@ def write_review_md(
 
     lines = ["---"]
     lines.append(f"task: {task}")
-    lines.append(f"mode: {mode}")
     lines.append(f"reviewers_succeeded: {yaml_list([r.cli for r in succeeded])}")
     lines.append(f"reviewers_failed: {yaml_list([r.cli for r in failed])}")
     lines.append(f"reviewed_at: {reviewed_at}")
     if input_files is not None:
         lines.append(f"files: {yaml_list([str(f) for f in input_files])}")
-    if pair_id is not None:
-        lines.append(f"pair_id: {pair_id}")
     if prompt_file is not None:
         lines.append(f"prompt_file: {json.dumps(prompt_file)}")
     lines.append("models:")
     for k, v in (models or {}).items():
         lines.append(f"  {k}: {json.dumps(v)}")
-    if if_drift is not None:
-        lines.append(f"if_drift: {if_drift}")
     lines.append("usage:")
     lines.extend(usage_block_lines)
     if synthesizer and synthesized_at:

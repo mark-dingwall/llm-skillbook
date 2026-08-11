@@ -90,7 +90,7 @@ def resolve_reviewers(
 # -------- Invocation commands --------
 
 # agy has no stdin input mode (its --print flag REQUIRES the prompt as its argv
-# value) and inline prompts embed file contents that exceed MAX_ARG_STRLEN
+# value), and prompts can embed context-file contents that exceed MAX_ARG_STRLEN
 # (128 KiB) → E2BIG if passed literally on argv. So agy uses "argv_file"
 # delivery: we write the prompt to a file and pass a tiny instruction naming
 # that path; agy reads the prompt itself. Only the path — never the prompt
@@ -124,7 +124,7 @@ CLI_SPEC: dict[str, dict] = {
         "base": ["agy", "--print"],
         "stream_flags": [],
         "model_flag": "--model",
-        # default_args=[] — let agy pick its default model. v0.2.1 model-config
+        # default_args=[] — let agy pick its default model. The deferred model-config
         # feature will read user-specified model from TOML. Verified working
         # values for explicit pinning: "Gemini 3.1 Pro (High)" (default-ish),
         # "Gemini 3.5 Flash (Low|Medium|High)" (cheaper variants).
@@ -177,7 +177,7 @@ CLI_SPEC: dict[str, dict] = {
         # never prompt bytes — the stdin invariant holds without an argv_file
         # workaround. Assumes a Linux /dev/stdin (repo targets Linux/WSL).
         # --sandbox workspace: fences writes to cwd + tmp; reads stay open so
-        # reference-mode manifests outside cwd still work. NOT a security
+        # reference-only manifests outside cwd still work. NOT a security
         # boundary — grok remains agentic/uncontained in posture.
         "base": ["grok", "--sandbox", "workspace", "--prompt-file", "/dev/stdin"],
         "stream_flags": ["--output-format", "streaming-json"],

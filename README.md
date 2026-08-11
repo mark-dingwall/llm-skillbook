@@ -4,8 +4,6 @@ Fan out a code review across multiple AI models in parallel, aggregate results i
 
 **Two supported entry points.** Use `/multi-review` inside Claude Code for the interactive workflow, or `multi_review.py --prompt-file … --out-dir …` for a contained headless single pass. The skill runs `claude` as a Task subagent; the headless driver runs it through `claude -p`. The proposed `claude -p` billing change that originally motivated this split is deferred indefinitely, so choose the entry point that fits the caller rather than a presumed billing distinction.
 
-> **Deprecated comparison workflow.** `mode: both`, drift handling, harvest and persisted telemetry, `runs/`, experiment logs, sidecars, and paired reports are retained for compatibility but are not recommended for new work. The existing evidence found no meaningful inline-vs-reference difference for sufficiently capable frontier models. A later release will provide a real harvest opt-out and remove the comparison subsystem. `inline` and `reference` single-pass delivery remain supported; neither is preferred.
-
 ## Requirements
 
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
@@ -26,18 +24,7 @@ Run setup once from the cloned repository:
 uv run python -m multi_review.cli.setup --source-repo $(pwd)
 ```
 
-Setup copies `skills/multi-review/` and `agents/*.md` into `~/.claude/`, resolves the central state path (see §4.2 of spec), and writes `~/.claude/skills/multi-review/config.json`.
-
-Until the real harvest opt-out lands, the interactive skill writes deprecated
-telemetry for every run, including supported single-pass runs. To avoid a
-per-run permission prompt for that write, `--write-allowlist` inserts the
-resolved `runs.jsonl` path into `~/.claude/settings.local.json`:
-
-```bash
-uv run python -m multi_review.cli.setup --source-repo $(pwd) --write-allowlist
-```
-
-The allowlist entry is the only write that setup makes to your Claude settings. It is unnecessary for the headless driver, which does not harvest.
+Setup copies `skills/multi-review/` and `agents/*.md` into `~/.claude/`.
 
 For iterating on the skill itself, `--dev` symlinks instead of copying so edits take effect without re-running setup:
 
@@ -83,7 +70,7 @@ Install and authenticate the Grok Build CLI so `grok` is on `PATH`. Verify with
 multi-review invokes it as
 `grok --sandbox workspace --prompt-file /dev/stdin --output-format streaming-json`.
 The prompt travels on stdin; `--sandbox workspace` fences writes to cwd + tmp
-while leaving reads open, so reference-mode file manifests outside cwd still work.
+while leaving reads open, so file manifests outside cwd still work.
 The synthesis path runs the same binary without `--output-format` — plain-text
 output taken verbatim, not the streaming-json envelope — so don't assume the
 flag is unconditional.
@@ -104,8 +91,6 @@ Invoke from inside a Claude Code session:
 | `/multi-review "seed text"` | Interactive build with seed — subagent skips discovery questions, starts from your seed |
 | `/multi-review --use-defaults "seed text"` | Autonomous build — subagent does a shallow cwd scan, infers defaults, writes YAML without prompting |
 | `/multi-review --prompt-files A.yaml,B.yaml` | Run one or more pre-written prompt files directly (skips build subagent) |
-| `/multi-review --resume-pair <pair-id>` | Deprecated: resume pass 2 of a paired comparison run |
-| `/multi-review --report` | Deprecated: regenerate the local historical `EXPERIMENTS.md` log, then exit |
 | `/multi-review --list-reviewers` | Probe each CLI via `shutil.which` + `<cli> --version`, print availability and detected models |
 
 ## Prompt YAML schema
@@ -113,7 +98,7 @@ Invoke from inside a Claude Code session:
 Reviews are driven by YAML prompt files. The `multi-review-build` subagent authors these interactively; you can also write them by hand and pass them with `--prompt-files`.
 
 ```yaml
-prompt_format_version: 1
+prompt_format_version: 2
 
 # Task preset. One of: code | plan | security | generic | custom
 task: code
@@ -123,7 +108,7 @@ files:
   - src/auth.ts
   - src/session.ts
 
-# Extra context — always inlined regardless of mode (optional)
+# Extra context — always inlined (optional)
 context_files:
   - docs/threat-model.md
 
@@ -131,12 +116,6 @@ context_files:
 # any task, it replaces that task's built-in template.
 custom_prompt: |
   Focus on dependency ordering and rollback paths
-
-# Prompt shape. One of: inline | reference | both
-# inline  — file contents embedded in <file-NONCE> tags
-# reference — manifest of absolute paths; reviewer reads via its own tools
-# both — deprecated paired comparison run; do not use for new work
-mode: inline
 
 # Synthesis pass. One of: claude | agy | codex | opencode | pykrete | grok | none
 synthesizer: claude
@@ -158,39 +137,20 @@ models:
   pykrete: glm      # names a NanoGPT *family*, not a specific model
   grok: grok-4.5-build
 
-# Deprecated comparison-only drift policy (mode: both only)
-# ignore — no snapshot, no diff; pair flagged comparison_eligible: false
-# abort  — abort pass 2 on any drift
-# ask    — AskUserQuestion: proceed | abort | investigate
-if_drift: ignore
-
-# Deprecated comparison logging. Current interactive-skill runs write a row
-# regardless of this value; `harvest: false` becomes a real opt-out in follow-up work.
-harvest: true
 ```
-
-Omit `model_effort`, `output_dir`, and `save_as`: each is still accepted for
-compatibility but is currently ignored. `harvest` is shown only to document the
-pending opt-out; it does not yet suppress an interactive-skill write.
 
 ### Field reference
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `prompt_format_version` | int | — | Required. Currently `1`. |
+| `prompt_format_version` | int | — | Required. Currently `2`. |
 | `task` | enum | — | Required. `code \| plan \| security \| generic \| custom`. |
 | `files` | list[path] | — | Required. Paths must exist at validation time. Relative paths resolve against the **prompt YAML's own directory**, not cwd. |
-| `context_files` | list[path] | `[]` | Always inlined (both modes). Also snapshotted for drift detection. |
+| `context_files` | list[path] | `[]` | Always inlined. |
 | `custom_prompt` | string | — | Required when `task == custom`. |
-| `mode` | enum | `inline` | `inline \| reference \| both`; `both` is deprecated comparison infrastructure. |
 | `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
 | `reviewers` | list[enum] | claude, agy, codex, opencode, pykrete | Subset of `claude \| agy \| codex \| opencode \| pykrete \| grok`. Default omits `grok` (opt-in). |
 | `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
-| `model_effort` | map | `{}` | Deprecated compatibility field; currently ignored for every reviewer. |
-| `if_drift` | enum | `ignore` | Deprecated comparison-only field. `ignore \| abort \| ask`. |
-| `output_dir` | path\|null | null | Deprecated compatibility field; currently ignored. |
-| `save_as` | string\|null | null | Deprecated compatibility field; currently ignored. |
-| `harvest` | bool | `true` | Deprecated comparison field. The interactive skill currently writes harvest data regardless; a real opt-out is planned. |
 
 Validate a YAML file without running a review:
 
@@ -202,32 +162,10 @@ uv run python -m multi_review.cli.validate_prompt prompt.yaml
 
 Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--model X=Y` behaviour. Reviewers run single-attempt; 429/capacity errors → fail clean.
 
-> Fallback chain (gemini capacity recovery) scrapped 2026-06-19. See BACKLOG v0.2.1 quota-proximity probe for the planned replacement.
-
-## Deprecated paired runs and drift
-
-`mode: both` runs the same prompt twice — once inline, once reference — for legacy inline-vs-reference comparison. Do not start new paired runs; this mechanism is retained only while the removal path is prepared.
-
-**Pass order** is read from the legacy `EXPERIMENTS.md` `next_recommended_order` field. When counters tie, the current implementation chooses `reference` first; that order does not imply a quality preference.
-
-**Drift detection** (default `if_drift: ignore`) is available only for this deprecated workflow. Set `if_drift: ask` to snapshot `files` and `context_files` before pass 1 and diff them before pass 2; on drift, the skill asks whether to proceed, abort, or investigate (dispatches `multi-review-investigate` to classify each changed file against pass-1 findings).
-
-Manual smoke procedures:
-- `tests/manual/paired_pass.md` — full paired-run procedure
-- `tests/manual/drift_ask.md` — drift-ask flow
-
-## Deprecated comparison eligibility
-
-A paired run contributes to `sessions_reference_first` / `sessions_inline_first` counters in `EXPERIMENTS.md` only when:
-
-- **Per-reviewer**: default model used AND reviewer finished `ok`
-- **Pair-level**: both passes satisfy the per-reviewer check for every reviewer; `if_drift` was not `ignore`; and the user did not choose "proceed" after drift was detected
-
-Runs that fail any check are harvested (so the data is preserved) but are excluded from comparison stats. This legacy accounting remains implemented only for compatibility.
+> Fallback chain (gemini capacity recovery) scrapped 2026-06-19. See BACKLOG's quota-proximity probe for the planned replacement.
 
 ## Limitations
 
-- **Drift detection covers explicitly-submitted files only.** Files the pass-1 reviewer happened to read via tools (reference mode) but are not listed in `files` or `context_files` are not tracked. Untracked-tool-read drift is a documented v0.2 gap.
 - **agy is an agentic, uncontained reviewer.** `agy --print` runs as an autonomous agent and reads its prompt from a file (agy has no stdin input mode). Headless agy auto-denies every permission-gated tool call, including reading that prompt file, so multi-review passes `--dangerously-skip-permissions` unconditionally — without it, no agy review produces output at all. The cost is that agy can run arbitrary commands on your working tree during a review: **don't point agy at untrusted code** until sandbox containment lands (BACKLOG). Its step-narration preamble is trimmed to the first `## Summary` heading before aggregation.
 - **The v0.1 positional standalone CLI remains removed.** `./multi_review.py file.ts` is not a
   supported interface. The root script path now hosts a supported headless single-pass contract for
@@ -235,18 +173,8 @@ Runs that fail any check are harvested (so the data is preserved) but are exclud
   <dir> [--timeout <sec>]` inside `bwrap --unshare-pid --die-with-parent`, and send termination
   signals to the `bwrap` wrapper. This is required for full-tree shutdown because Codex/OpenCode may
   run engines below their direct shim. This supported driver is for contained callers; it does not
-  replace the `/multi-review` skill or implement its deprecated pairing, drift, harvest, promotion,
-  or cleanup workflow.
-- **No timeouts in v0.2.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
-- **Persisted telemetry is deprecated.** Task subagents do not surface JSONL-level usage, and
-  `grok` tool-call telemetry is unavailable. Existing rows retain `0` as an unavailable sentinel:
-  grok emits
-  no tool-call events in any output format, so `tool_calls` is always `0` for the
-  grok reviewer **even on runs where it demonstrably used tools**. Read it as
-  "unknown", never as "grok used no tools" — the harvest schema has no way to
-  express unavailability for a single field. Token counts are complete and
-  reliable; harvest rows record `telemetry_quality: known-issues` to reflect the
-  split. Treat this only as legacy diagnostic data.
+  replace the `/multi-review` skill.
+- **No skill-level timeouts.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
 - **grok is an agentic, uncontained reviewer.** It auto-approves its own tool use
   in headless mode and can run commands on your working tree during a review.
   `--sandbox workspace` fences writes but is not a security boundary and does not
@@ -256,21 +184,6 @@ Runs that fail any check are harvested (so the data is preserved) but are exclud
 ## Testing discipline
 
 See `CLAUDE.md` — every bugfix in an untested path backfills the test that would have caught it. Skill-level interactive flows that genuinely cannot be automated → document a manual smoke step in `tests/manual/` instead.
-
-## Deprecated v0.1 migration helpers
-
-Two helper CLIs handle the migration:
-
-- **`mr-migrate-harvest`** (`multi_review.cli.migrate_harvest`) — backfills v1 harvest rows to schema v2 (`usage` → `usage_by_reviewer`, new nullable fields). Interactive, row-by-row; groups candidate pairs by project + input-file set + mode-flip + time window. Takes a `.bak` copy of `runs.jsonl` before any rewrite.
-
-- **`mr-migrate-sidecars`** (`multi_review.cli.migrate_sidecars`) — interactive sidecar reorganisation. Maps existing `runs/notes/*.md` sidecars to candidate pairs or marks them legacy. Emits format-C reports to the resolved central `reports/` directory.
-
-```bash
-uv run python -m multi_review.cli.migrate_harvest
-uv run python -m multi_review.cli.migrate_sidecars
-```
-
-Both are one-shot and idempotent if re-run. Run harvest migration first, then sidecar migration.
 
 ## License
 

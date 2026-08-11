@@ -123,23 +123,20 @@ host_subject = Path(sys.argv[2])
 sandbox_subject = sys.argv[3]
 assert sys.argv[4:] == ALL_REVIEWERS, "shutdown matrix does not cover every advertised CLI"
 subject = root / "subject.py"
-required = [subject, root / "inline.yaml", root / "reference.yaml", root / "shutdown.yaml"]
+required = [subject, root / "reference.yaml", root / "shutdown.yaml"]
 assert all(path.is_file() for path in required), "checked-in smoke fixture missing"
 assert host_subject == subject.resolve() and host_subject.is_file()
 assert sandbox_subject == "/workspace/tests/manual/fixtures/headless-driver-smoke/subject.py"
 
-inline = load_promptfile(root / "inline.yaml")
 reference = load_promptfile(root / "reference.yaml")
 shutdown = load_promptfile(root / "shutdown.yaml")
-assert inline.reviewers == ["claude"] and inline.mode == "inline"
-assert reference.reviewers == ["claude"] and reference.mode == "reference"
+assert reference.reviewers == ["claude"]
 assert shutdown.reviewers == ["pykrete"] and shutdown.synthesizer == "none"
 
 reference_prompt = build_prompt(
     task=reference.task,
     files=[subject],
     custom_prompt=reference.custom_prompt,
-    mode="reference",
     nonce="staticcheck",
 )
 assert "REFERENCE_TOOL_READ_20260807" not in reference_prompt
@@ -684,10 +681,9 @@ if [[ "$run_mode" == workload ]]; then
   cp -a --reflink=auto "$uv_cache_source/." "$workload_uv_cache/"
   chmod -R u+rwX "$workload_uv_cache"
   printf '%s\n' \
-    'prompt_format_version: 1' \
+    'prompt_format_version: 2' \
     'task: code' \
     "files: [$fixture_dir/subject.py]" \
-    'mode: inline' \
     'reviewers: [claude, agy, codex, opencode, pykrete, grok]' \
     'synthesizer: none' > "$workload_prompt"
   set +e
@@ -915,10 +911,9 @@ write_shutdown_prompt() {
   local subject_path
   subject_path=$(shutdown_subject_path "$scope")
   printf '%s\n' \
-    'prompt_format_version: 1' \
+    'prompt_format_version: 2' \
     'task: code' \
     "files: [$subject_path]" \
-    'mode: inline' \
     "reviewers: [$cli]" \
     'synthesizer: none' > "$destination"
 }
@@ -1164,12 +1159,6 @@ run_bwrap_shutdown() {
     "$active_bwrap_pgid" "$snapshot" "$case_out" "$stderr_log" "$captured"
 }
 
-run_claude_case inline inline.yaml
-rg -q 'INLINE_DRIVER_SMOKE_20260807' "$smoke_root/out-inline/REVIEW.md" || \
-  die "inline review omitted the fixture marker"
-printf 'case1=PASS sandboxed_claude=ok\n'
-printf 'case3=PASS wsl_dns_and_anthropic_endpoint=ok\n'
-
 run_claude_case reference reference.yaml
 ! rg -q 'REFERENCE_TOOL_READ_20260807' "$smoke_root/out-reference/prompt.txt" || \
   die "reference marker leaked into prompt.txt"
@@ -1178,12 +1167,13 @@ rg -q 'REFERENCE_TOOL_READ_20260807' "$smoke_root/out-reference/REVIEW.md" || \
 rg -l '"name":"Read"|"name": "Read"' \
   "$smoke_root/home-reference/.claude/projects" >/dev/null || \
   die "reference session recorded no Read tool call"
-printf 'case2=PASS reference_read=ok\n'
+printf 'case1=PASS sandboxed_claude_and_reference_read=ok\n'
+printf 'case2=PASS wsl_dns_and_anthropic_endpoint=ok\n'
 
 mkdir -p "$smoke_root/foreign-no-project" "$smoke_root/foreign-with-project"
 cp "$repo_root/pyproject.toml" "$smoke_root/foreign-with-project/pyproject.toml"
-run_claude_case foreign-no-project inline.yaml "$smoke_root/foreign-no-project"
-run_claude_case foreign-with-project inline.yaml "$smoke_root/foreign-with-project"
+run_claude_case foreign-no-project reference.yaml "$smoke_root/foreign-no-project"
+run_claude_case foreign-with-project reference.yaml "$smoke_root/foreign-with-project"
 if find "$smoke_root/foreign-no-project" "$smoke_root/foreign-with-project" \
   -mindepth 1 -maxdepth 1 \( -name .venv -o -name uv.lock \) -print -quit | rg -q .; then
   die "foreign cwd gained .venv or uv.lock"
@@ -1192,11 +1182,11 @@ fi
   die "no-project foreign cwd was modified"
 [[ $(find "$smoke_root/foreign-with-project" -mindepth 1 -maxdepth 1 -printf '%f\n') == pyproject.toml ]] || \
   die "project foreign cwd gained unexpected files"
-printf 'case4=PASS foreign_cwds_clean=ok\n'
+printf 'case3=PASS foreign_cwds_clean=ok\n'
 
 for shutdown_cli in "${shutdown_clis[@]}"; do
   run_plain_shutdown "$shutdown_cli"
   run_bwrap_shutdown "$shutdown_cli"
 done
-printf 'case5=PASS shutdown_clis=%s plain_and_bwrap=ok\n' "${#shutdown_clis[@]}"
-printf 'headless_driver_smoke=PASS cases=5\n'
+printf 'case4=PASS shutdown_clis=%s plain_and_bwrap=ok\n' "${#shutdown_clis[@]}"
+printf 'headless_driver_smoke=PASS cases=4\n'

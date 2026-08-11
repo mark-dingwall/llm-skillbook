@@ -28,18 +28,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Directory containing <cli>.md and <cli>.state.json files.")
     p.add_argument("--output", type=Path, required=True,
                    help="Destination path for REVIEW.md.")
-    p.add_argument("--mode", required=True,
-                   help="Review mode (inline / reference) — written to frontmatter.")
     p.add_argument("--task", required=True,
                    help="Task type (code / design / …) — written to frontmatter.")
     p.add_argument("--synthesis-text-file", type=Path, default=None,
                    help="File containing synthesis/consensus text to embed.")
-    p.add_argument("--pair-id", default=None,
-                   help="Pair identifier for paired-run tracking.")
     p.add_argument("--prompt-file", default=None,
                    help="Path of the prompt file used — written to frontmatter.")
-    p.add_argument("--if-drift", default=None,
-                   help="if_drift value (ignore / abort / ask) — written to frontmatter.")
     p.add_argument("--force", action="store_true",
                    help="Overwrite output file if it exists (default: auto-suffix).")
     args = p.parse_args(argv)
@@ -71,8 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         if state.get("usage"):
             usage = Usage(**state["usage"])
 
-        # Shared classifier: single source of truth for the success decision,
-        # identical to write_harvest_row. state may lack "ok" → default False.
+        # Shared classifier: single source of truth for the success decision.
+        # State may lack "ok" → default False.
         ok, note = classify_review_ok(state.get("ok", False), review_text)
         stderr_tail = state.get("stderr_tail", "")
 
@@ -99,12 +93,9 @@ def main(argv: list[str] | None = None) -> int:
         path=target,
         results=results,
         synthesis_text=synthesis_text,
-        mode=args.mode,
         task=args.task,
         reviewers_attempted=reviewers_attempted,
-        pair_id=args.pair_id,
         prompt_file=args.prompt_file,
-        if_drift=args.if_drift,
     )
 
     print(json.dumps({"ok": True, "output_path": str(target)}))

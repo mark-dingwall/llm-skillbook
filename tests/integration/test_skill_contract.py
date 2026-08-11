@@ -183,6 +183,27 @@ def test_skill_flags_exist():
                 )
 
 
+def test_skill_has_no_deprecated_workflow_content():
+    """The v0.3 skill contract is single-pass only."""
+    skill = SKILL.read_text()
+    deprecated = {
+        "mode: both",
+        "write_harvest_row",
+        "snapshot create",
+        "if_drift: ask",
+        "pending/<pair_id>",
+        "build-paired",
+        "harvested",
+        "comparison eligibility",
+        "TaskGet",
+        "## Comparison workflow deprecation",
+    }
+    for content in deprecated:
+        assert content not in skill, (
+            f"SKILL.md retains deprecated workflow content: {content!r}"
+        )
+
+
 def _builder_defaults_section() -> str:
     """The `## Defaults` section only, up to the next heading.
 
@@ -247,6 +268,23 @@ def _builder_schema_block() -> str:
     blocks = _fenced_blocks(text)
     assert blocks, "builder agent lost its schema fenced block"
     return blocks[0]
+
+
+def test_builder_schema_prompt_format_version_is_current(tmp_path):
+    from multi_review.core.promptfile import fill_defaults, validate
+
+    block = _builder_schema_block()
+    matches = re.findall(r"^prompt_format_version:\s*(\d+)\s*$", block, re.MULTILINE)
+    assert matches == ["2"]
+
+    source = tmp_path / "subject.py"
+    source.write_text("")
+    pf = fill_defaults({
+        "prompt_format_version": int(matches[0]),
+        "task": "code",
+        "files": [str(source)],
+    })
+    validate(pf, base_dir=tmp_path)
 
 
 def test_builder_schema_reviewers_line_matches_DEFAULT_REVIEWERS():
@@ -346,22 +384,6 @@ def test_skill_dispatch_binds_to_resolved_reviewers():
     assert "--cli <resolved.synthesizer>" in step6, (
         "SKILL.md Step 6 synthesis dispatch lost its --cli <resolved.synthesizer> binding"
     )
-    # 3. Resume: pass 2 must reuse pass 1's resolved set, not re-derive it.
-    # Scoped per site: the pointer string appears both where pass 1 writes it
-    # (Step 5) and where resume reads it (Step 2). Deleting either site while
-    # the other survives must fail this test, not stay green.
-    step2 = _skill_step_section(2)
-    assert "pending/<pair_id>/prompt-source.txt" in step2, (
-        "SKILL.md Step 2 resume path must read the prompt pointer pass 1 persisted"
-    )
-    assert "pending/<pair_id>/prompt-source.txt" in step5, (
-        "SKILL.md Step 5 must persist the prompt pointer for Step 2's resume to read"
-    )
-    # Step 2's resume hard-stops on a missing hash file, so the sha256 write
-    # in Step 5 is load-bearing too — not just the pointer .txt.
-    assert "pending/<pair_id>/prompt-source.sha256" in step5, (
-        "SKILL.md Step 5 must persist the prompt-source hash for Step 2's resume to verify"
-    )
 
 
 def test_skill_step2_pins_resolved_sole_source_provenance():
@@ -435,28 +457,6 @@ def test_both_synthesis_paths_carry_the_narration_rule():
     )
 
 
-def test_skill_harvest_invocation_records_the_synthesizer():
-    """Found live, 2026-08-03 grok smoke case 6. `write_harvest_row` accepts
-    `--synthesizer` / `--synthesis-ok`, but SKILL.md Step 8's invocation listed
-    neither, so every skill-driven run wrote `synthesizer: null,
-    synthesis_ok: false` into runs.jsonl — including runs whose synthesis
-    plainly succeeded and is present in the REVIEW.md. Nothing errors; the
-    columns are just silently wrong, which is the same failure shape as the
-    never-populated `comparison_eligible` key. The report layer reads these
-    fields, so an unpinned Step 8 quietly poisons the harvest.
-    """
-    skill = SKILL.read_text()
-    step8 = skill.split("write_harvest_row", 1)[1].split("```", 1)[0]
-    assert "--synthesizer" in step8, (
-        "SKILL.md Step 8 no longer passes --synthesizer; harvest rows will "
-        "record synthesizer: null even when synthesis succeeded"
-    )
-    assert "--synthesis-ok" in step8, (
-        "SKILL.md Step 8 no longer passes --synthesis-ok; harvest rows will "
-        "record synthesis_ok: false even when synthesis succeeded"
-    )
-
-
 def test_skill_step5_passes_task_to_spawn():
     """Without --task, pykrete always resolves its [defaults.general] lead —
     a user's [defaults.code] tuning is silently ignored."""
@@ -467,18 +467,9 @@ def test_skill_step5_passes_task_to_spawn():
     )
 
 
-def test_skill_marks_comparison_workflow_deprecated_and_joins_claude_synchronously():
-    """The comparison stack remains implemented for compatibility, but new
-    runs must not be encouraged to use it. The Claude Task also blocks until
-    it returns, so a later TaskGet join is both impossible and misleading.
-    """
+def test_skill_never_polls_a_claude_task():
+    """A Claude Task blocks until it returns, so TaskGet is misleading."""
     skill = SKILL.read_text()
-    assert "## Comparison workflow deprecation" in skill, (
-        "SKILL.md must clearly mark paired comparison infrastructure deprecated"
-    )
-    assert "mode: both" in skill.split("## Comparison workflow deprecation", 1)[1], (
-        "SKILL.md deprecation notice must name mode: both"
-    )
     assert "TaskGet" not in skill, (
         "SKILL.md must not poll a Claude Task after its synchronous result returned"
     )

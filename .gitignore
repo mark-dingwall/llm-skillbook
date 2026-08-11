@@ -12,13 +12,7 @@ __pycache__/
 REVIEW.md
 REVIEW-*.md
 
-# Per-run harvest data, reports and sidecars. Local-only: these describe other
-# people's codebases (client and private work) and this repo is public. Keep
-# runs/.gitkeep tracked — paths.py `_dev_checkout_runs` detects a dev checkout
-# by `(parent / "runs").exists()`, so a clone with no runs/ dir silently falls
-# through to the XDG central path instead.
-runs/*
-!runs/.gitkeep
+.archive/
 
 # Spike samples (kept during development only)
 .spike-samples/
@@ -33,12 +27,7 @@ runs/*
 .claude/
 .codex
 
-# Multi-review v0.2 state
+# Multi-review local state
 .multi-review/
 .worktrees/
 *.egg-info/
-
-# Skill install artifacts (config.json written by mr-setup; not checked in)
-skills/multi-review/config.json
-# Generated comparison log (lives at CENTRAL_PATH; names private codebases)
-EXPERIMENTS.md

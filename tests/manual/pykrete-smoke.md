@@ -1,10 +1,7 @@
 # pykrete reviewer manual smoke
 
-**Status:** procedure authored 2026-07-19. **Scenarios A–E executed live
-2026-08-04** against pykrete on NanoGPT (`deepseek` family) — all pass. See
-Results. No multi-review bug found; one behavioural gap confirmed (`--task`
-never threaded, so pykrete always resolved its `general` lead) — **fixed
-2026-08-04**, verified live by scenario E.
+**Status:** updated for v0.3 on 2026-08-11. This procedure makes paid network
+calls; re-run it to refresh the live evidence.
 
 pykrete is the closest analog to `agy`: a plain-text, agentic, subprocess
 reviewer (see `tests/manual/agy-smoke.md`). Unlike agy it needs external
@@ -20,11 +17,15 @@ From `multi_review/core/reviewers.py` `CLI_SPEC["pykrete"]`:
 - `success_exit_codes = (0, 3)` — exit `3` is "success via downgrade" (pykrete's `pi`-backed failover fell through to a non-lead model in the family and still produced a review). Per the implementation plan (`docs/superpowers/plans/2026-07-11-multi-review-pykrete-reviewer.md`), the full exit-code contract is `0=success, 3=downgrade-success, 1=error, 2=config, 4=all-unavailable`.
 - `config_env = "PYKRETE_CONFIG"` — `build_command` raises `ValueError` if this env var is unset, which `run_reviewer`/`run_synthesis` catch and turn into a recorded failure (never an escaped exception — see CLAUDE.md "Invariants to preserve").
 - `records_family_not_model = True` — `model_used` is recorded as `f"family:{model}"` (or `None`), never a bare model id, because pykrete resolves the actual model inside the family itself.
-- `TELEMETRY_QUALITY["pykrete"] = "degraded"` (`multi_review/core/harvest.py`) — plain-text stdout, no token telemetry, `Usage` stays all-zero. Expected, not a bug.
 - `PykreteAdapter` (`multi_review/core/adapters.py`) buffers stdout verbatim — no step-narration trim like agy's adapter.
 - `DEFAULT_REVIEWERS = ["claude", "agy", "codex", "opencode", "pykrete"]` — pykrete is **default-on**, same posture as agy. Until configured it will surface as a failed section in every run, not just ones that explicitly ask for it. `ALL_REVIEWERS` now also contains opt-in `grok`, which is nameable but never auto-selected — its presence in the known/valid set does not make it default-on.
-- `build_row` in `multi_review/core/harvest.py`: `comparison_eligible = not drift_blocks_eligibility and not r.downgraded`. This is set **per reviewer** inside `usage_by_reviewer.pykrete`, not as a row-level flag — a downgraded pykrete run does not mark other reviewers in the same row ineligible.
-- The `## Summary` heading failure classifier (SKILL.md Step 7) applies to pykrete's output exactly like every other reviewer: `<REVIEWS_DIR>/pykrete.md` must contain a Summary or Executive Summary heading. Narration may precede it; a missing heading is rendered and harvested as an effective failure without rewriting the raw state JSON.
+- A successful exit 3 sets `downgraded: true`, which `spawn` preserves in the
+  raw state JSON to distinguish a fallback review from an ordinary success.
+- The `## Summary` heading failure classifier (SKILL.md Step 7) applies to
+  pykrete's output exactly like every other reviewer: `<REVIEWS_DIR>/pykrete.md`
+  must contain a Summary or Executive Summary heading. Narration may precede it;
+  a missing heading is rendered as an effective failure without rewriting the
+  raw state JSON.
 
 ## How pykrete picks a model (verified against its source, 2026-08-04)
 
@@ -96,11 +97,10 @@ Build a prompt YAML (or use `/multi-review-build`) reviewing one small file,
 e.g. `multi_review/core/paths.py`, with:
 
 ```yaml
-prompt_format_version: 1
+prompt_format_version: 2
 task: code
 files:
   - multi_review/core/paths.py
-mode: reference
 synthesizer: none
 reviewers:
   - pykrete
@@ -119,9 +119,8 @@ Confirm:
   `<cwd>/REVIEW-<slug>.md`) has a **Pykrete** section.
 - That section contains a `## Summary` heading (or the reviewer is rendered as
   a failure even though `<REVIEWS_DIR>/pykrete.state.json` keeps raw `ok: true`).
-- Deprecated harvest data, when written, has `usage_by_reviewer.pykrete.final_model` in
-  the shape `"family:glm"`, `telemetry_quality: "degraded"`, and
-  `comparison_eligible: true` (this run is a clean success, not a downgrade).
+- The raw pykrete state records `final_model: "family:glm"`, never a fabricated
+  concrete model id.
 
 ### C — forced downgrade (exit 3)
 
@@ -136,9 +135,6 @@ Re-run the same prompt YAML from B. Confirm:
 - The review still lands — the named single-pass report has a **Pykrete** section with a
   `## Summary` heading, same as B (success-via-downgrade is still success).
 - `<REVIEWS_DIR>/pykrete.state.json` shows `ok: true`, `downgraded: true`.
-- The harvest row's `usage_by_reviewer.pykrete.comparison_eligible` is
-  **`false`** (per `build_row`'s `not r.downgraded` term) — the rest of the
-  row (other reviewers, if any) is unaffected.
 - `final_model` is still `"family:glm"` — never a specific model id (pykrete
   resolves the actual model internally; multi-review only ever records the
   family it asked for).
@@ -207,14 +203,14 @@ Delete the copy afterwards.
 
 ## Pass criteria
 
-- [x] A: `--list-reviewers` shows pykrete available.
-- [x] B: named single-pass report has a Pykrete `## Summary` section; deprecated harvest data
-      `comparison_eligible: true`, `final_model: "family:<family>"`.
-- [x] C: downgrade still produces a landed review; deprecated harvest data
-      `comparison_eligible: false` for pykrete only.
-- [x] D: missing config is a recorded failed-reviewer section, not a run
+- [ ] A: `--list-reviewers` shows pykrete available.
+- [ ] B: named single-pass report has a Pykrete `## Summary` section and raw
+      state records `final_model: "family:<family>"`.
+- [ ] C: downgrade still produces a landed review and raw state records
+      `downgraded: true`.
+- [ ] D: missing config is a recorded failed-reviewer section, not a run
       crash; no traceback.
-- [x] E: `--task code` reaches pykrete and selects the `[defaults.code]` lead.
+- [ ] E: `--task code` reaches pykrete and selects the `[defaults.code]` lead.
 
 ## Failure modes to watch for
 
@@ -234,58 +230,3 @@ Delete the copy afterwards.
   `[families]` / `[defaults.code]` shape assumed here — this file's TOML
   example was not checked against pykrete's own source; fix it up once the
   real schema is confirmed.
-
-## Results
-
-### 2026-08-04 — A–D executed live, all pass
-
-Subject: `multi_review/core/paths.py`, `mode: reference`, `synthesizer: none`,
-`models: {pykrete: deepseek}`. Scenarios run as direct `spawn` invocations
-mirroring SKILL.md Step 5 rather than a full `/multi-review` turn.
-
-- **A — pass.** `detect_available()` returns all six reviewers including
-  pykrete.
-- **B — pass.** `ok: true`, `downgraded: false`, `final_model:
-  "family:deepseek"`, 27.5s, 3.9 KB review opening with `## Summary`. Empty
-  stderr. Harvest row: `telemetry_quality: "degraded"`, all token counts 0
-  (expected — plain-text CLI), `comparison_eligible: true` under
-  `--drift-status not_applicable`.
-- **C — pass.** Forced downgrade by pointing a *copy* of the config at a
-  nonexistent lead (`deepseek/deepseek-v9-nonexistent-lead`). Review still
-  landed (3.3 KB, `## Summary` present), `ok: true`, `downgraded: true`,
-  `final_model` still `"family:deepseek"`. Harvest row
-  `comparison_eligible: false`. stderr carried
-  `pykrete: substituted "deepseek/deepseek-v4-pro-cheaper" for intended lead
-  "deepseek/deepseek-v9-nonexistent-lead"` — that line is the only way to learn
-  which model actually ran.
-- **D — pass.** With `PYKRETE_CONFIG` unset: `ok: false`, error `pykrete
-  requires $PYKRETE_CONFIG to point at a pykrete.toml …`, failed in 0.3 ms
-  before spawning. No traceback — the `ValueError` stayed inside the runner.
-
-**Model actually used:** `deepseek/deepseek-v4-pro-cheaper`, the non-thinking
-variant. B produced no substitution warning, so it ran the intended lead, and
-with no `--task` the intended lead is the `[defaults.general]` entry. The
-`:thinking` id under `[defaults.code]` was unreachable through multi-review at
-the time — fixed the same day by threading `--task` (scenario E).
-
-### 2026-08-04 — E executed live, pass
-
-Config copy with `[defaults.code].deepseek =
-"deepseek/deepseek-v9-nonexistent-code-lead"` (also added to `[families]`),
-`spawn --cli pykrete --model deepseek --task code` on a tiny throwaway prompt.
-
-- **E — pass.** `ok: true`, `downgraded: true`, stderr `pykrete: substituted
-  "deepseek/deepseek-v4-pro-cheaper:thinking" for intended lead
-  "deepseek/deepseek-v9-nonexistent-code-lead"` — names the **code** lead, so
-  `--task code` was honoured.
-- **Control — pass.** Same config, no `--task`: `ok: true`, `downgraded:
-  false`, empty stderr. The `[defaults.general]` lead is valid, so the bogus
-  code lead was never reached — discriminating in the intended direction.
-- **Real config + `--task code`** (`~/kramtime/pykrete/pykrete.toml`,
-  untouched): `ok: true`, `downgraded: false`, empty stderr, `## Summary`
-  present — the `[defaults.code]` lead
-  (`deepseek/deepseek-v4-pro-cheaper:thinking`) ran with no substitution.
-
-**Harness note:** passing `--drift-status unchecked` on a single-pass run marks
-the reviewer `comparison_eligible: false` (`harvest.py:116` — `unchecked` and
-`drifted` both block). Single-pass rows want `not_applicable`.

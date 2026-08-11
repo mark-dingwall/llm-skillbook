@@ -222,7 +222,7 @@ def test_grok_adapter_ignores_non_dict_usage():
 
 def test_grok_adapter_coerces_bad_token_counters():
     """Usage declares ints. A drifted counter (null / string / object / bool /
-    negative) must not reach <cli>.state.json or the harvest row as a non-int."""
+    negative) must not reach <cli>.state.json as a non-int."""
     from multi_review.core.adapters import GrokAdapter
     a = GrokAdapter()
     a.feed_line('{"type":"end","stopReason":"EndTurn","usage":'

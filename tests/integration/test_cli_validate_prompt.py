@@ -44,3 +44,23 @@ def test_validate_invalid_returns_2_with_error():
     out = json.loads(r.stdout)
     assert out["ok"] is False
     assert "files" in out["error"].lower()
+
+
+def test_validate_removed_key_returns_2_with_versioned_error(tmp_path):
+    src = tmp_path / "a.py"
+    src.write_text("")
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        "prompt_format_version: 2\n"
+        "task: code\n"
+        f"files: [\"{src}\"]\n"
+        "harvest: false\n"
+    )
+
+    result = _run(str(prompt))
+
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "harvest" in payload["error"]
+    assert "v0.3.0" in payload["error"]

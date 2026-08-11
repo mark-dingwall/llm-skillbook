@@ -7,7 +7,7 @@ from pathlib import Path
 def _run_aggregate(rdir, out):
     return subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.aggregate",
-         "--reviews-dir", str(rdir), "--mode", "inline", "--task", "code",
+         "--reviews-dir", str(rdir), "--task", "code",
          "--output", str(out)],
         capture_output=True, text=True,
     )
@@ -25,14 +25,14 @@ def test_aggregate_writes_review_md(tmp_path):
     out = tmp_path / "REVIEW.md"
     r = subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.aggregate",
-         "--reviews-dir", str(rdir), "--mode", "inline", "--task", "code",
+         "--reviews-dir", str(rdir), "--task", "code",
          "--output", str(out)],
         capture_output=True, text=True,
     )
     assert r.returncode == 0, r.stderr
     j = json.loads(r.stdout)
     body = Path(j["output_path"]).read_text()
-    assert "mode: inline" in body
+    assert "mode:" not in body.split("---", 2)[1]
     assert "claude says it's fine" in body
 
 
@@ -51,7 +51,7 @@ def test_aggregate_demotes_reviewer_missing_summary_heading(tmp_path):
     out = tmp_path / "REVIEW.md"
     r = subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.aggregate",
-         "--reviews-dir", str(rdir), "--mode", "inline", "--task", "code",
+         "--reviews-dir", str(rdir), "--task", "code",
          "--output", str(out)],
         capture_output=True, text=True,
     )
@@ -142,4 +142,3 @@ def test_aggregate_renders_with_null_duration(tmp_path):
     body = Path(json.loads(r.stdout)["output_path"]).read_text()
     assert "## Claude Review" in body
     assert "elapsed_s: 0.0" in body
-

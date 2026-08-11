@@ -5,26 +5,21 @@ The unit suite mocks all CLI dispatch. Run these against the real binaries befor
 The executable procedure is `tests/manual/headless-driver-smoke.sh`; its sanitized
 fixtures are checked in under `tests/manual/fixtures/headless-driver-smoke/`.
 
-## 1. `claude -p` under `bwrap`
+## 1. Reference-only `claude -p` under `bwrap`
 
 Run the driver with `reviewers: [claude]` under `bwrap --clearenv`, using a fresh
 writable scratch `HOME`/`CLAUDE_CONFIG_DIR` and a script-scoped token from
 `claude setup-token` supplied as `CLAUDE_CODE_OAUTH_TOKEN`. Do not bind the real
-`~/.claude`. Expect a populated Claude section in `REVIEW.md`, not a failure.
+`~/.claude`. The input marker must be absent from `prompt.txt`, present in the
+review, and accompanied by a recorded `Read` tool call. This simultaneously
+checks the sandboxed reviewer and the only supported input-delivery contract.
 
-## 2. Does headless `claude -p` auto-deny permission-gated tool calls?
-
-`agy --print` does (CLAUDE.md documents it). If `claude -p` does too, **reference
-mode systematically fails for `claude` through this driver** and needs its own fix,
-not a caveat. Test: a `mode: reference` run with `reviewers: [claude]`, and check
-whether the review body shows it actually read the manifest's files.
-
-## 3. WSL2 DNS
+## 2. WSL2 DNS
 
 `--ro-bind /mnt/wsl` is required in the `bwrap` invocation or DNS breaks inside the
 sandbox. Confirm a sandboxed reviewer reaches its API endpoint.
 
-## 4. Invocation contract from a foreign cwd
+## 3. Invocation contract from a foreign cwd
 
 Run `uv run <repo>/multi_review.py ...` twice:
 
@@ -35,7 +30,7 @@ Both must succeed, and neither may write `.venv/` or `uv.lock` into that foreign
 tree. This is what the PEP 723 header exists for; it was verified against the
 design, and this pass verifies it against the implementation.
 
-## 5. Shutdown
+## 4. Shutdown
 
 Send `kill -TERM <driver-pid>` **specifically** — not `Ctrl-C`, not a process-group
 signal (`kill -TERM -<pgid>`). Either of those can let a reviewer CLI's own signal
@@ -71,6 +66,10 @@ Do not mark this task complete with blank outcomes. For each case above record:
 - PASS / FAIL / BLOCKED and the observed evidence;
 - for BLOCKED, the missing binary/auth/containment prerequisite;
 - for FAIL, the plan task reopened and the contract change or implementation fix required.
+
+Current harness output must include `case1` through `case4` and finish with
+`headless_driver_smoke=PASS cases=4`. The older five-case labels below are
+historical evidence, not the current harness contract.
 
 ### 2026-08-07 checked-in harness rerun — historical PASS (not current acceptance)
 
@@ -143,6 +142,7 @@ case5=PASS shutdown_clis=6 plain_and_bwrap=ok
 headless_driver_smoke=PASS cases=5
 ```
 
-A fresh successful rerun of the current script, retaining these fields and the
-current `environment=clean process_group_check=passed` markers, is the binding
-acceptance evidence.
+A fresh successful rerun of the current script, emitting `case1` through `case4`,
+`headless_driver_smoke=PASS cases=4`, and the current
+`environment=clean process_group_check=passed` markers, is the binding acceptance
+evidence.

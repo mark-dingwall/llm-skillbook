@@ -35,7 +35,7 @@ def _write_promptfile(tmp_path: Path, body: str) -> Path:
 
 
 BASE_YAML = """\
-    prompt_format_version: 1
+    prompt_format_version: 2
     task: code
     files: [target.py]
     reviewers: [codex]
@@ -48,9 +48,11 @@ def test_out_dir_created_when_missing(tmp_path, monkeypatch):
     assert (out / "prompt.txt").exists()
 
 
-def test_prompt_txt_contains_the_input_file_body(tmp_path, monkeypatch):
+def test_prompt_txt_manifests_input_file_not_body(tmp_path, monkeypatch):
     _, out = _run(tmp_path, monkeypatch, BASE_YAML, _RecordingFanout())
-    assert "return 1" in (out / "prompt.txt").read_text()
+    body = (out / "prompt.txt").read_text()
+    assert str((tmp_path / "target.py").resolve()) in body
+    assert "return 1" not in body
 
 
 def test_non_empty_out_dir_is_rejected(tmp_path):
@@ -104,10 +106,22 @@ def test_output_claim_rejects_directory_that_became_non_empty(tmp_path):
     assert not (out / ".multi-review.claim").exists()
 
 
-def test_mode_both_exits_2(tmp_path):
-    pf = _write_promptfile(tmp_path, BASE_YAML + "    mode: both\n")
+@pytest.mark.parametrize(
+    "key,yaml_value",
+    [
+        ("mode", '""'),
+        ("if_drift", '""'),
+        ("harvest", "false"),
+        ("output_dir", "null"),
+        ("save_as", "null"),
+        ("model_effort", "{}"),
+    ],
+)
+def test_removed_key_in_promptfile_exits_2(tmp_path, capsys, key, yaml_value):
+    pf = _write_promptfile(tmp_path, BASE_YAML + f"    {key}: {yaml_value}\n")
     out = tmp_path / "round-1"
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    assert key in capsys.readouterr().err
 
 
 def test_malformed_yaml_exits_2_without_traceback(tmp_path):
@@ -156,7 +170,7 @@ def test_invalid_utf8_prompt_file_exits_2_without_traceback(tmp_path, capsys):
 def test_nul_path_prompt_file_exits_2_without_traceback(tmp_path, capsys):
     pf = _write_promptfile(
         tmp_path,
-        'prompt_format_version: 1\ntask: code\nfiles: ["bad\\0path"]\n',
+        'prompt_format_version: 2\ntask: code\nfiles: ["bad\\0path"]\n',
     )
     out = tmp_path / "round-1"
 
@@ -179,15 +193,23 @@ def test_validation_failure_does_not_create_out_dir(tmp_path):
     assert not out.exists()
 
 
-def test_unreadable_input_file_exits_1(tmp_path, monkeypatch):
+def test_unreadable_input_file_is_rejected_before_fanout(tmp_path, monkeypatch):
     pf = _write_promptfile(tmp_path, BASE_YAML)
     out = tmp_path / "round-1"
+    source = (tmp_path / "target.py").resolve()
+    real_open = Path.open
+    fanout = _RecordingFanout()
 
-    def _boom(*args, **kwargs):
-        raise SystemExit("error: cannot read target.py")
+    def deny_input_read(path, mode="r", *args, **kwargs):
+        if path == source and mode == "rb":
+            raise PermissionError("read denied")
+        return real_open(path, mode, *args, **kwargs)
 
-    monkeypatch.setattr(driver, "build_prompt", _boom)
+    monkeypatch.setattr(Path, "open", deny_input_read)
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 1
+    assert fanout.calls == []
+    assert not out.exists()
 
 
 def test_build_time_path_validation_error_exits_2(tmp_path, monkeypatch, capsys):
@@ -364,7 +386,7 @@ def _run(tmp_path, monkeypatch, yaml_body, fanout, extra_argv=()):
 
 
 THREE_YAML = """\
-    prompt_format_version: 1
+    prompt_format_version: 2
     task: code
     files: [target.py]
     reviewers: [codex, codex, agy]
@@ -471,7 +493,7 @@ class _RecordingSynth:
 
 
 SYNTH_YAML = """\
-    prompt_format_version: 1
+    prompt_format_version: 2
     task: code
     files: [target.py]
     reviewers: [codex, agy]
@@ -662,7 +684,6 @@ def test_repeated_sigterm_requests_cancellation_only_once(tmp_path, monkeypatch)
         models = {}
         task = "code"
         synthesizer = "none"
-        mode = "inline"
 
     async def scenario():
         loop = asyncio.get_running_loop()

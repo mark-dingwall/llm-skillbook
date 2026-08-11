@@ -31,8 +31,8 @@ FAILURE_MIN_BYTES = 50
 # Max stderr kept for failure diagnosis (chars, UTF-8 decoded).
 STDERR_TAIL_CHARS = 2000
 
-# asyncio StreamReader buffer — gemini stream-json can emit cumulative
-# assistant messages larger than the 64 KiB default.
+# Some reviewer CLIs emit individual stream records larger than asyncio's
+# 64 KiB StreamReader default.
 STREAM_BUFFER_LIMIT = 64 * 1024 * 1024
 
 # SIGKILL normally reaps immediately. Bound the exceptional wait so a broken
