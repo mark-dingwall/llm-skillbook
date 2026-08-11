@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Fake grok. Discriminating shim:
+#   - echoes argv one token per line to $GROK_ARGV_LOG
+#   - reads the prompt from the path given to --prompt-file (NOT bare fd 0), so
+#     the test is tied to the invocation contract; copies it to $GROK_STDIN_LOG
+#   - BRANCHES ON --output-format: streaming JSONL for the reviewer path, clean
+#     markdown for the synthesis path (which build_command builds with
+#     streaming=False and synthesis.py treats as the body verbatim)
+#   - FAKE_GROK_RC (default 0) sets the exit code
+#   - FAKE_GROK_SHORT=1 emits <50 bytes of body to drive the byte-floor case
+#   - FAKE_GROK_STOP_REASON (default end_turn) sets the `end` event's stopReason,
+#     to drive the terminal-failure-signal (refusal/abort) classification case.
+#     Default tracks the CLI's CURRENT clean spelling (grok 0.2.117, 2026-08-03);
+#     the older `EndTurn` spelling is still accepted by GrokAdapter and pinned
+#     explicitly in test_grok_adapter_accepts_every_observed_clean_stop_reason.
+#   - unconditionally emits FIXTURE_GROK_MARKER on stderr so tests can prove
+#     this fixture (not a real grok binary) actually ran; spawn.py always
+#     captures child stderr into stderr_tail on both the review and synthesis
+#     state.json, so this channel never touches the review/synthesis body
+set -u
+echo "FIXTURE_GROK_MARKER=7f3c2e1a" >&2
+prompt_file=""
+streaming=0
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    --prompt-file) prompt_file="${args[i+1]:-}" ;;
+    --output-format) [ "${args[i+1]:-}" = "streaming-json" ] && streaming=1 ;;
+  esac
+done
+[ -n "${GROK_ARGV_LOG:-}" ] && printf '%s\n' "$@" > "$GROK_ARGV_LOG"
+if [ -z "$prompt_file" ]; then
+  echo "fake grok: no --prompt-file given" >&2
+  exit 64
+fi
+prompt=$(cat "$prompt_file")
+[ -n "${GROK_STDIN_LOG:-}" ] && printf '%s' "$prompt" > "$GROK_STDIN_LOG"
+
+if [ "${FAKE_GROK_SHORT:-0}" = "1" ]; then
+  body='short'
+else
+  body='## Summary
+Fake grok review body, well over fifty bytes of content here.'
+fi
+
+if [ "$streaming" = "1" ]; then
+  printf '%s\n' '{"type":"thought","data":"Considering the diff."}'
+  printf '{"type":"text","data":%s}\n' "$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+  printf '{"type":"end","stopReason":"%s","usage":{"input_tokens":1200,"cache_read_input_tokens":300,"output_tokens":45,"reasoning_tokens":9,"total_tokens":1554},"num_turns":1,"modelUsage":{"grok-4.5-build":{"inputTokens":1200,"outputTokens":45}}}\n' "${FAKE_GROK_STOP_REASON:-end_turn}"
+else
+  printf '%s\n' "$body"
+fi
+exit "${FAKE_GROK_RC:-0}"

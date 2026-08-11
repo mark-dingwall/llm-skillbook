@@ -1,0 +1,12 @@
+prompt_format_version: 2
+task: custom
+files:
+  - subject.py
+custom_prompt: |
+  Perform a careful code review of this trusted synthetic fixture. Your Markdown
+  response must begin with `## Summary`. Do not modify any files.
+reviewers:
+  - pykrete
+models:
+  pykrete: deepseek
+synthesizer: none

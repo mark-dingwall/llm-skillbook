@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fake pykrete. Discriminating shim (R2-4):
+#   - echoes its argv to $PYKRETE_ARGV_LOG (so tests can assert --family forwarding)
+#   - FAKE_PYKRETE_RC (default 3) sets the exit code
+#   - FAKE_PYKRETE_SHORT=1 emits <50 bytes to drive the byte-floor case
+[ -n "$PYKRETE_ARGV_LOG" ] && printf '%s\n' "$*" > "$PYKRETE_ARGV_LOG"
+cat >/dev/null
+if [ "${FAKE_PYKRETE_SHORT:-0}" = "1" ]; then
+  printf 'short\n'
+else
+  printf '## Summary\nFake pykrete review body, well over fifty bytes of content here.\n'
+fi
+exit "${FAKE_PYKRETE_RC:-3}"

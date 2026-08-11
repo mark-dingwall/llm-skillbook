@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"abc"}
+{"type":"result","subtype":"success","result":"","total_cost_usd":0.0,"usage":{"input_tokens":0,"output_tokens":0}}

@@ -1,0 +1,7 @@
+prompt_format_version: 2
+task: code
+files: ["sample_subject.py"]
+synthesizer: agy
+reviewers: ["claude", "agy"]
+models:
+  claude: claude-opus-4-7
