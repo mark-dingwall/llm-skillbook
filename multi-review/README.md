@@ -117,7 +117,8 @@ context_files:
   - docs/threat-model.md
 
 # Free-form prompt override. Required when task == custom; when supplied for
-# any task, it replaces that task's built-in template.
+# any task, it replaces that task's built-in template. The runner still appends
+# its required Summary response contract, which every accepted review must meet.
 custom_prompt: |
   Focus on dependency ordering and rollback paths
 
