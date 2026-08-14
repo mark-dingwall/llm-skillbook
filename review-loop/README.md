@@ -35,6 +35,7 @@ an honest NOT CONVERGED hand-back, never a forced green.
 - `reviewer-addendum.md` — the prompt contract given to each reviewer
 - `dispatch.md` — operational how-to: waiting, timeouts, harvest, concurrency
 - `DESIGN.md` — decision record; every rule traces to a source or a cut
+- `../docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md` — approved lean-redesign specification
 - `tests/baseline/` — trap fixtures + RED/GREEN results (TDD evidence)
 - `REVIEW-2026-07-20.md` — the skill's 10-round review of itself
 - `.ref/` — mined sources (Claude Code /code-review internals, zeroshot,
