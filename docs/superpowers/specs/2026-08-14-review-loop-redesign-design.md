@@ -12,7 +12,8 @@ none of the design conversation. After reading it, that implementer should be
 able to plan the bounded prototype described in section 10 without reopening
 settled product decisions.
 
-Where this document conflicts with `PLAN-2026-07-28.md` or the recovered
+Where this document conflicts with the [archived tier-and-roster
+plan](../../history/review-loop/PLAN-2026-07-28.md) or the recovered
 `SIMPLIFY-DEF.md`, this document governs new work. Those documents are
 historical inputs, not implementation authority.
 

@@ -1,5 +1,9 @@
 # review-loop
 
+This directory contains the current legacy review-loop skill and the fixtures
+that exercise it. It remains the execution reference until the redesign is
+implemented; new implementation work follows the redesign specification.
+
 A skill for multi-round external code review that actually
 converges. Born from hand-rolled review loops that ran a dozen rounds
 re-litigating the same findings; this skill makes termination a ledger
@@ -34,12 +38,15 @@ an honest NOT CONVERGED hand-back, never a forced green.
 - `SKILL.md` — the protocol (the skill itself)
 - `reviewer-addendum.md` — the prompt contract given to each reviewer
 - `dispatch.md` — operational how-to: waiting, timeouts, harvest, concurrency
-- `DESIGN.md` — decision record; every rule traces to a source or a cut
-- `../docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md` — approved lean-redesign specification
 - `tests/baseline/` — trap fixtures + RED/GREEN results (TDD evidence)
-- `REVIEW-2026-07-20.md` — the skill's 10-round review of itself
-- `.ref/` — mined sources (Claude Code /code-review internals, zeroshot,
-  fable-method, superpowers skills, codex design panel)
+
+## Redesign and history
+
+- [`Review Loop Redesign`](../docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
+  — governing design for new implementation work
+- [`docs/history/review-loop/`](../docs/history/review-loop/) — archived
+  decision record, tier-and-roster plan, self-review report, and research
+  inputs; retained for context, not implementation authority
 
 ## Provenance
 
@@ -64,7 +71,7 @@ failure reports from a production hand-rolled loop.
 - The self-review closed at round 11 (hard stop): 17/18 findings
   verified fixed; the last row (an errexit guard on the expiry
   signals) is applied and probe-tested but has no verifying review
-  round (`REVIEW-2026-07-20.md` §Round 11).
+  round (archived self-review report, §Round 11).
 - **Loop artifacts need durable storage, not tmpfs** — two host
   restarts each wiped the loop's /tmp working files mid-run;
   dispatch.md guidance backlogged.
