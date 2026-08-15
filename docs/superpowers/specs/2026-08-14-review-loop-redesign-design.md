@@ -112,8 +112,20 @@ output contract.
 Resolve invocation intent before dispatch: optional tier, profile, maximum time
 in seconds, and confirmation override. A supplied maximum must be a positive
 integer. Validate an explicitly selected profile before any agent runs. Then
-run the existing quality gate and seal the target. This establishes the Stage 0
-**target-baseline seal**, which covers the whole target tree.
+resolve the full proposed run root and reject it when it equals, contains, or
+is contained by the sealed target; do this before creating any artifact. Run the
+existing quality gate and seal the target. The sealer accepts only directories
+and readable regular files: a symlink, FIFO, socket, device, unreadable entry,
+or an entry whose type or identity changes during enumeration fails preflight.
+This establishes the Stage 0 **target-baseline seal**, which covers the whole
+target tree.
+
+At Stage 0, resolve the operator-designated ground-truth sources into one
+ordered canonical inventory of exact regular-file locators and immutable file
+identities. Persist that inventory in canonical state before any triage can
+refer to it. An out-of-tree ground-truth source is included in every applicable
+round-input seal; a missing or changed source fails closed rather than being
+rediscovered or reconstructed from a digest after restart.
 
 Dispatch one semantic inventory agent at `most-capable`. It owns the canonical
 area IDs, aliases, mapping decisions, consequence and `GENERALIST-MISS`
@@ -145,20 +157,39 @@ round or Stage 0, makes the loop NOT CONVERGED, and never takes a fallback
 branch. The multi-review adapter performs these checks for its driver call; the
 controller performs them for ordinary dispatch.
 
+Every ordinary target-accessing role uses a tested host execution mapping that
+enforces read-only access to the sealed target. The prompt's read-only
+instruction is not authorization. If the selected CLI has no tested read-only
+mapping, the controller does not dispatch it; there is no uncontained ordinary
+review bypass. Seal checks remain necessary detection and fail-closed evidence
+handling, not a substitute for read-only execution and not rollback machinery.
+
 `FIX` is the sole authorized mutation window. Immediately before it, recompute
 the whole-target identity and compare it with the last verified target-baseline
 seal. A mismatch stops NOT CONVERGED; never record the mismatching identity as
 a new baseline. Only after that comparison succeeds may the controller record
-the verified pre-FIX identity and enter `FIX`. Immediately afterward,
-regenerate the whole-target identity and verify its delta from that pre-FIX
-identity: every changed path must be declared by the fix manifest and remain
-within the authorized target. That post-FIX identity becomes the next round's
-target-baseline seal. The MVP assumes the single user does not run a concurrent
-writer during this controller-owned window; if exclusive mutation cannot be
-assured, stop NOT CONVERGED rather than absorbing unexplained drift. Canonical
-state retains the Stage 0 target baseline, each verified pre-FIX identity, each
-round's target baseline, and each round-input seal rather than one overloaded
-run-wide seal.
+the verified pre-FIX identity and record `FIX_STARTED` before entering `FIX`.
+Immediately afterward, regenerate the whole-target identity and verify its delta
+from that pre-FIX identity: every changed path must be declared by the fix
+manifest and remain within the authorized target. Run the quality gate, then
+recompute the identity once more; the gate must pass and that identity must
+equal the verified post-FIX identity before it becomes the next round's
+target-baseline seal. A failed post-FIX gate or changed post-gate identity stops
+NOT CONVERGED before another reviewer runs. If the host or session interrupts
+after `FIX_STARTED` and before this post-FIX verification succeeds, record the
+round INDETERMINATE and return NOT CONVERGED. A restarted controller may retain
+the evidence for its hand-back but must not resume that run or establish a new
+baseline; start a new run instead. The MVP assumes the single user does not run
+a concurrent writer during this controller-owned window; if exclusive mutation
+cannot be assured, stop NOT CONVERGED rather than absorbing unexplained drift.
+Canonical state retains the Stage 0 target baseline, each verified pre-FIX
+identity, each round's target baseline, and each round-input seal rather than
+one overloaded run-wide seal.
+
+Immediately before CLOSE computes either terminal verdict, recompute the whole
+target identity and compare it with the last accepted target-baseline seal. A
+mismatch is NOT CONVERGED; it cannot produce a verdict for bytes that no
+reviewer saw.
 
 The state processor merges already-decided values mechanically: take the
 maximum `C` across raters, take the maximum `R` across raters, then take the
@@ -247,20 +278,39 @@ depth without manufacturing review history.
 
 Each later-round refresh uses the one inventory agent at the run tier's normal
 reviewer capability. Its strict JSON must contain the full inventory schema and
-map every previously named area to one resolved continuing ID, an explicit
-replacement/new ID, or `RETIRED`. It also receives whether each area has a valid
-prior specialist report and refreshes the total priority order accordingly. An
-absent or ambiguous mapping, malformed JSON, missing field, or partial inventory
-makes the whole output malformed and consumes its one retry. A second failure
-makes the started round INDETERMINATE and the loop NOT CONVERGED; stop before
-roster dispatch, record no roster or coverage update, and count it as an
-attempted round. Never reuse a stale inventory.
+map every previously named area exactly once to one resolved continuing ID, an
+explicit listed successor ID, or `RETIRED`. Every non-retired mapping target
+must be a current active ID. Active IDs are unique, and the total specialist
+priority order is bijective with them: it names every active ID exactly once and
+no other ID. The inventory agent may name genuinely new active areas, but it
+must not use a duplicate, omission, or ambiguous replacement chain to create or
+hide one. It also receives whether each area has a valid prior specialist report
+and refreshes the total priority order accordingly. An absent or ambiguous
+mapping, duplicate or missing ID, invalid priority order, malformed JSON,
+missing field, or partial inventory makes the whole output malformed and
+consumes its one retry. A second failure makes the started round INDETERMINATE
+and the loop NOT CONVERGED; stop before roster dispatch, record no roster or
+coverage update, and count it as an attempted round. Never reuse a stale
+inventory.
+
+`RETIRED` is an explicit semantic mapping from a previously named area to no
+active, separate material concern in the latest sealed target. It may apply
+when the risk-bearing surface was removed or neutralized, or when the prior area
+was not a distinct material concern. It must not represent an unstaffed or
+cap-omitted area, a rename, move, or merge (which uses a continuing or successor
+ID), target-scope drift, or an individual ledger finding's disposition. Every
+`RETIRED` mapping contains a non-blank, single-line `retirement_reason`. The
+reason is retained in canonical state and the final report solely for post-run
+independent audit; it has no dispatch, triage, adjudication, or terminal effect
+beyond identifying the mapping as retired.
 
 `CONSEQUENCE` uses `Minor < Important < Critical`. Across inventory refreshes,
 retain the highest consequence ever stated, every attributed consequence and
-`GENERALIST-MISS` evidence line, and the union of evidenced surface locators.
-An inventory omission or weaker restatement cannot lower historical consequence
-or erase a coverage gap.
+`GENERALIST-MISS` evidence line, and the union of evidenced surface locators for
+every active lineage. An inventory omission or weaker restatement cannot lower
+historical consequence or erase a coverage gap. A valid explicit `RETIRED`
+mapping is the sole exception: it preserves that evidence as historical audit
+data but ends the active lineage and its staffing obligation.
 
 Before applying the specialist cap, an area is eligible when:
 
@@ -268,18 +318,62 @@ Before applying the specialist cap, an area is eligible when:
 tier == max OR (GENERALIST-MISS exists AND consequence meets threshold)
 ```
 
-All current eligible areas are reconsidered every dispatched round. This MVP
-does not implement quiet decay or numeric coverage counters; it records only
-whether each area has a valid specialist report and the report's roster link.
-A cap-omitted eligible area remains named and is prioritized ahead of already
-covered areas next round. At CLOSE, an Important+ area with evidenced
-`GENERALIST-MISS` and no valid specialist report for that area is a
-merge-readiness blocker. If the tier threshold made that area ineligible, the
-run may still be CONVERGED but is not merge-ready; the hand-back recommends a
-new run at a tier that can staff it. If the cap still leaves gaps at `max`, the
-hand-back names them and recommends narrowing or splitting the review target;
-the controller does not invent a higher tier, exceed the cap, or loop without
-bound. Holistic mention alone is not specialist coverage.
+All current non-retired eligible areas are reconsidered every dispatched round.
+This MVP does not implement quiet decay or numeric coverage counters; it records
+only whether each area has a valid specialist report and the report's roster
+link. A cap-omitted eligible area remains named and is prioritized ahead of
+already covered areas next round. At CLOSE, a current non-retired Important+
+area with evidenced `GENERALIST-MISS` and no valid specialist report for that
+area is a merge-readiness blocker. A valid retired area is neither eligible for
+staffing nor a merge-readiness coverage blocker. If the tier threshold made an
+active area ineligible, the run may still be CONVERGED but is not merge-ready;
+the hand-back recommends a new run at a tier that can staff it. If the cap still
+leaves active gaps at `max`, the hand-back names them and recommends narrowing or
+splitting the review target; the controller does not invent a higher tier,
+exceed the cap, or loop without bound. Holistic mention alone is not specialist
+coverage.
+
+### TRIAGE and ledger
+
+After every required report for a round is usable, dispatch one read-only
+triager against the applicable seals. It converts the raw reports into one
+strict-JSON triage result before any FIX, roster-coverage update, or terminal
+decision. The result contains an exact `report_ids` set and a record for every
+report, including an explicit empty finding list; every listed finding record
+has a canonical ID, aliases and source report IDs, source locators, reported and
+current severity, `CONFIRMED`/`PLAUSIBLE`/`UNVERIFIABLE` factual status,
+proposed ledger state, provenance, and evidence locators. The controller rejects
+unknown, missing, or duplicate report and finding IDs, report IDs not matching
+the usable raw-report set, invalid state/factual combinations, missing source or
+evidence locators, and any result whose applicable seal differs. It retries one
+malformed or failed triage call once. A second failure makes the round
+INDETERMINATE and NOT CONVERGED without FIX or coverage update.
+
+The ledger has exactly five states: `OPEN`, `FIX_APPLIED`, `FIX_VERIFIED`,
+`REFUTED`, and `INTENTIONAL`. New findings and any finding reactivated by new
+conclusive evidence enter `OPEN`. `OPEN -> FIX_APPLIED` requires a fix-manifest
+entry bound to that exact ledger ID. `FIX_APPLIED -> FIX_VERIFIED` requires a
+later usable triage result that cites both that manifest entry and sealed
+current-target evidence that the original failure no longer occurs. An empty
+report, reviewer silence, a passing quality gate, or the manifest's existence
+alone is not fix verification. `OPEN -> REFUTED` and file-authorized
+`OPEN -> INTENTIONAL` are operative only after the adjudication rule below;
+ledger-ID-bound direct user risk acceptance may instead create the recorded
+`INTENTIONAL` exception. A later report or changed authority that invalidates a
+`FIX_VERIFIED`, `REFUTED`, or `INTENTIONAL` basis returns the row to `OPEN` and
+preserves the rejected basis as history. `UNVERIFIABLE` cannot settle a row.
+There is no generic accepted, deferred, or closed state.
+
+CLOSE computes two total verdicts from the canonical ledger and final lifecycle
+state. The loop is CONVERGED only when every scheduled role in every completed
+round supplied a usable report, every usable raw report maps to the ledger, no
+stage is INDETERMINATE, the final target seal matches, and no Important+ row is
+`OPEN` or `FIX_APPLIED`. Otherwise it is NOT CONVERGED and the hand-back names
+the failed conjunct. The target is merge-ready only when it is CONVERGED, the
+quality gate passed for the final sealed target, every Important+ row is
+`FIX_VERIFIED`, `REFUTED`, or an explicitly recorded `INTENTIONAL` exception,
+and no current non-retired Important+ specialist-coverage blocker remains.
+Open Minor rows are reported but do not by themselves prevent either verdict.
 
 ### Adjudication
 
@@ -367,6 +461,17 @@ with metadata and wraps raw reports. The canonical holistic prompt works
 unchanged in both paths; do not add a multi-review-only LLM instruction
 fragment.
 
+The driver's v2 schema adds optional `verbatim_custom_prompt`, defaulting to
+false. It is valid only with `task: custom` and a non-empty `custom_prompt`.
+When true, the driver treats `custom_prompt` as an exact byte payload: before
+launching each client it writes and byte-compares that client's prompt-body file
+against the payload, then delivers only those bytes. It adds no injection or
+reference preamble, title, context body, file manifest, delimiter, or trailing
+newline. The required `files` list still validates sealed scope and controls
+what the contained clients can read; it is not rendered into the prompt body.
+A mismatch is a driver validation failure. Existing non-review-loop tasks and
+custom-prompt callers retain the current wrapped behavior unless they opt in.
+
 Prompt bodies never travel in process arguments. The adapter writes the driver
 YAML to a transient per-round transport path outside the still-empty output
 directory and passes only its path and short scalar options to the multi-review
@@ -428,12 +533,16 @@ At minimum, canonical state records:
 - requested tier/profile/deadline/overrides and their resolution;
 - automatic ratings and evidence when rating ran;
 - selected tier and tier source;
+- the ordered round-one ground-truth inventory with exact locators and immutable
+  identities;
 - named inventory areas, semantic IDs/aliases, consequence, semantic mapping
-  decisions, and any valid specialist-report linkage;
+  decisions including every `retirement_reason`, current active status, priority
+  order, and any valid specialist-report linkage;
 - round roster including specialist area IDs, requested capability, resolved
   reviewer, requested capability or model argument, dispatch outcome,
   completion, duration, and degraded/fallback reason;
-- canonical ledger rows, provenance, dispositions, and fix manifests;
+- canonical ledger rows, raw-report mappings, provenance, dispositions,
+  fix-verification evidence, and fix manifests;
 - pending adjudication sets, call outcomes, final decisions, and atomic
   bounce/restoration results; and
 - convergence, merge-readiness, and the exact failed terminal conjunct when a
@@ -510,10 +619,14 @@ value is always positive integer seconds. Reviewer calls still retain their
 normal per-call timeouts. Unknown keys, unknown versions, wrong types,
 non-positive deadlines, and unsupported capability labels are errors.
 `multi_review.models` may name only `claude` and `codex`, and each value must
-be a non-empty string.
+be a non-empty string. Profile and driver YAML loaders reject duplicate mapping
+keys at every nesting level before applying defaults or semantic validation;
+last-key-wins parsing is invalid configuration.
 
-A model pin for any reviewer outside the fixed pair is invalid configuration. A
-selected reviewer that is unavailable at runtime follows fallback handling.
+A model pin in `multi_review.models` for a reviewer outside the fixed pair is
+invalid configuration. Normal-role `holistic`, `adversarial`, and `specialists`
+model pins shown in this schema are allowed. A selected reviewer that is
+unavailable at runtime follows fallback handling.
 
 Profiles may pin tool-specific models for the fixed multi-review pair, set
 normal-role capability labels or model pins, and set a maximum time. They may
@@ -547,11 +660,10 @@ participant.
 
 An operator may still directly instruct the orchestrator to use a particular
 CLI for one ordinary, non-multi-review review. That one-off instruction must
-use the controller's normal containment when a tested mapping exists. If none
-exists, require explicit confirmation of uncontained execution and record that
-bypass prominently; otherwise stop because the requested CLI cannot be honored.
-This is not a reason to add arbitrary commands to profiles or override the
-contained multi-review pair.
+use the controller's tested read-only mapping. If none exists, stop because the
+requested CLI cannot be honored; explicit confirmation does not authorize an
+uncontained ordinary review. This is not a reason to add arbitrary commands to
+profiles or override the contained multi-review pair.
 
 ## 8. Multi-review boundary and failure handling
 
@@ -569,15 +681,16 @@ canonical holistic prompt
 The adapter-written driver YAML sets `prompt_format_version: 2`, `task: custom`,
 a non-empty `files` list of exact regular input paths covered by the current
 round-input seal, `reviewers: [claude, codex]`, any configured `models` entries,
-the canonical prompt as `custom_prompt`, `synthesizer: none`, and the driver's
-review-loop opt-in `require_complete_status: true`. Extend the v2 schema with
-that optional boolean, defaulting to false, so other tasks and custom-prompt
-callers retain the driver's current Summary-only behavior. The v2 validator
-strictly requires only `prompt_format_version`, `task`, and `files`; the adapter
-still writes every field above explicitly so reviewer and synthesizer defaults
-cannot widen the call. An older driver rejects the unknown opt-in field and
-therefore takes ordinary fallback rather than accepting refusals. Synthesis is
-disabled, not merely non-authoritative.
+the canonical prompt as `custom_prompt`, `verbatim_custom_prompt: true`,
+`synthesizer: none`, and the driver's review-loop opt-in
+`require_complete_status: true`. Extend the v2 schema with those optional
+booleans, each defaulting to false, so other tasks and custom-prompt callers
+retain their current behavior. The v2 validator strictly requires only
+`prompt_format_version`, `task`, and `files`; the adapter still writes every
+field above explicitly so reviewer and synthesizer defaults cannot widen the
+call. An older driver rejects either unknown opt-in field and therefore takes
+ordinary fallback rather than accepting refusals or wrapped prompt transport.
+Synthesis is disabled, not merely non-authoritative.
 
 The driver exit code is necessary but insufficient because the current driver
 returns success when any classified report succeeds. The adapter independently
@@ -671,13 +784,17 @@ Give each helper ordinary unit and contract tests.
 
 The state processor tests tier lookups, strict schemas, rating combination,
 one-time gestalt step-up, consequence monotonicity, single-owner re-inventory
-mappings, malformed/ambiguous-map retries, `GENERALIST-MISS` eligibility,
-uncovered-first priority filtering and cap application, area-linked specialist
-coverage and later-round surface resolution, both second-call adjudication
-paths, ledger-ID-bound user acceptance, valid and invalid ledger transitions,
-pre- and post-roster INDETERMINATE accounting, compare-before-record FIX
-entry, distinct target-baseline and round-input seals, deadline expiry, and
-terminal rollups.
+mappings including bijective IDs and priority order, malformed/ambiguous-map
+retries, `RETIRED` definitions and missing, blank, or multiline
+`retirement_reason` rejection, `GENERALIST-MISS` eligibility, uncovered-first
+priority filtering and cap application, area-linked specialist coverage and
+later-round surface resolution, both second-call adjudication paths,
+ledger-ID-bound user acceptance, strict-JSON TRIAGE report/retry behavior,
+valid and invalid ledger transitions, proof-linked `FIX_VERIFIED` transitions,
+pre- and post-roster INDETERMINATE accounting, compare-before-record FIX entry,
+post-FIX quality-gate failure, interrupted-FIX restart refusal, distinct
+target-baseline and round-input seals, final-CLOSE seal drift, durable
+round-one ground truth, deadline expiry, and both terminal rollups.
 
 The prompt/report helper tests exact declared substitutions, explicit fragment
 selection, template-token failures without rescanning substituted data,
@@ -689,25 +806,29 @@ multi-review holistic dispatch.
 
 The adapter tests with controlled fake processes and reports: normal success,
 the opt-in completed-status classifier without changing other driver tasks,
-rejection of the opt-in by an older driver, missing completed reports,
+rejection of either opt-in by an older driver, byte-equivalent verbatim custom
+prompt transport, prompt-body mismatch failure, missing completed reports,
 unexpected/duplicate reviewer IDs, malformed frontmatter, body delimiters that
 resemble frontmatter fences, driver failure, missing Bubblewrap, deadlines, and
-ordinary fallback. Separate tests prove that every scheduled call gets one
-fresh empty output directory; the driver, interpreter/environment, fixed CLIs,
-and required read-only package content can start inside the `$HOME` tmpfs
-recipe; exact later-round inputs are readable; and only the output directory
-plus fresh client scratch is writable. Live host client state, canonical state,
-and prior rounds remain non-writable; scratch cannot persist hooks or other
-state to the host. Tests also prove that no multi-review retry occurs, expiry is
-checked before fallback, pre/post seal drift from every review path voids the
-stage without fallback, and prompt bodies never appear in process arguments.
+ordinary fallback. Separate tests prove that every scheduled call gets one fresh
+empty output directory; the driver, interpreter/environment, fixed CLIs, and
+required read-only package content can start inside the `$HOME` tmpfs recipe;
+exact later-round inputs are readable; and only the output directory plus fresh
+client scratch is writable. Live host client state, canonical state, and prior
+rounds remain non-writable; scratch cannot persist hooks or other state to the
+host. Tests also prove that no multi-review retry occurs, expiry is checked
+before fallback, pre/post seal drift from every review path voids the stage
+without fallback, and prompt bodies never appear in process arguments.
 
 Profile tests cover name and explicit-path resolution, version and unknown-key
 rejection, sparse overlays, positive-integer deadlines, ordinary/fallback
 holistic inheritance, minimum fixed-pair configuration, non-empty model values,
-unsupported pins, exact pinned-model command construction without default-model
-arguments, rejected pins causing participant failure, missing profiles, and
-non-overridable safety fields.
+duplicate YAML mapping keys at every depth, permitted normal-role pins versus
+fixed-pair-only `multi_review.models` pins, exact pinned-model command
+construction without default-model arguments, rejected pins causing participant
+failure, missing profiles, and non-overridable safety fields. Controller tests
+also reject a resolved run root that overlaps the sealed target and an ordinary
+CLI with no tested read-only mapping.
 
 ### LLM behavior tests
 
@@ -728,10 +849,18 @@ The MVP is acceptable when:
   policy without changing completion semantics;
 - auto-derived `max` is the only automatic tier that pauses;
 - all three helpers fail closed at their declared boundaries;
+- every ordinary target-accessing role has enforced read-only target access, and
+  special target entries, run-root overlap, interrupted FIX, post-FIX gate
+  failure, and final seal drift fail closed;
+- every usable review report is reconciled through validated TRIAGE into the
+  canonical ledger, and only evidence-linked ledger transitions affect the two
+  terminal verdicts;
 - pending green-making dispositions receive tier-invariant adjudication and
   fail closed under malformed, failed, or undecided results, while an empty set
   dispatches no adjudicator;
 - normal and multi-review holistic paths use the same canonical prompt;
+- multi-review's verbatim custom-prompt opt-in delivers the exact canonical
+  bytes or falls back without launching a wrapped prompt;
 - every scheduled high/max multi-review slot uses the fixed CLI pair at tested
   tool defaults or exact explicit pins and uses its resolved fallback profile;
 - every multi-review call uses one fresh round output directory, while
@@ -739,7 +868,8 @@ The MVP is acceptable when:
   containment, live host client state remains non-writable, and seal drift from
   any review path voids the round instead of falling back;
 - profiles can refine dispatch but cannot alter safety or convergence;
-- state survives host/session restarts outside the sealed target;
+- state survives host/session restarts outside the sealed target, including the
+  immutable round-one ground-truth inventory and audited retirement mappings;
 - the final Markdown report explains selected policy, actual execution,
   degraded/fallback behavior, ledger state, and both verdicts; and
 - `SKILL.md` is reviewed after implementation for missed behavior and needless
