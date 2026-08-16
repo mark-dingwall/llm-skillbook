@@ -230,7 +230,7 @@ explicit change control rather than being marked complete.
 ### Stage 13: Report
 
 - **Entry:** all required acceptance rows have an outcome and no required behavior lacks evidence.
-- **Owned action/artifact:** write final requirement/scenario-to-plan-task-to-evidence-to-UAT report, complete the ledger, and record branch-finishing readiness.
+- **Owned action/artifact:** write the final requirement/scenario-to-plan-task-to-evidence-to-UAT report at `docs/feature-forge/runs/YYYY-MM-DD-<work-unit>/final-report.md`, complete the ledger, and record branch-finishing readiness.
 - **Exit evidence:** final report and ledger are committed through the acceptance checkpoint; worktree is clean.
 - **Failure/blocked return:** incomplete, stale, or non-reproducible evidence returns to Acceptance or its root-cause stage; dirty tree blocks.
 - **Next action:** Stage 14: Finish.
