@@ -1,6 +1,6 @@
 # Feature Forge
 
-**Status:** Specification candidate; formal review pending
+**Status:** Frozen specification baseline
 
 **Date:** 2026-08-17
 
@@ -83,10 +83,11 @@ Feature Forge is the sole outer controller. It creates or updates the harness's
 native task list with the workflow stages, permits only one active stage, and
 rehydrates that list from the run ledger when resuming.
 
-When native tasks are available, project the fourteen stages in Section 10
-with the same status vocabulary and at most one `active` item. When they are
-not, keep the same stage table in the ledger; do not invent a second task
-schema. Native task state never advances independently of the durable ledger.
+When native tasks are available, use them as a best-effort display of the
+fourteen stages in Section 10, with at most one active item. Providers may use
+their own status vocabulary and may summarize blocked or invalidated state in
+annotations. When native tasks are absent, the workflow is unchanged. Native
+task state never enforces or advances independently of the durable ledger.
 
 The controller delegates semantic work as follows:
 
@@ -118,6 +119,33 @@ Feature Forge explicitly regains control at these boundaries:
 4. Branch finishing is invoked exactly once, by Feature Forge, at the terminal
    stage.
 
+These are caller-owned adapter boundaries, not requests to alter the installed
+subskills. Feature Forge supplies four named adapter contracts:
+
+- `brainstorm-return`: in interactive/supervised mode, perform the complete
+  brainstorming method and its user approval gates, then return the approved
+  specification instead of invoking Writing Plans. In unattended mode, replace
+  only those synchronous approval gates with a recorded `agent:unattended`
+  intent/design decision and independent self-review under the invocation's
+  standing authority; retain the rest of the method and return boundary;
+- `plan-return`: perform the complete Writing Plans method, including its
+  required header and self-review, then return the plan instead of offering or
+  beginning execution; and
+- `execute-return`: perform the selected execution skill's complete task and
+  local-review method, then return the implementation result instead of
+  invoking branch finishing or deleting caller-owned progress state; and
+- `finish-authority`: in interactive/supervised mode, perform the complete
+  branch-finishing method including its integration menu. In unattended mode,
+  retain its verification and environment checks but replace the synchronous
+  menu with the invocation's pre-authorized outcome, defaulting to its
+  non-destructive Keep option; never infer push, merge, deploy, publish, or
+  cleanup authority.
+
+Each adapter replaces only the deviations explicitly enumerated in its named
+contract. If the harness cannot enforce that contract, Feature Forge blocks
+before invocation rather than allowing a duplicate or premature transition.
+The package documents the exact adapter prompts as part of the MVP.
+
 ## 5. Canonical artifacts
 
 The canonical specification and plan retain the existing Superpowers paths:
@@ -135,6 +163,12 @@ docs/feature-forge/runs/YYYY-MM-DD-<work-unit>/
 └── final-report.md
 ```
 
+`<work-unit>` is one deterministic slug used in all paths, the run identifier,
+and `feature/<work-unit>` branch: lowercase ASCII letters and digits separated
+by single hyphens, beginning and ending alphanumeric. Reject separators,
+traversal segments, whitespace, leading dashes, and invalid Git-ref content
+rather than sanitizing ambiguously.
+
 The ledger is the durable source of coarse workflow state. Harness-native
 tasks are a disposable projection. The specification is the semantic source of
 requirements and decisions. The plan is the source of implementation tasks.
@@ -142,11 +176,20 @@ The ledger links to those documents; it does not duplicate their prose.
 
 `review-loop` artifacts must remain outside the target tree sealed at dispatch,
 as required by that skill. Feature Forge calls it with the exact subject,
-ground-truth artifacts, stage charter, and completion criterion. The loop must
-return `PASS` or `CHANGES_REQUIRED`, a stable evidence reference or durable
-summary, and the identity of the reviewed tree. Feature Forge records that
-result after the loop returns. It sets `review_active` before dispatch and does
-not mutate the target or ledger while the loop is active.
+ground-truth artifacts, stage charter, and completion criterion. It preserves
+both native verdicts, the stable report reference, and the content seal, then
+maps the return as follows:
+
+| Native result | Feature Forge gate |
+|---|---|
+| `CONVERGED` and merge-ready | `pass` |
+| Actionable open findings with a viable fix path | `changes_required` |
+| `INDETERMINATE`, not converged without a viable fix, missing authority, or unavailable reviewer capability | `blocked` |
+| `CONVERGED` but not merge-ready | `blocked` with the named blocker |
+
+Feature Forge records the mapped result after the loop returns. It sets
+`review_active` before dispatch and does not mutate the target or ledger while
+the loop is active.
 
 ## 6. Specification contract
 
@@ -169,10 +212,24 @@ It contains:
 10. Test strategy
 11. Open questions
 
-Each normative requirement has a stable `REQ-NNN` identifier, expresses one
-observable behavior with one `SHALL` or `MUST`, and includes concrete
-GIVEN/WHEN/THEN scenarios for important success, edge, and error cases. The
-specification keeps behavior separate from implementation mechanics.
+The acceptance portion classifies each requirement's acceptance method as
+`automated`, `UAT`, or `not_applicable`. A UAT entry names the participant and
+observable exercise plus an unattended automated substitute and its evidence
+criterion. If no adequate substitute exists, unattended mode blocks rather
+than weakening acceptance. `not_applicable` includes a rationale. Run-time UAT
+state is `pending`, `approved`, `rejected`, `infeasible`, or `waived`, with
+authority and evidence. `rejected` returns to defect classification;
+`infeasible` blocks unless the user waives or changes the method. Only the user
+can waive otherwise-applicable UAT; unattended mode records the invocation's
+standing automation authority as the waiver and never as human approval.
+
+Each normative feature requirement in a work-unit specification has a stable
+`REQ-NNN` identifier, expresses one observable behavior with one `SHALL` or
+`MUST`, and includes concrete GIVEN/WHEN/THEN scenarios for important success,
+edge, and error cases. The specification keeps behavior separate from
+implementation mechanics. This rule describes specifications produced by
+Feature Forge; Sections 3–15 of this design are the Feature Forge workflow
+contract, with core conformance risks summarized in Section 16.
 
 Material decisions and assumptions record their authority as `user` or
 `agent:<automation-mode>`. Ordinary answers are integrated into the appropriate
@@ -223,7 +280,8 @@ Make and record minor assumptions, correct non-semantic defects, make
 non-material adjustments needed to express already-approved requirements
 coherently, and choose the execution mode. Pause for changes to goals,
 non-goals, observable behavior, acceptance criteria, compatibility, scope, or
-material architecture. Require user acceptance when UAT is possible.
+material architecture. Follow the specification's acceptance classification;
+pause when it declares UAT.
 
 ### Unattended (`full` alias)
 
@@ -233,6 +291,11 @@ Choose the execution mode and perform automated acceptance without synchronous
 UAT. Still stop for missing authority, unavailable credentials or systems,
 unsafe or irreversible operations, fundamental intent changes, or genuinely
 irresolvable contradictions.
+
+At Finish, execute a pre-authorized integration outcome when the invocation
+names one. Otherwise choose the non-destructive “keep the branch/worktree”
+outcome and report it; unattended authority alone never implies merge, push,
+deployment, publication, or cleanup permission.
 
 Automation controls who may settle a decision. It never weakens specification,
 review, verification, acceptance-evidence, or completion gates and never
@@ -265,11 +328,34 @@ and returns to the minimum necessary specification stage. After amendment, the
 affected specification and downstream artifacts are reviewed and re-frozen.
 
 Change classification is recorded as one of: `editorial`, `plan-only defect`,
-`implementation defect`, `specification defect`, or `new request`. Editorial
-changes preserve semantic authority but receive a new identity at the next
-commit. Every other change invalidates review evidence for the changed artifact
-and all dependent artifacts. A new request is deferred unless the user
-explicitly expands the work unit.
+`implementation defect`, `specification defect`, or `new request`. Every change
+invalidates the content identity and applicable review evidence for the changed
+artifact; editorial corrections need only a scoped delta review and do not
+require user approval. Other changes invalidate dependent artifacts as their
+contracts require. A new request is deferred unless the user explicitly
+expands the work unit.
+
+An editorial amendment enters `invalidated`, receives a scoped delta review,
+is committed, and replaces the frozen blob identity in the ledger before any
+downstream gate resumes. Its prior identity remains in transition history.
+Because behavior and contracts are unchanged, dependent artifacts retain their
+evidence; any reviewer doubt about that premise reclassifies the change as a
+specification or plan defect.
+
+For non-editorial corrections the invalidation graph is fixed:
+
+- specification defect invalidates plan, implementation, implementation
+  review, verification, acceptance, and report;
+- plan-only defect invalidates affected implementation tasks and all later
+  implementation review, verification, acceptance, and report;
+- implementation defect invalidates implementation review, verification,
+  acceptance, and report; and
+- acceptance defect is classified back to specification, plan, or
+  implementation at its root cause and follows that path.
+
+The run resumes at the earliest invalidated node. No later evidence survives
+unless its inputs and contract are provably unchanged by the allowed editorial
+transition above.
 
 After plan review passes, the committed plan identity becomes the **frozen plan
 baseline**. Progress tracking uses native tasks or an execution ledger; it must
@@ -283,10 +369,23 @@ existing project convention, or deterministic evidence gate requires it.
 Feature Forge executes these stages in order:
 
 1. **Preflight:** confirm Git repository, inspect current state, select
-   automation mode, establish or verify an isolated worktree, create the run
-   ledger, and project stages into native tasks. Reuse an existing non-primary
-   feature worktree only when its branch and changes belong to this work unit;
-   otherwise create `feature/<work-unit>` in a new worktree before writing.
+   automation mode, establish reviewer-runner availability, establish or verify
+   an isolated worktree, create the run ledger, and project stages into native
+   tasks. `review-loop` must validate the user-authorized runner configuration
+   required by its own contract; Feature Forge does not substitute a generic
+   subagent mechanism. Interactive/supervised mode asks at preflight if no
+   runner is configured; unattended mode blocks if none is pre-authorized.
+   Reuse an existing non-primary feature worktree only when its branch and
+   changes belong to this work unit; otherwise create
+   `feature/<work-unit>` in a new worktree before writing.
+   Detect an existing same-date slug before creating artifacts: resume it only
+   when its intent and identities match. Otherwise supervised/interactive mode
+   asks resume-versus-new; unattended mode chooses the lowest unused numeric
+   suffix only when the intents are clearly distinct, and blocks if ambiguous.
+   Before creating or reusing `feature/<work-unit>`, inspect every same-slug
+   branch and worktree regardless of date and verify its intent, base, and run
+   identity. Explicitly resume a match; otherwise apply the same unique-suffix
+   or blocking rule to both slug and branch.
 2. **Brainstorm:** use `superpowers:brainstorming` to explore, compare
    approaches, obtain design approval, and write the initial specification.
 3. **Harden:** run the grilling-derived decision-tree interview and update the
@@ -298,6 +397,9 @@ Feature Forge executes these stages in order:
 6. **Specification freeze:** commit the reviewed specification and record its
    Git content identity.
 7. **Plan:** use `superpowers:writing-plans` against the frozen specification.
+   Add a Feature Forge execution note immediately after its required header:
+   plan checkboxes are frozen authority, progress lives in the run ledger, and
+   workers must not edit the plan to mark completion.
 8. **Plan review:** invoke `review-loop` with the plan charter; then commit and
    record the frozen plan identity.
 9. **Implement:** choose subagent-driven or inline execution, preferring
@@ -312,11 +414,12 @@ Feature Forge executes these stages in order:
     affected downstream baselines.
 11. **Final verification:** run fresh risk-proportionate deterministic checks
     over the completed tree.
-12. **Acceptance:** run requirement-oriented UAT when a user can exercise or
-    observe the result directly, including UI, CLI, and externally consumed API
-    behavior. In supervised or interactive mode, pause for that UAT. For purely
-    internal/non-interactive behavior, run automated acceptance in every mode.
-    Unattended mode always records automated acceptance and the UAT waiver.
+12. **Acceptance:** execute the specification's per-requirement acceptance
+    classification, which is the sole authority at this gate. During spec
+    authoring, UI, CLI, and externally consumed API behavior are strong signals
+    to classify as UAT; purely internal behavior normally uses automated
+    acceptance. Unattended mode records automated evidence and any standing UAT
+    waiver.
 13. **Report:** write the final requirement-to-evidence and acceptance report;
     complete the ledger.
 14. **Finish:** invoke `superpowers:finishing-a-development-branch` exactly
@@ -366,10 +469,13 @@ covered, invariants hold, no material regression or security/performance defect
 is known, and no extra scope or machinery was introduced. The loop's own
 convergence and merge-readiness verdicts remain distinct.
 
-Final verification always runs against the exact tree that received the last
-implementation-review `PASS`, after all review fixes. The plan is re-reviewed
-only when a fix changes or contradicts its task decomposition, dependencies, or
-cross-task contracts; specification changes follow full change control.
+Final verification always runs against the exact implementation snapshot that
+received the last implementation-review `pass`, after all review fixes. The
+only permitted post-pass tree changes before verification are the controller's
+ledger transition and review-evidence reference; a seal diff must prove that no
+implementation or other path changed. The plan is re-reviewed only when a fix
+changes or contradicts its task decomposition, dependencies, or cross-task
+contracts; specification changes follow full change control.
 
 ## 12. Traceability and acceptance
 
@@ -386,10 +492,10 @@ also records the reviewed tree identity, final verification commands/results,
 open defects, acceptance method, human approver when applicable, and an
 explicit branch-finishing readiness verdict.
 
-When the result is visible or interactive, UAT walks the specification's key
-requirements and records the user's approval or rejection. Unattended mode
-still runs automated acceptance and records: "Automated acceptance evidence
-completed; human UAT/sign-off was waived." It must not claim user acceptance.
+For requirements classified as UAT, the user exercises the named behavior and
+approval or rejection is recorded. Unattended mode runs the declared automated
+substitute and records: "Automated acceptance evidence completed; human
+UAT/sign-off was waived." It must not claim user acceptance.
 
 UAT-discovered defects return to implementation and review. Acceptance is not
 complete while any required behavior lacks evidence or any material defect is
@@ -407,18 +513,29 @@ state:
 - canonical specification and plan paths and frozen Git identities;
 - review state and outcome summaries;
 - user approvals and delegated-authority records;
-- execution mode and referenced execution progress ledger;
+- execution mode and an implementation-progress table containing only plan
+  task ID, status, commit ID, and evidence reference;
 - final verification and acceptance status; and
 - blockers or change requests.
 
-It does not duplicate requirements, implementation tasks, test commands,
-review findings, or prose decisions already owned by canonical artifacts.
+It does not duplicate requirement or task prose, test commands, review
+findings, or decisions already owned by canonical artifacts. During
+implementation the progress table is authoritative for task completion; native
+tasks project it, and a resume cross-checks its commit and evidence references
+against Git before continuing.
 
 Stage status is one of `pending`, `active`, `blocked`, `complete`, or
-`invalidated`; review state is one of `not_started`, `review_active`, `pass`, or
-`changes_required`. The ledger always names exactly one next permitted action,
-except when status is terminal. `review_active` permits only awaiting or
-recovering that review; it never permits beginning the next stage.
+`invalidated`; review state is one of `not_started`, `review_active`, `pass`,
+`changes_required`, or `blocked`. The ledger always names exactly one next
+permitted action, except when status is terminal. `review_active` permits only
+awaiting or recovering that review; it never permits beginning the next stage.
+
+The template includes a transition log with event ID, UTC time, from/to state,
+next permitted action, reason/authority, and evidence reference. Persist the
+complete ledger update before every external dispatch and immediately after
+every return. The prescribed Git checkpoints commit accumulated ledger state;
+ordinary transitions do not create extra commits. If a return was not recorded,
+resume recovers the referenced dispatch before it considers re-dispatch.
 
 On resume, the controller reads the ledger and exact canonical artifacts,
 checks that recorded frozen identities still match, reconstructs native tasks,
@@ -430,9 +547,28 @@ authorized correction invalidates the affected stage and dependent stages,
 then resumes at the earliest invalidated gate.
 
 Frozen identity means the Git blob object ID for each canonical file, recorded
-as `<path>@<blob-id>`. Review and final-verification identities use the Git tree
-object ID of the exact reviewed worktree content. The controller recomputes and
-compares these identities before every downstream gate and on resume.
+as `<path>@<blob-id>`. Review identity is the exact content seal returned by
+`review-loop`; final verification records the reviewed implementation commit
+and verifies that no implementation path changed after that seal. The
+controller recomputes and compares applicable identities before every
+downstream gate and on resume.
+
+The implementation subject begins review and final verification as clean,
+committed content. Each review round is read-only against its whole-tree seal.
+Review-loop fixes occur only between rounds; the changed tree is re-sealed and
+independently reviewed in the next round. `pass` requires a final round over the
+post-fix snapshot. Accepted implementation fixes are committed before the next
+outer gate.
+
+The ledger is controller state, not part of the implementation subject. It is
+expected to change from `review_active` to the returned result after the loop
+closes. Before verification, compare the current whole tree to the returned
+seal and accept only the exact run-ledger path plus its recorded evidence
+reference as post-pass differences; inspect those differences and separately
+confirm the implementation commit and every other sealed path are unchanged.
+The final report and completed ledger are committed after verification and
+acceptance, restoring a clean tree before Finish. Any other untracked or
+unstaged content blocks advancement.
 
 ## 14. Git and commit boundaries
 
@@ -582,6 +718,59 @@ Feature Forge SHALL distinguish human acceptance from automated acceptance.
 - WHEN automated acceptance passes without synchronous user participation
 - THEN the final report records the evidence and waiver
 - AND does not claim human sign-off
+
+### REQ-009: Canonical artifact contract
+
+Feature Forge SHALL use only the canonical specification, plan, run ledger, and
+final-report paths for outer-workflow authority.
+
+#### Scenario: Agent considers extra process documents
+
+- GIVEN the canonical artifacts can represent the work unit
+- WHEN an agent considers a separate charter, decision log, state file, or
+  acceptance document
+- THEN it records the information in the owning canonical artifact
+- AND does not add the extra document
+
+### REQ-010: Review integrity
+
+Feature Forge SHALL advance from a review only when `review-loop` returns a
+passing result and content seal for the exact target under the applicable
+charter.
+
+#### Scenario: A review is already active
+
+- GIVEN the ledger records `review_active`
+- WHEN another controller resumes the run
+- THEN its only permitted action is to await or recover that review
+- AND it does not mutate the target, ledger, or downstream stage
+
+### REQ-011: Isolated and auditable Git work
+
+Feature Forge SHALL establish an isolated feature worktree before the first
+tracked artifact write and create only the declared checkpoint commits from
+explicitly staged in-scope paths.
+
+#### Scenario: Primary checkout contains user changes
+
+- GIVEN unrelated changes exist in the primary checkout
+- WHEN Feature Forge starts a new work unit
+- THEN it leaves those changes untouched
+- AND performs tracked work in a separate feature worktree
+
+### REQ-012: Complete outer pipeline
+
+Feature Forge SHALL retain outer control from preflight through exactly one
+terminal invocation of branch finishing.
+
+#### Scenario: Inner skill offers its normal handoff
+
+- GIVEN brainstorming, writing-plans, or an execution skill reaches its normal
+  terminal handoff
+- WHEN downstream Feature Forge gates remain
+- THEN Feature Forge intercepts the handoff and resumes at the next outer stage
+- AND branch finishing remains pending until review, verification, acceptance,
+  and reporting are complete
 
 ## 17. Skill-development verification
 
