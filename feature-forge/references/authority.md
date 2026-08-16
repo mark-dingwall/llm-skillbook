@@ -48,19 +48,22 @@ Integrate each outcome into the same canonical specification, including
 authority and rationale, then recompute. Do not maintain competing specs.
 
 When an authority request says **“no more questions,” “fewer questions,”
-“implement now,”** or an equivalent acceleration phrase, produce one
-**accelerated approval packet** for the entire remaining decision frontier.
-Nothing remains outside the packet: it lists every remaining decision, labels
-each material or minor under the existing authority rules, gives its
-recommended default, and states the assumptions behind it and its acceptance
-and scope consequences.
+“implement now,”** or an equivalent acceleration phrase, the
+acceleration-trigger response **MUST present the complete accelerated approval
+packet now**; it must not merely announce, describe, or defer packet creation.
+The packet covers the entire remaining decision frontier. Nothing remains
+outside it: it lists every remaining decision, labels each material or minor
+under the existing authority rules, gives a recommendation or recommended
+default for each, and states the assumptions behind it and its acceptance and
+scope consequences.
 
-In interactive or supervised mode, the sole next action is approval or
-rejection of that one packet; do not reopen the individual decisions as new
-questions. Approval authorizes the packet's recorded defaults. In unattended
-mode, record the packet decisions and standing `agent:unattended` authority,
-then continue. Missing authority or an irresolvable contradiction blocks; the
-process terminates only when both the frontier and `Open questions` are empty.
+After presenting the complete packet, interactive or supervised mode has one
+consolidated sole next action: approval or rejection of that packet; do not
+reopen the individual decisions as new questions. Approval authorizes the
+packet's recorded defaults. In unattended mode, record the packet decisions and
+standing `agent:unattended` authority, then continue. Missing authority or an
+irresolvable contradiction blocks; the process terminates only when both the
+frontier and `Open questions` are empty.
 
 ## Work-unit specification contract
 
