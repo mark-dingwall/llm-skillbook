@@ -75,8 +75,8 @@
 ## Sole next permitted action
 
 - Exactly one next permitted action:
-- Dispatch record before external dispatch:
-- Return record immediately after return:
+- Complete ledger write before external dispatch:
+- Complete ledger write immediately after return:
 - Resume cross-check of recorded Git and evidence references:
 
 ## Copy-time checklist
