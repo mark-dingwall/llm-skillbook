@@ -226,9 +226,10 @@ standing automation authority as the waiver and never as human approval.
 Each normative feature requirement in a work-unit specification has a stable
 `REQ-NNN` identifier, expresses one observable behavior with one `SHALL` or
 `MUST`, and includes concrete GIVEN/WHEN/THEN scenarios for important success,
-edge, and error cases. The specification keeps behavior separate from
-implementation mechanics. This rule describes specifications produced by
-Feature Forge; Sections 3–15 of this design are the Feature Forge workflow
+edge, and error cases. Each scenario has a stable `SCN-NNN` identifier. The
+specification keeps behavior separate from implementation mechanics. This rule
+describes specifications produced by Feature Forge; Sections 3–15 of this
+design are the Feature Forge workflow
 contract, with core conformance risks summarized in Section 16.
 
 Material decisions and assumptions record their authority as `user` or
@@ -625,7 +626,7 @@ evidence-driven change, not this MVP.
 Feature Forge SHALL maintain one canonical specification and one canonical
 implementation plan for a work unit.
 
-#### Scenario: Worker receives complete authority
+#### SCN-001: Worker receives complete authority
 
 - GIVEN a frozen specification and reviewed plan
 - WHEN a context-isolated worker receives a plan task
@@ -637,7 +638,7 @@ implementation plan for a work unit.
 Feature Forge SHALL advance a workflow stage only when its declared artifact
 and evidence gate is complete.
 
-#### Scenario: Review is incomplete
+#### SCN-002: Review is incomplete
 
 - GIVEN a stage whose review has an open material finding
 - WHEN the controller evaluates the next action
@@ -649,7 +650,7 @@ and evidence gate is complete.
 After the specification becomes a candidate, Feature Forge SHALL reject
 discretionary scope or machinery expansion.
 
-#### Scenario: Reviewer suggests an attractive extra feature
+#### SCN-003: Reviewer suggests an attractive extra feature
 
 - GIVEN a coherent specification candidate
 - WHEN a reviewer proposes useful behavior that is not needed to resolve a
@@ -662,7 +663,7 @@ discretionary scope or machinery expansion.
 Feature Forge SHALL apply the same artifact, review, verification, and evidence
 gates in every automation mode.
 
-#### Scenario: Unattended overnight run
+#### SCN-004: Unattended overnight run
 
 - GIVEN unattended authority
 - WHEN a material in-scope decision arises
@@ -675,7 +676,7 @@ gates in every automation mode.
 Feature Forge SHALL reconstruct the single permitted next action from the run
 ledger and canonical artifacts after session loss.
 
-#### Scenario: Native task list is lost
+#### SCN-005: Native task list is lost
 
 - GIVEN a frozen specification, a reviewed plan, and an active implementation
   recorded in the ledger
@@ -689,7 +690,7 @@ ledger and canonical artifacts after session loss.
 Feature Forge SHALL invoke branch finishing only after implementation review,
 fresh verification, acceptance evidence, and final reporting are complete.
 
-#### Scenario: Execution skill reaches its normal terminal handoff
+#### SCN-006: Execution skill reaches its normal terminal handoff
 
 - GIVEN all implementation-plan tasks have passed their local checks
 - WHEN the selected execution skill would normally finish the branch
@@ -701,7 +702,7 @@ fresh verification, acceptance evidence, and final reporting are complete.
 Feature Forge SHALL detect and reject unapproved drift from a frozen
 specification or plan.
 
-#### Scenario: Plan changes during implementation
+#### SCN-007: Plan changes during implementation
 
 - GIVEN a recorded frozen plan identity
 - WHEN the controller resumes after a plan-file edit
@@ -712,7 +713,7 @@ specification or plan.
 
 Feature Forge SHALL distinguish human acceptance from automated acceptance.
 
-#### Scenario: Human UAT is waived
+#### SCN-008: Human UAT is waived
 
 - GIVEN unattended mode and a user-visible result
 - WHEN automated acceptance passes without synchronous user participation
@@ -724,7 +725,7 @@ Feature Forge SHALL distinguish human acceptance from automated acceptance.
 Feature Forge SHALL use only the canonical specification, plan, run ledger, and
 final-report paths for outer-workflow authority.
 
-#### Scenario: Agent considers extra process documents
+#### SCN-009: Agent considers extra process documents
 
 - GIVEN the canonical artifacts can represent the work unit
 - WHEN an agent considers a separate charter, decision log, state file, or
@@ -738,7 +739,7 @@ Feature Forge SHALL advance from a review only when `review-loop` returns a
 passing result and content seal for the exact target under the applicable
 charter.
 
-#### Scenario: A review is already active
+#### SCN-010: A review is already active
 
 - GIVEN the ledger records `review_active`
 - WHEN another controller resumes the run
@@ -751,7 +752,7 @@ Feature Forge SHALL establish an isolated feature worktree before the first
 tracked artifact write and create only the declared checkpoint commits from
 explicitly staged in-scope paths.
 
-#### Scenario: Primary checkout contains user changes
+#### SCN-011: Primary checkout contains user changes
 
 - GIVEN unrelated changes exist in the primary checkout
 - WHEN Feature Forge starts a new work unit
@@ -763,7 +764,7 @@ explicitly staged in-scope paths.
 Feature Forge SHALL retain outer control from preflight through exactly one
 terminal invocation of branch finishing.
 
-#### Scenario: Inner skill offers its normal handoff
+#### SCN-012: Inner skill offers its normal handoff
 
 - GIVEN brainstorming, writing-plans, or an execution skill reaches its normal
   terminal handoff

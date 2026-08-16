@@ -43,3 +43,15 @@ Adversarial reviewer:
 All reported Critical and Important findings are `FIX_VERIFIED`. No known
 material specification defect remains. The specification is eligible for its
 frozen-baseline commit and skill implementation may begin from that baseline.
+
+## Traceability amendment
+
+Plan review later found that the stable scenario-ID rule lacked scenario IDs in
+this specification itself. The specification was amended with unique,
+contiguous `SCN-001` through `SCN-012` identifiers and the produced-spec contract
+now explicitly requires `SCN-NNN`.
+
+Both original specification reviewers performed a focused amendment review and
+returned zero Critical, Important, or Minor findings. They confirmed that the
+change is identifier-only, preserves every requirement/scenario association,
+and introduces no behavior or scope change.
