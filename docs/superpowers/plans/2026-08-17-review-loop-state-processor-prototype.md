@@ -12,14 +12,14 @@ transitions without reading or interpreting the review target.
 **Architecture:** Add a small, dependency-free Python package under
 `review-loop/`. One public `process()` boundary validates a versioned operation
 envelope, dispatches to pure policy functions, and returns a validated result.
-A thin `python -m review_loop` adapter reads one JSON value from stdin and writes
+A thin `python3 -m review_loop` adapter reads one JSON value from stdin and writes
 one JSON value to stdout. The prototype covers only rating/tier arithmetic,
 complete roster selection and batching, inventory/coverage transitions,
 evidence-gate state, adjudication bounce, ledger transitions, final-readiness
 state, and terminal rollup. It has no filesystem, process, agent, prompt,
 provider, sealing, or target-access implementation.
 
-**Tech Stack:** Python 3.11 standard library, `unittest`, JSON, Git.
+**Tech Stack:** Python 3.10+ standard library, `unittest`, JSON, Git.
 
 ## Global constraints
 
@@ -80,9 +80,9 @@ and `2` only when the request or JSON transport is invalid.
 
 - `review_loop.process(request: object) -> dict[str, object]`
 - `review_loop.state.ValidationIssue(path, code, message)`
-- `python -m review_loop`
+- `python3 -m review_loop`
 
-- [ ] **Step 1: Write failing envelope and CLI contract tests**
+- [x] **Step 1: Write failing envelope and CLI contract tests**
 
   Cover a non-object request, unknown/missing envelope keys, unsupported schema
   version, unknown operation, malformed stdin JSON, validation-error compact
@@ -91,14 +91,14 @@ and `2` only when the request or JSON transport is invalid.
   `subprocess`, `socket`, `urllib`, or `multi_review`. Run:
 
   ```bash
-  PYTHONPATH=review-loop python -m unittest \
+  PYTHONPATH=review-loop python3 -m unittest \
     review-loop/tests/unit/test_state_contract.py \
     review-loop/tests/unit/test_state_cli.py -v
   ```
 
   Expected: FAIL because the package does not exist.
 
-- [ ] **Step 2: Implement the minimum boundary**
+- [x] **Step 2: Implement the minimum boundary**
 
   Export `process` from `__init__.py`. In `state.py`, validate the exact envelope,
   dispatch through an explicit operation table, sort validation issues by path
@@ -106,7 +106,7 @@ and `2` only when the request or JSON transport is invalid.
   transport only; write no diagnostics to stdout and do not catch internal bugs
   as validation failures.
 
-- [ ] **Step 3: Prove the boundary and architectural isolation**
+- [x] **Step 3: Prove the boundary and architectural isolation**
 
   Rerun the focused tests; expect PASS. The AST check is a prototype boundary
   test, not a general Python sandbox. A successful operation and CLI exit `0`
@@ -132,7 +132,7 @@ evidenced factors.
 requirement, round cap, normal capability, specialist threshold, and
 multi-review rounds.
 
-- [ ] **Step 1: Write failing tier-table and arithmetic tests**
+- [x] **Step 1: Write failing tier-table and arithmetic tests**
 
   Cover all four explicit tiers; independent maxima of complexity and risk;
   one step when both merged axes are at least `high`; at most one gestalt step;
@@ -143,19 +143,19 @@ multi-review rounds.
   count other than two. Extend the CLI contract test with one valid
   `derive_policy` request, compact successful stdout, and exit code `0`.
 
-- [ ] **Step 2: Implement pure lookup and arithmetic functions**
+- [x] **Step 2: Implement pure lookup and arithmetic functions**
 
   Encode the four-row tier table once. An explicit tier selects policy without
   consulting raters. Automatic selection validates both samples and applies the
   spec's ordered arithmetic exactly; it does not decide whether factors form a
   semantic gestalt.
 
-- [ ] **Step 3: Run focused and cumulative tests**
+- [x] **Step 3: Run focused and cumulative tests**
 
   ```bash
-  PYTHONPATH=review-loop python -m unittest \
+  PYTHONPATH=review-loop python3 -m unittest \
     review-loop/tests/unit/test_state_policy.py -v
-  PYTHONPATH=review-loop python -m unittest discover \
+  PYTHONPATH=review-loop python3 -m unittest discover \
     -s review-loop/tests/unit -p 'test_*.py' -v
   ```
 
@@ -169,17 +169,18 @@ multi-review rounds.
 - Create: `review-loop/tests/unit/test_state_inventory.py`
 - Create: `review-loop/tests/unit/test_state_roster.py`
 
-**Operations:** `refresh_inventory`, `plan_roster`
+**Operations:** `refresh_inventory`, `record_specialist_coverage`, `plan_roster`
 
 **Input:** the selected tier, prior canonical areas including any exact
 coverage-producing report/scope proof, a fully resolved refresh, explicit
-per-area invalidator flags, completed usable specialist-report coverage events,
-the inventory's bijective priority order, and positive dispatch capacity.
+per-area invalidator flags, the inventory's bijective priority order, completed
+usable specialist-report coverage events bound to the current seal and frozen
+roster, and positive dispatch capacity.
 
 **Result:** canonical active/retired areas with `CURRENT`/`STALE` coverage,
 complete specialist roster entries, and ordered capacity-safe waves.
 
-- [ ] **Step 1: Write failing strict-inventory tests**
+- [x] **Step 1: Write failing strict-inventory tests**
 
   Cover unique stable IDs; aliases; continuing, successor, new, and `RETIRED`
   mappings; required single-line retirement reasons; consequence/evidence/surface
@@ -190,7 +191,7 @@ complete specialist roster entries, and ordered capacity-safe waves.
   coverage record to retain the report ID, seal, resolved owning-file set, and
   reviewed scope set.
 
-- [ ] **Step 2: Implement canonical refresh transitions**
+- [x] **Step 2: Implement canonical refresh transitions**
 
   Apply only explicit semantic mappings and invalidator flags. Continuing areas
   retain proven `CURRENT` only with no invalidator. Apply and test each named
@@ -198,10 +199,12 @@ complete specialist roster entries, and ordered capacity-safe waves.
   contract change, linked finding reopening, semantic identity change or
   successor creation, and material new inventory evidence for specialist depth.
   Successors and newly eligible areas begin `STALE`; retired areas preserve
-  audit history but leave active staffing. Never infer identity, relevance, or
-  scope ownership from a locator.
+  audit history but leave active staffing. Keep this pre-roster refresh separate
+  from `record_specialist_coverage`, which applies completed usable scheduled
+  reports after specialist review and TRIAGE but before CLOSE. Never infer
+  identity, relevance, or scope ownership from a locator.
 
-- [ ] **Step 3: Write failing eligibility, staffing, and wave tests**
+- [x] **Step 3: Write failing eligibility, staffing, and wave tests**
 
   Cover each tier threshold; the `max` every-area rule; `GENERALIST-MISS` for
   non-max tiers; eligible Critical restaffing every dispatched round; non-Critical
@@ -209,14 +212,14 @@ complete specialist roster entries, and ordered capacity-safe waves.
   no numeric specialist cap; and capacities that split but never truncate the
   frozen roster.
 
-- [ ] **Step 4: Implement complete roster planning**
+- [x] **Step 4: Implement complete roster planning**
 
   Filter the validated total order to all and only required specialists, prepend
   holistic and adversarial, reserve one host slot, and partition the immutable
   roster into waves. Reject capacity below two rather than silently omitting a
   role.
 
-- [ ] **Step 5: Run focused and cumulative tests**
+- [x] **Step 5: Run focused and cumulative tests**
 
   Run both new modules, then the full prototype discovery command. Expected:
   PASS.
@@ -238,7 +241,7 @@ or `post_fix`), classification (`required` or `supporting`), status (`PASSED`,
 **Result:** normalized gate state, evidence gaps, blocking reasons, and whether
 semantic review may start or merge-readiness may be considered for that seal.
 
-- [ ] **Step 1: Write failing baseline and readiness tests**
+- [x] **Step 1: Write failing baseline and readiness tests**
 
   Cover valid empty discovery as a disclosed gap; every executed applicable
   failure blocking; every required gate needing to run and pass; unavailable
@@ -246,13 +249,13 @@ semantic review may start or merge-readiness may be considered for that seal.
   baseline versus post-fix records; non-applicable opportunities with explicit
   reasons; duplicate gate IDs; and missing command/result/reason fields.
 
-- [ ] **Step 2: Implement mechanical reconciliation**
+- [x] **Step 2: Implement mechanical reconciliation**
 
   Do not discover commands or judge their safety. Accept only already-validated
   applicability, timing, and gate decisions, preserve exact records, and compute
   the two booleans and explicit reasons from their declared states.
 
-- [ ] **Step 3: Run focused and cumulative tests**
+- [x] **Step 3: Run focused and cumulative tests**
 
   Run `test_state_gates.py`, then full discovery. Expected: PASS.
 
@@ -275,7 +278,7 @@ subset, and the current call outcome or failure.
 whether the round became indeterminate, plus the next adjudication-attempt
 record when one retry remains.
 
-- [ ] **Step 1: Write failing schema and transition tests**
+- [x] **Step 1: Write failing schema and transition tests**
 
   Cover exact raw finding reconciliation; immutable reported severity/source
   premise; unique canonical IDs and aliases; the five legal states; new/reopened
@@ -284,7 +287,7 @@ record when one retry remains.
   empty reports, gates, or manifest presence alone; and settlement invalidation
   returning to `OPEN`.
 
-- [ ] **Step 2: Write failing adjudication tests**
+- [x] **Step 2: Write failing adjudication tests**
 
   Cover the complete pending set (refutation, file-authorized intentional, and
   Important+ downgrade); a malformed/crashed first call discarding all output
@@ -296,7 +299,7 @@ record when one retry remains.
   file-authority adjudication. Reject attempt records whose expected, settled,
   or pending ID sets do not partition the original adjudication obligation.
 
-- [ ] **Step 3: Implement atomic copies and explicit transition tables**
+- [x] **Step 3: Implement atomic copies and explicit transition tables**
 
   Validate the entire operation before mutating a copied ledger. Apply only
   declared transitions. Preserve rejected bases as non-operative history and
@@ -305,7 +308,7 @@ record when one retry remains.
   make a third-attempt state representable. Do not read source files or assess
   truth.
 
-- [ ] **Step 4: Run focused and cumulative tests**
+- [x] **Step 4: Run focused and cumulative tests**
 
   Run `test_state_ledger.py`, then full discovery. Expected: PASS.
 
@@ -327,13 +330,13 @@ seal.
 boolean, qualified claim eligibility, and an ordered list of every failed
 conjunct or limitation.
 
-- [ ] **Step 1: Write failing final-challenge tests**
+- [x] **Step 1: Write failing final-challenge tests**
 
   Cover `UPHOLD`, material procedural `BLOCK`, source findings requiring
   supplemental TRIAGE, malformed/failed retry exhaustion as INDETERMINATE, and
   automatic staleness whenever the current target seal differs.
 
-- [ ] **Step 2: Write failing terminal-rollup tests**
+- [x] **Step 2: Write failing terminal-rollup tests**
 
   Prove that convergence requires accepted confirmation where applicable,
   completed Round 1 through TRIAGE, usable scheduled reports, complete raw
@@ -347,13 +350,13 @@ conjunct or limitation.
   merge-ready verdict; deadline expiry while awaiting confirmation takes
   precedence and produces `NOT_CONVERGED`, never cancellation.
 
-- [ ] **Step 3: Implement total, reason-bearing rollups**
+- [x] **Step 3: Implement total, reason-bearing rollups**
 
   Compute all conjuncts without early return so the hand-back can name every
   failed condition. Return only eligibility for the qualified operational claim,
   never a proof-of-safety string.
 
-- [ ] **Step 4: Run focused and cumulative tests**
+- [x] **Step 4: Run focused and cumulative tests**
 
   Run `test_state_terminal.py`, then full discovery. Expected: PASS.
 
@@ -365,19 +368,19 @@ conjunct or limitation.
 - Modify if review requires: `review-loop/review_loop/state.py`
 - Modify if review requires: `review-loop/tests/unit/test_state_*.py`
 
-- [ ] **Step 1: Run fresh verification**
+- [x] **Step 1: Run fresh verification**
 
   ```bash
-  PYTHONPATH=review-loop python -m unittest discover \
+  PYTHONPATH=review-loop python3 -m unittest discover \
     -s review-loop/tests/unit -p 'test_*.py' -v
-  python -m compileall -q review-loop/review_loop
+  python3 -m compileall -q review-loop/review_loop
   git diff --check
   ```
 
   Expected: all tests pass, compilation succeeds silently, and the diff has no
   whitespace errors.
 
-- [ ] **Step 2: Record measurements and remaining boundaries**
+- [x] **Step 2: Record measurements and remaining boundaries**
 
   In `RESULTS.md`, record the public operations, request/response examples,
   production and test line counts, full verification output summary, which
@@ -385,7 +388,7 @@ conjunct or limitation.
   responsibilities remain semantic/controller work. Do not claim that line
   count alone proves simplicity.
 
-- [ ] **Step 3: Run independent prototype review**
+- [x] **Step 3: Run independent prototype review**
 
   Give a fresh read-only reviewer the governing design, this plan, production
   code, tests, and `RESULTS.md`. Ask specifically about semantic leakage into
@@ -393,7 +396,7 @@ conjunct or limitation.
   accidental target/process access, and unnecessary machinery. Reconcile every
   material finding before accepting the prototype evidence gate.
 
-- [ ] **Step 4: Decide the replacement-plan boundary from evidence**
+- [x] **Step 4: Decide the replacement-plan boundary from evidence**
 
   If the prototype is accepted, write the separate clean replacement plan named
   by design section 10. That later plan applies `writing-skills` RED/GREEN

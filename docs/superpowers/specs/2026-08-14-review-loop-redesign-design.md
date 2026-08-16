@@ -1,6 +1,7 @@
 # Review Loop Redesign
 
-**Status:** Reviewed design; approved for replacement implementation planning
+**Status:** Amendment independently reviewed; pending operator decision on the
+multi-review adapter's MVP placement
 
 **Date:** 2026-08-14
 
@@ -120,10 +121,12 @@ deployment, commits, or other external state changes.
 The skill is a thin controller over focused prompt resources and three focused
 helpers:
 
-1. **Review-state processor.** Consumes validated JSON and produces validated
-   JSON. It applies tier lookups, combines already-assigned values, advances
-   ledger and inventory state, and computes terminal rollups. It never reads
-   or interprets the review target.
+1. **Review-state processor.** Consumes compact validated projections plus
+   immutable artifact references and produces validated JSON. It applies tier
+   lookups, combines already-assigned values, advances ledger and inventory
+   state, and computes terminal rollups. It validates state-machine invariants,
+   not a second copy of every rich report/artifact schema, and never reads or
+   interprets the review target.
 2. **Canonical prompt/report contract.** Renders a declared template and
    explicit fragments from a JSON context, and validates raw Markdown review
    reports. It is the sole production and fixture path for every dispatched
@@ -137,6 +140,53 @@ These are separate units, not one mixed script and not a plugin framework. Each
 has a narrow interface and independent tests. They may share small data types
 or validation utilities only when doing so removes real duplication without
 coupling their lifecycles.
+
+The processor boundary is deliberately narrower than the canonical artifacts.
+Each specialized boundary validates its rich object: the prompt/report contract
+owns agent outputs, the evidence runner owns gate execution records, and the
+controller owns direct operator records plus FIX manifests. The controller is
+the sole artifact-registry owner. Only after the applicable validator succeeds
+does it durably store the object and mint an opaque artifact ID bound in
+canonical state to artifact kind, schema version, governing seal, and content
+digest. The same atomic issuance records a projection binding: operation,
+ordered source artifact IDs, every state-affecting projected field, and the
+byte-stable projection digest. It then supplies only that registered compact
+projection. The processor requires an exact match against the canonical
+projection binding and rejects absent IDs, changed values, or any kind,
+schema-version, seal, source-set, or digest mismatch; a caller-supplied
+non-empty string—or a genuine artifact ID paired with altered summary
+values—is not proof. In particular:
+
+- rating projections contain the two validated axes, a validated one-bit
+  gestalt step-up decision, and the rating artifact reference, not factor prose;
+- area projections contain stable ID, consequence, whether evidenced
+  `GENERALIST-MISS` exists, resolved owning-file IDs, coverage proof reference,
+  mappings, invalidators, and priority—not aliases, narrative evidence,
+  charters, or display locators;
+- gate projections contain gate ID, target seal, applicability,
+  required/supporting classification, and pass/fail/not-run state plus the gate
+  artifact reference—not commands, captured output, or explanatory prose;
+- ledger projections contain immutable row/source IDs, severities, factual and
+  lifecycle states, manifest/proof references, authority identity/linkage where
+  applicable, and the governing seal—not raw claims, report prose, or quotes;
+  the full canonical artifact retains those details for audit;
+- final-challenge projections contain the sealed operative outcome and source
+  finding IDs or blocker reference, not the complete attempt report.
+
+This is not permission to trust caller-authored summary booleans. The processor
+still derives eligibility, blockers, transitions, retry/bounce state, and both
+terminal verdicts from exact enums and references, rejects contradictory
+projections, and fails closed when a required proof reference or seal is absent.
+Cross-helper fixtures must show that invented IDs, wrong-kind references, stale
+seals, and digest mismatches never become operative state.
+The production processor is invoked only by the controller against the
+controller's persisted canonical registry snapshot; it does not expose a
+free-form operator CLI that can supply both a projection and a fabricated
+registry. Its atomic boundary is `validate rich object -> persist bytes and
+artifact binding -> persist exact projection binding -> apply transition`.
+Test-only JSON adapters may
+exercise the pure processor, but production never treats their input as an
+issued artifact.
 
 Focused prompt resources contain the detailed charters for evidence discovery,
 inventory, inventory challenge, rating, adjudication, holistic review,
@@ -176,11 +226,20 @@ the actual target, operator instructions, repository guidance, build metadata,
 and stated review intent. Operator-supplied gates take precedence, followed by
 explicit repository-declared gates; the scout fills gaps rather than replacing
 either. Its strict result lists each proposed gate's stable ID, exact invocation,
-provenance, applicability, `baseline`/`post-fix` timing, prerequisites, expected
+provenance, applicability, intended execution phases, prerequisites, expected
 signal, safety assessment, and any important behavior for which no applicable
 deterministic gate exists. A malformed result receives one retry; a second
 failure makes Stage 0 INDETERMINATE. An empty valid gate list is an evidence gap,
 not a passing gate and not by itself a failed run.
+
+Execution phase is scheduling metadata, never terminal evidence. Each actual
+gate execution produces an individual record bound to the target seal on which
+it ran. If no target mutation occurs, a required baseline pass is already bound
+to the final seal. After any accepted FIX delta, refresh applicability and run
+every safe applicable required gate plus the safe supporting gates selected for
+the changed behavior on the verified post-FIX seal. CLOSE derives readiness
+only from execution records for the actual final seal; a pass on any earlier
+seal is stale and cannot satisfy a required gate.
 
 The result also classifies each gate as `required` only when operator or
 repository authority makes it mandatory; all other useful gates are
@@ -392,8 +451,9 @@ reject the candidate before applying
 it. In a direct-write implementation, retain the detected delta for explicit
 operator recovery and make no claim that the target was restored.
 
-Refresh the evidence plan against the actual verified delta. Rerun every safe
-applicable post-fix baseline gate and add targeted gates for changed behavior.
+Refresh the evidence plan against the actual verified delta. Run every safe
+applicable required gate on the verified post-FIX seal and add safe supporting
+gates for changed behavior.
 A gate that may write uses the same disposable-copy rule as preflight. After
 the gates, recompute the authoritative identity once more; every required gate
 must have run and passed, every other executed applicable gate must have passed,
@@ -460,17 +520,21 @@ any subsequent target change, the prior result is stale and a fresh final
 challenge is required. `UPHOLD` is supporting independent evidence only: the
 state processor still computes the terminal verdict mechanically.
 
-The state processor merges already-decided values mechanically: take the
+The prompt/report contract validates the rater's evidence and any declared
+gestalt factors, then emits a compact rating projection. The state processor
+merges already-decided values mechanically: take the
 maximum `C` across raters, take the maximum `R` across raters, then take the
 maximum of those two merged axes as the base tier. If both merged axes are at
 least `high`, step up once. Then, if any rater supplied a valid `GESTALT: +1`
-decision with at least three individually evidenced factors, step up once more
-regardless of how many raters supplied one. Cap the result at `max`.
+decision whose report contract established at least three individually
+evidenced factors, step up once more regardless of how many raters supplied
+one. Cap the result at `max`.
 
-The rater makes the semantic gestalt decision. The processor validates its
-declared structure and applies the arithmetic; it never decides whether
-factors form a gestalt, invents a factor, or applies the gestalt step more than
-once.
+The rater makes the semantic gestalt decision. The report contract validates
+the factor structure and preserves the prose in the rating artifact. The
+processor accepts only the resulting validated step-up bit and artifact
+reference; it never decides whether factors form a gestalt, invents a factor,
+or applies the gestalt step more than once.
 
 Malformed rater output is discarded and retried once. Do not repair JSON,
 infer omitted fields, or partially accept it. Fewer than two valid rating
@@ -549,8 +613,12 @@ charter that can be answered from primary artifacts; overlapping concerns that
 require the same evidence and continuous reasoning belong in one area. The
 inventory agent decides area equivalence, dependency and contract relevance,
 consequence, and whether specialist depth is needed.
-The state processor accepts only resolved semantic decisions; it never infers
-an area identity from a path or a prior state record.
+The prompt/report contract validates and preserves the inventory's aliases,
+charters, narrative evidence, and locators. The state processor accepts only a
+compact projection of its resolved semantic decisions; it never infers an area
+identity from a path or a prior state record. The controller joins scheduled
+area IDs back to their canonical charters and primary surfaces when rendering
+review prompts.
 
 `GENERALIST-MISS` is a prospective, evidenced explanation of why the holistic
 charter alone is likely to miss or under-examine a material failure mode in the
@@ -619,6 +687,21 @@ continuing ID may retain CURRENT coverage only when none of those invalidators
 holds. Every successor and newly eligible area starts STALE. Holistic mention
 alone is not specialist coverage.
 
+Inventory refresh and specialist completion are two different transitions.
+`refresh_inventory` runs before roster selection and only maps identities,
+applies invalidators, retains eligible prior coverage, and makes every new or
+successor area STALE. After a scheduled specialist report is usable and its
+findings have passed through TRIAGE, `record_specialist_coverage` may move that
+active area to CURRENT before CLOSE. Its compact projection must name the
+scheduled area ID, current target seal, exact resolved owning-file ID set, and
+immutable specialist-report/scope proof reference, plus the accepted sealed
+TRIAGE artifact that contains that exact raw specialist report ID. Apply the
+coverage update atomically with accepted TRIAGE state: if that TRIAGE result
+reopens a finding linked to the area, reopen invalidation wins and coverage
+remains or becomes STALE. A report omitted from TRIAGE, a report from another
+seal, an unscheduled area, or a scope that omits or adds an owning file is
+rejected.
+
 At CLOSE, a current non-retired Important+ area with evidenced
 `GENERALIST-MISS` and no CURRENT specialist report is a merge-readiness blocker.
 A valid retired area is neither eligible for staffing nor a blocker. If an
@@ -654,6 +737,13 @@ from that immutable raw inventory. It retries one malformed or failed triage
 call once. A second failure makes the round INDETERMINATE and NOT CONVERGED
 without FIX or coverage update.
 
+After those checks, the controller projects only immutable row/source IDs,
+reported and current severity, factual/proposed state, governing seal, and the
+required manifest, proof, acceptance, or authority references into the state
+processor. Claims, prose evidence, aliases, and locators remain in the sealed
+triage and canonical audit artifacts and are not revalidated as a second rich
+schema by the processor.
+
 The ledger has exactly five states: `OPEN`, `FIX_APPLIED`, `FIX_VERIFIED`,
 `REFUTED`, and `INTENTIONAL`. New findings and any finding reactivated by new
 conclusive evidence enter `OPEN`. `OPEN -> FIX_APPLIED` requires a fix-manifest
@@ -661,7 +751,9 @@ entry bound to that exact ledger ID. A later triage result may return
 `FIX_APPLIED -> OPEN` when the failure remains or its evidence is inconclusive.
 `FIX_APPLIED -> FIX_VERIFIED` requires that result to cite both the manifest
 entry and sealed current-target evidence that the original failure no longer
-occurs. An empty report, reviewer silence, passing evidence gates, or the
+occurs. The processor projection carries a structured fix-proof reference with
+the current target seal and rejects missing, empty, or stale-seal proof. An
+empty report, reviewer silence, passing evidence gates, or the
 manifest's existence alone is not fix verification. `OPEN` or `FIX_APPLIED`
 may become `REFUTED` or file-authorized `INTENTIONAL` only after the
 adjudication rule below; ledger-ID-bound direct user risk acceptance may instead
@@ -724,7 +816,10 @@ default and disclose that control was unavailable under the same host-fallback
 rule as other roles.
 
 The adjudicator returns strict JSON with exactly one `UPHOLD`, `BOUNCE`, or
-`UNDECIDED` decision and one evidence locator for every expected ledger ID. An
+`UNDECIDED` decision and one evidence locator for every expected ledger ID. The
+prompt/report contract validates and retains that full output, then gives the
+state processor a compact per-row projection bound to the adjudication-input
+seal and immutable adjudication artifact reference. An
 `UPHOLD` of a file-authorized `INTENTIONAL` repeats the exact authority identity
 and a positive proposition-to-row linkage that supports that reprieve. An
 `UPHOLD` of a `REFUTED` row or severity downgrade instead requires positive
@@ -734,6 +829,13 @@ duplicate IDs; duplicate result blocks; a mismatched expected-ID set; invalid
 decisions; or missing evidence makes the whole call malformed. `UPHOLD` keeps
 the proposed disposition, `BOUNCE` restores the row, and `UNDECIDED` is eligible
 only for the subset retry described next.
+
+The projection must retain enough positive proof to prevent green-making from a
+bare decision: the evidence seal, proof reference, and fact-to-row linkage, plus
+the exact authority identity/linkage for file-authorized intent. The processor
+checks those fields against the pending row and governing seal and preserves
+their references on the canonical row. It does not parse the adjudicator's prose
+or duplicate the full report schema.
 
 Adjudication has at most two calls. If the first call crashes or is malformed,
 discard every decision from it and retry the full set once. If a clean first
@@ -870,6 +972,9 @@ Do not add an event log, command transcript, copied input tree, profile
 snapshot, generated-prompt archive, or artifact hash manifest without evidence
 from real use that it is needed. The target seal itself remains required and
 is represented in canonical state rather than as a new family of artifacts.
+The minimal artifact/projection registry inside `review-state.json` is the
+narrow exception required to authenticate state transitions; it is part of the
+canonical machine state, not a separate hash-manifest artifact or event log.
 
 At minimum, canonical state records:
 
@@ -1214,7 +1319,8 @@ or partially completed round.
 
 Give each helper ordinary unit and contract tests.
 
-The state processor tests tier lookups, strict schemas, rating combination,
+The state processor tests its compact projection schemas, tier lookups, rating
+combination,
 one-time gestalt step-up, consequence monotonicity, single-owner re-inventory
 mappings including bijective IDs and priority order, malformed/ambiguous-map
 retries, coverage invalidation after a changed `SURFACE` file, continuing-ID
@@ -1223,7 +1329,8 @@ retention, and mandatory successor uncoverage, `RETIRED` definitions and missing
 priority ordering without roster omission, complete capacity-safe wave
 scheduling, `CURRENT`/`STALE` coverage under every declared invalidator,
 eligible-Critical restaffing, area-linked specialist coverage and later-round
-surface resolution, source-backed `REFUTED` upholds and both
+surface resolution, post-TRIAGE coverage rejection when the specialist report
+is omitted or a linked finding reopened, source-backed `REFUTED` upholds and both
 second-call adjudication paths,
 ledger-ID-bound user acceptance, strict-JSON TRIAGE report/retry behavior,
 exact source-finding reconciliation, positive reprieve-proof validation, valid
@@ -1242,8 +1349,14 @@ post-FIX baseline acceptance before its delta is sealed, canonical-record delta
 coverage for mode-only,
 empty-directory, and index-only changes, final-CLOSE seal drift, durable
 round-one ground truth, persisted-deadline recovery, required versus supporting
-gate effects, stale final-readiness results after mutation, final-challenge
-findings returning through TRIAGE, and both terminal rollups.
+gate effects, rejection of earlier-seal gate passes at final readiness, stale
+final-readiness results after mutation, final-challenge
+findings returning through TRIAGE, and both terminal rollups. Rich rating,
+inventory, review, gate, adjudication, FIX, and final-challenge report schemas
+belong to prompt/report or controller contract tests; do not duplicate them in
+state-processor tests. Cross-helper contract fixtures prove that each validated
+artifact projects the exact state fields and immutable references expected by
+the processor.
 
 Evidence-gate controller tests cover precedence of operator and repository
 authority over scout suggestions, valid empty discovery as an evidence gap,
@@ -1410,18 +1523,20 @@ Do not implement isolated tasks from the old 3,678-line plan. This design
 absorbs the recovered simplification draft, the later verification amendments,
 the repo-local multi-review v0.3 interface, and the subsequent Q&A decisions.
 
-The next plan covers one bounded prototype first: implement and unit-test the
-review-state processor against representative rating, revised tier and complete
-roster selection, `CURRENT`/`STALE` inventory mapping, evidence-gate state,
-adjudication-bounce, final-readiness, and terminal-rollup JSON. Measure its
-interface and the skill prose it can replace. This is an evidence gate, not
-permission to begin the rest of the redesign opportunistically.
+The bounded prototype has now been implemented, tested, and independently
+reviewed. It demonstrated that deterministic policy is valuable, found and
+closed several fail-open proof-binding paths, and showed that duplicating rich
+artifact schemas produces an over-broad 2,000-line state boundary. It is an
+evidence artifact, not the unchanged implementation foundation.
 
-After the prototype is reviewed, use its observed interface to write the clean
+Use its observed interface and review findings to write the clean
 replacement implementation plan for the prompt/report helper, prompt resources,
 adapter, profiles, evidence discovery and execution, bounded FIX mapping,
 controller rewrite, migration of focused fixtures, documentation, and final
-forward test. Replace the old plan rather than
+forward test. The plan keeps the deterministic policy kernel,
+`record_specialist_coverage`, structured seal-bound proof references, and
+terminal recomputation, but replaces rich processor inputs with the compact
+validated projections defined in section 3. Replace the old plan rather than
 maintaining two active plans; Git remains the archive.
 
 Before changing `SKILL.md` or any behavior-bearing role prompt, apply the
