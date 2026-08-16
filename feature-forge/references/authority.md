@@ -101,6 +101,15 @@ assumptions and authority are recorded, acceptance is classified, and the
 applicable approval exists. It becomes frozen only through the workflow
 contract's specification-freeze process and recorded identity.
 
+Before changing a candidate, classify proposed behavior that is not needed by
+an approved requirement or blocking defect as a **new request**. Explicitly
+defer or reject that discretionary behavior outside the current work unit while
+preserving every approved requirement and invariant. Deferral or rejection does
+not open an approval frontier, create a pause, or disturb candidate
+reviewability: an unchanged candidate remains reviewable. Only an explicit,
+authorized expansion of the work unit reopens scope and change control; then
+classify the expansion under this contract and apply the workflow contract.
+
 Classify a proposed delta before changing a frozen artifact. An **editorial**
 delta corrects wording, formatting, or equivalent clarity while behavior and
 contracts are provably unchanged. It requires scoped delta re-review, then
