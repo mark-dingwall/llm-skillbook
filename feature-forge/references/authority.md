@@ -49,9 +49,11 @@ authority and rationale, then recompute. Do not maintain competing specs.
 
 When an authority request says **“no more questions,” “fewer questions,”
 “implement now,”** or an equivalent acceleration phrase, produce one
-**accelerated approval packet** for the whole remaining material frontier. The
-packet lists every remaining material decision, its recommended default, the
-assumptions behind that default, and its acceptance and scope consequences.
+**accelerated approval packet** for the entire remaining decision frontier.
+Nothing remains outside the packet: it lists every remaining decision, labels
+each material or minor under the existing authority rules, gives its
+recommended default, and states the assumptions behind it and its acceptance
+and scope consequences.
 
 In interactive or supervised mode, the sole next action is approval or
 rejection of that one packet; do not reopen the individual decisions as new
