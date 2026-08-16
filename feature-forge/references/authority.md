@@ -47,12 +47,18 @@ ask it as one numbered set and include a recommendation for each item.
 Integrate each outcome into the same canonical specification, including
 authority and rationale, then recompute. Do not maintain competing specs.
 
-Acceleration may consolidate all remaining decisions into one request. In
-interactive or supervised mode, that consolidation needs one approval. In
-unattended mode, it requires recorded standing authority and continues under
-that authority. Missing authority or an irresolvable contradiction blocks;
-the process terminates only when both the frontier and `Open questions` are
-empty.
+When an authority request says **“no more questions,” “fewer questions,”
+“implement now,”** or an equivalent acceleration phrase, produce one
+**accelerated approval packet** for the whole remaining material frontier. The
+packet lists every remaining material decision, its recommended default, the
+assumptions behind that default, and its acceptance and scope consequences.
+
+In interactive or supervised mode, the sole next action is approval or
+rejection of that one packet; do not reopen the individual decisions as new
+questions. Approval authorizes the packet's recorded defaults. In unattended
+mode, record the packet decisions and standing `agent:unattended` authority,
+then continue. Missing authority or an irresolvable contradiction blocks; the
+process terminates only when both the frontier and `Open questions` are empty.
 
 ## Work-unit specification contract
 
