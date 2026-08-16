@@ -1,6 +1,6 @@
 # Review Loop Redesign
 
-**Status:** Reviewed design; ready for bounded prototype planning
+**Status:** Reviewed design; approved for replacement implementation planning
 
 **Date:** 2026-08-14
 
@@ -12,13 +12,27 @@ none of the design conversation. After reading it, that implementer should be
 able to plan the bounded prototype described in section 10 without reopening
 settled product decisions.
 
+The operator points review-loop at completed code or technical documentation
+and may leave it unattended. Subject to the selected effort, deadline, and
+explicit safety boundaries, the loop discovers an appropriate review plan,
+collects evidence, fixes accepted findings, and returns the strongest honest
+verdict it can support for the resulting local artifact.
+
 Where this document conflicts with the [archived tier-and-roster
 plan](../../history/review-loop/PLAN-2026-07-28.md) or the recovered
 `SIMPLIFY-DEF.md`, this document governs new work. Those documents are
 historical inputs, not implementation authority.
 
-The redesign preserves the loop's purpose and safety model while making its
-cost proportional to risk and its prompt footprint smaller. It retains:
+The redesign preserves the loop's purpose and assurance model while making its
+cost proportional to risk and its prompt footprint smaller. Its North Star is:
+
+> No known material defect, after the artifact has survived risk-proportionate
+> independent challenge and all applicable deterministic evidence gates.
+
+This is a qualified operational claim, not proof that an artifact is safe or
+correct. The final report must state what was challenged, what deterministic
+evidence ran, what could not run, and which residual limitations moderate the
+claim. The redesign retains:
 
 - the `GATE -> REVIEW -> TRIAGE -> FIX -> CLOSE` loop;
 - whole-tree sealing and out-of-tree artifacts;
@@ -32,8 +46,11 @@ cost proportional to risk and its prompt footprint smaller. It retains:
 
 This is an MVP. It does not add review-team integration, synthesis, arbitrary
 reviewer commands in profiles, profile inheritance, a general workflow engine,
-provider benchmarking, an event log, command transcripts, copied inputs, or a
-portable non-GNU sealing implementation.
+provider benchmarking, an event log, command transcripts, durable copied input
+trees, or a portable non-GNU sealing implementation. Numeric specialist or
+finding caps, an `xhigh` tier, and direct integration into every phase of an
+external planning or implementation workflow are explicit non-goals, not
+deferred extensions.
 
 ## 2. Governing principles
 
@@ -69,12 +86,34 @@ counts as settled, whether adjudication is required, what converged means, or
 what merge-ready means. Lower tiers may find less because they spend less; they
 may not declare success under a weaker ledger rule.
 
+The tier controls search depth, not truth. Applicable deterministic evidence,
+settlement requirements, required-role completeness, adjudication, and the
+meaning of the final verdict do not weaken at lower tiers. A deliberately
+lower tier may therefore return an honest evidence-limited or NOT CONVERGED
+result.
+
+### Add redundancy where one semantic miss can doom the run
+
+Use N+1 challenge at consequential semantic gates: automatic effort rating,
+scope and roster calibration, green-making dispositions, and final readiness.
+The additional role independently inspects primary artifacts or sealed evidence;
+it does not reason from another agent's summary or create a second canonical
+ledger. Deterministic mechanics such as schema validation, batching, sealing,
+and state transitions need tests and fail-closed behavior rather than duplicate
+LLM opinions.
+
 ### Prefer explicit, unsurprising control
 
 Operator-supplied intent wins. Never silently ignore a tier, profile, model
 pin, reviewer selection, deadline, or confirmation override. Never silently
 replace an invalid profile with defaults. Record the selected policy and what
 actually ran.
+
+Avoid surprising material expenditure. An automatically derived `max` tier
+requires confirmation before reviewer dispatch unless the operator explicitly
+selected `max` or explicitly disabled confirmation. Explicit no-confirmation
+changes prompting behavior only; it does not authorize dependency installation,
+deployment, commits, or other external state changes.
 
 ## 3. Architecture
 
@@ -99,11 +138,12 @@ has a narrow interface and independent tests. They may share small data types
 or validation utilities only when doing so removes real duplication without
 coupling their lifecycles.
 
-Focused prompt resources contain the detailed charters for inventory, rating,
-adjudication, holistic review, adversarial review, and specialist review. Every
-role reads a prompt rendered from those fixed skill-relative resources. The
-controller carries only the resource identifier, task-local input, and required
-output contract.
+Focused prompt resources contain the detailed charters for evidence discovery,
+inventory, inventory challenge, rating, adjudication, holistic review,
+adversarial review, specialist review, bounded FIX, and final-readiness
+challenge. Every role reads a prompt rendered from those fixed skill-relative
+resources. The controller carries only the resource identifier, task-local
+input, and required output contract. Semantic roles never delegate.
 
 ## 4. Review flow and effort tiers
 
@@ -113,10 +153,10 @@ Resolve invocation intent before dispatch: optional tier, profile, maximum time
 in seconds, and confirmation override. A supplied maximum must be a positive
 integer. Validate an explicitly selected profile before any agent runs. Then
 resolve the full proposed run root and reject it when it equals, contains, or
-is contained by the sealed target; do this before creating any artifact. Run the
-existing quality gate and seal the target. Preflight also resolves the subject,
-base, head, exclusions, and one deterministic **delta contract** for later
-rounds. It records whether Git metadata sits outside the target, the bound
+is contained by the sealed target; do this before creating any artifact.
+Preflight also resolves the subject, base, head, exclusions, and one
+deterministic **delta contract** for later rounds. It records whether Git
+metadata sits outside the target, the bound
 index/working/untracked policy, and the one non-mutating mechanism that can
 render the exact changed-path set and canonical-record delta between any
 verified pre-FIX and post-FIX identity. That delta records every changed entry,
@@ -128,6 +168,56 @@ materialize a regular-file content patch. Those files are sealed round inputs,
 never a copied input tree. An absent or ambiguous base, repository-state policy,
 two-state reconstruction, or an unmaterializable delta format rejects the target
 before Stage 0; this MVP does not add a snapshot or non-Git delta fallback.
+
+Before spending on semantic review, compute a provisional whole-target identity
+with the sealer and dispatch one fast, read-only **evidence scout** at
+`mid-tier`. It inspects
+the actual target, operator instructions, repository guidance, build metadata,
+and stated review intent. Operator-supplied gates take precedence, followed by
+explicit repository-declared gates; the scout fills gaps rather than replacing
+either. Its strict result lists each proposed gate's stable ID, exact invocation,
+provenance, applicability, `baseline`/`post-fix` timing, prerequisites, expected
+signal, safety assessment, and any important behavior for which no applicable
+deterministic gate exists. A malformed result receives one retry; a second
+failure makes Stage 0 INDETERMINATE. An empty valid gate list is an evidence gap,
+not a passing gate and not by itself a failed run.
+
+The result also classifies each gate as `required` only when operator or
+repository authority makes it mandatory; all other useful gates are
+`supporting`. The controller validates the proposed execution plan before
+running it. For terminal purposes a gate is applicable only when it is relevant,
+safe, and runnable with prerequisites already present; a relevant check blocked
+by missing tooling remains a disclosed evidence opportunity, not a silently
+passing gate. Never install dependencies, initialize tooling, alter manifests
+or lockfiles, deploy, commit, use production credentials, or allow an
+uncontrolled external write in
+order to obtain gate evidence. A gate that may write ordinary test/build output
+runs against a disposable exact copy or equivalent tested containment bound to
+the provisional identity; the copy is transient execution substrate, not a
+durable review artifact. A gate may run against the authoritative target only
+when its tested invocation is non-mutating.
+
+Every gate command uses a tested execution mapping exposing only its exact
+sealed target or disposable copy, declared read-only runtime inputs, and fresh
+scratch. It supplies no host credentials, denies network access and writes
+outside the copy/scratch, and terminates the complete process tree on deadline.
+If this mapping or another equivalently tested containment is unavailable,
+record `NOT_RUN` and the reason. Any executed applicable gate that does not
+produce its expected passing signal stops NOT CONVERGED; `supporting` never
+means that a known failure is advisory. After baseline gates, recompute the
+authoritative target identity and require equality with the provisional identity
+before promoting it to the Stage 0 target-baseline seal. Record exact commands,
+target identity, exit status, and bounded output for every attempted gate.
+
+Evidence is artifact-sensitive. For code, applicable gates may include tests,
+lint, type checks, builds, schema checks, or executable examples. For technical
+documents, use existing mechanical checks such as link, schema, reference, and
+example validation, plus existing behavioral fixtures when the document is
+instructional. Do not invent a nominal test merely to claim coverage. Semantic
+correctness and completeness of prose are established primarily through the
+independent review roster. RED/GREEN pressure scenarios are required when
+developing review-loop's own skill or role prompts, where the document directly
+controls agent behavior; they are not a universal per-target document gate.
 
 The sealer accepts only directories and readable regular files: a symlink,
 FIFO, socket, device, unreadable entry, or an entry whose type or identity
@@ -156,6 +246,23 @@ output is discarded and retried once; a second failure makes Stage 0
 INDETERMINATE and the loop NOT CONVERGED. When the operator supplies a tier,
 respect it and do not dispatch rating agents merely to derive a competing tier.
 
+After each valid initial inventory proposal, dispatch one independent, read-only scope
+challenger at the same capability required for that inventory call
+(`most-capable` at Stage 0 and the run tier's normal capability on refresh). It
+receives the target and proposal, not the inventory agent's hidden reasoning,
+and checks for omitted material areas,
+unsupported consequence or `GENERALIST-MISS` claims, redundant fragmentation,
+and charters that cannot be answered independently from primary artifacts. It
+returns either `UPHOLD` or individually evidenced challenges; it never emits a
+competing inventory. A challenged inventory receives one owner revision that
+must resolve every challenge in a complete replacement inventory or preserve a
+rejection with primary evidence. Persist the proposal, challenges, and
+resolutions for the final-readiness check. Malformed challenger or revision
+output receives one retry at its owning boundary; a second failure makes the
+stage INDETERMINATE. This bounded proposer/challenger exchange does not iterate
+to consensus: do not challenge the owner revision again in the same inventory
+stage. Its preserved challenges and resolutions remain inputs to final readiness.
+
 When no tier is supplied, also dispatch two `most-capable` rating samples,
 preferring different vendors where available. Two samples of one model are
 acceptable when the host offers no real vendor diversity, but the report must
@@ -165,10 +272,14 @@ declared gestalt factors. Both axes use the `low < med < high < max` ladder.
 The inventory agent owns semantic identity; rating agents do not emit a
 competing inventory.
 
-The controller checks the applicable expected seals immediately before every
+The evidence scout uses the provisional identity until the Stage 0 baseline is
+promoted; every later call uses the applicable accepted target baseline. The
+controller checks the applicable expected seals immediately before every
 target-accessing process is launched and after each such process completes:
-inventory and rating agents, ordinary holistic/adversarial/specialist
-reviewers, triagers, adjudicators, and the multi-review driver. The **target-baseline
+evidence scouts, inventory agents and challengers, rating agents, ordinary
+holistic/adversarial/specialist reviewers, triagers, adjudicators,
+final-readiness challengers, and the multi-review driver. FIX uses the separate
+mutation-window checks below. The **target-baseline
 seal** always means the last accepted whole-target identity. A round may have
 multiple immutable **round-input seals**, one per input-producing stage. In a
 later round, first make an inventory-refresh-input seal for a controller-made,
@@ -188,16 +299,19 @@ NOT CONVERGED, and never takes a fallback branch. The multi-review adapter
 performs these checks for its driver call; the controller performs them for
 ordinary dispatch.
 
-Every target-accessing call, including ordinary roles, TRIAGE, and the
+Every non-FIX target-accessing call, including ordinary roles, TRIAGE, and the
 multi-review adapter's driver call, uses a tested host execution mapping that
 enforces read-only access through three disjoint mount classes: (1) its exact
-per-call target-path scope, whose paths must match the target-baseline record;
+per-call target-path scope, whose paths must match the target-baseline record or
+the evidence scout's provisional record;
 (2) the exact review-data inputs named in its call-input seal; and (3) the
 tested, non-review-data runtime/credential allowlist needed to start that call.
-Only Stage 0 inventory/rating calls and a round-1 full review have the whole
-target tree as their target-path scope. Later focused reviews receive only their
-declared changed or `SURFACE` target files; any target bytes TRIAGE or an
-adjudicator needs must likewise be in its exact dispatched scope. The runtime
+Only the preflight evidence scout, Stage 0 inventory/challenge/rating calls, a
+round-1 full review, and the final-readiness challenge have the whole target tree
+as their target-path scope. Later evidence and inventory refreshes and focused
+reviews receive only their declared changed or `SURFACE` target files; any
+target bytes TRIAGE or an adjudicator needs must likewise be in its exact
+dispatched scope. The runtime
 allowlist is read-only and may contain only the driver or CLI executable,
 interpreter/libraries, and exact required authentication/configuration files; it
 cannot contain target data, review artifacts, canonical state, peer artifacts,
@@ -222,55 +336,129 @@ mapping, the controller does not dispatch it; there is no uncontained bypass.
 Seal checks remain necessary detection and fail-closed evidence handling, not a
 substitute for read-only execution and not rollback machinery.
 
-`FIX` is the sole authorized mutation window. In this MVP it is an explicit
-controller-to-single-operator hand-off, not an LLM role or a generic command
-executor. Before entering it, the controller binds the window to exact current
-`OPEN` ledger IDs. The operator supplies a fix manifest that associates every
-declared changed target path with one or more of those IDs. An index-only change
-uses its repo-relative target path as its index locator; an index delta without
-one or more such locators is rejected. A manifest cannot itself alter ledger
-state. Immediately before the hand-off, recompute the whole
-target identity and compare it with the last verified target-baseline seal. A
-mismatch stops NOT CONVERGED; never record the mismatching identity as a new
-baseline. Only after that comparison succeeds may the controller record the
-verified pre-FIX identity and record `FIX_STARTED` before entering `FIX`.
-Immediately afterward, use the delta contract to render and retain the exact
-canonical-record delta, changed-path set, and any regular-file content patch,
-then regenerate the whole-target identity and verify its delta from that pre-FIX
-identity: every changed target path or bound index entry must be declared by the
-fix manifest and remain within the authorized target. A delta-contract failure
-stops NOT CONVERGED. Run the quality gate, then recompute the identity once more;
-the gate must pass and that identity must equal the verified post-FIX identity
-before it becomes the next round's target-baseline seal. Only after that equality
-succeeds may the controller seal the retained delta as the next round's input
-and atomically transition every and only currently `OPEN` ledger row with a
-manifest-bound, verified canonical target or index change to `FIX_APPLIED`,
-recording its manifest and target-baseline linkage.
-Rows without that verified linkage remain `OPEN`. A failed post-FIX gate or
-changed post-gate identity stops NOT CONVERGED before another reviewer runs. A
-missing or malformed manifest, a
-changed path without an authorized ledger-ID association, or an operator who
-declines to fix prevents a successful FIX transition; the ledger remains
-operative for CLOSE. If the operator declines before mutating, recompute the
-target identity, require it to equal the verified pre-FIX identity, record no
-`FIX_APPLIED` transition, and restore the bound rows to `OPEN`; it establishes
-no new baseline. If the host or session interrupts
-after `FIX_STARTED` and before this post-FIX verification succeeds, record the
-round INDETERMINATE and return NOT CONVERGED. A restarted controller may retain
-the evidence for its hand-back but must not resume that run or establish a new
-baseline; start a new run instead. From the Stage 0 target-baseline seal until
-the run cancels or reaches CLOSE, the single-user MVP assumes no concurrent
-writer other than this controller-authorized FIX hand-off. If the operator
-cannot assure that exclusivity before a target-accessing dispatch or during
-FIX, stop NOT CONVERGED rather than accepting an ABA-style restored seal.
-Canonical state retains the Stage 0 target baseline, each verified pre-FIX
-identity, each round's target baseline, and each round-input seal rather than
-one overloaded run-wide seal.
+`FIX` is the sole authorized mutation window. Invoking review-loop authorizes
+one controller-dispatched implementation agent to make bounded local changes
+needed to resolve current `OPEN` ledger rows. It is not a generic command
+executor and it may not delegate. Before entering FIX, the controller binds the
+window to the exact current `OPEN` IDs and supplies their immutable claims,
+current evidence, authoritative sources, permitted target root, and required
+manifest contract. The implementer may change only the review target; it may
+not install dependencies, alter dependency manifests or lockfiles merely to
+obtain tooling, commit, stage, deploy, contact external systems, use production
+credentials, or perform unrelated cleanup. Direct user risk acceptance remains
+outside the implementer's authority.
 
-Immediately before CLOSE computes either terminal verdict, recompute the whole
-target identity and compare it with the last accepted target-baseline seal. A
-mismatch is NOT CONVERGED; it cannot produce a verdict for bytes that no
-reviewer saw.
+The implementer may invoke only controller-approved local validation commands
+from the evidence plan when the FIX mapping can contain their effects. Those
+results are diagnostic; the controller independently reruns applicable gates
+after validating the delta.
+
+The FIX execution mapping is the sole tested writable mapping. It exposes the
+sealed target and controller-supplied FIX inputs, no canonical state or peer
+artifact, and a fresh report/manifest channel. Agent tool/process actions receive
+no host credentials, no network, and no write path outside the authorized target
+or disposable copy and scratch; the host may retain only the tested provider
+control channel and minimum read-only authentication needed to run the agent.
+The mapping terminates and reaps the whole process tree on deadline. If the host
+cannot enforce that separation, automated FIX is unavailable and the run stops
+NOT CONVERGED rather than relying on prompt compliance.
+
+Prefer a disposable writable copy or equivalent containment from which the
+controller can validate a candidate delta before applying it to the
+authoritative target. A tested direct single-writer target mapping may be used
+with the same controls, pre/post identities, and process handling; the final
+report must disclose that interruption may require operator recovery. There is
+no uncontained writable fallback and no rollback claim.
+
+The implementation agent returns a strict fix manifest associating every
+declared changed target path with one or more bound ledger IDs and explaining
+the change. FIX never stages, commits, or otherwise mutates the bound Git index;
+any index delta during the mutation window is unauthorized. A manifest cannot
+itself alter ledger state. Immediately before dispatch or candidate-delta
+application, recompute the whole target identity and compare it with the last
+verified target-baseline seal. A mismatch stops NOT CONVERGED; never record the
+mismatching identity as a new baseline. Only after equality may the controller
+record the verified pre-FIX identity and `FIX_STARTED`.
+
+After FIX, use the delta contract to render and retain the exact
+canonical-record delta, changed-path set, and any regular-file content patch,
+then regenerate the whole-target identity and verify its delta from the pre-FIX
+identity. Every changed target path or bound index entry must be manifest-bound
+to one or more authorized IDs and remain within the target. A missing or
+malformed manifest, unauthorized path, an undeclared change made only to enable
+review tooling, external-state attempt, or delta-contract failure stops NOT
+CONVERGED and promotes no ledger row. In a disposable-copy implementation,
+reject the candidate before applying
+it. In a direct-write implementation, retain the detected delta for explicit
+operator recovery and make no claim that the target was restored.
+
+Refresh the evidence plan against the actual verified delta. Rerun every safe
+applicable post-fix baseline gate and add targeted gates for changed behavior.
+A gate that may write uses the same disposable-copy rule as preflight. After
+the gates, recompute the authoritative identity once more; every required gate
+must have run and passed, every other executed applicable gate must have passed,
+and the identity must equal the verified post-FIX identity before it
+becomes the next round's target-baseline seal. Only then may the controller seal
+the retained delta as the next round's input and atomically transition every
+and only currently `OPEN` row with a manifest-bound verified change to
+`FIX_APPLIED`. Rows without that linkage remain `OPEN`. A passing gate or
+manifest alone is never fix verification.
+
+When relevant tests pass and an already installed, configured mutation tool can
+run safely and within the remaining deadline, run it against the changed or
+risk-bearing code. Never install or initialize mutation tooling. If tooling is
+absent, the controller may instead ask for a small number of high-value manual
+mutations in a disposable copy: the unmutated targeted test must pass and each
+non-equivalent mutant must make it fail. Do not weaken a test or disable a
+fixture to manufacture failure. Mutation evidence supports test adequacy; it is
+not a universal score threshold or by itself a terminal verdict. When relevant
+mutation testing was unavailable, retain one concise follow-up note for the
+final report rather than prompting during the run.
+
+Apply the same opportunistic mutation policy after the initial passing baseline
+when relevant, even if the loop never enters FIX. After FIX, scope it to changed
+or risk-bearing behavior and tests. Mutation-tool absence never triggers an
+installation or confirmation prompt.
+
+If the host or session interrupts after `FIX_STARTED` and before post-FIX
+verification succeeds, record the round INDETERMINATE and return NOT CONVERGED.
+A restarted controller may retain evidence for hand-back but must not resume
+that run or establish a new baseline; start a new run instead. From the Stage 0
+target-baseline seal until cancellation or CLOSE, the single-user MVP assumes no
+concurrent writer other than the controller-authorized FIX agent or deterministic
+candidate-delta application. If exclusivity cannot be assured, stop NOT
+CONVERGED rather than accepting an ABA-style restored seal. Canonical state
+retains the Stage 0 target baseline, each verified pre-FIX identity, each
+round's target baseline, and each round-input seal rather than one overloaded
+run-wide seal.
+
+Immediately before a positive CLOSE, recompute the whole target identity and
+compare it with the last accepted target-baseline seal. A mismatch is NOT
+CONVERGED; it cannot produce a verdict for bytes that no reviewer saw.
+
+When deterministic state first qualifies for merge-readiness, dispatch one
+independent final-readiness challenger at `most-capable` against the final
+sealed target, ground truth, complete roster and scope-challenge history,
+ledger, fix manifests, gate plan/results, mutation evidence, and disclosed
+gaps. It tests whether the artifact still contradicts authority, a material
+claim lacks evidence, a test was weakened, required work was omitted, or a
+known material defect remains. It returns `UPHOLD` or `BLOCK` plus exact
+evidence and may include ordinary source findings under the canonical report
+contract. `BLOCK` requires a material target defect or material evidence/process
+failure; a Minor observation is reported without independently blocking. The
+role cannot create readiness, weaken a deterministic prerequisite, or settle a
+ledger row.
+
+Publish any final-challenger source findings as one required raw report and run
+one sealed supplemental TRIAGE pass under the ordinary provenance and ledger
+rules. A resulting Important+ `OPEN` row continues to FIX when round and
+deadline policy allow; the next review is a new round. Otherwise the run is NOT
+CONVERGED. A procedural `BLOCK` without a target finding names the failed
+readiness condition and prevents merge-readiness. A malformed or failed
+challenge receives one retry; a second failure makes CLOSE INDETERMINATE. After
+any subsequent target change, the prior result is stale and a fresh final
+challenge is required. `UPHOLD` is supporting independent evidence only: the
+state processor still computes the terminal verdict mechanically.
 
 The state processor merges already-decided values mechanically: take the
 maximum `C` across raters, take the maximum `R` across raters, then take the
@@ -303,12 +491,12 @@ No custom argument parser is required.
 
 ### Tier table
 
-| Tier | Specialist threshold | Specialist cap | Round cap | Normal reviewer capability | Multi-review timing |
-|---|---|---:|---:|---|---|
-| `low` | Critical only | 2 | 2 | mid-tier | never |
-| `med` | Important+ | 3 | 3 | mid-tier | never |
-| `high` | Important+ | 5 | 5 | one-above-mid | round 1 |
-| `max` | every named area eligible | 5 | 5 | most-capable | rounds 1 and 2 |
+| Tier | Intended use | Specialist eligibility | Round cap | Normal reviewer capability | Multi-review timing |
+|---|---|---|---:|---|---|
+| `low` | small, bounded, low-consequence target | Critical with `GENERALIST-MISS` | 2 | mid-tier | never |
+| `med` | ordinary default review | Important+ with `GENERALIST-MISS` | 3 | mid-tier | never |
+| `high` | complex, sensitive, or uncertain work | Important+ with `GENERALIST-MISS` | 5 | one-above-mid | round 1 |
+| `max` | exhaustive treatment where omissions are particularly costly | every materially distinct named area | 5 | most-capable | rounds 1 and 2 |
 
 The round cap is a ceiling, not a quota. Close as soon as the invariant ledger
 conditions are satisfied.
@@ -326,16 +514,17 @@ not add a new fan-out capability abstraction for the MVP.
 Every round retains holistic and adversarial review. Multi-review replaces
 only the holistic slot; it never replaces adversarial or specialist review.
 Specialists are selected from the named inventory under the tier threshold and
-cap. The threshold decides eligibility; it does not override the independently
-selected cap. The processor filters the inventory agent's validated total
-priority order to eligible IDs and applies the cap; there is no separate
-ranking call. The agent orders currently uncovered eligible areas, including
-ones whose prior coverage was invalidated, before areas with coverage-valid prior
-specialist review; it then ranks semantically by consequence and evidenced need
-for depth. Every specialist roster entry carries its area ID.
-Every omitted area records `Not staffed`, the cap or threshold reason, and
-whether coverage-valid specialist review for that area exists in prior round
-state.
+coverage rule below. There is no numeric specialist cap. The processor filters
+the inventory agent's validated total priority order to the complete scheduled
+set; there is no separate ranking call and priority cannot remove a role. The
+order exists only for capacity-safe batching and deadline handling. Every
+specialist roster entry carries its area ID, distinct failure-mode charter, and
+primary surface. The controller freezes the complete round roster before
+dispatch, reserves its own active slot, uses the host-advertised concurrency
+limit when available, and dispatches excess roles in waves. If no numeric limit
+is exposed, use a conservative tested concurrency. Never skip a scheduled role
+to fit capacity. Deadline expiry or a required role that remains unusable after
+its allowed retry makes the round INDETERMINATE and NOT CONVERGED.
 
 Round 1 reviews the full sealed target. Later-round holistic and adversarial
 reviewers receive the changed target files plus exact regular files containing
@@ -355,8 +544,11 @@ it repeats a full target review only when the operator explicitly requests one.
 Every inventory area carries a stable semantic ID, aliases, `CONSEQUENCE`,
 attributed consequence evidence, evidenced `GENERALIST-MISS` or an explicit
 absence, normalized `SURFACE` locators, and its place in the total specialist
-priority order. The inventory agent decides area equivalence, dependency
-relevance, consequence, and whether specialist depth is needed.
+priority order. Each area is a materially distinct concern with a specialist
+charter that can be answered from primary artifacts; overlapping concerns that
+require the same evidence and continuous reasoning belong in one area. The
+inventory agent decides area equivalence, dependency and contract relevance,
+consequence, and whether specialist depth is needed.
 The state processor accepts only resolved semantic decisions; it never infers
 an area identity from a path or a prior state record.
 
@@ -374,8 +566,8 @@ must be a current active ID. Active IDs are unique, and the total specialist
 priority order is bijective with them: it names every active ID exactly once and
 no other ID. The inventory agent may name genuinely new active areas, but it
 must not use a duplicate, omission, or ambiguous replacement chain to create or
-hide one. It also receives whether each area has coverage-valid prior specialist
-review and refreshes the total priority order accordingly. An absent or ambiguous
+hide one. It also receives each area's `CURRENT`/`STALE` specialist coverage and
+refreshes the total priority order for batching accordingly. An absent or ambiguous
 mapping, duplicate or missing ID, invalid priority order, malformed JSON,
 missing field, or partial inventory makes the whole output malformed and
 consumes its one retry. A second failure makes the started round INDETERMINATE
@@ -387,7 +579,7 @@ inventory.
 active, separate material concern in the latest sealed target. It may apply
 when the risk-bearing surface was removed or neutralized, or when the prior area
 was not a distinct material concern. It must not represent an unstaffed or
-cap-omitted area, a rename, move, or merge (which uses a continuing or successor
+ineligible area, a rename, move, or merge (which uses a continuing or successor
 ID), target-scope drift, or an individual ledger finding's disposition. Every
 `RETIRED` mapping contains a non-blank, single-line `retirement_reason`. The
 reason is retained in canonical state and the final report solely for post-run
@@ -402,33 +594,39 @@ historical consequence or erase a coverage gap. A valid explicit `RETIRED`
 mapping is the sole exception: it preserves that evidence as historical audit
 data but ends the active lineage and its staffing obligation.
 
-Before applying the specialist cap, an area is eligible when:
+An area is eligible when:
 
 ```text
 tier == max OR (GENERALIST-MISS exists AND consequence meets threshold)
 ```
 
-All current non-retired eligible areas are reconsidered every dispatched round.
-This MVP does not implement quiet decay or numeric coverage counters; it records
-only a specialist report's roster link and whether it remains coverage-valid. A
-report is coverage-valid only when its sealed specialist scope contains every
-current active-lineage `SURFACE` owning file and each of those files has the
-same identity in the report's target baseline and the current target baseline.
-A verified delta that changes one of those files invalidates that coverage link
-before the next roster selection. A continuing ID may retain a link only while
-this test holds. A successor always starts uncovered; the controller never
-infers semantic charter equivalence from a mapping or a path. A cap-omitted
-eligible area remains named and is prioritized ahead of already covered areas
-next round. At CLOSE, a current non-retired Important+ area with evidenced
-`GENERALIST-MISS` and no coverage-valid specialist report for that area is a
-merge-readiness blocker. A valid retired area is neither eligible for staffing
-nor a merge-readiness coverage blocker. If the tier threshold made an active
-area ineligible, the run may still be CONVERGED but is not merge-ready; the
-hand-back recommends a new run at a tier that can staff it. If the cap still
-leaves active gaps at `max`, the hand-back names them and recommends narrowing
-or splitting the review target; the controller does not invent a higher tier,
-exceed the cap, or loop without bound. Holistic mention alone is not specialist
-coverage.
+For each eligible active area, canonical state records specialist coverage as
+`CURRENT` or `STALE`; it has no quiet counter. Staff the area when it is Critical
+or its coverage is not CURRENT. Thus eligible Critical areas receive specialist
+challenge in every dispatched round, while a non-Critical area retains a valid
+review until evidence invalidates it. Passing or silent rounds alone never
+change coverage.
+
+Coverage becomes CURRENT only from a completed usable specialist report whose
+sealed scope contains every current active-lineage `SURFACE` owning file. It
+becomes STALE before roster selection when a verified delta changes a relevant
+surface, dependency, or contract; a linked finding reopens; semantic identity
+changes or a successor is created; or the refreshed inventory supplies material
+new evidence that specialist depth is needed. The inventory agent makes
+dependency, contract, identity, and new-evidence judgments explicitly; the
+processor validates and applies them but never infers them from paths. A
+continuing ID may retain CURRENT coverage only when none of those invalidators
+holds. Every successor and newly eligible area starts STALE. Holistic mention
+alone is not specialist coverage.
+
+At CLOSE, a current non-retired Important+ area with evidenced
+`GENERALIST-MISS` and no CURRENT specialist report is a merge-readiness blocker.
+A valid retired area is neither eligible for staffing nor a blocker. If an
+operator-selected lower tier makes such an active area ineligible, the run may
+still be CONVERGED but is not merge-ready; the hand-back recommends a new run at
+a sufficient tier. At `max`, every materially distinct named area is eligible
+and every required uncovered role is scheduled; the controller does not invent
+a higher tier or omit work to satisfy an arbitrary count.
 
 ### TRIAGE and ledger
 
@@ -463,7 +661,7 @@ entry bound to that exact ledger ID. A later triage result may return
 `FIX_APPLIED -> OPEN` when the failure remains or its evidence is inconclusive.
 `FIX_APPLIED -> FIX_VERIFIED` requires that result to cite both the manifest
 entry and sealed current-target evidence that the original failure no longer
-occurs. An empty report, reviewer silence, a passing quality gate, or the
+occurs. An empty report, reviewer silence, passing evidence gates, or the
 manifest's existence alone is not fix verification. `OPEN` or `FIX_APPLIED`
 may become `REFUTED` or file-authorized `INTENTIONAL` only after the
 adjudication rule below; ledger-ID-bound direct user risk acceptance may instead
@@ -483,10 +681,16 @@ usable raw report maps to the ledger, no stage is INDETERMINATE, the final targe
 seal matches, and no Important+ row is `OPEN` or `FIX_APPLIED`. Otherwise it is
 NOT CONVERGED and the hand-back names the failed conjunct. The target is
 merge-ready only when it is CONVERGED, the
-quality gate passed for the final sealed target, every Important+ row is
+final-readiness challenger upheld the same final seal, every required evidence
+gate ran and passed for that seal, every other executed applicable gate passed,
+every Important+ row is
 `FIX_VERIFIED`, `REFUTED`, or an explicitly recorded `INTENTIONAL` exception,
 and no current non-retired Important+ specialist-coverage blocker remains.
-Open Minor rows are reported but do not by themselves prevent either verdict.
+This merge-ready verdict is the operational “no known material defect” claim;
+it is always accompanied by the evidence and limitation disclosure from section
+1. Open Minor rows and unavailable supporting gates are reported but do not by
+themselves prevent either verdict. A material evidence gap identified by the
+final challenger does prevent merge-readiness.
 
 ### Adjudication
 
@@ -544,9 +748,10 @@ third call.
 The prompt/report helper accepts JSON context plus a known template identifier.
 Templates contain only declared `{{name}}` substitutions. Conditional material
 is selected by the caller as explicit fragments such as round-one,
-later-round, inventory, rating, adjudication, holistic, adversarial, or
-specialist. Templates do not contain a general control language, and bracketed
-prose is never interpreted as a menu.
+later-round, evidence discovery, inventory, inventory challenge, rating,
+adjudication, holistic, adversarial, specialist, FIX, or final readiness.
+Templates do not contain a general control language, and bracketed prose is
+never interpreted as a menu.
 
 Before substitution, the helper fails on:
 
@@ -558,9 +763,11 @@ Before substitution, the helper fails on:
 
 Substituted values are opaque data; literal `{{...}}` text inside subject
 material is never rescanned as template syntax. The rendered bytes are the
-production prompt and the test fixture input. Every target-accessing LLM prompt
-preserves the existing boundary: subject material is labelled data, the role is
-read-only against the seal, and the role reports rather than fixes.
+production prompt and the test fixture input. Every non-FIX target-accessing LLM
+prompt preserves the existing boundary: subject material is labelled data, the
+role is read-only against the seal, and the role reports rather than fixes. The
+FIX prompt preserves the same untrusted-subject boundary but carries the sole
+explicit, ledger-bound writable authorization described in section 4.
 
 Every holistic, adversarial, and specialist prompt asks each raw reviewer
 response to lead its review with a `## Summary` section, include exactly one
@@ -584,8 +791,9 @@ unanchored presence check for `Summary` or `Executive Summary` remains a
 compatibility/display check, not sufficient completion evidence. Earlier
 status-looking text is body data, so quoted source material cannot create or
 invalidate completion. The terminal line must match exactly; trailing prose or
-an absent/unknown status is invalid. Inventory, rating, and adjudication use
-their strict-JSON validators instead. The review-loop multi-review opt-in
+an absent/unknown status is invalid. Evidence discovery, inventory, inventory
+challenge, rating, adjudication, FIX-manifest, and final-readiness roles use
+their declared strict validators instead. The review-loop multi-review opt-in
 applies the same record contract to each raw participant report: both receive
 the same canonical `request_id`, while the controller preallocates their
 distinct raw `report_id`s and the driver validates/echoes them outside the
@@ -674,25 +882,32 @@ At minimum, canonical state records:
 - requested tier/profile/deadline/overrides and their resolution;
 - automatic ratings and evidence when rating ran;
 - selected tier and tier source;
+- evidence-scout proposals, authoritative gate provenance, exact validated
+  invocations, `required`/`supporting` classification, timing, safety decision,
+  target identity, result, and explicit evidence gaps;
 - the ordered round-one ground-truth inventory with exact locators and immutable
   identities;
 - named inventory areas, semantic IDs/aliases, consequence, semantic mapping
   decisions including every `retirement_reason`, current active status, priority
-  order, and any coverage-valid specialist-report linkage;
+  order, `CURRENT`/`STALE` coverage with its reason and specialist-report
+  linkage, plus each inventory proposal, independent challenge, and owner
+  resolution;
 - round roster including specialist area IDs, requested capability, resolved
   reviewer, requested capability or model argument, dispatch outcome,
-  completion, duration, and degraded/fallback reason;
+  completion, batch/wave, duration, and degraded/fallback reason;
 - immutable per-dispatch validation tuples: `request_id`, controller-assigned
   raw `report_id`, role, charter identifier, expected target/call-input seals,
   exact scope-locator IDs, `CALL_STARTED`/completion outcome, recoverable
   containment/process identity and termination proof, and any non-operative
   recovery outcome;
 - canonical ledger rows, raw-report mappings, provenance, dispositions,
-  fix-verification evidence, and fix manifests;
+  fix-verification evidence, FIX process/mapping outcome, fix manifests,
+  verified deltas, post-fix gate results, and bounded mutation evidence;
 - pending adjudication sets, call outcomes, final decisions, and atomic
   bounce/restoration results; and
-- convergence, merge-readiness, and the exact failed terminal conjunct when a
-  run does not converge.
+- final-readiness challenge inputs, outcomes, findings or blockers; convergence,
+  merge-readiness; and the exact failed terminal conjunct when a run does not
+  converge.
 
 The processor owns atomic state transitions and rejects unknown states,
 impossible transitions, malformed enums, unresolved semantic mappings, and
@@ -1005,16 +1220,19 @@ mappings including bijective IDs and priority order, malformed/ambiguous-map
 retries, coverage invalidation after a changed `SURFACE` file, continuing-ID
 retention, and mandatory successor uncoverage, `RETIRED` definitions and missing, blank, or multiline
 `retirement_reason` rejection, `GENERALIST-MISS` eligibility, uncovered-first
-priority filtering and cap application, area-linked specialist coverage and
-later-round surface resolution, source-backed `REFUTED` upholds and both
+priority ordering without roster omission, complete capacity-safe wave
+scheduling, `CURRENT`/`STALE` coverage under every declared invalidator,
+eligible-Critical restaffing, area-linked specialist coverage and later-round
+surface resolution, source-backed `REFUTED` upholds and both
 second-call adjudication paths,
 ledger-ID-bound user acceptance, strict-JSON TRIAGE report/retry behavior,
 exact source-finding reconciliation, positive reprieve-proof validation, valid
 and invalid ledger transitions including `FIX_APPLIED -> OPEN` and adjudicated
 settlements, proof-linked `FIX_VERIFIED` transitions, pre- and post-roster
 INDETERMINATE accounting, compare-before-record FIX entry, atomic verified
-`OPEN -> FIX_APPLIED`, manifest ledger-ID/path validation, post-FIX quality-gate
-failure, interrupted-FIX restart refusal, a `CALL_STARTED` recovery with a
+`OPEN -> FIX_APPLIED`, manifest ledger-ID/path validation, unauthorized FIX
+paths and actions, post-FIX evidence-gate failure, interrupted-FIX restart
+refusal, a `CALL_STARTED` recovery with a
 recoverable process/containment handle that makes the incomplete stage
 non-operative and INDETERMINATE, declined automatic-max cancellation, expiry
 during confirmation and after TRIAGE before CLOSE, distinct target-baseline and
@@ -1023,11 +1241,42 @@ inventory-refresh, raw-report TRIAGE, and triage-result adjudication inputs),
 post-FIX baseline acceptance before its delta is sealed, canonical-record delta
 coverage for mode-only,
 empty-directory, and index-only changes, final-CLOSE seal drift, durable
-round-one ground truth, persisted-deadline recovery, and both terminal rollups.
+round-one ground truth, persisted-deadline recovery, required versus supporting
+gate effects, stale final-readiness results after mutation, final-challenge
+findings returning through TRIAGE, and both terminal rollups.
+
+Evidence-gate controller tests cover precedence of operator and repository
+authority over scout suggestions, valid empty discovery as an evidence gap,
+malformed discovery retry, unsafe and mutating-command rejection, disposable
+copy binding, read-only target binding, scratch-only writes, absent host
+credentials, denied network access, process-tree termination, exact
+baseline/post-fix command and result recording, authoritative target drift,
+document-specific mechanical and behavioral gates, unavailable supporting
+gates, executed gate failures, and required gates that cannot support
+merge-readiness.
+Mutation tests cover safe use of existing configured tooling, no installation
+or initialization path, bounded manual mutations in a disposable copy,
+unmutated-baseline failure, equivalent and surviving mutants, and the concise
+missing-tooling report note.
+
+FIX controller tests prove that invocation authorizes exactly one non-delegating
+implementation role, only FIX receives a writable mapping, manifest-bound
+changes can advance eligible rows, unrelated and tooling-only changes cannot,
+target/copy/scratch write boundaries and network/credential denial are enforced
+independently of prompt compliance, an uncontained or externally acting
+implementation path is rejected, and a failed or interrupted direct-write path
+discloses recovery without claiming rollback. Inventory-challenge tests cover
+upheld proposals, omissions,
+redundant fragmentation, evidenced owner rejection, bounded revision, and
+malformed-call failure. Final-readiness tests prove that `UPHOLD` cannot bypass
+deterministic prerequisites, procedural blockers prevent merge-readiness,
+source findings enter ordinary TRIAGE, and a changed target requires a fresh
+challenge.
 
 The prompt/report helper tests exact declared substitutions, explicit fragment
 selection, template-token failures without rescanning substituted data,
-preservation of the safety boundary for every target-accessing role, the
+preservation of the read-only safety boundary for every non-FIX target-accessing
+role and the exact ledger-bound writable boundary for FIX, the
 display-only unanchored `Summary` check, strict `review-record` validation for
 all ordinary review roles, quoted status-looking source lines followed by one
 terminal status, mismatched dispatch/seal/scope records, source-finding ID
@@ -1084,11 +1333,18 @@ tested containment mapping.
 Use targeted RED/GREEN pressure scenarios only where a pre-change baseline
 demonstrates a real behavior failure. Preserve the production prompt boundary
 and keep ground truth outside the dispatched prompt. Retain focused coverage
-for rating quality, semantic area identity/re-inventory, and reviewer behavior
-whose efficacy depends on prose. Preserve the focused existing adjudication
-fixture for independent disposition checking and its malformed/crashed-call
-behavior. Do not recreate dual-model requirements, large manifests, input-hash
-bureaucracy, or fixtures for wording-only edits.
+for rating quality, semantic area identity/re-inventory, evidence-gate
+selection, inventory challenge, bounded FIX behavior, final-readiness challenge,
+and reviewer behavior whose efficacy depends on prose. Controls exercise the
+current guidance before it changes; retain exact observed failures,
+rationalizations, useful null results, and fresh-context variance. Add the
+minimum role guidance that closes a demonstrated failure, then probe that
+boundary rather than adding speculative prose. Preserve the focused existing
+adjudication fixture for independent disposition checking and its
+malformed/crashed-call behavior. Use behavioral document tests directly for
+review-loop's own instructional skill and prompts, not as a mandatory gate for
+arbitrary prose targets. Do not recreate dual-model requirements, large
+manifests, input-hash bureaucracy, or fixtures for wording-only edits.
 
 ### Acceptance criteria
 
@@ -1096,12 +1352,27 @@ The MVP is acceptable when:
 
 - explicit and automatic tier paths produce the specified roster and round
   policy without changing completion semantics;
-- auto-derived `max` is the only automatic tier that pauses;
+- auto-derived `max` is the only automatic tier that pauses, while explicit
+  `max` and explicit no-confirmation proceed without that prompt;
+- one canonical inventory survives independent scope challenge, every
+  specialist required by the Critical/coverage rule is scheduled without a
+  numeric cap, and concurrency waves never omit a required role;
+- specialist coverage changes only through the declared `CURRENT`/`STALE`
+  events, with eligible Critical areas staffed every dispatched round;
 - all three helpers fail closed at their declared boundaries;
-- every ordinary target-accessing role has sealed read-only inputs and an
+- evidence discovery records applicable code/document gates and gaps, executes
+  only safe validated commands in the declared contained mapping, never
+  installs tooling, and distinguishes required gates from supporting evidence;
+- every non-FIX target-accessing role has sealed read-only inputs and an
   isolated write surface, and special target entries, run-root overlap, a
   missing deterministic delta contract, concurrent writer uncertainty,
   interrupted FIX, post-FIX gate failure, and final seal drift fail closed;
+- the sole FIX role is ledger-bound and contained, every target change is
+  manifest- and delta-validated, unrelated or external actions cannot advance
+  state, and passing gates alone never verify a fix;
+- existing safe mutation tooling or bounded manual mutation contributes
+  supporting evidence without installation, score thresholds, or false
+  terminal authority;
 - every usable review report is reconciled through validated TRIAGE into the
   canonical ledger from its exact source-finding inventory, and only
   evidence-linked ledger transitions affect the two terminal verdicts;
@@ -1122,8 +1393,14 @@ The MVP is acceptable when:
 - state survives host/session restarts outside the sealed target without
   rebasing a deadline, including the immutable round-one ground-truth inventory
   and audited retirement mappings;
-- the final Markdown report explains selected policy, actual execution,
-  degraded/fallback behavior, ledger state, and both verdicts; and
+- a fresh independent final-readiness challenge can only uphold or block the
+  mechanically eligible verdict, routes new findings through TRIAGE, and becomes
+  stale after any target change;
+- the final Markdown report explains selected policy, planned and completed
+  staffing, gate commands/results, mutation evidence or its one-line follow-up,
+  degraded/fallback behavior, evidence gaps, ledger state, and both verdicts;
+- merge-ready means the qualified operational “no known material defect” claim
+  from section 1 and never an assertion of proof; and
 - `SKILL.md` is reviewed after implementation for missed behavior and needless
   residue, with effectiveness taking precedence over an arbitrary size target.
 
@@ -1134,16 +1411,25 @@ absorbs the recovered simplification draft, the later verification amendments,
 the repo-local multi-review v0.3 interface, and the subsequent Q&A decisions.
 
 The next plan covers one bounded prototype first: implement and unit-test the
-review-state processor against representative rating, tier, inventory mapping,
-adjudication-bounce, and terminal-rollup JSON. Measure its interface and the
-skill prose it can replace. This is an evidence gate, not permission to begin
-the rest of the redesign opportunistically.
+review-state processor against representative rating, revised tier and complete
+roster selection, `CURRENT`/`STALE` inventory mapping, evidence-gate state,
+adjudication-bounce, final-readiness, and terminal-rollup JSON. Measure its
+interface and the skill prose it can replace. This is an evidence gate, not
+permission to begin the rest of the redesign opportunistically.
 
 After the prototype is reviewed, use its observed interface to write the clean
 replacement implementation plan for the prompt/report helper, prompt resources,
-adapter, profiles, controller rewrite, migration of focused fixtures,
-documentation, and final forward test. Replace the old plan rather than
+adapter, profiles, evidence discovery and execution, bounded FIX mapping,
+controller rewrite, migration of focused fixtures, documentation, and final
+forward test. Replace the old plan rather than
 maintaining two active plans; Git remains the archive.
+
+Before changing `SKILL.md` or any behavior-bearing role prompt, apply the
+writing-skills RED/GREEN discipline: demonstrate the current behavior failure
+with a focused fresh-context control, make the minimum guidance change, and
+rerun the scenario. Ordinary code follows deterministic test-first development.
+Independent review gates the amended design, the replacement plan, each
+meaningful implementation slice, and final acceptance.
 
 The implementation must preserve these previously verified boundaries even if
 their old machinery is removed:
