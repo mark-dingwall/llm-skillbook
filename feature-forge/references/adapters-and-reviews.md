@@ -65,7 +65,8 @@ the controller; it must not emulate, silently weaken, or bypass the boundary.
   against their fixed interfaces; verify each owned change before its
   handoff.
 - **Return boundary:** returns after local verification for the dispatched
-  scope, without invoking or offering branch finishing.
+  scope, without invoking or offering branch finishing, nor deleting
+  caller-owned progress state.
 - **Feature Forge replacements:** use exactly the execution mode selected
   below; retain frozen specification/plan authority; never change plan
   checkboxes; use the workflow-owned implementation table, commits, evidence,

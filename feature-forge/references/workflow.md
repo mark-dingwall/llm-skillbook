@@ -320,7 +320,10 @@ menu presentation or before unattended resolution:
   before resolution.
 
 The choices are exactly local merge to confirmed base, Push-and-PR, and Keep
-branch/worktree — no other or reduced choice set.
+branch/worktree — no other or reduced choice set. A detached HEAD or another
+environment that cannot retain all three installed choices records `blocked`
+under category 8 with the missing-capability evidence and a resolution-only
+next action, rather than presenting a reduced menu.
 
 Before any side effect, commit a single complete category-8 update that records
 `choice_recorded` then current `executing` atomically: selected choice, authority,
@@ -352,8 +355,10 @@ external invocation.
 
 ### Recovery
 
-On recovery, first read the phase and receipts, then reconcile Git and — only for
-Push-and-PR — forge state, both read-only, before taking any action.
+On recovery, first read the phase and receipts, then reconcile Git — comparing
+both the recorded base ref and the feature ref against their recorded values —
+and — only for Push-and-PR — forge state, both read-only, before taking any
+action.
 
 - `ready` with no claim commit permits exactly one claim.
 - `claimed` proves the logical method already began; a fresh controller resumes its
