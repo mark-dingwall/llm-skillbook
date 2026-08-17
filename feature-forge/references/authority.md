@@ -57,6 +57,23 @@ under the existing authority rules, gives a recommendation or recommended
 default for each, and states the assumptions behind it and its acceptance and
 scope consequences.
 
+Use this mandatory, non-compressible response schema: one row or block per
+remaining decision, each containing:
+
+```text
+Decision: <the remaining decision>
+Recommendation/default: <recommended outcome>
+Assumptions: <assumptions behind the outcome>
+Acceptance/scope consequences: <observable acceptance and scope effects>
+```
+
+The response is incomplete and must not proceed if any decision row or field
+is absent. Follow the complete rows with exactly one action:
+
+```text
+Approval: approve or reject the whole packet
+```
+
 After presenting the complete packet, interactive or supervised mode has one
 consolidated sole next action: approval or rejection of that packet; do not
 reopen the individual decisions as new questions. Approval authorizes the
