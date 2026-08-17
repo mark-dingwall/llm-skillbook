@@ -118,6 +118,15 @@ class RoleFieldContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
+    def test_final_readiness_names_the_severity_vocabulary(self):
+        # Regression: a fresh-context probe (GREEN round 1) emitted
+        # severity: "Material" by conflating the BLOCK threshold prose
+        # ("material target defect") with the source_findings severity
+        # field. The resource must spell out the actual enum _SEVERITIES
+        # validates ({"Minor","Important","Critical"}) next to `severity`.
+        text = _read("final-readiness.md")
+        self.assertIn("exactly one of `Minor`, `Important`, or `Critical`", text)
+
     def test_review_roles_declare_review_record_contract(self):
         for name, role in (("holistic.md", "holistic"), ("adversarial.md", "adversarial"),
                             ("specialist.md", "specialist")):

@@ -37,8 +37,11 @@ Otherwise `payload` has `verdict: "BLOCK"`, `evidence` (non-empty and
 specific), `procedural_blocker` (a non-empty string naming the failed
 process condition, or `null` when the block is a target defect), and
 `source_findings` (an array, possibly empty, of `{id, claim, severity,
-locator_ids}` in the same shape as an ordinary review-record finding).
+locator_ids}` in the same shape as an ordinary review-record finding). Each
+finding's `severity` is exactly one of `Minor`, `Important`, or `Critical`
+— the ordinary review-record severity vocabulary, never any other word.
 
 `BLOCK` requires a material target defect or a material evidence/process
-failure. A Minor-only observation belongs in `source_findings`; it is not a
+failure — "material" describes why you are blocking, it is not a `severity`
+value. A Minor-only observation belongs in `source_findings`; it is not a
 blocking reason by itself.
