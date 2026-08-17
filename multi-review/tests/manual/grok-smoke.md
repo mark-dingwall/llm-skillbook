@@ -59,12 +59,20 @@ grep -c 'resolved.reviewers' ~/.claude/skills/multi-review/SKILL.md  # expect >=
 If those greps come back empty you are testing a stale install, and cases 1-3
 will report false confidence about opt-in.
 
-For every remaining case, work from the component root so the prompt examples
-and paths below resolve as written:
+To exercise the installed Claude skill and copied subagents rather than this
+checkout's plugin definitions, run every remaining case from a fresh directory
+outside the checkout, then start a new Claude Code session from that directory:
 
 ```bash
-cd multi-review
+CHECKOUT=$(pwd)
+SMOKE_DIR=$(mktemp -d)
+cd "$SMOKE_DIR"
 ```
+
+Replace `<CHECKOUT>` in the prompt examples below with the absolute path saved
+in `CHECKOUT`. This keeps the review subject in the checkout while the Claude
+Code session resolves `/multi-review` from the installed user-scoped skill and
+agents.
 
 ## Procedure
 
@@ -88,7 +96,7 @@ populates `DEFAULT_REVIEWERS`):
 prompt_format_version: 2
 task: code
 files:
-  - multi_review/core/paths.py
+  - <CHECKOUT>/multi-review/multi_review/core/paths.py
 synthesizer: none
 ```
 
@@ -115,7 +123,7 @@ copy, and this case is what proves the *installed* copy behaves the same way.
 prompt_format_version: 2
 task: code
 files:
-  - multi_review/core/paths.py
+  - <CHECKOUT>/multi-review/multi_review/core/paths.py
 synthesizer: none
 reviewers:
   - claude
@@ -125,7 +133,7 @@ reviewers:
 Run it. Confirm:
 - A grok section exists in `REVIEW-*.md`, opening with a `## Summary` heading.
 - The review text references `project_state_dir` or `run_dir` (symbols defined
-  only in `multi_review/core/paths.py`) — a `## Summary` heading alone does not
+  only in the selected `paths.py`) — a `## Summary` heading alone does not
   prove the prompt arrived; grok could read an empty prompt, review nothing,
   and still return a superficially successful response.
 
@@ -144,8 +152,8 @@ restricted under that profile).
 prompt_format_version: 2
 task: code
 files:
-  - multi_review/core/paths.py
-  - multi_review/core/reviewers.py
+  - <CHECKOUT>/multi-review/multi_review/core/paths.py
+  - <CHECKOUT>/multi-review/multi_review/core/reviewers.py
 synthesizer: grok
 reviewers:
   - claude

@@ -16,13 +16,15 @@ the repository root:
 ```bash
 uv run --project multi-review multi-review/multi_review.py \
   --prompt-file path/to/review.yaml \
-  --out-dir path/to/review-run
+  --out-dir path/to/review-run \
+  [--timeout <seconds>]
 ```
 
 The driver performs one fan-out and report assembly pass. It is
 *caller-contained*: it does not create a security boundary itself. A caller
 that needs sandboxing, lifecycle control, or cleanup must provide those
-properties around the command.
+properties around the command. `--timeout` supplies a per-call deadline for
+reviewers and synthesis; when omitted, the driver applies no deadline.
 
 The interactive workflow reports its output path, which may be suffixed to
 avoid a collision. The headless driver writes its final report to
@@ -61,8 +63,16 @@ entry to select a model or provider-specific model family for that route. YAML
 does not override the Claude Code Task subagents used by the interactive
 workflow; those use their agent definitions.
 
-Known reviewers are not necessarily defaults. In particular, opt-in reviewers
-must be named explicitly in the prompt rather than added to an automatic set.
+Known reviewers are not necessarily defaults. When `reviewers` is omitted, the
+default set is `claude`, `agy`, `codex`, `opencode`, and `pykrete`; opt-in
+reviewers must be named explicitly. Agy is an agentic default route and runs
+with its permission bypass enabled so it can read its prompt. Exclude it or use
+external containment when that posture is not acceptable.
+
+When `synthesizer` is omitted, it defaults to `claude`. Once two reviewer
+results succeed, the run attempts that synthesis; set `synthesizer: none` to
+disable the additional call.
+
 Validate a prompt before spending review capacity:
 
 ```bash
