@@ -1,0 +1,11 @@
+{
+  "description": "A repository-declared (e.g. pyproject.toml/CI-config-derived) supporting gate the scout never proposed, used to exercise discover_evidence's repository-adds-a-gate and repository-overrides-scout precedence paths.",
+  "gates": [
+    {
+      "id": "lint",
+      "argv": ["ruff", "check", "."],
+      "applicability": "applicable",
+      "rationale": "repository CI configuration runs ruff on every change"
+    }
+  ]
+}

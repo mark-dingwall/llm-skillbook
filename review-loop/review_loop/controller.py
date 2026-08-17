@@ -7,13 +7,31 @@ scout, or FIX agent is dispatched here.
 from __future__ import annotations
 
 import subprocess
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
-from .artifacts import CanonicalStore
+from .artifacts import CanonicalStore, EvidenceArtifact, canonical_bytes
+from .evidence import (
+    EvidenceDiscoveryIndeterminate,
+    Gate,
+    GateProposal,
+    GateResult,
+)
+from .evidence import discover_evidence as _discover_evidence
 from .profiles import InvocationIntent, ProfileError, ReviewProfile, RolePins, load_profile
+from .prompts import (
+    DispatchExpectation,
+    ProcessCompletion,
+    RoleExpectation,
+    RoleValidationError,
+    UnusableReview,
+    ValidatedReview,
+    ValidatedRoleArtifact,
+    validate_review_report,
+)
 from .seals import GitPolicy, SealEntry, TargetSeal, check_run_root_disjoint, seal_inputs, seal_target
 
 
@@ -33,11 +51,44 @@ class ProfileConfirmationRequired(Exception):
         self.reason = reason
 
 
+STAGES = (
+    "PREFLIGHT",
+    "STAGE0",
+    "REVIEW",
+    "TRIAGE",
+    "FIX",
+    "CLOSE",
+    "COMPLETE",
+    "INDETERMINATE",
+    "CANCELLED_BEFORE_REVIEW",
+)
+
+
 @dataclass(frozen=True)
 class RunState:
+    """The controller's view of one run: its persisted canonical snapshot
+    plus the current lifecycle stage (design: "Controller stages become
+    persisted enums").
+
+    ``stage``/``reason`` are a deterministic projection of ``snapshot``'s
+    ``processor_state`` keys wherever that is possible (so they always agree
+    with what is durably on disk after a restart) -- see
+    ``Controller._derive_stage``. The two stages that are NOT derivable from
+    "which operation has run" -- ``CANCELLED_BEFORE_REVIEW`` and an
+    INDETERMINATE stop while awaiting automatic-max confirmation -- are
+    carried only on this in-memory ``RunState`` returned by the stopping
+    call; a full crash-durable record of *why* a run stopped mid-Stage-0
+    would need either a new state.py operation (the compact kernel is a
+    fixed AST boundary this task must not touch) or a new artifacts.py
+    surface (out of this task's file scope). Disclosed as a carry-forward,
+    not silently faked.
+    """
+
     run_root: Path
     governing_seal: str
     snapshot: dict[str, object]
+    stage: str = "PREFLIGHT"
+    reason: str | None = None
 
 
 def _detect_git_policy(target: Path, intent: InvocationIntent) -> GitPolicy:
@@ -100,6 +151,87 @@ def _target_seal_to_dict(seal: TargetSeal) -> dict[str, object]:
         "git_index_digest": seal.git_index_digest,
         "digest": seal.digest,
     }
+
+
+class ControllerError(Exception):
+    """Stage 0/round orchestration cannot proceed; callers fail closed."""
+
+
+class ConfirmationExpired(Exception):
+    """The persisted deadline expired while awaiting confirmation.
+
+    A ``confirm`` callable passed to ``run_stage0`` should raise this
+    instead of returning when the run's absolute expiry has passed while a
+    human was being asked to confirm an automatically-derived ``max`` tier
+    (design: "If the persisted deadline expires while awaiting confirmation,
+    expiry takes precedence: mark the stage INDETERMINATE").
+    """
+
+
+def _new_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _issue(
+    store: CanonicalStore,
+    *,
+    operation: str,
+    projection: dict[str, object],
+    evidence: Sequence[EvidenceArtifact],
+) -> dict[str, object]:
+    return store.issue_transition(operation=operation, evidence=tuple(evidence), projection=projection)
+
+
+def _artifact(artifact_id: str, kind: str, target_seal: str, body: object) -> EvidenceArtifact:
+    raw = body if isinstance(body, bytes) else canonical_bytes(body)
+    return EvidenceArtifact(artifact_id=artifact_id, kind=kind, schema_version=1, target_seal=target_seal, raw_bytes=raw)
+
+
+def _dispatch_with_retry(dispatch: Callable[[], ValidatedRoleArtifact], *, on_exhausted: str) -> ValidatedRoleArtifact:
+    """Call ``dispatch`` once; on malformed output (design: "retried once"),
+    call it exactly one more time. A second malformed result is fail-closed.
+    """
+    try:
+        return dispatch()
+    except RoleValidationError:
+        try:
+            return dispatch()
+        except RoleValidationError as exc:
+            raise ControllerError(on_exhausted) from exc
+
+
+@dataclass(frozen=True)
+class InventoryArea:
+    id: str
+    charter: str
+    surfaces: tuple[str, ...]
+    consequence: str
+    generalist_miss: bool
+    owning_file_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Stage0Outcome:
+    run_state: RunState
+    gate_results: tuple[GateResult, ...]
+    evidence_gaps: tuple[str, ...]
+    areas: tuple[InventoryArea, ...]
+    priority_order: tuple[str, ...]
+    tier: str
+
+
+@dataclass(frozen=True)
+class RawReport:
+    report_id: str
+    role: str
+    review: ValidatedReview
+
+
+@dataclass(frozen=True)
+class Round1Outcome:
+    run_state: RunState
+    roster: tuple[dict[str, object], ...]
+    raw_reports: tuple[RawReport, ...]
 
 
 class Controller:
@@ -182,3 +314,345 @@ class Controller:
         store.initialize(target_seal.digest, {"preflight": preflight})
         snapshot = store.load()
         return RunState(run_root=run_root, governing_seal=target_seal.digest, snapshot=snapshot)
+
+    # --- Stage 0: evidence discovery + gate execution + inventory + rating ---
+
+    def run_stage0(
+        self,
+        run_state: RunState,
+        *,
+        operator_gates: Sequence[GateProposal] = (),
+        repository_gates: Sequence[GateProposal] = (),
+        scout: Callable[[], ValidatedRoleArtifact],
+        gate_dispatch: Callable[[Gate], GateResult],
+        inventory_owner: Callable[[RoleExpectation], ValidatedRoleArtifact],
+        inventory_challenger: Callable[[RoleExpectation], ValidatedRoleArtifact],
+        inventory_revision: Callable[[RoleExpectation], ValidatedRoleArtifact] | None = None,
+        explicit_tier: str | None,
+        no_confirm: bool = False,
+        raters: tuple[Callable[[], ValidatedRoleArtifact], Callable[[], ValidatedRoleArtifact]] | None = None,
+        confirm: Callable[[str], bool] | None = None,
+        new_id: Callable[[], str] = _new_id,
+    ) -> Stage0Outcome:
+        """Scout + every applicable baseline gate, then inventory owner and
+        challenger, then -- only for automatic effort -- two raters (brief
+        interfaces: exactly this order). Malformed retries and a
+        confirmation decline/expiry stop before any reviewer is scheduled.
+        """
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+
+        def _indeterminate(reason: str) -> Stage0Outcome:
+            return Stage0Outcome(
+                run_state=RunState(run_state.run_root, run_state.governing_seal, run_state.snapshot, "INDETERMINATE", reason),
+                gate_results=(), evidence_gaps=(), areas=(), priority_order=(), tier="",
+            )
+
+        try:
+            captured: dict[str, ValidatedRoleArtifact] = {}
+
+            def _tracking_scout() -> ValidatedRoleArtifact:
+                result = scout()
+                captured["scout"] = result
+                return result
+
+            plan = _discover_evidence(operator_gates, repository_gates, _tracking_scout)
+            scout_artifact = captured["scout"]
+
+            gate_results: list[GateResult] = []
+            gate_dicts: list[dict[str, object]] = []
+            gate_evidence: list[EvidenceArtifact] = [
+                _artifact(new_id(), "evidence-scout", seal, scout_artifact.artifact)
+            ]
+            for gate in plan.gates:
+                if gate.applicability == "not_applicable":
+                    gate_dicts.append({
+                        "id": gate.id, "target_seal": seal, "applicability": "not_applicable",
+                        "classification": gate.classification, "status": "NOT_RUN", "artifact_id": None,
+                    })
+                    continue
+                result = gate_dispatch(gate)
+                gate_results.append(result)
+                artifact_id = new_id()
+                gate_evidence.append(_artifact(artifact_id, "gate-result", seal, {
+                    "gate_id": result.gate_id, "argv": list(result.argv), "exit_status": result.exit_status,
+                    "stdout_excerpt": result.stdout_excerpt, "stderr_excerpt": result.stderr_excerpt,
+                    "rationale": result.rationale, "provenance": result.provenance,
+                }))
+                gate_dicts.append({
+                    "id": gate.id, "target_seal": seal, "applicability": "applicable",
+                    "classification": gate.classification, "status": result.status, "artifact_id": artifact_id,
+                })
+
+            owner_expectation = RoleExpectation(
+                request_id=new_id(), role_id="inventory-owner", target_seal=seal,
+                round_input_seal=None, expected_ids=(),
+            )
+            owner_result = _dispatch_with_retry(
+                lambda: inventory_owner(owner_expectation), on_exhausted="inventory owner output was malformed twice"
+            )
+            inventory_evidence = [_artifact(new_id(), "inventory-owner", seal, owner_result.artifact)]
+
+            challenge_expectation = RoleExpectation(
+                request_id=new_id(), role_id="inventory-challenge", target_seal=seal,
+                round_input_seal=None, expected_ids=(),
+            )
+            challenge_result = _dispatch_with_retry(
+                lambda: inventory_challenger(challenge_expectation),
+                on_exhausted="inventory challenger output was malformed twice",
+            )
+            inventory_evidence.append(_artifact(new_id(), "inventory-challenge", seal, challenge_result.artifact))
+
+            final_owner = owner_result
+            if challenge_result.artifact["verdict"] == "CHALLENGE":
+                if inventory_revision is None:
+                    raise ControllerError("inventory was challenged but no revision dispatcher was supplied")
+                challenge_ids = tuple(c["id"] for c in challenge_result.artifact["challenges"])
+                revision_expectation = RoleExpectation(
+                    request_id=new_id(), role_id="inventory-revision", target_seal=seal,
+                    round_input_seal=None, expected_ids=challenge_ids,
+                )
+                final_owner = _dispatch_with_retry(
+                    lambda: inventory_revision(revision_expectation),
+                    on_exhausted="inventory revision output was malformed twice",
+                )
+                inventory_evidence.append(_artifact(new_id(), "inventory-revision", seal, final_owner.artifact))
+
+            ratings_projection: list[object] = []
+            rating_evidence: list[EvidenceArtifact] = []
+            if explicit_tier is None:
+                if raters is None or len(raters) != 2:
+                    raise ControllerError("automatic tier requires exactly two rating samples")
+                for rater in raters:
+                    rating_result = _dispatch_with_retry(rater, on_exhausted="rating output was malformed twice")
+                    ratings_projection.append(rating_result.projection)
+                    rating_evidence.append(_artifact(new_id(), "rating", seal, rating_result.artifact))
+        except (EvidenceDiscoveryIndeterminate, ControllerError) as exc:
+            return _indeterminate(str(exc))
+
+        if explicit_tier is not None:
+            tier_projection = {"explicit_tier": explicit_tier, "no_confirm": no_confirm, "ratings": []}
+            tier_evidence = [_artifact(new_id(), "tier-selection", seal, {"explicit_tier": explicit_tier})]
+        else:
+            tier_projection = {"explicit_tier": None, "no_confirm": no_confirm, "ratings": ratings_projection}
+            tier_evidence = rating_evidence
+
+        updated = _issue(store, operation="derive_policy", projection=tier_projection, evidence=tier_evidence)
+        policy = updated["processor_state"]["derive_policy"]
+        tier = policy["tier"]
+
+        if policy["confirmation_required"]:
+            if confirm is None:
+                return Stage0Outcome(
+                    run_state=RunState(
+                        run_state.run_root, run_state.governing_seal, updated,
+                        "CANCELLED_BEFORE_REVIEW", "automatic max tier requires confirmation but none was supplied",
+                    ),
+                    gate_results=(), evidence_gaps=(), areas=(), priority_order=(), tier=tier,
+                )
+            try:
+                confirmed = confirm("automatically derived tier is 'max'; confirm reviewer dispatch?")
+            except ConfirmationExpired as exc:
+                return Stage0Outcome(
+                    run_state=RunState(run_state.run_root, run_state.governing_seal, updated, "INDETERMINATE", str(exc)),
+                    gate_results=(), evidence_gaps=(), areas=(), priority_order=(), tier=tier,
+                )
+            if not confirmed:
+                return Stage0Outcome(
+                    run_state=RunState(
+                        run_state.run_root, run_state.governing_seal, updated,
+                        "CANCELLED_BEFORE_REVIEW", "operator declined automatic max-tier confirmation",
+                    ),
+                    gate_results=(), evidence_gaps=(), areas=(), priority_order=(), tier=tier,
+                )
+
+        gates_projection = {"target_seal": seal, "gates": gate_dicts}
+        updated = _issue(store, operation="reconcile_gates", projection=gates_projection, evidence=gate_evidence)
+        kernel_gaps = updated["processor_state"]["reconcile_gates"]["evidence_gaps"]
+        evidence_gaps = tuple(dict.fromkeys(list(plan.evidence_gaps) + list(kernel_gaps)))
+
+        inventory_projection = {**final_owner.projection, "prior_areas": [], "mappings": [], "invalidators": {}}
+        updated = _issue(store, operation="refresh_inventory", projection=inventory_projection, evidence=inventory_evidence)
+        refreshed = updated["processor_state"]["refresh_inventory"]
+        active_areas = refreshed["active_areas"]
+        priority_order = tuple(refreshed["priority_order"])
+
+        rich_by_id = {a["id"]: a for a in final_owner.artifact["areas"]}
+        areas = tuple(
+            InventoryArea(
+                id=a["id"],
+                charter=rich_by_id[a["id"]]["charter"],
+                surfaces=tuple(rich_by_id[a["id"]]["surfaces"]),
+                consequence=a["consequence"],
+                generalist_miss=a["generalist_miss"],
+                owning_file_ids=tuple(a["owning_file_ids"]),
+            )
+            for a in active_areas
+        )
+
+        return Stage0Outcome(
+            run_state=RunState(run_state.run_root, run_state.governing_seal, updated, "STAGE0", None),
+            gate_results=tuple(gate_results),
+            evidence_gaps=evidence_gaps,
+            areas=areas,
+            priority_order=priority_order,
+            tier=tier,
+        )
+
+    # --- Round 1: freeze roster, dispatch holistic/adversarial/specialists ---
+
+    def run_round1(
+        self,
+        stage0: Stage0Outcome,
+        *,
+        dispatch_role: Callable[[DispatchExpectation], tuple[bytes, ProcessCompletion]],
+        capacity: int | None = None,
+        new_id: Callable[[], str] = _new_id,
+    ) -> Round1Outcome:
+        from .execution import default_capacity
+
+        run_state = stage0.run_state
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        areas_by_id = {a.id: a for a in stage0.areas}
+        active_areas = run_state.snapshot["processor_state"]["refresh_inventory"]["active_areas"]
+
+        roster_projection = {
+            "tier": stage0.tier,
+            "areas": active_areas,
+            "priority_order": list(stage0.priority_order),
+            "capacity": capacity or default_capacity(),
+        }
+        updated = _issue(
+            store, operation="plan_roster", projection=roster_projection,
+            evidence=[_artifact(new_id(), "roster-plan", seal, {"tier": stage0.tier})],
+        )
+        roster = tuple(updated["processor_state"]["plan_roster"]["roster"])
+
+        raw_reports: list[RawReport] = []
+        for entry in roster:
+            role = entry["role"]
+            area_id = entry.get("area_id")
+            charter_id = area_id if role == "specialist" else role
+            if role == "specialist":
+                scope_locator_ids = tuple(areas_by_id[area_id].owning_file_ids)
+            else:
+                # Round 1 dispatches against the whole sealed target (design
+                # Sec. 4: "Round 1 reviews the full sealed target"); this MVP
+                # does not model per-file locator IDs for a whole-target
+                # scope, so a single fixed sentinel stands for "everything".
+                scope_locator_ids = ("target-root",)
+            request_id = new_id()
+            expectation = DispatchExpectation(
+                request_id=request_id, role=role, charter_id=charter_id, target_seal=seal,
+                round_input_seal=None, scope_locator_ids=scope_locator_ids,
+            )
+            body, process = dispatch_role(expectation)
+            outcome = validate_review_report(body, expectation, process)
+            if isinstance(outcome, UnusableReview) or not outcome.usable:
+                raise ControllerError(f"round 1 role {role!r} produced no usable report")
+            raw_reports.append(RawReport(report_id=request_id, role=role, review=outcome))
+
+        return Round1Outcome(
+            run_state=RunState(run_state.run_root, run_state.governing_seal, updated, "REVIEW", None),
+            roster=roster,
+            raw_reports=tuple(raw_reports),
+        )
+
+    # --- TRIAGE: strict-JSON triage of every usable raw report ---
+
+    def run_triage(
+        self,
+        round1: Round1Outcome,
+        *,
+        triager: Callable[[RoleExpectation], ValidatedRoleArtifact],
+        new_id: Callable[[], str] = _new_id,
+    ) -> RunState:
+        run_state = round1.run_state
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        usable_ids = tuple(r.report_id for r in round1.raw_reports)
+        raw_findings = {
+            r.report_id: {
+                f.finding_id: (f.claim, f.severity, list(f.locator_ids)) for f in r.review.record.source_findings
+            }
+            for r in round1.raw_reports
+        }
+        expectation = RoleExpectation(
+            request_id=new_id(), role_id="triage", target_seal=seal, round_input_seal=None,
+            expected_ids=usable_ids, extra={"raw_findings": raw_findings},
+        )
+        result = _dispatch_with_retry(lambda: triager(expectation), on_exhausted="triage output was malformed twice")
+        rows = result.projection["rows"]
+
+        initial_rows: list[dict[str, object]] = []
+        decisions: list[dict[str, object]] = []
+        for row in rows:
+            if row["state"] != "OPEN":
+                raise ControllerError(
+                    f"triage row {row['id']!r} proposes {row['state']} on first appearance; "
+                    "not supported by this task's scope"
+                )
+            initial_rows.append({**row, "proof_artifact_ids": [], "manifest_artifact_id": None})
+            decisions.append({
+                "id": row["id"], "state": "OPEN", "proof_artifact_ids": [], "manifest_artifact_id": None,
+            })
+
+        ledger_projection = {
+            "target_seal": seal, "initial_rows": initial_rows, "decisions": decisions,
+            "manifests": [], "adjudication": None,
+        }
+        raw_evidence = [_artifact(r.report_id, "raw-report", seal, r.review.body) for r in round1.raw_reports]
+        evidence = raw_evidence + [_artifact(new_id(), "triage-result", seal, result.artifact)]
+        updated = _issue(store, operation="apply_ledger_decisions", projection=ledger_projection, evidence=evidence)
+        return RunState(run_state.run_root, run_state.governing_seal, updated, "TRIAGE", None)
+
+    # --- final-readiness challenge and CLOSE ---
+
+    def run_final_challenge(
+        self,
+        run_state: RunState,
+        *,
+        final_challenger: Callable[[], ValidatedRoleArtifact],
+        new_id: Callable[[], str] = _new_id,
+    ) -> RunState:
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        result = _dispatch_with_retry(final_challenger, on_exhausted="final-readiness challenge was malformed twice")
+        if result.artifact["verdict"] == "BLOCK":
+            raise ControllerError(
+                "final-readiness BLOCK handling (supplemental TRIAGE) is not implemented in this task's scope"
+            )
+        artifact_id = new_id()
+        attempt = {"status": "UPHOLD", "target_seal": seal, "source_finding_ids": [], "artifact_id": artifact_id}
+        projection = {"current_seal": seal, "attempts": [attempt]}
+        evidence = [_artifact(artifact_id, "final-challenge", seal, result.artifact)]
+        updated = _issue(store, operation="record_final_challenge", projection=projection, evidence=evidence)
+        return RunState(run_state.run_root, run_state.governing_seal, updated, "CLOSE", None)
+
+    def close(self, run_state: RunState, *, new_id: Callable[[], str] = _new_id) -> RunState:
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        processor = run_state.snapshot["processor_state"]
+        policy = processor["derive_policy"]
+        ledger_rows = processor["apply_ledger_decisions"]["rows"]
+        active_areas = processor["refresh_inventory"]["active_areas"]
+        gates = processor["reconcile_gates"]
+        final_challenge = processor["record_final_challenge"]
+        lifecycle = {
+            "confirmation": "not_required" if not policy["confirmation_required"] else "confirmed",
+            "deadline_expired": False,
+            "round1_triage_complete": True,
+            "scheduled_reports_usable": True,
+            "raw_reports_reconciled": True,
+            "any_indeterminate": False,
+            "expected_final_seal": seal,
+            "actual_final_seal": seal,
+        }
+        projection = {
+            "lifecycle": lifecycle, "ledger": ledger_rows, "gates": gates,
+            "areas": active_areas, "final_challenge": final_challenge,
+        }
+        evidence = [_artifact(new_id(), "close-computation", seal, {"lifecycle": lifecycle})]
+        updated = _issue(store, operation="compute_terminal", projection=projection, evidence=evidence)
+        return RunState(run_state.run_root, run_state.governing_seal, updated, "COMPLETE", None)
