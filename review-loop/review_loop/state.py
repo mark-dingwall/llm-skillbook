@@ -158,22 +158,26 @@ def _roster(p: dict[str, object]) -> dict[str, object]:
 
 
 def _gates(p: dict[str, object]) -> dict[str, object]:
-    data = _object(p,"projection",{"target_seal","gates"}); _require(isinstance(data["gates"],list),"projection.gates","must be array"); blocks=[]; gaps=[]
+    data = _object(p,"projection",{"target_seal","gates","required_gate_ids"}); _require(isinstance(data["gates"],list),"projection.gates","must be array"); blocks=[]; gaps=[]
+    required=set(_ids(data["required_gate_ids"],"projection.required_gate_ids"))
     seen=set()
     for i, raw in enumerate(data["gates"]):
         gate=_object(raw,f"projection.gates[{i}]",{"id","target_seal","applicability","classification","status","artifact_id"}); _require(gate["target_seal"]==data["target_seal"],f"projection.gates[{i}]","stale gate")
         _require(gate["id"] not in seen and gate["applicability"] in {"applicable","not_applicable"} and gate["classification"] in {"required","supporting"} and gate["status"] in {"PASSED","FAILED","NOT_RUN"}, f"projection.gates[{i}]", "invalid gate")
         seen.add(gate["id"])
+        _require((gate["id"] in required) == (gate["classification"] == "required"), f"projection.gates[{i}].classification", "classification disagrees with fixed gate policy")
         _require(not (gate["applicability"] == "not_applicable" and gate["status"] != "NOT_RUN"), f"projection.gates[{i}]", "non-applicable gate cannot execute")
         if gate["applicability"] == "applicable" and gate["status"] == "FAILED": blocks.append(f"gate {gate['id']} failed")
         if gate["classification"] == "required" and gate["applicability"] == "applicable" and gate["status"] != "PASSED": blocks.append(f"required gate {gate['id']} did not pass")
         if gate["status"] == "NOT_RUN": gaps.append(f"gate {gate['id']} not run")
+    missing=required-seen
+    if missing: blocks.extend(f"required gate {ident} missing" for ident in sorted(missing))
     if not data["gates"]: gaps.append("no applicable evidence gates discovered")
     return {"gates":data["gates"],"blocking_reasons":blocks,"evidence_gaps":gaps,"review_may_start":not any("failed" in b for b in blocks),"merge_readiness_eligible":not blocks}
 
 
 def _ledger(p: dict[str, object]) -> dict[str, object]:
-    data=_object(p,"projection",{"prior_rows","decisions","manifests","target_seal","adjudication"})
+    data=_object(p,"projection",{"prior_rows","decisions","manifests","target_seal","prior_next_adjudication","adjudication"})
     _require(isinstance(data["prior_rows"],list) and isinstance(data["decisions"],list) and isinstance(data["manifests"],list),"projection","ledger lists required")
     prior={}
     for i, raw in enumerate(data["prior_rows"]):
@@ -204,11 +208,17 @@ def _ledger(p: dict[str, object]) -> dict[str, object]:
         _require(isinstance(adjudication,dict),"projection.adjudication","green decisions require adjudication")
         a=_object(adjudication,"projection.adjudication",{"attempt","status","decided_ids","proof_artifact_id"}); _require(a["attempt"] in {1,2} and a["status"] in {"UPHOLD","BOUNCE","UNDECIDED","FAILED"},"projection.adjudication","invalid attempt")
         ids=set(_ids(a["decided_ids"],"projection.adjudication.decided_ids")); _require(ids <= set(green),"projection.adjudication.decided_ids","unknown decision")
-        if a["status"]=="UPHOLD": _require(ids==set(green) and isinstance(a["proof_artifact_id"],str) and a["proof_artifact_id"],"projection.adjudication","uphold needs proof for all")
+        _require(a["status"] in {"FAILED","UNDECIDED"} or isinstance(a["proof_artifact_id"],str) and a["proof_artifact_id"],"projection.adjudication.proof_artifact_id","settled outcome needs proof")
+        if a["status"]=="UPHOLD": _require(ids==set(green),"projection.adjudication","uphold needs all decisions")
+        prior_attempt=data["prior_next_adjudication"]
+        if a["attempt"] == 1: _require(prior_attempt is None,"projection.prior_next_adjudication","first attempt cannot replay state")
+        else:
+            expected={"attempt":2,"pending_ids":green}
+            _require(prior_attempt==expected,"projection.prior_next_adjudication","attempt two must consume prior retry state")
         if a["status"] in {"FAILED","UNDECIDED"} and a["attempt"]==1: return {"rows":list(prior.values()),"pending_fix_ids":[r["id"] for r in prior.values() if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":{"attempt":2,"pending_ids":green}}
         if a["status"] in {"FAILED","UNDECIDED"}: proposed={ident:prior[ident] for ident in prior}
         if a["status"]=="BOUNCE": proposed={ident:(prior[ident] if ident in ids else value) for ident,value in proposed.items()}
-    else: _require(adjudication is None,"projection.adjudication","no adjudication pending")
+    else: _require(adjudication is None and data["prior_next_adjudication"] is None,"projection.adjudication","no adjudication pending")
     rows=list(proposed.values()); return {"rows":rows,"pending_fix_ids":[r["id"] for r in rows if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":None}
 
 
@@ -230,7 +240,7 @@ def _terminal(p: dict[str, object]) -> dict[str, object]:
     data=_object(p,"projection",{"lifecycle","ledger","gates","areas","final_challenge"})
     lifecycle=_object(data["lifecycle"],"projection.lifecycle",{"confirmation","deadline_expired","round1_triage_complete","scheduled_reports_usable","raw_reports_reconciled","any_indeterminate","expected_final_seal","actual_final_seal"})
     _require(isinstance(data["ledger"],list) and isinstance(data["areas"],list),"projection","malformed terminal projection")
-    gate=_object(data["gates"],"projection.gates",{"gates","blocking_reasons","evidence_gaps","review_may_start","merge_readiness_eligible"})
+    gate=_object(data["gates"],"projection.gates",{"gates","blocking_reasons","evidence_gaps","review_may_start","merge_readiness_eligible","required_gate_ids"})
     challenge=_object(data["final_challenge"],"projection.final_challenge",{"state","fresh","target_seal","source_finding_ids","artifact_id","retry_required"})
     failed=[]
     if lifecycle["confirmation"] not in {"not_required","confirmed"}: failed.append("confirmation")
@@ -239,14 +249,16 @@ def _terminal(p: dict[str, object]) -> dict[str, object]:
         if lifecycle[key] is not True: failed.append(key)
     if lifecycle["any_indeterminate"]: failed.append("indeterminate")
     if lifecycle["expected_final_seal"] != lifecycle["actual_final_seal"]: failed.append("seal")
-    if challenge["state"] != "UPHELD" or challenge["fresh"] is not True or challenge["target_seal"] != lifecycle["actual_final_seal"] or challenge["source_finding_ids"] or challenge["retry_required"]: failed.append("final_challenge")
+    if challenge["state"] != "UPHELD" or challenge["fresh"] is not True or challenge["target_seal"] != lifecycle["actual_final_seal"] or challenge["source_finding_ids"] or challenge["retry_required"] or not isinstance(challenge["artifact_id"],str) or not challenge["artifact_id"]: failed.append("final_challenge")
     # Gate rollup must match compact records rather than trusting a caller flag.
-    recomputed=_gates({"target_seal":lifecycle["actual_final_seal"],"gates":gate["gates"]})
+    recomputed=_gates({"target_seal":lifecycle["expected_final_seal"],"gates":gate["gates"],"required_gate_ids":gate["required_gate_ids"]})
     if any(gate[key] != recomputed[key] for key in ("blocking_reasons","evidence_gaps","review_may_start","merge_readiness_eligible")): failed.append("gates")
+    if not gate["merge_readiness_eligible"] or gate["blocking_reasons"]: failed.append("gates_not_ready")
     for i,row in enumerate(data["ledger"]):
         _require(isinstance(row,dict),f"projection.ledger[{i}]","invalid row")
         state=row.get("state"); severity=row.get("current_severity")
-        if state in {"FIX_VERIFIED","REFUTED","INTENTIONAL"} and not row.get("proof_artifact_ids"): failed.append(f"proof:{row.get('id')}")
+        proofs=row.get("proof_artifact_ids")
+        if state in {"FIX_VERIFIED","REFUTED","INTENTIONAL"} and (not isinstance(proofs,list) or not proofs or any(not isinstance(proof,str) or not proof for proof in proofs)): failed.append(f"proof:{row.get('id')}")
         if severity in {"Important","Critical"} and state not in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: failed.append(f"open:{row.get('id')}")
     for raw in data["areas"]:
         area=_area(raw,"projection.areas",True)
