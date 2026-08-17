@@ -415,5 +415,38 @@ class AdjudicationTwoCallTests(unittest.TestCase):
             self.controller.run_adjudication(run_state, [], adjudicator=adjudicator)
 
 
+class DeferredBoundaryTests(unittest.TestCase):
+    """The Task-9 deferrals must fail closed LOUDLY -- never silently no-op --
+    so a real multi-round run can't quietly skip them before Task 9 exists.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.run_root = Path(self._tmp.name) / "run"
+        self.controller = Controller()
+
+    def test_second_triage_reconcile_is_refused(self):
+        from review_loop.controller import ControllerError, Round1Outcome
+        run_state = _open_ledger(self.run_root, ["F1"])  # ledger already initialized
+        round1 = Round1Outcome(run_state=run_state, roster=(), raw_reports=())
+
+        def triager(exp):
+            self.fail("round-N triage must be refused before any dispatch")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_triage(round1, triager=triager)
+
+    def test_baseline_seal_advancement_is_refused(self):
+        from review_loop.controller import ControllerError
+        with self.assertRaises(ControllerError):
+            self.controller.promote_post_fix_baseline()
+
+    def test_mutation_result_persistence_is_refused(self):
+        from review_loop.controller import ControllerError
+        with self.assertRaises(ControllerError):
+            self.controller.record_mutation_result()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -743,6 +743,17 @@ class Controller:
         new_id: Callable[[], str] = _new_id,
     ) -> RunState:
         run_state = round1.run_state
+        # run_triage only ever INITIALIZES the ledger (round 1). Round-N
+        # triage-RECONCILE onto prior canonical rows -- and everything that
+        # rides on it (reopened settlements, coverage invalidation, successor
+        # STALE, Critical restaffing, oscillation, round caps) -- depends on
+        # multi-baseline seal advancement and is deferred to Task 9. Fail closed
+        # LOUDLY rather than letting a second call reinitialize or silently skip.
+        if "apply_ledger_decisions" in run_state.snapshot["processor_state"]:
+            raise ControllerError(
+                "round-N triage-reconcile onto prior canonical rows is deferred to Task 9 "
+                "(needs post-FIX baseline seal advancement); refusing to reinitialize the ledger"
+            )
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
         usable_ids = tuple(r.report_id for r in round1.raw_reports)
@@ -945,6 +956,36 @@ class Controller:
         return AdjudicationOutcome(
             run_state=RunState(state.run_root, state.governing_seal, state.snapshot, "TRIAGE", None),
             status=status, attempts=attempt, settled=settled,
+        )
+
+    # --- explicit fail-closed tripwires for the Task-9 deferrals --------
+    #
+    # These paths CANNOT be implemented without a new canonical seal-advancement
+    # surface in artifacts.py/state.py (both frozen boundaries here). They exist
+    # as loud fail-closed stubs -- never silent no-ops -- so a real multi-round
+    # run stops with a clear diagnostic instead of quietly skipping the deferred
+    # work before Task 9 lands (team-lead ruling: "fail closed on any of these").
+
+    def promote_post_fix_baseline(self, *_args, **_kwargs) -> "RunState":
+        """DEFERRED to Task 9: promote a verified post-FIX disposable-copy
+        identity to a NEW governing baseline seal (and apply the validated
+        candidate back to the authoritative target). The snapshot's
+        governing_seal is immutable; advancing it needs an artifacts.py surface.
+        """
+        raise ControllerError(
+            "post-FIX baseline seal advancement (new governing seal + candidate "
+            "write-back to the authoritative target) is deferred to Task 9; the "
+            "governing seal is immutable without an artifacts.py/state.py surface"
+        )
+
+    def record_mutation_result(self, *_args, **_kwargs) -> "RunState":
+        """DEFERRED to Task 9: give ``evidence.MutationResult`` a durable
+        canonical home + a path to final-readiness/report. state.py was frozen in
+        Task 7 (carry-forward (c)); there is no kernel op to persist it here.
+        """
+        raise ControllerError(
+            "MutationResult has no durable canonical home yet (state.py frozen "
+            "since Task 7); persisting it is deferred to Task 9"
         )
 
     # --- final-readiness challenge and CLOSE ---
