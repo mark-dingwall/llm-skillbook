@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Forge"
+  short_description: "Deliver reviewed features from spec to acceptance"
+  default_prompt: "Use $feature-forge to implement this feature from specification through reviewed acceptance."
