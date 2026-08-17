@@ -240,6 +240,31 @@ def _dispatch_with_retry(dispatch: Callable[[], ValidatedRoleArtifact], *, on_ex
             raise ControllerError(on_exhausted) from exc
 
 
+def _aggregate_adjudication(projection: object, green_ids: Sequence[str]) -> tuple[str, list[str]]:
+    """Fold the per-row adjudication verdicts into one kernel status + decided IDs.
+
+    Precedence (design's atomic-bounce / undecided-subset-retry): any UNDECIDED
+    row blocks the whole batch (retry); otherwise any BOUNCE reverts the whole
+    batch atomically; otherwise UPHOLD. ``decided_ids`` is the undecided subset
+    for a retry (informational to the kernel) and the full green set otherwise.
+    """
+    if not isinstance(projection, list):
+        raise ControllerError("adjudication projection must be a per-row decision list")
+    statuses = {}
+    for item in projection:
+        if not isinstance(item, dict) or "id" not in item or "status" not in item:
+            raise ControllerError("adjudication decision is malformed")
+        statuses[item["id"]] = item["status"]
+    if set(statuses) != set(green_ids):
+        raise ControllerError("adjudication must decide exactly the pending green set")
+    values = list(statuses.values())
+    if "UNDECIDED" in values:
+        return "UNDECIDED", [i for i in green_ids if statuses[i] == "UNDECIDED"]
+    if "BOUNCE" in values:
+        return "BOUNCE", list(green_ids)
+    return "UPHOLD", list(green_ids)
+
+
 @dataclass(frozen=True)
 class InventoryArea:
     id: str
@@ -288,6 +313,22 @@ class Round1Outcome:
     run_state: RunState
     roster: tuple[dict[str, object], ...]
     raw_reports: tuple[RawReport, ...]
+
+
+@dataclass(frozen=True)
+class FixOutcome:
+    run_state: RunState
+    transition: object  # fix.FixTransition
+    gate_rerun: GateRerunOutcome
+    disposable_copy: Path
+
+
+@dataclass(frozen=True)
+class AdjudicationOutcome:
+    run_state: RunState
+    status: str
+    attempts: int
+    settled: bool
 
 
 class Controller:
@@ -739,6 +780,172 @@ class Controller:
         evidence = raw_evidence + [_artifact(new_id(), "triage-result", seal, result.artifact)]
         updated = _issue(store, operation="apply_ledger_decisions", projection=ledger_projection, evidence=evidence)
         return RunState(run_state.run_root, run_state.governing_seal, updated, "TRIAGE", None)
+
+    # --- FIX: the sole authorized mutation window -----------------------
+
+    def run_fix(
+        self,
+        run_state: RunState,
+        *,
+        target_root: Path,
+        fix_implementer: Callable[[Path, RoleExpectation], ValidatedRoleArtifact],
+        evidence_plan: EvidencePlan,
+        post_fix_gate_dispatch: Callable[[Path], Callable[[Gate], GateResult]],
+        new_id: Callable[[], str] = _new_id,
+    ) -> "FixOutcome":
+        """Materialize a disposable copy, dispatch the sole non-delegating FIX
+        implementer against it, validate the candidate delta before recording
+        ``FIX_APPLIED``, then rerun the required/supporting gates on the verified
+        post-FIX copy.
+
+        The implementer is faked in tests: a callable that writes the fix into
+        the disposable copy and returns a validated ``fix`` role artifact. The
+        real backend would build ``fix.build_fix_call`` + ``execution.Executor``;
+        that provider dispatch is out of this task's tested scope.
+        """
+        from .evidence import make_disposable_copy
+        from .fix import FixController
+        from .seals import GitPolicy, seal_target
+
+        seal = run_state.governing_seal
+        rows = run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
+        open_rows = [r for r in rows if r["state"] == "OPEN"]
+        if not open_rows:
+            raise ControllerError("run_fix requires at least one OPEN ledger row")
+
+        work = Path(run_state.run_root) / "fix" / new_id()
+        copy_root = work / "copy"
+        make_disposable_copy(seal_target(Path(target_root), GitPolicy(enabled=False)), copy_root)
+        before = seal_target(copy_root, GitPolicy(enabled=False))
+
+        expectation = RoleExpectation(
+            request_id=new_id(), role_id="fix", target_seal=seal, round_input_seal=None,
+            expected_ids=tuple(r["id"] for r in open_rows),
+        )
+        manifest = fix_implementer(copy_root, expectation)
+        after = seal_target(copy_root, GitPolicy(enabled=False))
+
+        fixctl = FixController(run_state, work, new_id=new_id)
+        request = fixctl.prepare(open_rows, seal, evidence_plan)
+        validated = fixctl.validate_candidate(request, before, after, manifest)
+        transition = fixctl.apply(validated)
+
+        gate_rerun = self.rerun_gates(
+            transition.run_state, evidence_plan, gate_dispatch=post_fix_gate_dispatch(copy_root), new_id=new_id,
+        )
+        return FixOutcome(
+            run_state=gate_rerun.run_state, transition=transition,
+            gate_rerun=gate_rerun, disposable_copy=copy_root,
+        )
+
+    # --- adjudication: strict two-call settlement of green decisions ----
+
+    def run_adjudication(
+        self,
+        run_state: RunState,
+        settlements: Sequence[dict[str, object]],
+        *,
+        adjudicator: Callable[[RoleExpectation], ValidatedRoleArtifact],
+        authority_kinds: dict[str, str] | None = None,
+        proof_evidence: Sequence[EvidenceArtifact] = (),
+        new_id: Callable[[], str] = _new_id,
+    ) -> "AdjudicationOutcome":
+        """Settle a batch of green (FIX_VERIFIED / REFUTED / INTENTIONAL) decisions.
+
+        The adjudication role returns a per-row UPHOLD/BOUNCE/UNDECIDED verdict;
+        this controller (Task-1/2 deferred the grouping decision here) aggregates
+        it into the kernel's single-status ``apply_ledger_decisions`` adjudication:
+        any UNDECIDED retries the whole set once (attempt two consumes the
+        canonical retry state); otherwise any BOUNCE atomically reverts every
+        green decision; otherwise UPHOLD settles them with the positive
+        seal-bound adjudication proof. An empty settlement set makes no call.
+        """
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        kinds = authority_kinds or {}
+        rows = {r["id"]: r for r in run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]}
+        by_id = {s["id"]: s for s in settlements}
+        green_states = {"FIX_VERIFIED", "REFUTED", "INTENTIONAL"}
+
+        if not settlements:
+            raise ControllerError("run_adjudication requires at least one green settlement")
+        if len(by_id) != len(settlements):
+            raise ControllerError("settlements must decide each row at most once")
+        if set(by_id) != set(rows):
+            raise ControllerError("this task adjudicates the full pending ledger in one batch (round-N is Task 9)")
+        for row in rows.values():
+            if row["state"] not in {"OPEN", "FIX_APPLIED"}:
+                raise ControllerError(
+                    f"row {row['id']!r} is already terminal ({row['state']}); re-adjudication is Task 9"
+                )
+        for ident, s in by_id.items():
+            if s["state"] not in green_states:
+                raise ControllerError(f"settlement {ident!r} proposes non-green state {s['state']!r}")
+
+        green_ids = [r_id for r_id in rows if r_id in by_id]
+        manifests: list[dict[str, object]] = []
+        decisions: list[dict[str, object]] = []
+        for ident in rows:
+            s = by_id[ident]
+            manifest = s.get("manifest_artifact_id")
+            decisions.append({
+                "id": ident, "state": s["state"],
+                "proof_artifact_ids": list(s.get("proof_artifact_ids", [])),
+                "manifest_artifact_id": manifest,
+            })
+            if manifest is not None:
+                manifests.append({"id": manifest, "finding_id": ident})
+
+        expectation = RoleExpectation(
+            request_id=new_id(), role_id="adjudication", target_seal=seal, round_input_seal=None,
+            expected_ids=tuple(green_ids), extra={"adjudication_kinds": kinds},
+        )
+        result = _dispatch_with_retry(
+            lambda: adjudicator(expectation), on_exhausted="adjudication output was malformed twice"
+        )
+        status, decided_ids = _aggregate_adjudication(result.projection, green_ids)
+
+        # The green settlements' own proof (post-FIX re-review + gate reruns) is
+        # registered once, in the first settling transition; a retry reuses those
+        # already-canonical proof IDs by reference. "A passing gate or manifest
+        # alone is never fix verification" -- the caller supplies both.
+        attempt = 1
+        state = run_state
+        pending_proof = tuple(proof_evidence)
+        while True:
+            proof_id = new_id()
+            proof = None if status in {"UNDECIDED", "FAILED"} else proof_id
+            adjudication = {
+                "attempt": attempt, "status": status,
+                "decided_ids": decided_ids, "proof_artifact_id": proof,
+            }
+            projection = {
+                "target_seal": seal, "decisions": decisions,
+                "manifests": manifests, "adjudication": adjudication,
+            }
+            evidence = tuple(pending_proof) + (_artifact(proof_id, "adjudication-result", seal, result.artifact),)
+            pending_proof = ()
+            updated = _issue(store, operation="apply_ledger_decisions", projection=projection, evidence=evidence)
+            state = RunState(run_state.run_root, run_state.governing_seal, updated, run_state.stage, None)
+            if attempt == 1 and status in {"UNDECIDED", "FAILED"}:
+                attempt = 2
+                retry_expectation = RoleExpectation(
+                    request_id=new_id(), role_id="adjudication", target_seal=seal, round_input_seal=None,
+                    expected_ids=tuple(green_ids), extra={"adjudication_kinds": kinds},
+                )
+                result = _dispatch_with_retry(
+                    lambda: adjudicator(retry_expectation), on_exhausted="adjudication retry was malformed twice"
+                )
+                status, decided_ids = _aggregate_adjudication(result.projection, green_ids)
+                continue
+            break
+
+        final_rows = state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
+        settled = all(r["state"] in green_states for r in final_rows)
+        return AdjudicationOutcome(
+            run_state=RunState(state.run_root, state.governing_seal, state.snapshot, "TRIAGE", None),
+            status=status, attempts=attempt, settled=settled,
+        )
 
     # --- final-readiness challenge and CLOSE ---
 
