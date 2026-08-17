@@ -53,7 +53,7 @@ def _ids(value: object, path: str) -> list[str]:
 
 def _policy(tier: str, source: str, confirmation: bool) -> dict[str, object]:
     rounds, capability, threshold, multi = POLICIES[tier]
-    return {"tier": tier, "source": source, "confirmation_required": confirmation, "round_cap": rounds, "normal_capability": capability, "specialist_threshold": threshold, "multi_review_rounds": multi}
+    return {"tier": tier, "source": source, "confirmation_required": confirmation, "round_cap": rounds, "normal_capability": capability, "specialist_threshold": threshold, "multi_review_rounds": list(multi)}
 
 
 def _derive(projection: dict[str, object]) -> dict[str, object]:
@@ -120,10 +120,16 @@ def _refresh(p: dict[str, object]) -> dict[str, object]:
     _require(mapped == set(prior_by), "projection.mappings", "must map every prior ID")
     active = []
     for ident in priority:
-        item = dict(current_by[ident]); flags = data["invalidators"].get(ident, {})
-        _require(isinstance(flags, dict) and set(flags) == INVALIDATORS and all(type(v) is bool for v in flags.values()), f"projection.invalidators.{ident}", "requires boolean invalidators")
-        ancestors = lineage[ident]; retained = ancestors[0]["coverage"] if len(ancestors) == 1 and ident not in successors else None
+        item = dict(current_by[ident]); ancestors = lineage[ident]; flags = data["invalidators"].get(ident)
+        if ancestors:
+            _require(isinstance(flags, dict) and set(flags) == INVALIDATORS and all(type(v) is bool for v in flags.values()), f"projection.invalidators.{ident}", "requires boolean invalidators")
+        else:
+            _require(flags is None, f"projection.invalidators.{ident}", "new area has no invalidator record")
+            flags = {}
+        retained = ancestors[0]["coverage"] if len(ancestors) == 1 and ident not in successors else None
         item["consequence"] = max([item["consequence"]] + [a["consequence"] for a in ancestors], key=CONSEQUENCES.index)
+        item["generalist_miss"] = bool(item["generalist_miss"]) or any(bool(a["generalist_miss"]) for a in ancestors)
+        item["owning_file_ids"] = list(dict.fromkeys([file for area in ancestors + [item] for file in area["owning_file_ids"]]))
         item["coverage"] = retained if retained and retained["status"] == "CURRENT" and not any(flags.values()) else {"status": "STALE", "report_artifact_id": None, "seal": None, "owning_file_ids": []}
         active.append(item)
     return {"active_areas": active, "retired_area_ids": retired, "priority_order": priority}
@@ -153,33 +159,100 @@ def _roster(p: dict[str, object]) -> dict[str, object]:
 
 def _gates(p: dict[str, object]) -> dict[str, object]:
     data = _object(p,"projection",{"target_seal","gates"}); _require(isinstance(data["gates"],list),"projection.gates","must be array"); blocks=[]; gaps=[]
+    seen=set()
     for i, raw in enumerate(data["gates"]):
         gate=_object(raw,f"projection.gates[{i}]",{"id","target_seal","applicability","classification","status","artifact_id"}); _require(gate["target_seal"]==data["target_seal"],f"projection.gates[{i}]","stale gate")
+        _require(gate["id"] not in seen and gate["applicability"] in {"applicable","not_applicable"} and gate["classification"] in {"required","supporting"} and gate["status"] in {"PASSED","FAILED","NOT_RUN"}, f"projection.gates[{i}]", "invalid gate")
+        seen.add(gate["id"])
+        _require(not (gate["applicability"] == "not_applicable" and gate["status"] != "NOT_RUN"), f"projection.gates[{i}]", "non-applicable gate cannot execute")
         if gate["applicability"] == "applicable" and gate["status"] == "FAILED": blocks.append(f"gate {gate['id']} failed")
         if gate["classification"] == "required" and gate["applicability"] == "applicable" and gate["status"] != "PASSED": blocks.append(f"required gate {gate['id']} did not pass")
         if gate["status"] == "NOT_RUN": gaps.append(f"gate {gate['id']} not run")
+    if not data["gates"]: gaps.append("no applicable evidence gates discovered")
     return {"gates":data["gates"],"blocking_reasons":blocks,"evidence_gaps":gaps,"review_may_start":not any("failed" in b for b in blocks),"merge_readiness_eligible":not blocks}
 
 
 def _ledger(p: dict[str, object]) -> dict[str, object]:
-    data=_object(p,"projection",{"rows","target_seal"}); _require(isinstance(data["rows"],list),"projection.rows","must be array"); rows=[]
-    for i, raw in enumerate(data["rows"]):
-        row=_object(raw,f"projection.rows[{i}]",{"id","source_ids","reported_severity","current_severity","factual","state","proof_artifact_ids","manifest_artifact_id","target_seal"}); _require(row["target_seal"]==data["target_seal"] and row["state"] in {"OPEN","FIX_APPLIED","FIX_VERIFIED","REFUTED","INTENTIONAL"},f"projection.rows[{i}]","invalid row"); _ids(row["source_ids"],f"projection.rows[{i}].source_ids")
-        if row["state"] in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: _require(bool(row["proof_artifact_ids"]),f"projection.rows[{i}].proof_artifact_ids","settlement needs proof")
-        rows.append(row)
-    return {"rows":rows,"pending_fix_ids":[r["id"] for r in rows if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":None}
+    data=_object(p,"projection",{"prior_rows","decisions","manifests","target_seal","adjudication"})
+    _require(isinstance(data["prior_rows"],list) and isinstance(data["decisions"],list) and isinstance(data["manifests"],list),"projection","ledger lists required")
+    prior={}
+    for i, raw in enumerate(data["prior_rows"]):
+        row=_object(raw,f"projection.prior_rows[{i}]",{"id","source_ids","reported_severity","current_severity","factual","state","proof_artifact_ids","manifest_artifact_id","target_seal"})
+        _require(row["target_seal"]==data["target_seal"] and row["id"] not in prior, f"projection.prior_rows[{i}]", "invalid prior row")
+        prior[row["id"]]=row
+    manifest_map={}
+    for i, raw in enumerate(data["manifests"]):
+        manifest=_object(raw,f"projection.manifests[{i}]",{"id","finding_id"})
+        _require(isinstance(manifest["id"],str) and manifest["id"] and manifest["id"] not in manifest_map and manifest["finding_id"] in prior,f"projection.manifests[{i}]","invalid manifest")
+        manifest_map[manifest["id"]]=manifest["finding_id"]
+    proposed={}; green=[]
+    for i, raw in enumerate(data["decisions"]):
+        item=_object(raw,f"projection.decisions[{i}]",{"id","state","proof_artifact_ids","manifest_artifact_id"}); ident=item["id"]; old=prior.get(ident)
+        _require(old is not None and ident not in proposed and item["state"] in {"OPEN","FIX_APPLIED","FIX_VERIFIED","REFUTED","INTENTIONAL"},f"projection.decisions[{i}]","unknown or invalid decision")
+        before, after=old["state"],item["state"]
+        legal={"OPEN":{"OPEN","FIX_APPLIED","REFUTED","INTENTIONAL"},"FIX_APPLIED":{"OPEN","FIX_APPLIED","FIX_VERIFIED"},"FIX_VERIFIED":{"OPEN","FIX_VERIFIED"},"REFUTED":{"OPEN","REFUTED"},"INTENTIONAL":{"OPEN","INTENTIONAL"}}
+        _require(after in legal[before],f"projection.decisions[{i}].state","illegal ledger transition")
+        manifest=item["manifest_artifact_id"]
+        if after == "FIX_APPLIED": _require(manifest_map.get(manifest)==ident,f"projection.decisions[{i}].manifest_artifact_id","manifest must be linked to finding")
+        if after == "FIX_VERIFIED": _require(manifest_map.get(manifest)==ident and manifest==old.get("manifest_artifact_id"),f"projection.decisions[{i}].manifest_artifact_id","must retain linked applied manifest")
+        if after in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: _require(bool(_ids(item["proof_artifact_ids"],f"projection.decisions[{i}].proof_artifact_ids")),f"projection.decisions[{i}]","settlement needs proof")
+        merged=dict(old); merged.update({"state":after,"proof_artifact_ids":item["proof_artifact_ids"],"manifest_artifact_id":manifest}); proposed[ident]=merged
+        if after in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: green.append(ident)
+    _require(set(proposed)==set(prior),"projection.decisions","must decide every existing row")
+    adjudication=data["adjudication"]
+    if green:
+        _require(isinstance(adjudication,dict),"projection.adjudication","green decisions require adjudication")
+        a=_object(adjudication,"projection.adjudication",{"attempt","status","decided_ids","proof_artifact_id"}); _require(a["attempt"] in {1,2} and a["status"] in {"UPHOLD","BOUNCE","UNDECIDED","FAILED"},"projection.adjudication","invalid attempt")
+        ids=set(_ids(a["decided_ids"],"projection.adjudication.decided_ids")); _require(ids <= set(green),"projection.adjudication.decided_ids","unknown decision")
+        if a["status"]=="UPHOLD": _require(ids==set(green) and isinstance(a["proof_artifact_id"],str) and a["proof_artifact_id"],"projection.adjudication","uphold needs proof for all")
+        if a["status"] in {"FAILED","UNDECIDED"} and a["attempt"]==1: return {"rows":list(prior.values()),"pending_fix_ids":[r["id"] for r in prior.values() if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":{"attempt":2,"pending_ids":green}}
+        if a["status"] in {"FAILED","UNDECIDED"}: proposed={ident:prior[ident] for ident in prior}
+        if a["status"]=="BOUNCE": proposed={ident:(prior[ident] if ident in ids else value) for ident,value in proposed.items()}
+    else: _require(adjudication is None,"projection.adjudication","no adjudication pending")
+    rows=list(proposed.values()); return {"rows":rows,"pending_fix_ids":[r["id"] for r in rows if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":None}
 
 
 def _challenge(p: dict[str, object]) -> dict[str, object]:
-    data=_object(p,"projection",{"current_seal","status","target_seal","source_finding_ids","artifact_id"}); _require(data["target_seal"]==data["current_seal"],"projection.target_seal","stale challenge"); sources=_ids(data["source_finding_ids"],"projection.source_finding_ids")
-    state = "NEEDS_TRIAGE" if sources else {"UPHOLD":"UPHELD","BLOCK":"BLOCKED","FAILED":"INDETERMINATE"}.get(data["status"]); _require(state is not None,"projection.status","invalid")
-    return {"state":state,"fresh":True,"target_seal":data["target_seal"],"source_finding_ids":sources,"artifact_id":data["artifact_id"]}
+    data=_object(p,"projection",{"current_seal","attempts"}); _require(isinstance(data["attempts"],list) and 1<=len(data["attempts"])<=2,"projection.attempts","one or two attempts")
+    attempts=[]
+    for i,raw in enumerate(data["attempts"]):
+        a=_object(raw,f"projection.attempts[{i}]",{"status","target_seal","source_finding_ids","artifact_id"}); _require(a["status"] in {"UPHOLD","BLOCK","FAILED"},f"projection.attempts[{i}]","invalid status"); attempts.append(a)
+    _require(len(attempts)==1 or attempts[0]["status"]=="FAILED","projection.attempts","only failed call retries")
+    last=attempts[-1]; sources=_ids(last["source_finding_ids"],"projection.source_finding_ids")
+    if any(a["target_seal"]!=data["current_seal"] for a in attempts): state="STALE"; fresh=False
+    elif last["status"]=="FAILED": state="RETRY_REQUIRED" if len(attempts)==1 else "INDETERMINATE"; fresh=True
+    elif sources: state="NEEDS_TRIAGE"; fresh=True
+    else: state="UPHELD" if last["status"]=="UPHOLD" else "BLOCKED"; fresh=True
+    return {"state":state,"fresh":fresh,"target_seal":last["target_seal"],"source_finding_ids":sources,"artifact_id":last["artifact_id"],"retry_required":state=="RETRY_REQUIRED"}
 
 
 def _terminal(p: dict[str, object]) -> dict[str, object]:
-    data=_object(p,"projection",{"lifecycle","ledger","gates","areas","final_challenge"}); _require(isinstance(data["lifecycle"],dict) and isinstance(data["ledger"],list) and isinstance(data["areas"],list),"projection","malformed terminal projection")
-    settled=all(row.get("state") in {"FIX_VERIFIED","REFUTED","INTENTIONAL"} for row in data["ledger"]); covered=all(a.get("coverage",{}).get("status")=="CURRENT" or not a.get("generalist_miss") for a in data["areas"]); ready=settled and covered and not data["gates"].get("blocking_reasons") and data["final_challenge"].get("state")=="UPHELD" and not data["lifecycle"].get("any_indeterminate")
-    return {"lifecycle_outcome":"CONVERGED" if ready else "NOT_CONVERGED","terminal_verdict":"CONVERGED" if ready else "NOT_CONVERGED","merge_ready":ready,"qualified_claim_eligible":ready,"failed_conditions":[] if ready else ["terminal conjunct failed"]}
+    data=_object(p,"projection",{"lifecycle","ledger","gates","areas","final_challenge"})
+    lifecycle=_object(data["lifecycle"],"projection.lifecycle",{"confirmation","deadline_expired","round1_triage_complete","scheduled_reports_usable","raw_reports_reconciled","any_indeterminate","expected_final_seal","actual_final_seal"})
+    _require(isinstance(data["ledger"],list) and isinstance(data["areas"],list),"projection","malformed terminal projection")
+    gate=_object(data["gates"],"projection.gates",{"gates","blocking_reasons","evidence_gaps","review_may_start","merge_readiness_eligible"})
+    challenge=_object(data["final_challenge"],"projection.final_challenge",{"state","fresh","target_seal","source_finding_ids","artifact_id","retry_required"})
+    failed=[]
+    if lifecycle["confirmation"] not in {"not_required","confirmed"}: failed.append("confirmation")
+    if lifecycle["deadline_expired"]: failed.append("deadline")
+    for key in ("round1_triage_complete","scheduled_reports_usable","raw_reports_reconciled"):
+        if lifecycle[key] is not True: failed.append(key)
+    if lifecycle["any_indeterminate"]: failed.append("indeterminate")
+    if lifecycle["expected_final_seal"] != lifecycle["actual_final_seal"]: failed.append("seal")
+    if challenge["state"] != "UPHELD" or challenge["fresh"] is not True or challenge["target_seal"] != lifecycle["actual_final_seal"] or challenge["source_finding_ids"] or challenge["retry_required"]: failed.append("final_challenge")
+    # Gate rollup must match compact records rather than trusting a caller flag.
+    recomputed=_gates({"target_seal":lifecycle["actual_final_seal"],"gates":gate["gates"]})
+    if any(gate[key] != recomputed[key] for key in ("blocking_reasons","evidence_gaps","review_may_start","merge_readiness_eligible")): failed.append("gates")
+    for i,row in enumerate(data["ledger"]):
+        _require(isinstance(row,dict),f"projection.ledger[{i}]","invalid row")
+        state=row.get("state"); severity=row.get("current_severity")
+        if state in {"FIX_VERIFIED","REFUTED","INTENTIONAL"} and not row.get("proof_artifact_ids"): failed.append(f"proof:{row.get('id')}")
+        if severity in {"Important","Critical"} and state not in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: failed.append(f"open:{row.get('id')}")
+    for raw in data["areas"]:
+        area=_area(raw,"projection.areas",True)
+        if area["generalist_miss"] and CONSEQUENCES.index(area["consequence"])>=CONSEQUENCES.index("Important") and area["coverage"]["status"]!="CURRENT": failed.append(f"coverage:{area['id']}")
+    ready=not failed
+    return {"lifecycle_outcome":"CONVERGED" if ready else "NOT_CONVERGED","terminal_verdict":"CONVERGED" if ready else "NOT_CONVERGED","merge_ready":ready,"qualified_claim_eligible":ready,"failed_conditions":failed}
 
 
 OPERATIONS = {"derive_policy":_derive,"refresh_inventory":_refresh,"record_specialist_coverage":_coverage,"plan_roster":_roster,"reconcile_gates":_gates,"apply_ledger_decisions":_ledger,"record_final_challenge":_challenge,"compute_terminal":_terminal}
