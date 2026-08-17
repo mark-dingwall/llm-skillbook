@@ -36,7 +36,12 @@ fi
 
 script_path=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "$script_path")
-repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
+# multi-review/ is not always its own Git repository (e.g. nested inside a
+# monorepo worktree), so `git -C "$script_dir" rev-parse --show-toplevel`
+# can resolve to an ENCLOSING repo root instead of this directory -- every
+# use of $repo_root below expects multi-review/ itself (multi_review.py,
+# pyproject.toml). Derive it from the script's own fixed location instead.
+repo_root=$(cd "$script_dir/../.." && pwd)
 fixture_dir="$script_dir/fixtures/headless-driver-smoke"
 
 die() {

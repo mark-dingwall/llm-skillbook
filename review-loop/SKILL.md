@@ -5,295 +5,205 @@ description: Use when the user asks for a review loop or multi-round code review
 
 # Review Loop
 
-## Overview
+## North Star
 
-Multi-round external review that actually converges. Reviewers find; you
-triage against sources; fixes get re-reviewed; the loop ends on what the
-ledger says, never on a round's silence.
+> No known material defect, after the artifact has survived risk-proportionate
+> independent challenge and all applicable deterministic evidence gates.
 
-**Core principle: a green verdict is a ledger fact. The loop cannot time
-out, crash, scope-trick, or backlog its way to green.**
+This is a qualified operational claim, never proof. Every hand-back states
+what was challenged, what deterministic evidence ran, what could not run, and
+which residual limitations moderate the claim (see "Hand-back" below).
 
-## When to use
+## What this is
 
-- The user asks for a review loop on completed work (code or documents).
-- NOT for: trivial/mechanical changes (run a single review, or none — tell
-  the user which and why); code that fails build/lint/tests (fix that
-  first; never spend reviewers on broken code).
+A deterministic controller (`review_loop/controller.py`) plus focused prompt
+resources (`review_loop/resources/*.md`) and Python helpers. You are the
+controller: drive `Controller`'s methods as a Python library, dispatch each
+semantic role by rendering its resource with `review_loop/prompts.py` and
+validating the raw response before it ever becomes a compact projection, and
+let the deterministic helpers own sealing, gate execution, FIX containment,
+and state transitions. Never hand-roll a shell state machine, invent your own
+completion heuristic, or apply a semantic judgment (rating, area identity,
+adjudication) yourself — that authority belongs to the dispatched role.
 
-## The loop
+`review_loop/__main__.py` is a narrow, non-interactive CLI for the
+mechanical edges only: `create-run` (preflight — seal the target, resolve
+profile/deadline/tier *intent*), `status` (durable-stage recovery), and
+`report` (write the final Markdown). It never dispatches a reviewer and never
+accepts a caller-supplied canonical snapshot or artifact registry — see
+`dispatch.md` for its exact request/response shapes. Stage 0 dispatch,
+Round 1 review, TRIAGE, FIX, adjudication, and the final-readiness challenge
+are driven by you, calling `Controller` directly, per role instructions
+below.
 
-```
-0 GATE    quality gate, entry check, SCOPE seal, ROSTER
-1 REVIEW  dispatch the roster        (round 1: full scope; ≥2: fix diff)
-2 TRIAGE  verify findings against sources → LEDGER
-3 FIX     fix accepted findings, re-run quality gate, FIX MANIFEST
-4         back to 1                                       (cap 5 rounds)
-5 CLOSE   deterministic rollup → two verdicts + hand-back
-```
+## Invocation
 
-Between fix and re-dispatch the tree is frozen; an edit while reviewers
-run voids the round.
+Resolve, before any dispatch: target (+ optional base/head/exclusions),
+optional `review_profile`, optional `max_time_seconds`, `no_confirm`, and
+ground-truth sources. **Operator intent always wins** — never silently
+ignore a stated tier, profile, model pin, or confirmation override, and
+never silently substitute tier defaults for an invalid explicit profile.
+`Controller.create_run` raises `ProfileConfirmationRequired` for that case;
+ask the operator whether to proceed with tier defaults (or, non-interactively,
+stop and report it — never guess).
 
-## Artifacts
+Tier is either explicit (operator-supplied, skips rating) or automatic
+(derived in Stage 0 from two `most-capable` rating samples — highest `C`,
+highest `R`, one step-up if both merged axes are `high`+, a further step-up
+for a validated `GESTALT: +1`, capped at `max`). **Only an *automatically
+derived* `max` tier pauses for confirmation before reviewer dispatch.**
+Explicit `max` and explicit no-confirmation proceed without asking. If the
+operator declines or the deadline expires while awaiting confirmation, stop
+without entering CLOSE — expiry takes precedence over recording a decline.
 
-Each stage produces its artifact before the next stage starts. If you
-cannot fill a field, write `unknown` — ledger content is quoted from
-sources or reviewer output, never invented.
-
-### SCOPE seal (per round, before dispatch)
-
-Diff command with explicit base/head; changed files *including untracked
-and staged*; a **content identity** produced by commands, not judgment
-— and sealed over the WHOLE tree, never the subject list (the subject
-list selects what is *reviewed*; the seal binds everything): the
-verbatim output of these commands, run NUL-safe exactly as written —
-word-splitting a pathname silently drops it from the seal:
-`find . -path ./.git -prune -o -print0 | sort -z | tr '\0' '\n'`
-(enumeration — every path: files, symlinks, *and directories*);
-`find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0
-sha256sum` (record `absent` for a deleted tracked path);
-`find . -path ./.git -prune -o -print0 | sort -z | xargs -0 stat -c
-'%n %a %F'`;
-`find . -path ./.git -prune -o -type l -print0 | sort -z | xargs -0
--r env QUOTING_STYLE=shell-escape-always stat -c '%N'` (`-r` skips
-the call when the tree has no symlinks; the quoting style is pinned
-in the command because `%N`'s escaping obeys that environment
-variable — an inherited `literal` would print targets raw;
-records are framed by stat as quoted `'link' ->
-'target'` with control characters escaped — no delimiter collisions;
-directory existence and modes, file modes, types, and link targets
-all bound — a retargeted symlink or a new empty directory must not
-seal identical); and
-`git ls-files -s` (whole index; empty for non-git). CLOSE re-runs
-them all and diffs the outputs. Ground-truth
-files living outside the tree are hashed into the seal as well. The
-loop's own artifacts — ledger, prompts, manifests, reports — live
-*outside* the sealed tree: an in-tree loop artifact voids its own
-round. Base/head and the subject set come from the user's request —
-verbatim when stated; when inferred, record the inference and prefer
-the larger scope, and the final report echoes base/head, subject set,
-and any exclusions for the user's audit. Subject
-vs ground-truth split (ground truth
-is cross-checked against, never reviewed — the split is pinned at round
-1, and moving a changed file into ground truth mid-loop needs user
-authority); one line of deployment context (what this code is for —
-reviewers calibrate severity with it). Non-git subjects: seal = per-file
-hashes + snapshot copies, the inter-round diff is a diff of snapshots,
-and if no trustworthy delta exists, run a single round only. The final report
-re-runs the seal commands and requires byte-identical output: any
-difference — added, renamed, removed, index-divergent, mode-changed, or
-staging-state-changed file — is a mismatch. Rounds ≥2, the seal also
-carries one line per INTENTIONAL row — `INTENTIONAL-CHECK <id>:
-assumption held | invalidated` — and reconciliation fails if any
-INTENTIONAL row lacks its line.
-
-### ROSTER (round 1, before dispatch)
-
-First, a read-only subagent skims the sealed scope and returns a
-**risk-surface inventory**: named areas with a one-line why (money, auth,
-concurrency, persistence, public contracts, …). Fresh eyes on purpose —
-authors underrate their own footguns. Then:
+## Controller stages
 
 ```
-ROSTER: holistic, adversarial[, <specialist> per inventory area]
-Inventory areas not covered: <area> — <because>
+PREFLIGHT   seal target, resolve profile/deadline/(tier intent), ground truth
+STAGE0      evidence scout + gates, inventory (owner → challenge → revision),
+            rating (automatic tier only), derive_policy
+REVIEW      freeze roster, dispatch holistic + adversarial + eligible
+            specialists (round 1: full sealed target)
+TRIAGE      strict-JSON triage of every usable raw report → ledger
+FIX         (only while Important+ rows are OPEN) contained mutation,
+            manifest- and delta-verified, gates rerun, promote to target
+CLOSE       final-readiness challenge, then the mechanical terminal rollup
 ```
 
-Scope the roster honestly to what a good job needs: a specialist per
-inventory area that demands depth, none where a generalist's hint
-suffices — never pad, and never trim to hit a number (reviewer cost
-sizes depth-per-reviewer, not whether an area gets covered; a stale
-cost model shrank a real roster once). More than 8 reviewers: stop and
-confirm the roster with the user before dispatch (AskUserQuestion,
-offering reviewers to drop) — skipped only when the invocation passed
-`--force`. Run at most `min(10, cpu_cores - 2)` reviewers at once
-(dispatch.md §Concurrency).
+These, plus `COMPLETE`, `INDETERMINATE`, and `CANCELLED_BEFORE_REVIEW`, are
+`RunState.stage` exactly as `controller.py` sets it (`Controller.STAGES`).
+Any stage that cannot complete cleanly (malformed output surviving its one
+retry, a failed applicable gate, a seal mismatch, deadline expiry, an
+uncontainable dispatch) makes the *stage* `INDETERMINATE` and the run
+`NOT CONVERGED` — never a silent partial success.
 
-Rounds ≥2: default holistic + adversarial only. A round closes only when
-every rostered reviewer **completed**: exit 0, AND a verdict line with
-severity counts, AND a charter attestation — "no material issue in
-<chartered scope>" or, when findings are reported, "aside from these
-findings, no material issue in <chartered scope>"; an attestation
-narrower than the charter is not completion — AND — rounds ≥2 —
-a FIX-AUDIT line for every
-manifest entry. Completion is judged against the reviewer's **report
-file**: every prompt names a fresh file path *outside the sealed tree*
-that the reviewer writes its final report to, and that file alone is
-the review — stdout is diagnostics, never harvested (a reasoning trace
-full of draft findings and echoed prompt text can satisfy any grep). A bare verdict, a
-refusal, or echoed prompt text is NOT a review. Set a timeout on every
-call — sized and waited per [dispatch.md](dispatch.md); record the
-chosen timeout and each reviewer's observed duration, and check for
-output progress before declaring a call hung. A timeout is a failed
-call. Failure → one retry → still failed → the round is INDETERMINATE,
-reported as such — as is a round that exceeds its own wall-clock
-ceiling (a broken wait degrades to INDETERMINATE, never hangs
-silently). A reviewer that did not
-complete is NOT RUN — never "no findings". Run reviewers via the CLI
-command the user specified — if none was given, ask; never invent one.
-Write prompts to a temp file, never hand-interpolate. Reviewer prompt =
-[reviewer-addendum.md](reviewer-addendum.md) with placeholders filled.
+Persisted enums you will see in canonical state: ledger `state` is exactly
+one of `OPEN`, `FIX_APPLIED`, `FIX_VERIFIED`, `REFUTED`, `INTENTIONAL`.
+`factual` status is `CONFIRMED`, `PLAUSIBLE`, or `UNVERIFIABLE`. Specialist
+coverage is `CURRENT` or `STALE`, with no quiet counter — an eligible
+Critical area is staffed every dispatched round regardless of a prior clean
+report. Adjudication returns per-row `UPHOLD`, `BOUNCE`, or `UNDECIDED`.
 
-### LEDGER (updated at triage; the loop's single state object)
+## Safety and convergence invariants
 
-One row per canonical finding. Reviewer reports are merged into rows by
-reference; duplicates become aliases, not new rows.
+- **Sealing is exact-comparison, whole-tree.** The target-baseline seal
+  covers every path's type, mode, and content digest, not just changed
+  files. Round-input and call-input seals are separate and immutable; no
+  later stage extends or reuses an earlier one. Recheck the applicable seal
+  immediately before *and* after every target-accessing dispatch. A mismatch
+  voids the round or Stage 0, marks it `INDETERMINATE`, and is never a
+  fallback condition — never dispatch against a changed tree under an old
+  seal.
+- **Every non-FIX target-accessing role is read-only and contained** —
+  three disjoint mounts (target scope, review-data inputs, a fixed
+  read-only runtime/credential allowlist) with no writable canonical state,
+  peer artifact, or prior-round artifact, and a fresh non-reusable process
+  identity. The prompt's read-only instruction is not the boundary; the
+  execution mapping (`review_loop/execution.py`) is. If no tested mapping
+  exists for a requested CLI, do not dispatch it — there is no uncontained
+  bypass.
+- **`FIX` is the sole mutation window**, ledger-bound to the exact current
+  `OPEN` IDs, contained (`review_loop/fix.py`), and never self-delegating.
+  A candidate delta is validated against the manifest before `FIX_APPLIED`,
+  gates rerun on the verified post-FIX seal, and only a write-back that
+  reproduces the exact verified post-FIX seal (`Controller.
+  promote_post_fix_baseline`) may advance the authoritative target — a
+  passing gate or an existing manifest is never itself fix verification.
+- **N+1 challenge at consequential semantic gates**: the inventory owner's
+  proposal is independently scope-challenged before use; every pending
+  green-making disposition (`REFUTED`/`INTENTIONAL`/a downgrade below
+  reviewer-stated Important+) goes through read-only adjudication
+  (`run_adjudication`) with a positive proof requirement — "no contradiction
+  found" is never sufficient; a fresh final-readiness challenger inspects
+  the complete sealed run before CLOSE can go green. None of these three may
+  themselves create readiness or settle a row merely by upholding.
+- **Malformed role output gets exactly one retry**, then the enclosing stage
+  is `INDETERMINATE`. Adjudication gets at most two calls total (a clean
+  first pass's `UNDECIDED` subset retries once; anything else is final).
+- **Tier changes effort, never completion semantics.** What counts as
+  settled, what "converged" and "merge-ready" mean, and whether adjudication
+  runs do not weaken at a lower tier. `CLOSE` derives both verdicts
+  mechanically from canonical state (`state.py`'s kernel) — never re-judge
+  them yourself.
+- **Immediately before CLOSE, and again during any promotion, the
+  authoritative target must reseal to the exact expected identity.** A
+  mismatch is `NOT CONVERGED` — no verdict is produced for bytes no reviewer
+  saw.
 
-```
-| id | sev (reported→current) | finding | factual | state | provenance | evidence |
-```
+## Dispatching a role
 
-- `factual`: CONFIRMED / PLAUSIBLE / UNVERIFIABLE — *your* post-triage
-  status, from reading the actual sources and diff (a reviewer's report
-  is a claim, not evidence). PLAUSIBLE rows: verify and promote or
-  refute. UNVERIFIABLE rows keep why + what evidence would decide.
-  `factual` describes the claim; refutation lives on the state axis and
-  needs quoted refuting evidence — so a REFUTED row is never
-  factual-UNVERIFIABLE. A timing-only finding (hang, stall, flaky
-  failure) may be contention from concurrent reviewers sharing the
-  environment — but a clean serial re-run alone refutes nothing: one
-  passing sample cannot refute observed nondeterminism. REFUTED needs
-  evidence isolating contention as the cause (e.g. the failure
-  reproduces under concurrent load and never serially, with the product
-  path ruled out); without it the row stays PLAUSIBLE and blocks per
-  the normal rules.
-- `state`: OPEN / FIX_APPLIED / FIX_VERIFIED / REFUTED / BACKLOGGED /
-  INTENTIONAL. No other words. Rows change atomically: a disposition
-  that bounces or fails restores every field of the row to its
-  pre-disposition values — for a row ingested already-downgraded, that
-  means current severity := reported severity. The rejected disposition's
-  evidence stays only as history marked REJECTED, never as operative
-  evidence.
-- **Settled = REFUTED or FIX_VERIFIED. Nothing else.** "Accepted" is
-  OPEN. A fix you applied is FIX_APPLIED; it becomes FIX_VERIFIED only
-  when every completed reviewer's `FIX-AUDIT <id>` line says clean — one
-  dirty line blocks promotion and reopens the row (INCOMPLETE-FIX). An
-  aggregate clean verdict promotes nothing, and your passing tests don't
-  either.
-- INTENTIONAL requires `AUTHORITY: <user/spec statement that predates
-  the finding>` plus `ASSUMPTION: <the premise it rests on>` in
-  evidence — with exactly one exception to the predate rule: the user,
-  asked directly, may accept a finding after the fact (risk acceptance
-  is the user's prerogative, never yours). No authority → the row
-  stays OPEN or goes to the user. You cannot declare your own fix's
-  side effect intentional.
-  AUTHORITY must be independently inspectable by the adjudicator: a
-  file locator (spec/doc file:line) inside the sealed ground truth.
-  Authority that lives only in conversation is not adjudicable — those
-  reprieves go to the user, and the user's answer is the transition:
-  record `AUTHORITY: user-confirmed this loop` with the confirmation
-  quoted; the row becomes INTENTIONAL without adjudication (the
-  adjudicator audits file-authority reprieves only). Anything that
-  invalidates a row's ASSUMPTION — a later fix, or a change in
-  authority or ground truth — reverts it to OPEN. Each round's
-  INTENTIONAL-CHECK line (see SCOPE seal) forces the comparison;
-  `invalidated` reverts the row to OPEN. Re-disposing it to
-  INTENTIONAL follows the row's authority route: file authority is a
-  fresh reprieve through adjudication; user-confirmed authority
-  returns to the user for a fresh quoted confirmation. A bounce or a
-  declined confirmation leaves the row OPEN.
-- BACKLOGGED is for verified findings out of the loop's scope. It is
-  storage, not absolution: backlogged Important+ reappear in the final
-  verdict as known blockers.
-- **Adjudication:** one read-only subagent pass per round covers every
-  pending reprieve — any row moving to REFUTED or INTENTIONAL, and any
-  row whose current severity sits below a reviewer-stated Important+
-  (including rows ingested that way). The adjudicator gets the rows, the
-  sealed scope's full file list, and the ground-truth inventory, and
-  reads the sources itself — it must look beyond the sources the triager
-  cited; its charter is to hunt for context that cuts against each
-  disposition. Bounce → full row restored. An adjudication pass counts
-  only if it finishes cleanly with well-formed output; decisions from a
-  crashed or malformed pass are ALL discarded — the crash taints them —
-  and that pass is re-run once in full. A clean pass's decisions are
-  kept (a bounce is final for the round); if it left rows undecided, it
-  is re-run once for those rows only. Rows still undecided after the
-  re-run are bounced, and a second failed pass bounces every pending
-  reprieve — never a third run (fail closed). You wrote the fixes; your
-  reprieves get checked.
-- Fix accepted findings yourself while rounds remain — handing an OPEN
-  Important+ back to the user mid-loop is only for genuine blockers
-  (missing authority, environment you lack, two failed fix attempts).
+For every semantic role: read its resource under `review_loop/resources/`,
+render it through `review_loop/prompts.py` with the role's compact context
+(never hand-interpolate), dispatch it through a tested containment mapping,
+and pass the raw response through that role's strict validator before it
+becomes a projection `Controller` will accept. Resource → role mapping:
 
-### FIX MANIFEST (after fixing, before re-dispatch)
-
-Per fix: `<id> → <what changed> → <files> → TWINS: searched <pattern> —
-<n> sites`. The twin search is mandatory: a real defect is presumed to
-recur until a named, re-runnable search says otherwise — fix the
-siblings too. Changed a test? Trace the change to the spec in the
-manifest; an unexplained weakened assertion is a defect, not a fix.
-Proving a fix or a test bites: mutate the assertion target in a
-throwaway copy — never disable a fixture/stub to force a failure (the
-fallback may be a real, paid, network-calling binary).
-Files touched beyond what findings named: declare or revert.
-
-### PROVENANCE (every round ≥2 finding, at triage)
-
-Rounds ≥2 review the inter-round diff plus the fix manifest. Every new
-finding gets exactly one:
-
-- `INCOMPLETE-FIX <id>` — descendant of an existing row: same root cause,
-  unfixed sibling, or the failure is reachable again. **Reopens that row
-  to OPEN** (it was never truly settled). Location is irrelevant — an
-  unfixed sibling of an accepted finding is in scope even if its line
-  predates the loop.
-- `FIX-REGRESSION` — introduced or exposed by a fix diff, cite it; the
-  defect may manifest in unchanged code (a caller of a changed callee).
-  New row, normal severity rules. Your authorship changes nothing.
-- `CRITICAL-ESCAPE` — unrelated pre-existing defect, admissible only as
-  Critical with a conclusive trace.
-- Anything else → BACKLOGGED row.
-
-Precedence and edge cases: a finding matching an existing row's root
-cause or failure is INCOMPLETE-FIX even when a fix also caused it —
-reopen beats new-row. A duplicate of an OPEN row is an alias: merge it
-(reported severity = the highest any alias states), no provenance line.
-Conclusive new evidence against a REFUTED row is INCOMPLETE-FIX <id> —
-refutations reopen exactly like fixes. Record every reopen on the row.
-
-Oscillation = a reopen that resurrects a previously fixed failure (fix A
-breaks B, fixing B resurrects A). It ends the loop early as NOT
-CONVERGED — don't burn rounds on it. Repeated reopens for *new* missed
-siblings are just incomplete fixes; those fall under the two-failed-
-attempts hand-back, not oscillation.
-
-### CLOSE rollup (deterministic — computed from the ledger, never re-judged)
-
-- **CONVERGED** iff no Important+ row is OPEN or FIX_APPLIED (each one is
-  FIX_VERIFIED, REFUTED, BACKLOGGED, or INTENTIONAL), every round's
-  roster completed, the recomputed content identity equals the last
-  seal, and reconciliation passes (every reviewer report mapped, every
-  row has a state, every due INTENTIONAL-CHECK line present). The whole
-  ledger decides — never the last round's yield.
-- **NOT CONVERGED** — whenever any CONVERGED conjunct fails; CLOSE is
-  total, and these are the common causes, not an exhaustive set: an
-  INDETERMINATE round, oscillation, a content-identity mismatch (name
-  the divergent files), or any OPEN or FIX_APPLIED Important+ row
-  remaining when the cap, a budget stop, or two failed fix attempts end
-  the loop. Hand back the failed conjunct, surviving rows, fix
-  attempts made, why unresolved, current hypothesis. Reaching the cap
-  with a convergent ledger is simply CONVERGED — the cap forces honesty,
-  never failure and never green.
-- Report **two verdicts**: convergence (did the loop finish its job) and
-  merge-readiness — NOT merge-ready while any BACKLOGGED or
-  factual-UNVERIFIABLE Important+ row exists; list each as a known
-  blocker, and list INTENTIONAL Important+ rows as authorized exceptions
-  with their authority. "Converged, not merge-ready" is a legitimate
-  outcome.
-- Reconciliation line: every reviewer finding maps to a row; every row
-  has a state; counts printed. Backlog included, ranked. OPEN Minor rows
-  may remain at close — list them.
-
-## Red flags — stop if you catch yourself thinking:
-
-| Thought | Reality |
+| Resource | Role |
 |---|---|
-| "Out of this round's diff → backlog" | Sibling/descendant of an existing row is INCOMPLETE-FIX — reopen it. Backlog never hides Important+ from the verdict. |
-| "SETTLED says fixed, don't re-litigate" | Settled means FIX_VERIFIED or REFUTED. An accepted-but-unverified fix is still open. |
-| "The other reviewers were clean; re-running the failed one isn't worth it" | The missing reviewer's value isn't priced by the findings others made. NOT RUN ≠ clean → INDETERMINATE. |
-| "Termination condition met on the merits" (while a confirmed defect ships) | Compute both verdicts from the ledger. If a confirmed Important+ ships, the report says so in the headline. |
-| "The cap forces us to conclude" | The cap with unresolved Important+ forces NOT CONVERGED + hand-back. It never forces green — and a clean ledger at cap is simply converged. |
-| "Tests pass, so the fix is verified" | FIX_VERIFIED comes from next-round review of the fix diff. |
-| "That behavior is intentional" (about your own fix) | INTENTIONAL needs authority predating the finding — sole exception: the user, asked directly, accepts it after the fact. Either way it is never yours to grant. |
-| "I'll write something plausible for the missing detail" | Ledger content is quoted, never invented. Write `unknown`. |
+| `safety.md` | shared untrusted-subject boundary, included in every non-FIX prompt |
+| `evidence-discovery.md` | Stage 0 evidence scout |
+| `inventory.md` / `inventory-challenge.md` | inventory owner / independent scope challenger |
+| `rating.md` | automatic-tier rating sample (×2) |
+| `round-one.md` / `later-round.md` | round-1 full-target vs. later-round delta scope fragment |
+| `review.md` | shared review dispatch/report-contract fragment |
+| `holistic.md` / `adversarial.md` / `specialist.md` | the three ordinary reviewer charters |
+| `triage.md` | strict-JSON triage of usable raw reports |
+| `fix.md` | the sole contained implementation role |
+| `adjudication.md` | read-only settlement of pending green-making dispositions |
+| `final-readiness.md` | pre-CLOSE independent challenge |
+
+Deterministic actions never belong in a prompt or in your own judgment —
+call the helper: `seals.py` (target/input sealing), `evidence.py` (gate
+discovery, contained gate execution, opportunistic mutation), `fix.py`
+(contained FIX + candidate-delta validation), `profiles.py` (profile
+resolution), `prompts.py` (render + strict per-role validators), `state.py`
+(the compact-projection kernel — call it only through `Controller`/
+`CanonicalStore`, never directly), `report.py` (final Markdown), and
+`multi_review.py` (see below).
+
+## Multi-review (opt-in, not default-wired)
+
+`Controller.run_round1` accepts an optional `multi_review_dispatch`
+callable that replaces the ordinary holistic slot with the caller-contained
+fixed Claude+Codex pair (`review_loop/multi_review.py`), reusing the same
+canonical holistic prompt verbatim. It is fully implemented and tested but
+**no default caller constructs and passes it** — `run_round1` without that
+argument runs ordinary single-reviewer holistic dispatch. Wire it in
+yourself (construct `MultiReviewAdapter` with an OAuth credential source and
+`multi_review`-profile-derived model pins) only for a `high`/`max` run where
+you have accepted its disclosed residual limitations: the interim
+shared-namespace containment means a compromised reviewer subprocess can see
+driver transport/output and (via retained network access) exfiltrate any
+mounted input or credential; the OAuth token is inherited by both fixed
+clients under whole-call containment; and a reviewer winning the
+post-publish race can in principle forge output that passes validation
+(mitigated by teardown-race timing, not by the validator). Disclose these in
+the hand-back whenever multi-review actually ran. Bubblewrap is required; an
+unavailable driver, Bubblewrap, or fixed participant takes automatic
+ordinary-holistic fallback (never a retry of the multi-review call) unless
+the failure is itself a seal mismatch, which is `INDETERMINATE` instead.
+
+## Confirmation behavior
+
+Prompt only for: an automatically-derived `max` tier before reviewer
+dispatch, and a missing/malformed explicitly-named profile (proceed with
+tier defaults, or stop). Explicit no-confirmation changes *prompting*
+only — it never authorizes dependency installation, deployment, commits, or
+any other external state change. `FIX` may only ever touch the sealed
+target; never install dependencies, alter manifests/lockfiles to obtain
+tooling, commit, stage, deploy, or contact external systems.
+
+## Hand-back contract
+
+On `COMPLETE`, report both mechanical verdicts from canonical state —
+`terminal_verdict` (`CONVERGED` / `NOT CONVERGED`, with the failed conjunct
+named when not converged) and `merge_ready` — plus: selected policy and
+tier source, planned vs. completed staffing, gate commands/results and any
+evidence gaps, mutation evidence or its one-line follow-up, any
+degraded/fallback behavior (including multi-review's residuals when it
+ran), ledger state, and the run root (`report.generate_report` renders this
+from persisted state — call the `report` CLI subcommand or the function
+directly, never reconstruct it by hand). On `INDETERMINATE` or
+`CANCELLED_BEFORE_REVIEW`, name the exact stage and reason and stop; do not
+retry, do not fall back to a weaker path, and never claim a verdict the
+ledger does not support.

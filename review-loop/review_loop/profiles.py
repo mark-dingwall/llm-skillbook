@@ -212,6 +212,12 @@ class InvocationIntent:
     no_confirm: bool
     ground_truth: tuple[Path, ...]
     run_root: Path | None = None
+    # Operator-supplied tier intent (design Sec. 4: "Resolve invocation
+    # intent before dispatch: optional tier, profile, maximum time in
+    # seconds, and confirmation override"). None means automatic
+    # derivation; preflight only records this intent, it never derives a
+    # tier -- that still requires Stage 0's rating dispatch.
+    tier: str | None = None
 
 
 @dataclass(frozen=True)

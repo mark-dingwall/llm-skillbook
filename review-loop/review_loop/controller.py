@@ -398,6 +398,7 @@ class Controller:
                 "max_time_seconds": intent.max_time_seconds,
                 "no_confirm": intent.no_confirm,
                 "ground_truth": [str(p) for p in intent.ground_truth],
+                "tier": intent.tier,
             },
             "resolved_target": str(target),
             "resolved_base": target_seal.git_base_commit,
