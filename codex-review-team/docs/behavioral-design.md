@@ -5,11 +5,13 @@
 **Runtime install:** `/home/mark/.codex/skills/review-team`
 **Status:** Approved and behaviorally frozen on 2026-08-09
 **Amended:** 2026-08-10 — explicit repository-root resolution, after the
-implementation plan exposed a cross-repository test contradiction
+implementation plan exposed a cross-repository test contradiction; 2026-08-17
+— Purpose reworded from Codex-specific to Codex- and Claude-Code-portable,
+matching `docs/design.md`
 
 ## Purpose
 
-Create a Codex-specific, read-only `review-team` skill for rigorous multi-agent code review. The skill preserves the supplied workflow’s Scope → Find → Verify → Sweep → Synthesize structure, including its effort-dependent fan-out, independent verification, ranking, deduplication, and report caps.
+Create a read-only `review-team` skill, portable to Codex and Claude Code, for rigorous multi-agent code review. The skill preserves the supplied workflow’s Scope → Find → Verify → Sweep → Synthesize structure, including its effort-dependent fan-out, independent verification, ranking, deduplication, and report caps.
 
 The existing `review` skill remains the lightweight single-agent review path. `review-team` is the deliberate multi-agent path and must fail closed when required subagent independence cannot be maintained.
 

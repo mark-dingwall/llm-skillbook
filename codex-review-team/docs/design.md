@@ -5,11 +5,11 @@
 
 ## Purpose
 
-Develop and maintain the Codex-only `review-team` skill inside the existing
-`llm-skillbook` Git repository. The repository is the durable source for the
-skill package, design and implementation documents, evaluation evidence, and
-change history. Codex's personal skills directory contains only an installed
-copy used at runtime.
+Develop and maintain the `review-team` skill, portable to Codex and Claude
+Code, inside the existing `llm-skillbook` Git repository. The repository is
+the durable source for the skill package, design and implementation
+documents, evaluation evidence, and change history. Codex's personal skills
+directory contains only an installed copy used at runtime.
 
 The component's behavioral design is the authority for review-team behavior.
 This repository design changes ownership and deployment mechanics only. It does not reopen the
@@ -122,7 +122,7 @@ committed.
 
 - Building a generic installer or package manager for every skill in the
   repository.
-- Making this skill portable to Claude Code or other agent harnesses.
+- Making this skill portable to agent harnesses beyond Codex and Claude Code.
 - Importing or replacing Claude Code's built-in review-team implementation.
 - Creating a nested repository for the component.
 - Maintaining two editable copies of the skill.

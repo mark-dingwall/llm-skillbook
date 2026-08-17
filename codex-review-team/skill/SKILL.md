@@ -64,7 +64,9 @@ findings for `high` and fifteen for `xhigh` or `max`.
 
 For every worker:
 
-- Use `fork_turns: "none"`; never pass inherited conversation history.
+- Dispatch as a fresh subagent invocation; never pass inherited conversation
+  history (e.g. Codex `fork_turns: "none"`; Claude Code's Task tool, which is
+  fresh by construction).
 - Send only the minimal package for that role.
 - Include the canonical repository root and pinned scope facts the role needs.
 - Require read-only inspection and forbid worker delegation.
