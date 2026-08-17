@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from .prompts import RoleValidationError, ValidatedRoleArtifact
-from .seals import SealEntry, TargetSeal
+from .seals import GitPolicy, SealEntry, TargetSeal, seal_target
 from .state import REQUIRED_GATE_IDS
 
 GATE_TIMEOUT_SECONDS = 300
@@ -364,6 +364,201 @@ def execute_gate(
         exit_status=completed.returncode,
         stdout_excerpt=(completed.stdout or "")[-_EXCERPT_LIMIT:],
         stderr_excerpt=(completed.stderr or "")[-_EXCERPT_LIMIT:],
+    )
+
+
+def make_disposable_copy(seal: TargetSeal, dest: Path) -> Path:
+    """Materialize a writable copy of ``seal``'s exact entries at ``dest``.
+
+    Reads only ``seal.root``; never writes there. This copy is the sole
+    surface bounded manual mutation may write to (design: "disposable exact
+    copy ... transient execution substrate, not a durable review artifact")
+    -- the caller discards ``dest`` once mutation evidence collection ends.
+    """
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    root = Path(seal.root)
+    for entry in seal.entries:
+        _check_relative(entry)
+        dst = dest / entry.path
+        if entry.kind == "dir":
+            dst.mkdir(parents=True, exist_ok=True)
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / entry.path, dst)
+    return dest
+
+
+# --- opportunistic mutation evidence: always supporting, never blocking ---
+
+
+class MutationPlanError(EvidenceError):
+    """A mutation plan is internally inconsistent; the caller built it wrong."""
+
+
+@dataclass(frozen=True)
+class ManualMutation:
+    """One bounded, hand-authored mutation applied only to the disposable copy.
+
+    ``mutate`` is a pure function from the original file's text to the
+    mutated text. It is applied in-process to a file inside the disposable
+    copy and reverted immediately after that mutant's run -- the sealed
+    target is never referenced here. ``equivalence_claim`` records whether
+    whoever proposed the mutation expects it to be behaviorally equivalent
+    (design: "each non-equivalent mutant must make it fail"); a mutant that
+    still fails the targeted test is always "caught" regardless of the
+    claim -- the claim only disambiguates a passing run.
+    """
+
+    id: str
+    target_path: str  # POSIX-relative path within the disposable copy
+    mutate: Callable[[str], str]
+    rationale: str
+    equivalence_claim: bool = False
+
+
+@dataclass(frozen=True)
+class MutationPlan:
+    """What ``run_mutation_evidence`` may run, resolved before dispatch.
+
+    Never installs or initializes tooling itself: ``tool_argv`` must already
+    be a working, pre-configured invocation the caller discovered
+    opportunistically (design: "an already installed, configured mutation
+    tool"). When neither ``tool_argv`` nor ``manual_mutations`` is supplied,
+    mutation evidence is simply unavailable -- that is not an error.
+    """
+
+    baseline_argv: tuple[str, ...] | None
+    tool_argv: tuple[str, ...] | None = None
+    manual_mutations: tuple[ManualMutation, ...] = ()
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class MutantOutcome:
+    id: str
+    target_path: str
+    classification: str  # "caught" | "equivalent" | "surviving"
+    rationale: str
+
+
+@dataclass(frozen=True)
+class MutationResult:
+    status: str  # "EVALUATED" | "BASELINE_FAILED" | "UNAVAILABLE"
+    source: str  # "tool" | "manual" | "none"
+    baseline: GateResult | None
+    tool_result: GateResult | None
+    mutants: tuple[MutantOutcome, ...]
+    follow_up: str | None  # the one-line suggestion when UNAVAILABLE
+
+
+_MUTATION_FOLLOW_UP = (
+    "no configured mutation tool and no bounded manual mutations were available "
+    "for this change; consider adding mutation coverage in a follow-up"
+)
+
+
+def _validate_mutation_plan(plan: MutationPlan) -> None:
+    if not isinstance(plan, MutationPlan):
+        raise MutationPlanError("plan must be a MutationPlan")
+    if plan.tool_argv is None and not plan.manual_mutations:
+        return
+    if plan.baseline_argv is None:
+        raise MutationPlanError("a baseline command is required whenever mutation is attempted")
+    validate_gate_argv(plan.baseline_argv)
+    if plan.tool_argv is not None:
+        validate_gate_argv(plan.tool_argv)
+    seen: set[str] = set()
+    for mutation in plan.manual_mutations:
+        if not isinstance(mutation, ManualMutation):
+            raise MutationPlanError("manual_mutations must contain ManualMutation entries")
+        if not mutation.id or mutation.id in seen:
+            raise MutationPlanError(f"manual mutation id must be unique and non-empty: {mutation.id!r}")
+        seen.add(mutation.id)
+        path = mutation.target_path
+        if not isinstance(path, str) or not path or path.startswith("/") or ".." in Path(path).parts:
+            raise MutationPlanError(f"manual mutation target_path escapes the disposable copy: {path!r}")
+
+
+def run_mutation_evidence(
+    plan: MutationPlan,
+    disposable_copy: Path,
+    *,
+    call_root: Path | None = None,
+    host: GateHostPaths | None = None,
+    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    timeout: float = GATE_TIMEOUT_SECONDS,
+) -> MutationResult:
+    """Opportunistic, always-supporting mutation evidence.
+
+    Every command -- the baseline run, a configured tool, or a manual
+    mutant's rerun -- executes against ``disposable_copy`` through the same
+    no-credential/no-network gate containment ``execute_gate`` already
+    enforces for baseline gates; this function never receives or references
+    the sealed target's root, so it cannot mutate it. A failing baseline
+    invalidates the whole run (design: "the unmutated targeted test must
+    pass") -- caught/surviving counts from a broken baseline would be
+    meaningless, so none are computed. Mutation evidence is never terminal:
+    this never raises for a surviving mutant and computes no score.
+    """
+    _validate_mutation_plan(plan)
+    disposable_copy = Path(disposable_copy)
+    if plan.tool_argv is None and not plan.manual_mutations:
+        return MutationResult(
+            status="UNAVAILABLE", source="none", baseline=None, tool_result=None,
+            mutants=(), follow_up=plan.unavailable_reason or _MUTATION_FOLLOW_UP,
+        )
+
+    resolved_host = host or resolve_gate_host_paths()
+    calls = Path(call_root) if call_root is not None else disposable_copy.parent / f"{disposable_copy.name}.calls"
+
+    def _dispatch(label: str, argv: tuple[str, ...]) -> GateResult:
+        seal = seal_target(disposable_copy, GitPolicy(enabled=False))
+        mapping = build_gate_mapping(resolved_host, seal, calls / label)
+        gate = Gate(
+            id=label, argv=tuple(argv), applicability="applicable", classification="supporting",
+            rationale="mutation evidence", provenance="operator",
+        )
+        return execute_gate(gate, mapping, seal, host=resolved_host, run=run, timeout=timeout)
+
+    source = "tool" if plan.tool_argv is not None else "manual"
+    baseline = _dispatch("mutation-baseline", plan.baseline_argv)
+    if baseline.status != "PASSED":
+        return MutationResult(
+            status="BASELINE_FAILED", source=source, baseline=baseline, tool_result=None,
+            mutants=(), follow_up=None,
+        )
+
+    if plan.tool_argv is not None:
+        tool_result = _dispatch("mutation-tool", plan.tool_argv)
+        return MutationResult(
+            status="EVALUATED", source="tool", baseline=baseline, tool_result=tool_result,
+            mutants=(), follow_up=None,
+        )
+
+    mutants: list[MutantOutcome] = []
+    for mutation in plan.manual_mutations:
+        target = disposable_copy / mutation.target_path
+        original_text = target.read_text()
+        target.write_text(mutation.mutate(original_text))
+        try:
+            result = _dispatch(f"mutation-{mutation.id}", plan.baseline_argv)
+        finally:
+            target.write_text(original_text)
+        if result.status == "FAILED":
+            classification = "caught"
+        elif mutation.equivalence_claim:
+            classification = "equivalent"
+        else:
+            classification = "surviving"
+        mutants.append(MutantOutcome(
+            id=mutation.id, target_path=mutation.target_path,
+            classification=classification, rationale=mutation.rationale,
+        ))
+
+    return MutationResult(
+        status="EVALUATED", source="manual", baseline=baseline, tool_result=None,
+        mutants=tuple(mutants), follow_up=None,
     )
 
 

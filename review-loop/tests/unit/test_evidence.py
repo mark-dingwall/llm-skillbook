@@ -131,6 +131,43 @@ class DiscoverEvidenceTests(unittest.TestCase):
             discover_evidence(op, [], scout)
 
 
+class DiscoverEvidenceDocumentGateTests(unittest.TestCase):
+    """A document artifact uses the same discovery machinery as code: no
+    special-cased gate shape exists (design: "For technical documents, use
+    existing mechanical checks such as link, schema ... validation, plus
+    existing behavioral fixtures when the document is instructional. Do not
+    invent a nominal test merely to claim coverage")."""
+
+    def test_repository_mechanical_document_checks_are_supporting_by_default(self):
+        repo = [
+            GateProposal(id="doc-links", argv=("python3", "check_links.py", "guide.md"), applicability="applicable", rationale="repository link checker"),
+            GateProposal(id="doc-schema", argv=("python3", "check_schema.py", "manifest.json"), applicability="applicable", rationale="repository schema checker"),
+        ]
+        plan = discover_evidence([], repo, lambda: scout_artifact([]))
+        by_id = {g.id: g for g in plan.gates}
+        self.assertEqual(by_id["doc-links"].classification, "supporting")
+        self.assertEqual(by_id["doc-schema"].classification, "supporting")
+        self.assertEqual(by_id["doc-links"].provenance, "repository")
+
+    def test_explicitly_selected_behavioral_skill_gate_is_not_invented_by_the_scout(self):
+        # The scout proposes nothing; the repository explicitly names the
+        # behavioral fixture because this document controls agent behavior.
+        repo = [GateProposal(
+            id="doc-behavior", argv=("python3", "-m", "pytest", "tests/test_behavior.py", "-q"),
+            applicability="applicable", rationale="explicit RED/GREEN behavioral fixture for an instructional doc",
+        )]
+        plan = discover_evidence([], repo, lambda: scout_artifact([]))
+        self.assertEqual(len(plan.gates), 1)
+        self.assertEqual(plan.gates[0].provenance, "repository")
+        self.assertEqual(plan.gates[0].classification, "supporting")
+
+    def test_document_target_with_no_mechanical_checks_is_a_disclosed_gap_not_invented_machinery(self):
+        scout = lambda: scout_artifact([], gaps=["no mechanical document checks configured for this target"])
+        plan = discover_evidence([], [], scout)
+        self.assertEqual(plan.gates, ())
+        self.assertEqual(plan.evidence_gaps, ("no mechanical document checks configured for this target",))
+
+
 def fake_seal(root="/tmp/does-not-matter"):
     return TargetSeal(
         schema_version=1,

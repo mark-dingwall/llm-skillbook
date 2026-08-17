@@ -1,0 +1,17 @@
+{
+  "description": "Repository-provided mechanical document gates (link + schema checks) for a document-artifact target, used to exercise discover_evidence and execute_gate against a document rather than a code target (design: 'For technical documents, use existing mechanical checks such as link, schema ... validation').",
+  "gates": [
+    {
+      "id": "doc-links",
+      "argv": ["python3", "check_links.py", "guide.md"],
+      "applicability": "applicable",
+      "rationale": "repository already runs a link checker over guide.md"
+    },
+    {
+      "id": "doc-schema",
+      "argv": ["python3", "check_schema.py", "manifest.json"],
+      "applicability": "applicable",
+      "rationale": "repository already validates manifest.json's shape"
+    }
+  ]
+}

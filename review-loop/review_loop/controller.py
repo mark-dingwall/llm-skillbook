@@ -16,6 +16,7 @@ from typing import Callable, Sequence
 from .artifacts import CanonicalStore, EvidenceArtifact, canonical_bytes
 from .evidence import (
     EvidenceDiscoveryIndeterminate,
+    EvidencePlan,
     Gate,
     GateProposal,
     GateResult,
@@ -187,6 +188,45 @@ def _artifact(artifact_id: str, kind: str, target_seal: str, body: object) -> Ev
     return EvidenceArtifact(artifact_id=artifact_id, kind=kind, schema_version=1, target_seal=target_seal, raw_bytes=raw)
 
 
+def _dispatch_gates(
+    plan: EvidencePlan,
+    seal: str,
+    gate_dispatch: Callable[[Gate], GateResult],
+    new_id: Callable[[], str],
+) -> tuple[list[GateResult], list[dict[str, object]], list["EvidenceArtifact"]]:
+    """Execute every applicable gate in ``plan`` and shape its compact record.
+
+    Shared by ``run_stage0`` (first execution) and ``rerun_gates`` (design:
+    "After any accepted FIX delta ... run every safe applicable required
+    gate plus the safe supporting gates ... on the verified post-FIX seal")
+    so the two call sites cannot drift on how a gate becomes a ``gates``
+    record or an evidence artifact.
+    """
+    gate_results: list[GateResult] = []
+    gate_dicts: list[dict[str, object]] = []
+    gate_evidence: list[EvidenceArtifact] = []
+    for gate in plan.gates:
+        if gate.applicability == "not_applicable":
+            gate_dicts.append({
+                "id": gate.id, "target_seal": seal, "applicability": "not_applicable",
+                "classification": gate.classification, "status": "NOT_RUN", "artifact_id": None,
+            })
+            continue
+        result = gate_dispatch(gate)
+        gate_results.append(result)
+        artifact_id = new_id()
+        gate_evidence.append(_artifact(artifact_id, "gate-result", seal, {
+            "gate_id": result.gate_id, "argv": list(result.argv), "exit_status": result.exit_status,
+            "stdout_excerpt": result.stdout_excerpt, "stderr_excerpt": result.stderr_excerpt,
+            "rationale": result.rationale, "provenance": result.provenance,
+        }))
+        gate_dicts.append({
+            "id": gate.id, "target_seal": seal, "applicability": "applicable",
+            "classification": gate.classification, "status": result.status, "artifact_id": artifact_id,
+        })
+    return gate_results, gate_dicts, gate_evidence
+
+
 def _dispatch_with_retry(dispatch: Callable[[], ValidatedRoleArtifact], *, on_exhausted: str) -> ValidatedRoleArtifact:
     """Call ``dispatch`` once; on malformed output (design: "retried once"),
     call it exactly one more time. A second malformed result is fail-closed.
@@ -225,6 +265,15 @@ class Stage0Outcome:
     # reconciled, so "may review start" is unknown, not true.
     review_may_start: bool = False
     blocking_reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GateRerunOutcome:
+    run_state: RunState
+    gate_results: tuple[GateResult, ...]
+    evidence_gaps: tuple[str, ...]
+    review_may_start: bool
+    blocking_reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -366,30 +415,10 @@ class Controller:
             plan = _discover_evidence(operator_gates, repository_gates, _tracking_scout)
             scout_artifact = captured["scout"]
 
-            gate_results: list[GateResult] = []
-            gate_dicts: list[dict[str, object]] = []
+            gate_results, gate_dicts, gates_only_evidence = _dispatch_gates(plan, seal, gate_dispatch, new_id)
             gate_evidence: list[EvidenceArtifact] = [
                 _artifact(new_id(), "evidence-scout", seal, scout_artifact.artifact)
-            ]
-            for gate in plan.gates:
-                if gate.applicability == "not_applicable":
-                    gate_dicts.append({
-                        "id": gate.id, "target_seal": seal, "applicability": "not_applicable",
-                        "classification": gate.classification, "status": "NOT_RUN", "artifact_id": None,
-                    })
-                    continue
-                result = gate_dispatch(gate)
-                gate_results.append(result)
-                artifact_id = new_id()
-                gate_evidence.append(_artifact(artifact_id, "gate-result", seal, {
-                    "gate_id": result.gate_id, "argv": list(result.argv), "exit_status": result.exit_status,
-                    "stdout_excerpt": result.stdout_excerpt, "stderr_excerpt": result.stderr_excerpt,
-                    "rationale": result.rationale, "provenance": result.provenance,
-                }))
-                gate_dicts.append({
-                    "id": gate.id, "target_seal": seal, "applicability": "applicable",
-                    "classification": gate.classification, "status": result.status, "artifact_id": artifact_id,
-                })
+            ] + gates_only_evidence
 
             owner_expectation = RoleExpectation(
                 request_id=new_id(), role_id="inventory-owner", target_seal=seal,
@@ -509,6 +538,43 @@ class Controller:
             tier=tier,
             review_may_start=review_may_start,
             blocking_reasons=blocking_reasons,
+        )
+
+    def rerun_gates(
+        self,
+        run_state: RunState,
+        plan: EvidencePlan,
+        *,
+        gate_dispatch: Callable[[Gate], GateResult],
+        new_id: Callable[[], str] = _new_id,
+    ) -> GateRerunOutcome:
+        """Re-execute every applicable gate in ``plan`` and reconcile again.
+
+        Design: "After any accepted FIX delta, refresh applicability and run
+        every safe applicable required gate plus the safe supporting gates
+        selected for the changed behavior on the verified post-FIX seal."
+        This task does not implement FIX itself (carried to a later task,
+        per task-6-report.md); it supplies only the re-execution mechanism
+        FIX will call once a verified post-FIX seal exists. ``plan`` is the
+        caller's already-refreshed evidence plan (its own applicability
+        refresh, e.g. via ``discover_evidence`` again, is that later task's
+        job). Reissuing ``reconcile_gates`` is safe to call any number of
+        times -- each call simply replaces the compact gates record for the
+        current ``run_state.governing_seal``.
+        """
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        gate_results, gate_dicts, gate_evidence = _dispatch_gates(plan, seal, gate_dispatch, new_id)
+        gates_projection = {"target_seal": seal, "gates": gate_dicts}
+        updated = _issue(store, operation="reconcile_gates", projection=gates_projection, evidence=gate_evidence)
+        reconciled = updated["processor_state"]["reconcile_gates"]
+        evidence_gaps = tuple(dict.fromkeys(list(plan.evidence_gaps) + list(reconciled["evidence_gaps"])))
+        return GateRerunOutcome(
+            run_state=RunState(run_state.run_root, run_state.governing_seal, updated, run_state.stage, run_state.reason),
+            gate_results=tuple(gate_results),
+            evidence_gaps=evidence_gaps,
+            review_may_start=reconciled["review_may_start"],
+            blocking_reasons=tuple(reconciled["blocking_reasons"]),
         )
 
     def _close_blocked_stage0(self, stage0: Stage0Outcome, new_id: Callable[[], str]) -> RunState:
