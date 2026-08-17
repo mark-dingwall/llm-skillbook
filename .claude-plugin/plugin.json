@@ -1,0 +1,11 @@
+{
+  "name": "llm-skillbook",
+  "description": "Four code-review and delivery skills — feature-forge, multi-review, review-loop, review-team — for Claude Code and Codex.",
+  "version": "0.1.0",
+  "author": {
+    "name": "mark-dingwall"
+  },
+  "skills": [
+    "."
+  ]
+}

@@ -16,6 +16,12 @@ Orchestrate a multi-model code review.
 
 ## Procedure
 
+**Running Python:** `$SKILL_DIR` below means this skill's own directory (the
+absolute path of the folder containing this `SKILL.md`) — substitute it literally
+in each command. `$SKILL_DIR/scripts/py` runs the skill's Python with its shipped
+project + lockfile, so commands work from any working directory (do not rely on a
+shell variable persisting between commands).
+
 ### Step 1 — Parse args
 
 Extract: prompt-files list (or build), `--use-defaults` seed, `--list-reviewers`.
@@ -32,7 +38,7 @@ Determine prompt files:
 
 Validate every YAML via Bash:
 ```
-uv run python -m multi_review.cli.validate_prompt <path>
+"$SKILL_DIR/scripts/py" -m multi_review.cli.validate_prompt <path>
 ```
 Abort batch if any invalid (print specific field error to user).
 
@@ -42,7 +48,7 @@ Capture the `resolved` object from `validate_prompt`'s JSON output and treat it 
 
 For each validated prompt file:
 
-a. Generate `run_id` (`uv run python -c "from multi_review.core.paths import generate_run_id; print(generate_run_id())"`).
+a. Generate `run_id` (`"$SKILL_DIR/scripts/py" -c "from multi_review.core.paths import generate_run_id; print(generate_run_id())"`).
 
 **Path constants used by the remaining steps:**
 
@@ -53,7 +59,7 @@ a. Generate `run_id` (`uv run python -c "from multi_review.core.paths import gen
 
 Prepare prompt:
 ```
-uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSION_DIR>
+"$SKILL_DIR/scripts/py" -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSION_DIR>
 ```
 
 **Fanout sequencing — Task tool blocks the host turn (spec §6.2 step 3).** In a single assistant message:
@@ -61,7 +67,7 @@ uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSIO
    - `<MODEL_FLAG>`  = `--model <resolved.models[cli]>`         if `resolved.models[cli]` is set, else **nothing** (no token at all)
    - `<TASK_FLAG>`   = `--task <resolved.task>`                 **always** (the prompt's task; `task` is required in every validated prompt YAML, and `build_command` drops it for CLIs with no `task_flag`)
    ```
-   uv run python -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
+   "$SKILL_DIR/scripts/py" -m multi_review.cli.spawn --cli <cli> --prompt-file <prompt_path> \
      --out-dir <REVIEWS_DIR> <MODEL_FLAG> <TASK_FLAG>
    ```
    An unset value emits NO token — never `--model ""` (a blank string would hand agy an empty model). `spawn.py` defaults both to `None`; agy/codex/opencode/pykrete/grok ship unset by default, so their command is just the base argv with neither flag.
@@ -69,11 +75,11 @@ uv run python -m multi_review.cli.prepare --prompt-file <yaml> --out-dir <SESSIO
 
    The agent definition is read-only (`tools: Read, Grep, Glob` — no Write per spec §5.2). Claude Code's Task tool returns the agent's final assistant message as a string; the host CAPTURES that string and persists it. Record wall time around the Task call as `<claude_duration>`. Then in a Bash heredoc write the captured text to `<REVIEWS_DIR>/claude.txt` and invoke the host-side writer:
    ```
-   uv run python -m multi_review.cli.write_task_result \
+   "$SKILL_DIR/scripts/py" -m multi_review.cli.write_task_result \
      --cli claude --out-dir <REVIEWS_DIR> \
      --text-file <REVIEWS_DIR>/claude.txt \
      --duration-seconds <claude_duration> \
-     --task-mode review --model claude-opus-4-7
+     --task-mode review --model opus
    ```
    This produces `<REVIEWS_DIR>/claude.md` + `<REVIEWS_DIR>/claude.state.json` matching the shape `spawn.py` would emit. The Step 7 aggregator's `## Summary` heading check (M13) still applies and will demote a Task-subagent return that lacks the heading.
 
@@ -106,7 +112,7 @@ If `resolved.synthesizer != none` and ≥2 reviewers succeeded (check `.state.js
 
 First, build the synthesis prompt (both branches):
 ```
-uv run python -m multi_review.cli.build_synth_input \
+"$SKILL_DIR/scripts/py" -m multi_review.cli.build_synth_input \
   --state-dir <REVIEWS_DIR> \
   --out-prompt-file <SESSION_DIR>/synth-prompt.md \
   --out-nonce-file <SESSION_DIR>/synth-nonce.txt
@@ -114,16 +120,16 @@ uv run python -m multi_review.cli.build_synth_input \
 
 - If `resolved.synthesizer == "claude"`: dispatch `multi-review-synthesizer` via Task with the synthesizer prompt at `<SESSION_DIR>/synth-prompt.md` and nonce from `<SESSION_DIR>/synth-nonce.txt`. Record wall time as `<synth_duration>`. The agent is read-only (`tools: Read`); CAPTURE the Task return value as a string, write it to `<SESSION_DIR>/synth.txt` via a Bash heredoc, then invoke:
   ```
-  uv run python -m multi_review.cli.write_task_result \
+  "$SKILL_DIR/scripts/py" -m multi_review.cli.write_task_result \
     --cli claude --out-dir <SESSION_DIR> \
     --text-file <SESSION_DIR>/synth.txt \
     --duration-seconds <synth_duration> \
-    --task-mode synthesize --model claude-opus-4-7
+    --task-mode synthesize --model opus
   ```
   This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
 - Else: build argv with `<SYNTH_MODEL_FLAG>` = `--model <resolved.models[resolved.synthesizer]>` if `resolved.models[resolved.synthesizer]` is set, else **nothing** (no token at all) — conditional token, same construction as Step 5's `<MODEL_FLAG>`:
   ```
-  uv run python -m multi_review.cli.spawn \
+  "$SKILL_DIR/scripts/py" -m multi_review.cli.spawn \
     --cli <resolved.synthesizer> \
     --prompt-file <SESSION_DIR>/synth-prompt.md \
     --task-mode synthesize \
@@ -143,7 +149,7 @@ uv run python -m multi_review.cli.build_synth_input \
 
 Write to the cwd root:
 ```
-uv run python -m multi_review.cli.aggregate \
+"$SKILL_DIR/scripts/py" -m multi_review.cli.aggregate \
   --reviews-dir <REVIEWS_DIR> --output <cwd>/REVIEW-<slug>.md \
   --task <task> \
   --synthesis-text-file <synth_output> --prompt-file <yaml_path>

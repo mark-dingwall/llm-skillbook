@@ -14,6 +14,7 @@ import yaml
 
 from multi_review.core.adapters import Usage
 from multi_review.core.fanout import ReviewerResult
+from multi_review.core.prompt import SUMMARY_HEADING_CONTRACT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,6 +56,17 @@ def test_prompt_txt_manifests_input_file_not_body(tmp_path, monkeypatch):
     body = (out / "prompt.txt").read_text()
     assert str((tmp_path / "target.py").resolve()) in body
     assert "return 1" not in body
+
+
+def test_custom_yaml_prompt_txt_ends_with_runner_owned_summary_contract(tmp_path, monkeypatch):
+    yaml_body = BASE_YAML.replace("task: code", "task: custom") + (
+        '    custom_prompt: "CUSTOM_YAML_REVIEW_CHARTER"\n'
+    )
+    _, out = _run(tmp_path, monkeypatch, yaml_body, _RecordingFanout())
+    body = (out / "prompt.txt").read_text()
+
+    assert "CUSTOM_YAML_REVIEW_CHARTER" in body
+    assert body.rstrip().endswith(SUMMARY_HEADING_CONTRACT)
 
 
 def test_non_empty_out_dir_is_rejected(tmp_path):

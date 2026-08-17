@@ -47,12 +47,25 @@ mappings, the `__main__.py` CLI, and troubleshooting.
 - `tests/behavior/` — RED/GREEN behavioral controls for `SKILL.md` itself
 - `tests/{unit,integration,contract}/` — the deterministic suite
 
+## Install
+
+Code-backed skill — needs [`uv`](https://docs.astral.sh/uv/). Its Python runs
+from any working directory via `scripts/py` (`uv run --project <skill> --locked`).
+
+```bash
+python3 ../install.py review-loop --target both      # ~/.claude + ~/.agents/skills
+python3 ../install.py review-loop --target both --dev # symlink for edit-in-place
+```
+
+In-repo, Claude uses the `.claude-plugin/` marketplace and Codex auto-discovers
+via `.agents/skills/`. See the [repo README](../README.md#install).
+
 ## Redesign and history
 
-- [`Review Loop Redesign`](../docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
+- [`Review Loop Redesign`](docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
   — governing design; where this README or `SKILL.md` and that document
   disagree, the design governs.
-- [`docs/history/review-loop/`](../docs/history/review-loop/) — archived
+- [`docs/history/`](docs/history/) — archived
   decision record, prior tier-and-roster plan, and research inputs; retained
   for context, not implementation authority.
 - `tests/baseline/`, `tests/adjudication/`, `tests/dispatch/`,

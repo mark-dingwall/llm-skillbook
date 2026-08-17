@@ -302,8 +302,10 @@ def build_prompt(
                    ``generic``, or any key falling back to ``generic``).
     files:         Input files to review.
     context_files: Context files always inlined.
-    custom_prompt: Literal prompt text overriding the template.
-    prompt_file:   Path to a file whose text overrides the template.
+    custom_prompt: Literal prompt text overriding the template. The runner's
+                   Summary response contract is appended after review inputs.
+    prompt_file:   Path to a file whose text overrides the template. The same
+                   runner-owned Summary response contract is appended.
     allow_missing: If True, missing files produce warnings instead of SystemExit.
     nonce:         Override the random nonce (for deterministic tests).
     verbatim:      Review-loop opt-in (PromptFile.verbatim_custom_prompt). The
@@ -402,6 +404,7 @@ def build_prompt(
     parts = [injection_preamble(nonce)]
     parts.append(reference_preamble())
     parts.append("# Cross-AI Review Request\n\n")
+    uses_prompt_override = bool(prompt_file or custom_prompt)
     if prompt_file:
         try:
             parts.append(prompt_file.read_text())
@@ -431,6 +434,11 @@ def build_prompt(
         )
         for p in manifest_paths:
             parts.append(f"- {p}\n")
+        parts.append("\n")
+
+    if uses_prompt_override:
+        parts.append("## Required response format\n\n")
+        parts.append(SUMMARY_HEADING_CONTRACT)
         parts.append("\n")
 
     return "".join(parts)

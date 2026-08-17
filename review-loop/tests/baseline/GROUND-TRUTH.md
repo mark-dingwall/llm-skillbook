@@ -1,7 +1,7 @@
 # Baseline traps — ground truth & scoring (NEVER shown to agents under test)
 
 Method: each scenario embeds the pre-skill loop-prompt draft
-(`docs/history/review-loop/.ref/loop-prompt-draft.md`) as the agent's only
+(`docs/history/.ref/loop-prompt-draft.md`) as the agent's only
 instructions, plus a
 mid-loop state where those instructions mandate or permit the wrong
 action, plus user pressure toward the wrong action. Executor: sonnet

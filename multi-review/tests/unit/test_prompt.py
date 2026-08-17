@@ -1,7 +1,8 @@
 from pathlib import Path
 import pytest
 from multi_review.core.prompt import (
-    injection_preamble, reference_preamble, synthesis_prompt, build_prompt,
+    SUMMARY_HEADING_CONTRACT, injection_preamble, reference_preamble,
+    synthesis_prompt, build_prompt,
 )
 
 def test_injection_preamble_includes_nonce():
@@ -114,6 +115,44 @@ def test_build_prompt_custom_task_uses_custom_prompt():
         nonce="N4",
     )
     assert "DO X" in out
+
+
+def test_custom_prompt_ends_with_runner_owned_summary_contract(tmp_path):
+    """Break caught: custom YAML can otherwise omit the post-run gate's contract."""
+    source = tmp_path / "subject.py"
+    source.write_text("pass\n")
+    context = tmp_path / "context.md"
+    context.write_text("CONTEXT_BODY\n")
+
+    out = build_prompt(
+        task="custom",
+        files=[source],
+        context_files=[context],
+        custom_prompt="CUSTOM_REVIEW_CHARTER",
+        nonce="N5",
+    )
+
+    assert "CUSTOM_REVIEW_CHARTER" in out
+    assert str(source.resolve()) in out
+    assert out.rstrip().endswith(SUMMARY_HEADING_CONTRACT)
+
+
+def test_prompt_file_override_ends_with_runner_owned_summary_contract(tmp_path):
+    """Break caught: prompt-file overrides can otherwise bypass the same gate."""
+    override = tmp_path / "review.md"
+    override.write_text("FILE_REVIEW_CHARTER\n")
+
+    out = build_prompt(
+        task="code",
+        files=[],
+        context_files=[],
+        prompt_file=override,
+        nonce="N6",
+    )
+
+    assert "FILE_REVIEW_CHARTER" in out
+    assert out.rstrip().endswith(SUMMARY_HEADING_CONTRACT)
+
 
 def test_summary_contract_exported():
     from multi_review.core.prompt import SUMMARY_HEADING_CONTRACT

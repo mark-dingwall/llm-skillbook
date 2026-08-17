@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SKILL = REPO / "skills" / "multi-review" / "SKILL.md"
+SKILL = REPO / "SKILL.md"
 AGENTS_DIR = REPO / "agents"
 
 # Subcommand-based CLIs: {module: {known subcommands}}. The subcommand token
@@ -224,7 +224,7 @@ def test_builder_autonomous_default_matches_DEFAULT_REVIEWERS():
     fill_defaults entirely. If someone adds grok to that prose list, opt-in is
     silently dead and every Python test still passes. This is the guard.
 
-    Scope caveat: this asserts the REPO copy. `setup.py` copies agents into
+    Scope caveat: this asserts the REPO copy. `../install.py` copies agents into
     ~/.claude (symlinks only under --dev), so a stale install can still differ.
     That is a deployment concern, covered by the reinstall step in
     tests/manual/grok-smoke.md, not something this test can see.
@@ -472,4 +472,20 @@ def test_skill_never_polls_a_claude_task():
     skill = SKILL.read_text()
     assert "TaskGet" not in skill, (
         "SKILL.md must not poll a Claude Task after its synchronous result returned"
+    )
+
+
+def test_reviewer_agent_bakes_summary_contract():
+    """reviewer.md ships the SUMMARY_HEADING_CONTRACT text verbatim.
+
+    The contract was formerly substituted at install time; skills now install by
+    plain copy (no install step), so the committed agent must already carry it.
+    If prompt.py's contract changes, update agents/multi-review-reviewer.md.
+    """
+    from multi_review.core.prompt import SUMMARY_HEADING_CONTRACT
+
+    reviewer = (AGENTS_DIR / "multi-review-reviewer.md").read_text()
+    assert SUMMARY_HEADING_CONTRACT in reviewer, (
+        "agents/multi-review-reviewer.md drifted from SUMMARY_HEADING_CONTRACT; "
+        "re-bake the contract sentence into the agent file"
     )

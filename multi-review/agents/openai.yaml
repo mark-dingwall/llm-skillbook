@@ -1,0 +1,10 @@
+interface:
+  display_name: "Multi-Review"
+  short_description: "Fan out a code review across multiple AI models and synthesize the results"
+  default_prompt: "Use $multi-review to review these changes with the headless driver: uv run <skill-dir>/multi_review.py --prompt-file <yaml> --out-dir <dir>"
+
+policy:
+  # multi-review's interactive orchestration depends on Claude Code Task
+  # subagents; under Codex, use the headless shell driver (default_prompt).
+  # Disable implicit selection so Codex only runs it on explicit $multi-review.
+  allow_implicit_invocation: false
