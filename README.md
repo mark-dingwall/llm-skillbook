@@ -1,43 +1,65 @@
 # llm-skillbook
 
-Four code-review / feature-delivery skills packaged for **Claude Code** and
-**OpenAI Codex** from one layout.
+llm-skillbook packages code-review and feature-delivery workflows for Claude
+Code and OpenAI Codex. Choose the smallest workflow that matches the job:
 
-| Skill | Does | Standalone? |
-|---|---|---|
-| [`feature-forge`](feature-forge/) | Spec → plan → reviewed acceptance for a bounded feature | No — needs `review-loop` + `superpowers:*` skills |
-| [`multi-review`](multi-review/) | Fan out a review across many models, aggregate + synthesize | Code-backed (needs `uv`); Claude-oriented (see below) |
-| [`review-loop`](review-loop/) | Converging multi-round adversarial review, mechanical green verdict | Code-backed (needs `uv`) |
-| [`review-team`](review-team/) | High-confidence read-only multi-agent review | Yes (instruction-only) |
+| Workflow | Use it for |
+|---|---|
+| [Feature Forge](feature-forge/README.md) | Carrying a bounded, nontrivial Git work unit from specification through reviewed acceptance |
+| [multi-review](multi-review/README.md) | Collecting parallel reviews from configured AI tools and assembling one report |
+| [review-loop](review-loop/README.md) | Running a fail-closed, ledger-backed review process through an external host/controller |
+| [review-team](review-team/README.md) | Getting a high-confidence, read-only review from independent workers |
 
-Each skill dir holds `SKILL.md` (+ `agents/openai.yaml` for Codex UI metadata,
-`references/`, `assets/`, and a Python package where code-backed).
+Each component README explains its operating boundary and the useful next
+action. Start there before invoking a workflow.
 
 ## Install
 
-### In-repo — zero install
-- **Codex:** run Codex in this repo; it auto-discovers the four skills via
-  `.agents/skills/`. Invoke with `$feature-forge` (etc.).
-- **Claude Code:** add the repo as a plugin marketplace, then install the plugin:
-  ```
-  /plugin marketplace add /home/mark/kramtime/llm-skillbook
-  /plugin install llm-skillbook@llm-skillbook
-  ```
+### Use this checkout
 
-### User-scoped — copy out of the repo
-```
-python3 install.py all --target both      # or a single skill; --target claude|codex
-python3 install.py all --target both --dev # symlink instead of copy (edit-in-place)
-```
-Installs to `~/.claude/skills/` (+ subagents to `~/.claude/agents/`) and
-`~/.agents/skills/`. Refuses to overwrite a directory it did not create
-(`--force` to override).
+Codex discovers the skills when it is running in this repository. Open the
+checkout in Codex and invoke the workflow by name, for example
+`$review-team`.
 
-## Prerequisites
-- **`uv`** for `multi-review` and `review-loop` (their `scripts/py` launcher runs
-  `uv run --project <skill> --locked`, so they work from any working directory).
-- **`feature-forge`** is not standalone: it invokes `review-loop` and several
-  `superpowers:*` skills — install those too, or it fails fast at dispatch.
-- **`multi-review`** interactive orchestration uses Claude Code Task subagents; in
-  Codex use its headless driver (`uv run <skill>/multi_review.py --prompt-file …`).
-  Its `openai.yaml` disables implicit Codex invocation for that reason.
+For Claude Code, add this checkout as a local plugin marketplace, then install
+the plugin. Replace the example path with this repository's absolute path:
+
+```text
+/plugin marketplace add /absolute/path/to/llm-skillbook
+/plugin install llm-skillbook@llm-skillbook
+```
+
+Then open the chosen component README and invoke its named workflow; for
+example, use `/multi-review` for the interactive multi-review flow.
+
+### Install user-scoped copies
+
+Python can install one workflow or all workflows for Claude Code, Codex, or
+both:
+
+```bash
+python3 install.py all --target both
+python3 install.py review-team --target codex
+```
+
+Add `--dev` to link the workflow directory back to this checkout for
+edit-in-place development. Skill-directory installs refuse to replace a
+destination the installer did not create unless you pass `--force`. Claude
+installs also copy agent files by name, and those individual files do not have
+that ownership guard; inspect same-named files in the destination before
+installing.
+
+## Prerequisites and safety
+
+- `multi-review` and `review-loop` require `uv`. Their component READMEs
+  describe the supported entry points and current host/controller boundaries.
+- Feature Forge also needs Git isolation, `review-loop`, a configured reviewer
+  runner, and its participating Superpowers skills.
+- Review tools may send source and prompts to external AI providers. Some
+  configured reviewers can execute commands or read beyond the nominated
+  files. Treat reviewed content and model output as untrusted, and provide
+  external containment when the component's safety boundary requires it.
+- Installation changes user-scoped tool directories. Prefer the in-repository
+  mode while evaluating the workflows. Resolve skill-directory and Claude
+  agent-file collisions before installing, and use `--force` only for a skill
+  destination you intentionally want to replace.
