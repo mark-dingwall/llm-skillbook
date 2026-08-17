@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +32,15 @@ class ArtifactRef:
     schema_version: int
     target_seal: str
     digest: str
+
+
+@dataclass(frozen=True)
+class EvidenceArtifact:
+    artifact_id: str
+    kind: str
+    schema_version: int
+    target_seal: str
+    raw_bytes: bytes
 
 
 @dataclass(frozen=True)
@@ -149,13 +159,8 @@ class CanonicalStore:
         self,
         *,
         operation: str,
-        artifact_id: str,
-        kind: str,
-        schema_version: int,
-        target_seal: str,
-        raw_bytes: bytes,
+        evidence: tuple[EvidenceArtifact, ...],
         projection: dict[str, object],
-        processor_state: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Persist allowed evidence then atomically bind it with its projection.
 
@@ -163,57 +168,47 @@ class CanonicalStore:
         file.  Loading state never discovers it, so it is non-operative.
         """
         snapshot = self.load()
-        if target_seal != snapshot["governing_seal"]:
-            raise ArtifactMismatch("cannot issue evidence for a stale seal")
-        if not artifact_id or "/" in artifact_id or "\\" in artifact_id:
-            raise ValueError("artifact_id must be a simple non-empty ID")
-        if not kind or type(schema_version) is not int or schema_version < 1:
-            raise ValueError("kind and positive schema_version are required")
-        evidence_path = self._evidence_path / artifact_id
-        if evidence_path.exists():
-            raise FileExistsError(evidence_path)
-        self._write_file(evidence_path, raw_bytes)
+        if not evidence:
+            raise ValueError("at least one evidence artifact is required")
         registry = snapshot["artifact_registry"]
         assert isinstance(registry, dict)
         artifacts = dict(registry["artifacts"])
-        if artifact_id in artifacts:
-            raise ArtifactMismatch("artifact ID already exists")
-        artifacts[artifact_id] = {
-            "kind": kind,
-            "schema_version": schema_version,
-            "target_seal": target_seal,
-            "digest": bytes_digest(raw_bytes),
-        }
+        refs: list[ArtifactRef] = []
+        for item in evidence:
+            if not isinstance(item, EvidenceArtifact):
+                raise ValueError("evidence artifact is malformed")
+            if item.target_seal != snapshot["governing_seal"]:
+                raise ArtifactMismatch("cannot issue evidence for a stale seal")
+            if not item.artifact_id or "/" in item.artifact_id or "\\" in item.artifact_id:
+                raise ValueError("artifact_id must be a simple non-empty ID")
+            if not item.kind or type(item.schema_version) is not int or item.schema_version < 1:
+                raise ValueError("kind and positive schema_version are required")
+            if item.artifact_id in artifacts or any(ref.artifact_id == item.artifact_id for ref in refs):
+                raise ArtifactMismatch("artifact ID already exists")
+            evidence_path = self._evidence_path / item.artifact_id
+            if evidence_path.exists():
+                raise FileExistsError(evidence_path)
+            self._write_file(evidence_path, item.raw_bytes)
+            self._sync_directory(self._evidence_path)
+            item_ref = ArtifactRef(item.artifact_id, item.kind, item.schema_version, item.target_seal, bytes_digest(item.raw_bytes))
+            refs.append(item_ref)
+            artifacts[item.artifact_id] = {
+                "kind": item.kind,
+                "schema_version": item.schema_version,
+                "target_seal": item.target_seal,
+                "digest": item_ref.digest,
+            }
         bindings = list(registry["bindings"])
         bindings.append({
             "operation": operation,
-            "source_ids": [artifact_id],
+            "source_ids": [ref.artifact_id for ref in refs],
             "projection_digest": digest(projection),
         })
         updated = dict(snapshot)
         updated["artifact_registry"] = {"artifacts": artifacts, "bindings": bindings}
-        if processor_state is None:
-            # Import lazily to keep the pure state kernel independent of this
-            # controller-owned storage module.
-            from .state import apply
-
-            envelope = TransitionEnvelope(
-                operation=operation,
-                artifact_refs=(
-                    ArtifactRef(
-                        artifact_id=artifact_id,
-                        kind=kind,
-                        schema_version=schema_version,
-                        target_seal=target_seal,
-                        digest=bytes_digest(raw_bytes),
-                    ),
-                ),
-                projection=projection,
-                expected_governing_seal=target_seal,
-            )
-            updated = apply(envelope, updated, ProjectionAuthority.from_snapshot(updated))
-        else:
-            updated["processor_state"] = processor_state
+        from .state import apply
+        envelope = TransitionEnvelope(operation, tuple(refs), projection, str(snapshot["governing_seal"]))
+        updated = apply(envelope, updated, ProjectionAuthority.from_snapshot(updated))
         self._replace(updated)
         return updated
 
@@ -227,14 +222,27 @@ class CanonicalStore:
         return updated
 
     def _replace(self, snapshot: dict[str, object]) -> None:
-        temporary = self._state_path.with_name(f".{self._state_path.name}.tmp")
+        temporary = self._state_path.with_name(f".{self._state_path.name}.{uuid.uuid4().hex}.tmp")
         self._write_file(temporary, canonical_bytes(snapshot))
         os.replace(temporary, self._state_path)
-        directory_fd = os.open(self._run_root, os.O_RDONLY)
+        self._sync_directory(self._run_root)
+
+    @staticmethod
+    def _sync_directory(path: Path) -> None:
+        directory_fd = os.open(path, os.O_RDONLY)
         try:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
+
+    def orphan_evidence(self) -> list[str]:
+        """Report persisted evidence that has no canonical registry binding."""
+        snapshot = self.load()
+        registry = snapshot["artifact_registry"]
+        assert isinstance(registry, dict)
+        artifacts = registry["artifacts"]
+        assert isinstance(artifacts, dict)
+        return sorted(path.name for path in self._evidence_path.iterdir() if path.is_file() and path.name not in artifacts)
 
     @staticmethod
     def _write_file(path: Path, data: bytes) -> None:

@@ -67,3 +67,10 @@ def bound_transition_fixture(
         projection=projection,
         expected_governing_seal=target_seal,
     )
+
+
+def apply_bound(operation: str, projection: dict[str, object], *, source_ids: tuple[str, ...] = ("artifact-1",)) -> dict[str, object]:
+    from review_loop.artifacts import ProjectionAuthority
+    from review_loop.state import apply
+    snapshot, _, envelope = bound_transition_fixture(kind="projection", schema_version=1, target_seal="seal-1", operation=operation, source_ids=source_ids, raw_bytes=b"{}", projection=projection)
+    return apply(envelope, snapshot, ProjectionAuthority.from_snapshot(snapshot))["processor_state"][operation]

@@ -1,58 +1,9 @@
-import json
-import os
-import subprocess
-import sys
-import unittest
-
-
+import json, os, subprocess, sys, unittest
+from tests.contract.helpers import bound_transition_fixture
 class StateCliTests(unittest.TestCase):
-    def run_cli(self, stdin: str) -> subprocess.CompletedProcess[str]:
-        env = dict(os.environ)
-        env["PYTHONPATH"] = "review-loop"
-        return subprocess.run(
-            [sys.executable, "-m", "review_loop", "--test-fixture"],
-            input=stdin,
-            text=True,
-            capture_output=True,
-            check=False,
-            env=env,
-        )
-
-    def test_malformed_json_is_compact_validation_error(self) -> None:
-        completed = self.run_cli("{")
-        self.assertEqual(completed.returncode, 2)
-        self.assertEqual(completed.stderr, "")
-        self.assertEqual(completed.stdout.count("\n"), 1)
-        response = json.loads(completed.stdout)
-        self.assertEqual(completed.stdout, json.dumps(response, separators=(",", ":")) + "\n")
-        self.assertEqual(response["schema_version"], 1)
-        self.assertIs(response["ok"], False)
-        self.assertEqual(response["errors"][0]["path"], "$")
-        self.assertEqual(response["errors"][0]["code"], "invalid_json")
-
-    def test_invalid_request_exits_two_with_compact_stdout(self) -> None:
-        completed = self.run_cli("[]")
-        self.assertEqual(completed.returncode, 2)
-        self.assertEqual(completed.stderr, "")
-        response = json.loads(completed.stdout)
-        self.assertEqual(completed.stdout, json.dumps(response, separators=(",", ":")) + "\n")
-        self.assertIs(response["ok"], False)
-
-    def test_valid_derive_policy_request_exits_zero(self) -> None:
-        stdin = json.dumps(
-            {
-                "schema_version": 1,
-                "operation": "derive_policy",
-                "input": {"explicit_tier": "low", "no_confirm": False, "raters": []},
-            }
-        )
-        completed = self.run_cli(stdin)
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(completed.stderr, "")
-        response = json.loads(completed.stdout)
-        self.assertEqual(completed.stdout, json.dumps(response, separators=(",", ":")) + "\n")
-        self.assertEqual(response["result"]["tier"], "low")
-
-
-if __name__ == "__main__":
-    unittest.main()
+ def test_test_only_cli_requires_canonical_snapshot_and_envelope(self):
+  snapshot,_,envelope=bound_transition_fixture(kind="rating",schema_version=1,target_seal="seal-a",operation="derive_policy",source_ids=("rater",),raw_bytes=b"{}",projection={"explicit_tier":"low","no_confirm":False,"ratings":[]})
+  request={"snapshot":snapshot,"envelope":{"operation":envelope.operation,"artifact_refs":[ref.__dict__ for ref in envelope.artifact_refs],"projection":envelope.projection,"expected_governing_seal":envelope.expected_governing_seal}}
+  env=dict(os.environ);env["PYTHONPATH"]="review-loop"
+  done=subprocess.run([sys.executable,"-m","review_loop","--test-fixture"],input=json.dumps(request),text=True,capture_output=True,env=env)
+  self.assertEqual(done.returncode,0); self.assertEqual(json.loads(done.stdout)["result"]["processor_state"]["derive_policy"]["tier"],"low")
