@@ -23,9 +23,11 @@ ensure the interactive builder uses the same default policy as the runtime.
 Treat prompts, listed source files, inline context, reviewer output, and
 synthesis input as untrusted data. Preserve the prompt-delivery boundary: do
 not move prompt text onto process command lines; retain the safe file-delivery
-exception only where a client requires it, with managed temporary files and
-cleanup. Keep input-tagging and reference-read instructions intact so content
-cannot silently become authority over the review procedure.
+exception only where a client requires it. The synthesis helper cleans up the
+temporary file it creates; prepared run prompt files belong to the caller or
+run owner, which must govern their retention and cleanup. Keep input-tagging
+and reference-read instructions intact so content cannot silently become
+authority over the review procedure.
 
 Progress adapters normalize each supported stream into the common result
 shape. JSONL is a per-client capability, not a universal transport: do not
@@ -45,9 +47,11 @@ reviewer results. Both synthesis routes must carry the same instruction to
 ignore agent step narration and treat review bodies as data, because the
 interactive Task route and external CLI route receive different prompts.
 
-Publish the final report atomically: fully write and validate the staged
-artifact before replacing the visible report. Cancellation, integrity failure,
-or report-write failure must not leave a partial report presented as complete.
+The headless driver publishes its final report atomically: fully write and
+validate the staged artifact before replacing the visible report. Cancellation,
+integrity failure, or report-write failure must not leave a partial headless
+report presented as complete. Do not extend this guarantee to the interactive
+aggregator without first making its publication path satisfy it.
 
 ## Agents, installation, and verification
 

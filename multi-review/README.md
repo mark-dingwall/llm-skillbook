@@ -10,7 +10,8 @@ Use `/multi-review` inside Claude Code for the interactive workflow. It can
 help author a prompt file, dispatch Claude Code subagents, and coordinate the
 review steps.
 
-Use the headless driver when another tool or controller owns the workflow:
+Use the headless driver when another tool or controller owns the workflow. From
+the repository root:
 
 ```bash
 uv run --project multi-review multi-review/multi_review.py \
@@ -23,9 +24,9 @@ The driver performs one fan-out and report assembly pass. It is
 that needs sandboxing, lifecycle control, or cleanup must provide those
 properties around the command.
 
-The interactive skill and headless driver have different report locations and
-naming conventions. Read the result path reported by the entry point you ran
-instead of assuming a shared filename.
+The interactive workflow reports its output path, which may be suffixed to
+avoid a collision. The headless driver writes its final report to
+`<out-dir>/REVIEW.md`.
 
 ## Install
 
@@ -54,9 +55,10 @@ synthesizer: none
 ```
 
 Paths in `files` and `context_files` are resolved relative to the prompt file.
-Omit `models` to use each CLI's default, or set a YAML model entry to pin a
-headless/external route. That YAML does not override the Claude Code Task
-subagents used by the interactive workflow; those use their agent definitions.
+Omit `models` to use each CLI's default, or set a YAML entry to select a model
+or provider-specific model family for a headless/external route. That YAML does
+not override the Claude Code Task subagents used by the interactive workflow;
+those use their agent definitions.
 
 Known reviewers are not necessarily defaults. In particular, opt-in reviewers
 must be named explicitly in the prompt rather than added to an automatic set.
@@ -66,6 +68,23 @@ Validate a prompt before spending review capacity:
 uv run --project multi-review python -m multi_review.cli.validate_prompt \
   path/to/review.yaml
 ```
+
+## Pykrete setup
+
+Pykrete is in the default reviewer set. Install it, configure its provider
+credentials, and point `PYKRETE_CONFIG` at its configuration before relying on
+the default fan-out:
+
+```bash
+npm link pykrete
+export NANOGPT_API_KEY=...
+export PYKRETE_CONFIG=/path/to/pykrete.toml
+```
+
+The configuration chooses the provider defaults appropriate to your review
+task. A `models.pykrete` entry selects that provider's model family rather than
+universally pinning one concrete model. If this setup is unavailable, Pykrete
+is recorded as a failed reviewer while the remaining reviewers can continue.
 
 ## Read results carefully
 

@@ -1,9 +1,12 @@
 # multi-review-reviewer smoke
 
+Run this procedure from the repository root.
+
 1. Prepare a prompt from a fixture:
    ```bash
-   uv run python -m multi_review.cli.prepare \
-     --prompt-file tests/fixtures/prompts/valid.yaml --out-dir /tmp/reviewer-smoke
+   uv run --project multi-review python -m multi_review.cli.prepare \
+     --prompt-file multi-review/tests/fixtures/prompts/valid.yaml \
+     --out-dir /tmp/reviewer-smoke
    ```
 2. From inside the Claude Code TUI in this repo, dispatch via Task using
    `multi-review/templates/reviewer_task.md` with `<PROMPT_PATH>` set to the

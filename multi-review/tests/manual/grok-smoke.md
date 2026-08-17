@@ -34,7 +34,7 @@ From `multi_review/core/reviewers.py`:
   here as a snapshot, not a contract.
 - `--sandbox workspace` fences writes to cwd + tmp; it does **not** restrict
   reads and is **not** a security boundary — grok remains agentic/uncontained
-  in posture, same as agy and pykrete (CLAUDE.md invariants).
+  in posture, as this smoke's source observation records.
 - Opt-in enforcement rests on two prose sites, not just the Python split:
   `agents/multi-review-build.md`'s autonomous `--use-defaults` reviewer list,
   and `SKILL.md`'s dispatch instructions binding to `resolved.reviewers`. Both
@@ -58,6 +58,13 @@ grep -c 'resolved.reviewers' ~/.claude/skills/multi-review/SKILL.md  # expect >=
 
 If those greps come back empty you are testing a stale install, and cases 1-3
 will report false confidence about opt-in.
+
+For every remaining case, work from the component root so the prompt examples
+and paths below resolve as written:
+
+```bash
+cd multi-review
+```
 
 ## Procedure
 
@@ -128,7 +135,8 @@ Build a v0.3 prompt YAML with a `files:` entry outside the current working
 directory (e.g. a file under `/tmp` or a sibling repo).
 Confirm grok's review actually engages with that file's content — this is
 the check that `--sandbox workspace` has not broken reads (it fences writes
-only; reads are unrestricted under that profile per the CLAUDE.md invariant).
+only; the historical source observation above records that reads are not
+restricted under that profile).
 
 ### 6 — Synthesizer role
 
@@ -211,5 +219,4 @@ substitution above to whichever step spawns the grok subprocess. Confirm:
   of the fixture shim at `tests/fixtures/bin/grok`.
 - Synthesis producing a JSONL envelope instead of clean markdown — would mean
   the `--output-format` flag leaked into the non-streaming synthesis
-  invocation (see CLAUDE.md invariant on grok's output-format-dependent
-  behavior).
+  invocation, contrary to this smoke's source-observation section.
