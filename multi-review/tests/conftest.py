@@ -15,7 +15,7 @@ def _no_test_may_mutate_the_live_checkout_config():
     `--dev` symlink. Tests invoking setup must stage their own source tree under
     tmp_path.
     """
-    cfg = Path(__file__).resolve().parent.parent / "skills" / "multi-review" / "config.json"
+    cfg = Path(__file__).resolve().parent.parent / "config.json"
     before = cfg.read_text() if cfg.exists() else None
     yield
     after = cfg.read_text() if cfg.exists() else None

@@ -6,7 +6,7 @@ effort: xhigh
 tools: Read, Grep, Glob
 ---
 
-<!-- SUMMARY_CONTRACT -->
+Your response MUST include a `## Summary` section as the first major heading. This heading is a structural sentinel — output that lacks it will be classified as a failed review.
 
 # Reviewer
 

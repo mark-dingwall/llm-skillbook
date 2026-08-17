@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Fans out one review prompt to multiple AI CLIs in parallel (`claude`, `agy`, `codex`, `opencode`, `pykrete`, `grok`), aggregates responses into `REVIEW.md`, and optionally runs a consensus-synthesis pass.
 
 The project supports two entry points: the **Claude Code skill** `/multi-review`, whose
-multi-step procedure lives in `skills/multi-review/SKILL.md`, and the root
+multi-step procedure lives in `SKILL.md`, and the root
 `multi_review.py` headless single-pass driver for contained callers: invoke
 `uv run <absolute-repo-path>/multi_review.py --prompt-file <yaml> --out-dir <dir> [--timeout <sec>]`.
 
