@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import hashlib
 import secrets
 import signal
 import sys
@@ -32,11 +33,36 @@ from pathlib import Path
 
 import yaml
 
-from multi_review.core.aggregate import write_review_md
+from multi_review.core.aggregate import (
+    ReviewRecordError,
+    parse_qualified_review_record,
+    parse_review_record_expectations,
+    write_review_md,
+)
 from multi_review.core.fanout import ReviewerResult, run_all_reviewers
 from multi_review.core.prompt import build_prompt, classify_review_ok
 from multi_review.core.promptfile import ValidationError, _resolve_path, load_promptfile
 from multi_review.core.synthesis import build_synthesis_input, run_synthesis
+
+
+def _prompt_transport_digest(prompt_text: str) -> bytes:
+    """Canonical digest of the prompt payload, held in trusted driver memory."""
+    return hashlib.sha256(prompt_text.encode("utf-8")).digest()
+
+
+def _verify_prompt_transport(prompt_path: Path, expected_digest: bytes) -> bool:
+    """Re-hash the on-disk prompt transport and compare against the canonical digest.
+
+    review-loop opt-in (require_complete_status): a reviewer subprocess could
+    replace, symlink, truncate, or otherwise rewrite prompt.txt during fanout.
+    Every fixed-client review derived from a drifted transport is untrustworthy,
+    so the caller must fail closed rather than publish a report built on it.
+    """
+    try:
+        on_disk = prompt_path.read_bytes()
+    except OSError:
+        return False
+    return hashlib.sha256(on_disk).digest() == expected_digest
 
 
 def claim_output_dir(out_dir: Path) -> Path:
@@ -113,7 +139,8 @@ def claim_output_dir_with_sigterm_mask(out_dir: Path, claim_ref: list[Path | Non
 
 
 async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
-                 out_dir: Path, timeout: int | None, prompt_file: Path) -> int:
+                 out_dir: Path, timeout: int | None, prompt_file: Path,
+                 review_record_expectations: dict[str, dict] | None = None) -> int:
     # Fanout and synthesis retain asyncio's native signal wakeup handler so a
     # TERM cancels active subprocess work and awaits its cleanup.
     loop = asyncio.get_running_loop()
@@ -134,14 +161,38 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
         print(f"[multi_review] {result.cli}: {'ok' if result.ok else 'failed'} "
               f"({result.elapsed:.1f}s) [raw]", file=sys.stderr, flush=True)
 
+    # review-loop opt-in only: every other caller keeps the exact pre-existing
+    # dispatch path with no transport re-check.
+    prompt_digest = _prompt_transport_digest(prompt_text) if pf.require_complete_status else None
+    if prompt_digest is not None and not _verify_prompt_transport(prompt_path, prompt_digest):
+        print(f"[multi_review] error: prompt transport integrity check failed before dispatch: "
+              f"{prompt_path}", file=sys.stderr)
+        return 1
+
     raw_results = await run_all_reviewers(
         reviewers, prompt_text, pf.models, timeout,
         prompt_path=prompt_path, task=pf.task, result_callback=_report,
     )
 
+    if prompt_digest is not None and not _verify_prompt_transport(prompt_path, prompt_digest):
+        print(f"[multi_review] error: prompt transport integrity check failed after fan-out: "
+              f"{prompt_path}", file=sys.stderr)
+        (out_dir / ".REVIEW.md.tmp").unlink(missing_ok=True)
+        (out_dir / "REVIEW.md").unlink(missing_ok=True)
+        return 1
+
     classified_results = []
+    review_records: dict[str, dict] = {}
     for result in raw_results:
         ok, note = classify_review_ok(result.ok, result.text)
+        if ok and pf.require_complete_status:
+            try:
+                review_records[result.cli] = parse_qualified_review_record(
+                    result.text, review_record_expectations[result.cli],
+                )
+            except ReviewRecordError as exc:
+                ok = False
+                note = str(exc)
         classified_results.append(dataclasses.replace(
             result,
             ok=ok,
@@ -191,6 +242,7 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             synthesizer=(pf.synthesizer if synthesis_ok else None),
             synthesized_at=(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                             if synthesis_ok else None),
+            review_records=(review_records if pf.require_complete_status else None),
         )
         staged_review.replace(final_review)
     except asyncio.CancelledError:
@@ -213,6 +265,11 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
     p.add_argument("--prompt-file", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--timeout", type=int, default=None)
+    # review-loop opt-in only (PromptFile.require_complete_status). Carries
+    # per-CLI dispatch identity + the controller-preallocated raw report ID
+    # for that fixed slot — small structured metadata, never the prompt body,
+    # so this stays consistent with "prompt transport never in argv."
+    p.add_argument("--review-record-expect", type=str, default=None)
     args = p.parse_args(argv)
 
     # Resolve once while the caller's foreign cwd is still the reference point.
@@ -249,6 +306,20 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
     # indistinguishable in the results list and double-count toward the synthesis gate.
     reviewers = list(dict.fromkeys(pf.reviewers))
 
+    review_record_expectations: dict[str, dict] | None = None
+    if pf.require_complete_status:
+        if not args.review_record_expect:
+            print("error: require_complete_status needs --review-record-expect",
+                  file=sys.stderr)
+            return 2
+        try:
+            review_record_expectations = parse_review_record_expectations(
+                args.review_record_expect, reviewers,
+            )
+        except ReviewRecordError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
     base = prompt_file.parent
 
     try:
@@ -258,6 +329,7 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             context_files=[_resolve_path(f, base) for f in pf.context_files],
             custom_prompt=pf.custom_prompt,
             nonce=secrets.token_hex(4),
+            verbatim=pf.verbatim_custom_prompt,
         )
     except ValidationError as exc:
         # Inputs were valid when load_promptfile checked them, but path
@@ -296,7 +368,8 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
             return 1
         try:
             return asyncio.run(_amain(pf, reviewers, prompt_text, prompt_path, out_dir,
-                                      args.timeout, prompt_file))
+                                      args.timeout, prompt_file,
+                                      review_record_expectations=review_record_expectations))
         except asyncio.CancelledError:
             # SIGTERM during fanout or synthesis: no REVIEW.md was written; the caller
             # sees a failed round. review-loop treats any non-zero exit identically.

@@ -196,6 +196,74 @@ def test_trim_regex_stays_anchored_while_gate_does_not():
     assert SUMMARY_HEADING_RE.search(quoted) is None
 
 
+# -- Task 10: verbatim_custom_prompt opt-in ---------------------------------
+
+def test_build_prompt_verbatim_equals_custom_prompt_exactly():
+    out = build_prompt(
+        task="custom", files=[], context_files=[], custom_prompt="DO X EXACTLY",
+        nonce="N5", verbatim=True,
+    )
+    assert out == "DO X EXACTLY"
+
+
+def test_build_prompt_verbatim_preserves_trailing_newline_presence():
+    out = build_prompt(
+        task="custom", files=[], custom_prompt="DO X\n", nonce="N5", verbatim=True,
+    )
+    assert out == "DO X\n"
+
+
+def test_build_prompt_verbatim_preserves_trailing_newline_absence():
+    out = build_prompt(
+        task="custom", files=[], custom_prompt="DO X", nonce="N5", verbatim=True,
+    )
+    assert out == "DO X"
+    assert not out.endswith("\n")
+
+
+def test_build_prompt_verbatim_omits_preambles_and_manifest(tmp_path):
+    f = tmp_path / "src.py"
+    f.write_text("x = 1\n")
+    out = build_prompt(
+        task="custom", files=[f], custom_prompt="REVIEW BODY", nonce="N5", verbatim=True,
+    )
+    assert out == "REVIEW BODY"
+    assert "Files to Review" not in out
+    assert str(f.resolve()) not in out
+
+
+def test_build_prompt_verbatim_still_validates_readable_files(tmp_path, monkeypatch):
+    source = tmp_path / "unreadable.py"
+    source.write_text("SECRET\n")
+    resolved = source.resolve()
+    real_open = Path.open
+
+    def deny_input_read(path, mode="r", *args, **kwargs):
+        if path == resolved and mode == "rb":
+            raise PermissionError("read denied")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", deny_input_read)
+
+    with pytest.raises(SystemExit, match="cannot read input file"):
+        build_prompt(task="custom", files=[source], custom_prompt="X", nonce="N5", verbatim=True)
+
+
+def test_build_prompt_verbatim_rejects_directory_input(tmp_path):
+    source = tmp_path / "source-dir"
+    source.mkdir()
+
+    with pytest.raises(SystemExit, match="not a regular file"):
+        build_prompt(task="custom", files=[source], custom_prompt="X", nonce="N5", verbatim=True)
+
+
+def test_build_prompt_verbatim_rejects_missing_input_file(tmp_path):
+    missing = tmp_path / "gone.py"
+
+    with pytest.raises(SystemExit, match="not found"):
+        build_prompt(task="custom", files=[missing], custom_prompt="X", nonce="N5", verbatim=True)
+
+
 def test_synthesis_prompt_instructs_ignoring_reviewer_narration():
     """Narration reaches the synthesizer regardless of the aggregate-time
     gate: build_synthesis_input filters on the raw state.json `ok`, and runs

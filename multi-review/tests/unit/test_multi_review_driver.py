@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import os
 import signal
 import subprocess
@@ -430,6 +431,39 @@ def test_timeout_defaults_to_none(tmp_path, monkeypatch):
     assert fanout.calls[0]["timeout"] is None
 
 
+VERBATIM_YAML = """\
+    prompt_format_version: 2
+    task: custom
+    files: [target.py]
+    reviewers: [codex]
+    synthesizer: none
+    verbatim_custom_prompt: true
+    custom_prompt: "EXACT BODY, no wrapping."
+"""
+
+
+def test_verbatim_custom_prompt_writes_exact_prompt_txt(tmp_path, monkeypatch):
+    _, out = _run(tmp_path, monkeypatch, VERBATIM_YAML, _RecordingFanout())
+    assert (out / "prompt.txt").read_text() == "EXACT BODY, no wrapping."
+
+
+def test_use_cli_defaults_forwards_empty_models(tmp_path, monkeypatch):
+    """Exact unpinned CLI defaults: use_cli_defaults=true means no --model is
+    ever passed — fanout must receive an empty models dict, not a silently
+    synthesized default."""
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML + "    use_cli_defaults: true\n", fanout)
+    assert fanout.calls[0]["models"] == {}
+
+
+def test_pinned_models_forwarded_exactly_with_no_fallback_substitution(tmp_path, monkeypatch):
+    """Exact pinned models: a caller pinning only one of two reviewers must not
+    have a fallback synthesized for the other."""
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML + "    models: {codex: gpt-5.6-sol}\n", fanout)
+    assert fanout.calls[0]["models"] == {"codex": "gpt-5.6-sol"}
+
+
 def test_review_md_is_written_with_both_reviewers(tmp_path, monkeypatch):
     fanout = _RecordingFanout()
     code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
@@ -469,6 +503,146 @@ def test_progress_lines_go_to_stderr(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "[multi_review] codex: ok" in err
     assert "[multi_review] agy: ok" in err
+
+
+# -- Task 10: review-loop opt-in — prompt transport integrity ---------------
+
+REQUIRE_COMPLETE_YAML = """\
+    prompt_format_version: 2
+    task: code
+    files: [target.py]
+    reviewers: [codex, agy]
+    synthesizer: none
+    require_complete_status: true
+"""
+
+
+class _TamperingFanout(_RecordingFanout):
+    """Simulates a reviewer subprocess that rewrites prompt.txt during fanout."""
+
+    async def __call__(self, reviewers, prompt, models, timeout, **kwargs):
+        results = await super().__call__(reviewers, prompt, models, timeout, **kwargs)
+        kwargs["prompt_path"].write_bytes(b"TAMPERED BY FAKE REVIEWER")
+        return results
+
+
+def _expectation(cli, **overrides):
+    base = {
+        "request_id": "req-1", "role": "adversarial", "charter_id": "chart-1",
+        "target_seal": "seal-1", "round_input_seal": None,
+        "scope_locator_ids": ["loc-1"], "raw_report_id": f"raw-{cli}",
+    }
+    base.update(overrides)
+    return base
+
+
+def _expect_argv(clis):
+    return ["--review-record-expect", json.dumps({cli: _expectation(cli) for cli in clis})]
+
+
+def _record_body(expectation, source_findings=(), terminal="REVIEW-STATUS: COMPLETE"):
+    record = {
+        "request_id": expectation["request_id"], "role": expectation["role"],
+        "charter_id": expectation["charter_id"], "target_seal": expectation["target_seal"],
+        "round_input_seal": expectation["round_input_seal"],
+        "scope_locator_ids": expectation["scope_locator_ids"],
+        "source_findings": list(source_findings),
+    }
+    return (
+        "## Summary\n\nLooks fine.\n\n"
+        f"```review-record\n{json.dumps(record)}\n```\n{terminal}"
+    )
+
+
+def test_require_complete_status_clean_run_dispatches_and_publishes(tmp_path, monkeypatch):
+    codex_body = _record_body(_expectation("codex"))
+    agy_body = _record_body(_expectation("agy"))
+    fanout = _RecordingFanout(results={
+        "codex": _result("codex", text=codex_body),
+        "agy": _result("agy", text=agy_body),
+    })
+    code, out = _run(tmp_path, monkeypatch, REQUIRE_COMPLETE_YAML, fanout,
+                     extra_argv=_expect_argv(["codex", "agy"]))
+    text = (out / "REVIEW.md").read_text()
+    assert code == 0
+    assert fanout.calls  # dispatch happened
+    assert 'reviewers_succeeded: ["codex", "agy"]' in text
+    assert "review_records:" in text
+    assert "raw_report_id: raw-codex" in text
+    assert "raw_report_id: raw-agy" in text
+
+
+def test_require_complete_status_needs_review_record_expect(tmp_path):
+    """Startup-time config error: the flag is required whenever the opt-in is set."""
+    pf = _write_promptfile(tmp_path, REQUIRE_COMPLETE_YAML)
+    out = tmp_path / "round-1"
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    assert not out.exists()
+
+
+def test_require_complete_status_rejects_prompt_tampered_before_dispatch(tmp_path, monkeypatch):
+    """Break caught: a reviewer (or anything with fs access) rewrites prompt.txt
+    between the driver's write and dispatch. The driver must catch this before
+    launching any fixed client, not merely after."""
+    fanout = _RecordingFanout()
+    pf = _write_promptfile(tmp_path, REQUIRE_COMPLETE_YAML)
+    out = tmp_path / "round-1"
+    real_write_text = Path.write_text
+
+    def tamper_after_prompt_write(path, text, *args, **kwargs):
+        result = real_write_text(path, text, *args, **kwargs)
+        if path.name == "prompt.txt":
+            path.write_bytes(b"TAMPERED BEFORE DISPATCH")
+        return result
+
+    monkeypatch.setattr(Path, "write_text", tamper_after_prompt_write)
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out),
+                        *_expect_argv(["codex", "agy"])])
+
+    assert code == 1
+    assert fanout.calls == [], "reviewers must never be dispatched against a drifted transport"
+    assert not (out / "REVIEW.md").exists()
+
+
+@pytest.mark.parametrize("replace_kind", ["rewrite", "truncate", "symlink"])
+def test_require_complete_status_rejects_prompt_tampered_during_fanout(tmp_path, monkeypatch, replace_kind):
+    """Break caught: prompt.txt survives dispatch but is replaced/truncated/
+    symlinked by a reviewer while fanout is in flight. Re-checked after every
+    reviewer subprocess is reaped, before REVIEW.md is published."""
+    class _Tamper(_RecordingFanout):
+        async def __call__(self, reviewers, prompt, models, timeout, **kwargs):
+            results = await super().__call__(reviewers, prompt, models, timeout, **kwargs)
+            path = kwargs["prompt_path"]
+            if replace_kind == "rewrite":
+                path.write_bytes(b"REPLACED CONTENT")
+            elif replace_kind == "truncate":
+                path.write_bytes(b"")
+            elif replace_kind == "symlink":
+                decoy = path.parent / "decoy.txt"
+                decoy.write_bytes(b"DECOY")
+                path.unlink()
+                path.symlink_to(decoy)
+            return results
+
+    fanout = _Tamper()
+    code, out = _run(tmp_path, monkeypatch, REQUIRE_COMPLETE_YAML, fanout,
+                     extra_argv=_expect_argv(["codex", "agy"]))
+
+    assert code == 1
+    assert fanout.calls, "tampering happens mid/post-fanout, so dispatch did occur"
+    assert not (out / "REVIEW.md").exists()
+    assert not (out / ".REVIEW.md.tmp").exists()
+
+
+def test_require_complete_status_false_does_not_recheck_transport(tmp_path, monkeypatch):
+    """Regression guard: the transport re-check is opt-in only. Existing
+    non-opt-in callers must be unaffected even if something rewrites prompt.txt
+    mid-fanout."""
+    fanout = _TamperingFanout()
+    code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert code == 0
+    assert (out / "REVIEW.md").exists()
 
 
 def test_review_write_failure_returns_1_without_raising(tmp_path, monkeypatch, capsys):
@@ -684,6 +858,7 @@ def test_repeated_sigterm_requests_cancellation_only_once(tmp_path, monkeypatch)
         models = {}
         task = "code"
         synthesizer = "none"
+        require_complete_status = False
 
     async def scenario():
         loop = asyncio.get_running_loop()

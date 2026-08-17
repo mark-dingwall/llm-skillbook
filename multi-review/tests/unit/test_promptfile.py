@@ -370,3 +370,101 @@ def test_malformed_field_types_raise_validation_error(tmp_path, field, value):
 
     with pytest.raises(ValidationError):
         validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+# -- Task 10: narrow review-loop driver opt-in ------------------------------
+
+def test_review_loop_opt_in_fields_default_false(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    pf = fill_defaults({"prompt_format_version": 2, "task": "code", "files": [str(src)]})
+    validate(pf, base_dir=tmp_path)  # must not raise
+    assert pf.verbatim_custom_prompt is False
+    assert pf.use_cli_defaults is False
+    assert pf.require_complete_status is False
+
+
+def test_dataclass_default_opt_in_fields_are_false():
+    """Direct construction (bypassing fill_defaults) must not silently opt in."""
+    pf = PromptFile(prompt_format_version=2, task="code", files=["a.py"])
+    assert pf.verbatim_custom_prompt is False
+    assert pf.use_cli_defaults is False
+    assert pf.require_complete_status is False
+
+
+@pytest.mark.parametrize("field", ["verbatim_custom_prompt", "use_cli_defaults", "require_complete_status"])
+def test_review_loop_opt_in_field_must_be_boolean(tmp_path, field):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {"prompt_format_version": 2, "task": "code", "files": [str(src)], field: "yes"}
+    with pytest.raises(ValidationError, match="boolean"):
+        validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+def test_verbatim_custom_prompt_requires_custom_task(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "code", "files": [str(src)],
+        "verbatim_custom_prompt": True,
+    }
+    with pytest.raises(ValidationError, match="verbatim_custom_prompt"):
+        validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+def test_verbatim_custom_prompt_requires_custom_prompt_body(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "custom", "files": [str(src)],
+        "verbatim_custom_prompt": True, "custom_prompt": None,
+    }
+    with pytest.raises(ValidationError, match="custom_prompt body"):
+        validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+def test_verbatim_custom_prompt_rejects_context_files(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    ctx = tmp_path / "ctx.md"
+    ctx.write_text("context")
+    raw = {
+        "prompt_format_version": 2, "task": "custom", "files": [str(src)],
+        "context_files": [str(ctx)], "verbatim_custom_prompt": True,
+        "custom_prompt": "DO X",
+    }
+    with pytest.raises(ValidationError, match="context_files"):
+        validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+def test_verbatim_custom_prompt_accepted_with_task_custom(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "custom", "files": [str(src)],
+        "verbatim_custom_prompt": True, "custom_prompt": "DO X",
+    }
+    pf = fill_defaults(raw)
+    validate(pf, base_dir=tmp_path)  # must not raise
+
+
+def test_use_cli_defaults_rejects_models(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "code", "files": [str(src)],
+        "use_cli_defaults": True, "models": {"codex": "gpt-5.6-sol"},
+    }
+    with pytest.raises(ValidationError, match="use_cli_defaults"):
+        validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+def test_use_cli_defaults_accepted_without_models(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "code", "files": [str(src)],
+        "use_cli_defaults": True,
+    }
+    pf = fill_defaults(raw)
+    validate(pf, base_dir=tmp_path)  # must not raise

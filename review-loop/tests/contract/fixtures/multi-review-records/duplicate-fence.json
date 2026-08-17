@@ -1,0 +1,15 @@
+{
+  "dispatch": {
+    "request_id": "req-1",
+    "role": "adversarial",
+    "charter_id": "chart-1",
+    "target_seal": "seal-1",
+    "round_input_seal": null,
+    "scope_locator_ids": [
+      "loc-1",
+      "loc-2"
+    ]
+  },
+  "body": "## Summary\n\nDup.\n\n```review-record\n{\"request_id\": \"req-1\", \"role\": \"adversarial\", \"charter_id\": \"chart-1\", \"target_seal\": \"seal-1\", \"round_input_seal\": null, \"scope_locator_ids\": [\"loc-1\", \"loc-2\"], \"source_findings\": []}\n```\n```review-record\n{\"request_id\": \"req-1\", \"role\": \"adversarial\", \"charter_id\": \"chart-1\", \"target_seal\": \"seal-1\", \"round_input_seal\": null, \"scope_locator_ids\": [\"loc-1\", \"loc-2\"], \"source_findings\": []}\n```\nREVIEW-STATUS: COMPLETE",
+  "expect_accept": false
+}

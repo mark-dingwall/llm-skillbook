@@ -20,6 +20,12 @@ class PromptFile:
     synthesizer: str = "claude"
     reviewers: list[str] = field(default_factory=lambda: list(DEFAULT_REVIEWERS))
     models: dict[str, str] = field(default_factory=dict)
+    # Narrow review-loop driver opt-in (see multi-review/BACKLOG.md "Priority
+    # consumer contract: review-loop"). All default False/off: an omitted
+    # field reproduces exact pre-opt-in behavior.
+    verbatim_custom_prompt: bool = False
+    use_cli_defaults: bool = False
+    require_complete_status: bool = False
 
 _VALID_TASKS = {"code", "plan", "security", "generic", "custom"}
 _KNOWN_REVIEWERS = set(ALL_REVIEWERS)  # valid set (includes opt-in reviewers like grok)
@@ -44,6 +50,9 @@ def fill_defaults(raw: dict) -> PromptFile:
     raw.setdefault("synthesizer", "claude")
     raw.setdefault("reviewers", list(DEFAULT_REVIEWERS))
     raw.setdefault("models", {})
+    raw.setdefault("verbatim_custom_prompt", False)
+    raw.setdefault("use_cli_defaults", False)
+    raw.setdefault("require_complete_status", False)
     try:
         return PromptFile(**raw)
     except TypeError as exc:
@@ -79,6 +88,9 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         raise ValidationError("models must be a mapping of strings to strings")
     if pf.custom_prompt is not None and not isinstance(pf.custom_prompt, str):
         raise ValidationError("custom_prompt must be a string or null")
+    for field_name in ("verbatim_custom_prompt", "use_cli_defaults", "require_complete_status"):
+        if type(getattr(pf, field_name)) is not bool:
+            raise ValidationError(f"{field_name} must be a boolean")
     if pf.prompt_format_version == 1:
         raise ValidationError(
             "prompt_format_version: 1 is no longer supported — v0.3 removed inline delivery "
@@ -95,6 +107,13 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         raise ValidationError("files: must list at least one path")
     if pf.task == "custom" and not pf.custom_prompt:
         raise ValidationError("task=custom requires custom_prompt body")
+    if pf.verbatim_custom_prompt:
+        if pf.task != "custom" or not pf.custom_prompt:
+            raise ValidationError("verbatim_custom_prompt requires task=custom with a custom_prompt body")
+        if pf.context_files:
+            raise ValidationError("verbatim_custom_prompt does not support context_files")
+    if pf.use_cli_defaults and pf.models:
+        raise ValidationError("use_cli_defaults does not allow models: caller must not pin any CLI")
     if not pf.reviewers:
         raise ValidationError("reviewers: must not be empty")
     for r in pf.reviewers:
