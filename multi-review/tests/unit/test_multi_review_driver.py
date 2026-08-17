@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import os
 import signal
 import subprocess
@@ -9,6 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from multi_review.core.adapters import Usage
 from multi_review.core.fanout import ReviewerResult
@@ -430,6 +432,39 @@ def test_timeout_defaults_to_none(tmp_path, monkeypatch):
     assert fanout.calls[0]["timeout"] is None
 
 
+VERBATIM_YAML = """\
+    prompt_format_version: 2
+    task: custom
+    files: [target.py]
+    reviewers: [codex]
+    synthesizer: none
+    verbatim_custom_prompt: true
+    custom_prompt: "EXACT BODY, no wrapping."
+"""
+
+
+def test_verbatim_custom_prompt_writes_exact_prompt_txt(tmp_path, monkeypatch):
+    _, out = _run(tmp_path, monkeypatch, VERBATIM_YAML, _RecordingFanout())
+    assert (out / "prompt.txt").read_text() == "EXACT BODY, no wrapping."
+
+
+def test_use_cli_defaults_forwards_empty_models(tmp_path, monkeypatch):
+    """Exact unpinned CLI defaults: use_cli_defaults=true means no --model is
+    ever passed — fanout must receive an empty models dict, not a silently
+    synthesized default."""
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML + "    use_cli_defaults: true\n", fanout)
+    assert fanout.calls[0]["models"] == {}
+
+
+def test_pinned_models_forwarded_exactly_with_no_fallback_substitution(tmp_path, monkeypatch):
+    """Exact pinned models: a caller pinning only one of two reviewers must not
+    have a fallback synthesized for the other."""
+    fanout = _RecordingFanout()
+    _run(tmp_path, monkeypatch, THREE_YAML + "    models: {codex: gpt-5.6-sol}\n", fanout)
+    assert fanout.calls[0]["models"] == {"codex": "gpt-5.6-sol"}
+
+
 def test_review_md_is_written_with_both_reviewers(tmp_path, monkeypatch):
     fanout = _RecordingFanout()
     code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
@@ -469,6 +504,247 @@ def test_progress_lines_go_to_stderr(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "[multi_review] codex: ok" in err
     assert "[multi_review] agy: ok" in err
+
+
+# -- Task 10: review-loop opt-in — prompt transport integrity ---------------
+
+DISPATCH_HEADER_FIELDS = {
+    "request_id": "req-1", "role": "adversarial", "charter_id": "chart-1",
+    "target_seal": "seal-1", "round_input_seal": None, "scope_locator_ids": ["loc-1"],
+}
+
+
+def _dispatch_header_text(fields=None, subject="Review this."):
+    d = dict(DISPATCH_HEADER_FIELDS)
+    if fields:
+        d.update(fields)
+    seal = "null" if d["round_input_seal"] is None else d["round_input_seal"]
+    return (
+        f"request_id: {d['request_id']}\n"
+        f"role: {d['role']}\n"
+        f"charter_id: {d['charter_id']}\n"
+        f"target_seal: {d['target_seal']}\n"
+        f"round_input_seal: {seal}\n"
+        f"scope_locator_ids: {json.dumps(d['scope_locator_ids'])}\n"
+        f"\n{subject}"
+    )
+
+
+def _write_require_complete_promptfile(tmp_path, reviewers=("codex", "agy"), fields=None):
+    """A verbatim_custom_prompt=true + require_complete_status=true prompt
+    file whose custom_prompt carries the review_loop/resources/review.md-shaped
+    dispatch header this driver derives expectations from."""
+    (tmp_path / "target.py").write_text("def f():\n    return 1\n")
+    pf = tmp_path / "prompt.yaml"
+    pf.write_text(yaml.safe_dump({
+        "prompt_format_version": 2,
+        "task": "custom",
+        "files": ["target.py"],
+        "reviewers": list(reviewers),
+        "synthesizer": "none",
+        "verbatim_custom_prompt": True,
+        "require_complete_status": True,
+        "custom_prompt": _dispatch_header_text(fields),
+    }))
+    return pf
+
+
+def _run_require_complete(tmp_path, monkeypatch, fanout, reviewers=("codex", "agy"),
+                          fields=None, extra_argv=()):
+    pf = _write_require_complete_promptfile(tmp_path, reviewers, fields)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
+    prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    prior_sigint_handler = signal.getsignal(signal.SIGINT)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out), *extra_argv])
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm_handler)
+        signal.signal(signal.SIGINT, prior_sigint_handler)
+    return code, out
+
+
+def _raw_report_id_argv(clis):
+    argv = []
+    for cli in clis:
+        argv += ["--raw-report-id", f"{cli}=raw-{cli}"]
+    return argv
+
+
+def _record_body(fields=None, source_findings=(), terminal="REVIEW-STATUS: COMPLETE"):
+    d = dict(DISPATCH_HEADER_FIELDS)
+    if fields:
+        d.update(fields)
+    record = {
+        "request_id": d["request_id"], "role": d["role"], "charter_id": d["charter_id"],
+        "target_seal": d["target_seal"], "round_input_seal": d["round_input_seal"],
+        "scope_locator_ids": d["scope_locator_ids"], "source_findings": list(source_findings),
+    }
+    return (
+        "## Summary\n\nLooks fine.\n\n"
+        f"```review-record\n{json.dumps(record)}\n```\n{terminal}"
+    )
+
+
+class _TamperingFanout(_RecordingFanout):
+    """Simulates a reviewer subprocess that rewrites prompt.txt during fanout."""
+
+    async def __call__(self, reviewers, prompt, models, timeout, **kwargs):
+        results = await super().__call__(reviewers, prompt, models, timeout, **kwargs)
+        kwargs["prompt_path"].write_bytes(b"TAMPERED BY FAKE REVIEWER")
+        return results
+
+
+def test_require_complete_status_clean_run_dispatches_and_publishes(tmp_path, monkeypatch):
+    codex_body = _record_body()
+    agy_body = _record_body()
+    fanout = _RecordingFanout(results={
+        "codex": _result("codex", text=codex_body),
+        "agy": _result("agy", text=agy_body),
+    })
+    code, out = _run_require_complete(tmp_path, monkeypatch, fanout,
+                                      extra_argv=_raw_report_id_argv(["codex", "agy"]))
+    text = (out / "REVIEW.md").read_text()
+    assert code == 0
+    assert fanout.calls  # dispatch happened
+    assert 'reviewers_succeeded: ["codex", "agy"]' in text
+    assert "review_records:" in text
+    assert "raw_report_id: raw-codex" in text
+    assert "raw_report_id: raw-agy" in text
+
+
+def test_require_complete_status_needs_raw_report_id_for_every_reviewer(tmp_path):
+    """Startup-time config error: a raw_report_id is required for every fixed
+    slot whenever the opt-in is set — fail closed, never proceed with a
+    missing slot."""
+    pf = _write_require_complete_promptfile(tmp_path)
+    out = tmp_path / "round-1"
+    assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
+    assert not out.exists()
+
+
+def test_raw_report_id_rejected_without_require_complete_status(tmp_path):
+    """Fail closed on flag misuse in the other direction too: --raw-report-id
+    means nothing (and is refused rather than silently ignored) unless the
+    opt-in that consumes it is active."""
+    pf = _write_promptfile(tmp_path, THREE_YAML)
+    out = tmp_path / "round-1"
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out),
+                        "--raw-report-id", "codex=raw-codex"])
+    assert code == 2
+
+
+def test_argv_has_no_channel_to_name_dispatch_identity_fields(tmp_path):
+    """The prompt-vs-flag mismatch class this design closes: there is no flag
+    at all (--request-id, --target-seal, --review-record-expect, ...) that
+    could name a dispatch field independently of the verbatim prompt. The
+    only per-CLI argv input is --raw-report-id, and that carries an opaque
+    label, never an identity field a review-record is validated against."""
+    pf = _write_require_complete_promptfile(tmp_path)
+    out = tmp_path / "round-1"
+    for flag in ("--request-id", "--target-seal", "--round-input-seal",
+                "--scope-locator-ids", "--review-record-expect", "--charter-id", "--role"):
+        with pytest.raises(SystemExit):
+            driver.main(["--prompt-file", str(pf), "--out-dir", str(out), flag, "anything"])
+
+
+def test_expectation_tracks_whichever_prompt_was_actually_sent(tmp_path, monkeypatch):
+    """Structural proof that the expectation can't drift from what was sent:
+    change only the prompt's target_seal (no separate expectation channel
+    exists to update in lockstep), and a review-record correct for the OLD
+    seal must now fail, while one matching the NEW seal succeeds — because
+    the expectation is derived fresh from prompt_text on every run, not
+    pinned by some independent argv value that could go stale."""
+    tmp_a, tmp_b = tmp_path / "a", tmp_path / "b"
+    tmp_a.mkdir()
+    tmp_b.mkdir()
+
+    old_seal_body = _record_body()  # target_seal: seal-1, the default
+    fanout = _RecordingFanout(results={"codex": _result("codex", text=old_seal_body)})
+    code, out = _run_require_complete(
+        tmp_a, monkeypatch, fanout, reviewers=("codex",),
+        fields={"target_seal": "seal-DIFFERENT"},
+        extra_argv=_raw_report_id_argv(["codex"]),
+    )
+    text = (out / "REVIEW.md").read_text()
+    assert code == 1
+    assert 'reviewers_failed: ["codex"]' in text
+    assert "does not match dispatch expectation" in text
+
+    new_seal_body = _record_body({"target_seal": "seal-DIFFERENT"})
+    fanout2 = _RecordingFanout(results={"codex": _result("codex", text=new_seal_body)})
+    code2, out2 = _run_require_complete(
+        tmp_b, monkeypatch, fanout2, reviewers=("codex",),
+        fields={"target_seal": "seal-DIFFERENT"},
+        extra_argv=_raw_report_id_argv(["codex"]),
+    )
+    assert code2 == 0
+    assert 'reviewers_succeeded: ["codex"]' in (out2 / "REVIEW.md").read_text()
+
+
+def test_require_complete_status_rejects_prompt_tampered_before_dispatch(tmp_path, monkeypatch):
+    """Break caught: a reviewer (or anything with fs access) rewrites prompt.txt
+    between the driver's write and dispatch. The driver must catch this before
+    launching any fixed client, not merely after."""
+    fanout = _RecordingFanout()
+    pf = _write_require_complete_promptfile(tmp_path)
+    out = tmp_path / "round-1"
+    real_write_text = Path.write_text
+
+    def tamper_after_prompt_write(path, text, *args, **kwargs):
+        result = real_write_text(path, text, *args, **kwargs)
+        if path.name == "prompt.txt":
+            path.write_bytes(b"TAMPERED BEFORE DISPATCH")
+        return result
+
+    monkeypatch.setattr(Path, "write_text", tamper_after_prompt_write)
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out),
+                        *_raw_report_id_argv(["codex", "agy"])])
+
+    assert code == 1
+    assert fanout.calls == [], "reviewers must never be dispatched against a drifted transport"
+    assert not (out / "REVIEW.md").exists()
+
+
+@pytest.mark.parametrize("replace_kind", ["rewrite", "truncate", "symlink"])
+def test_require_complete_status_rejects_prompt_tampered_during_fanout(tmp_path, monkeypatch, replace_kind):
+    """Break caught: prompt.txt survives dispatch but is replaced/truncated/
+    symlinked by a reviewer while fanout is in flight. Re-checked after every
+    reviewer subprocess is reaped, before REVIEW.md is published."""
+    class _Tamper(_RecordingFanout):
+        async def __call__(self, reviewers, prompt, models, timeout, **kwargs):
+            results = await super().__call__(reviewers, prompt, models, timeout, **kwargs)
+            path = kwargs["prompt_path"]
+            if replace_kind == "rewrite":
+                path.write_bytes(b"REPLACED CONTENT")
+            elif replace_kind == "truncate":
+                path.write_bytes(b"")
+            elif replace_kind == "symlink":
+                decoy = path.parent / "decoy.txt"
+                decoy.write_bytes(b"DECOY")
+                path.unlink()
+                path.symlink_to(decoy)
+            return results
+
+    fanout = _Tamper()
+    code, out = _run_require_complete(tmp_path, monkeypatch, fanout,
+                                      extra_argv=_raw_report_id_argv(["codex", "agy"]))
+
+    assert code == 1
+    assert fanout.calls, "tampering happens mid/post-fanout, so dispatch did occur"
+    assert not (out / "REVIEW.md").exists()
+    assert not (out / ".REVIEW.md.tmp").exists()
+
+
+def test_require_complete_status_false_does_not_recheck_transport(tmp_path, monkeypatch):
+    """Regression guard: the transport re-check is opt-in only. Existing
+    non-opt-in callers must be unaffected even if something rewrites prompt.txt
+    mid-fanout."""
+    fanout = _TamperingFanout()
+    code, out = _run(tmp_path, monkeypatch, THREE_YAML, fanout)
+    assert code == 0
+    assert (out / "REVIEW.md").exists()
 
 
 def test_review_write_failure_returns_1_without_raising(tmp_path, monkeypatch, capsys):
@@ -684,6 +960,7 @@ def test_repeated_sigterm_requests_cancellation_only_once(tmp_path, monkeypatch)
         models = {}
         task = "code"
         synthesizer = "none"
+        require_complete_status = False
 
     async def scenario():
         loop = asyncio.get_running_loop()

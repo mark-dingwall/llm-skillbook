@@ -1,0 +1,11 @@
+{
+  "description": "An operator instruction overriding the required baseline gate's exact invocation, used to exercise discover_evidence's operator-beats-repository-and-scout precedence path. classification is never part of this data -- it is always derived from the fixed REQUIRED_GATE_IDS policy, never accepted from a caller.",
+  "gates": [
+    {
+      "id": "tests",
+      "argv": ["python3", "-c", "print('baseline gate ok')"],
+      "applicability": "applicable",
+      "rationale": "operator pinned the exact baseline test invocation"
+    }
+  ]
+}

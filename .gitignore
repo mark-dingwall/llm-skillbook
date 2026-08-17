@@ -1,3 +1,5 @@
 # WSL surfaces Windows "mark of the web" alternate data streams as files
 *:Zone.Identifier
 .worktrees/
+__pycache__/
+*.pyc

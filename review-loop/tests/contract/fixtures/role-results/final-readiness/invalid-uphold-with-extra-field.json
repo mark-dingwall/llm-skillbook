@@ -1,0 +1,10 @@
+{
+  "request_id": "fr-1",
+  "role_id": "final-readiness",
+  "target_seal": "seal-C",
+  "round_input_seal": null,
+  "payload": {
+    "verdict": "UPHOLD",
+    "evidence": "unexpected"
+  }
+}

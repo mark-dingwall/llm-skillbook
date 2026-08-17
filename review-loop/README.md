@@ -1,91 +1,72 @@
 # review-loop
 
-This directory contains the current legacy review-loop skill and the fixtures
-that exercise it. It remains the execution reference until the redesign is
-implemented; new implementation work follows the redesign specification.
+A deterministic controller for multi-round external code/document review
+that actually converges: reviewers find, TRIAGE verifies findings against
+sources into a ledger, FIX resolves accepted findings under contained
+mutation, and CLOSE computes both verdicts mechanically from the ledger —
+never from a round's silence or an aggregate "looks clean."
 
-A skill for multi-round external code review that actually
-converges. Born from hand-rolled review loops that ran a dozen rounds
-re-litigating the same findings; this skill makes termination a ledger
-fact instead of a vibe.
+**Core principle: a green verdict is a ledger fact, checked by code, not
+asserted by an LLM.** State transitions, sealing, containment, and the two
+terminal verdicts are owned by `review_loop/state.py`'s kernel and the
+helpers around it; LLMs own only semantic judgment (risk identity, rating,
+findings, adjudication) within resource-scoped prompts they cannot escape.
 
-**Core principle: a green verdict is a ledger fact. The loop cannot
-time out, crash, scope-trick, or backlog its way to green.**
+> No known material defect, after the artifact has survived risk-proportionate
+> independent challenge and all applicable deterministic evidence gates.
+
+This is a qualified operational claim, never proof — see `SKILL.md`'s North
+Star and every hand-back's disclosed evidence and residual limitations.
 
 ## How it works
 
 ```
-0 GATE    quality gate, entry check, SCOPE seal, ROSTER
-1 REVIEW  dispatch external CLI reviewers   (round 1: full scope; ≥2: fix diff)
-2 TRIAGE  verify findings against sources → LEDGER
-3 FIX     fix accepted findings, FIX MANIFEST (with TWINS searches)
-4         back to 1                                        (cap 5 rounds)
-5 CLOSE   deterministic rollup → two verdicts + hand-back
+PREFLIGHT   seal target, resolve profile/deadline/tier intent, ground truth
+STAGE0      evidence scout + gates, inventory (owner → challenge), rating
+REVIEW      freeze roster, dispatch holistic + adversarial + specialists
+TRIAGE      strict-JSON triage of every usable raw report → ledger
+FIX         contained mutation, manifest- and delta-verified
+CLOSE       final-readiness challenge, then the mechanical terminal rollup
 ```
 
-The rules live inside **seven forced artifacts** (seal, roster,
-evidence contract, ledger, fix manifest, provenance line, close
-rollup) rather than prose checklists — an executor that must fill a
-field can't skip the rule it encodes. Reviewers are external CLIs
-(e.g. codex) run with per-reviewer charters; a read-only adjudicator
-subagent audits every green-making disposition; the close computes
-**two verdicts** (convergence and merge-readiness) from the ledger
-alone. Reaching the round cap with open Important+ findings produces
-an honest NOT CONVERGED hand-back, never a forced green.
+See `SKILL.md` for the full controller contract (stages, invariants, role
+dispatch, confirmation behavior, hand-back), and `dispatch.md` for execution
+mappings, the `__main__.py` CLI, and troubleshooting.
 
 ## Files
 
-- `SKILL.md` — the protocol (the skill itself)
-- `reviewer-addendum.md` — the prompt contract given to each reviewer
-- `dispatch.md` — operational how-to: waiting, timeouts, harvest, concurrency
-- `tests/baseline/` — trap fixtures + RED/GREEN results (TDD evidence)
+- `SKILL.md` — the controller contract (the skill itself)
+- `dispatch.md` — execution mappings, the CLI, troubleshooting
+- `DESIGNING_PROFILES.md` — operator-facing profile schema and recipes
+- `review_loop/` — the implementation: `controller.py` (orchestrator),
+  `state.py` (compact-projection kernel), `artifacts.py` (canonical
+  store + projection authority), `seals.py`, `evidence.py`, `fix.py`,
+  `profiles.py`, `prompts.py`, `report.py`, `multi_review.py`,
+  `resources/*.md` (per-role prompt resources), `__main__.py` (CLI)
+- `tests/ACCEPTANCE.md` — MVP acceptance record: criteria, evidence, status
+- `tests/behavior/` — RED/GREEN behavioral controls for `SKILL.md` itself
+- `tests/{unit,integration,contract}/` — the deterministic suite
 
 ## Redesign and history
 
 - [`Review Loop Redesign`](../docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
-  — governing design for new implementation work
+  — governing design; where this README or `SKILL.md` and that document
+  disagree, the design governs.
 - [`docs/history/review-loop/`](../docs/history/review-loop/) — archived
-  decision record, tier-and-roster plan, self-review report, and research
-  inputs; retained for context, not implementation authority
+  decision record, prior tier-and-roster plan, and research inputs; retained
+  for context, not implementation authority.
+- `tests/baseline/`, `tests/adjudication/`, `tests/dispatch/`,
+  `tests/state-processor/` — RED/GREEN and TDD evidence from the prior
+  hand-rolled-loop and bounded-prototype implementations; retained as
+  historical evidence, not a description of the current controller.
 
-## Provenance
+## Known limitations
 
-Built TDD-style per superpowers:writing-skills: baseline trap
-scenarios were run against agents *without* the skill (RED), the
-skill was written to fix the observed failures (GREEN), and
-regressions re-checked at two model tiers. It was then hardened by
-reviewing **itself** through ten rounds of its own loop with external
-codex reviewers — 18 canonical findings, 16 verified fixed, raw
-findings converging 29 → 5 as whole attack families (workspace
-sealing, authority authentication, completion gaming) were closed
-structurally. Several dispatch rules were adopted from real-world
-failure reports from a production hand-rolled loop.
-
-## Known limitations / backlog
-
-- **GNU userland is assumed** (`sha256sum`, GNU `stat -c`, `sort -z`,
-  `xargs -0 -r`). Fine for the current single-user MVP; a platform
-  contract and an explicit fail-closed rule for a failed seal leg are
-  backlogged for any wider deployment (macOS/BSD would need
-  substitutes).
-- The self-review closed at round 11 (hard stop): 17/18 findings
-  verified fixed; the last row (an errexit guard on the expiry
-  signals) is applied and probe-tested but has no verifying review
-  round (archived self-review report, §Round 11).
-- **Loop artifacts need durable storage, not tmpfs** — two host
-  restarts each wiped the loop's /tmp working files mid-run;
-  dispatch.md guidance backlogged.
-- **Adjudication has never fired in live use** (no round produced a
-  refutation/downgrade/INTENTIONAL to audit) — but it is now
-  fixture-tested: `tests/adjudication/` (four planted dispositions +
-  crash-handling) and `tests/dispatch/` passed GREEN at sonnet and
-  haiku tiers (see the RESULTS.md files).
-- B3 remainder: fixtures still owed for seal/manifest checks,
-  FIX-AUDIT promotion enforcement, INTENTIONAL close semantics, and
-  roster scoping (2026-07-21 rule: honest scoping, no numeric cap, >8
-  needs user confirmation unless `--force`, concurrency
-  `min(10, cpu_cores - 2)` — RED evidence is the first real-world run's
-  under-scoped roster, recorded in that run's SCOPE-ROSTER.md; GREEN
-  fixture not yet run).
-- PID-reuse race in long waits: real mechanism, judged below the
-  finding bar for this deployment; revisit if rounds ever run hours.
+See `tests/ACCEPTANCE.md` for the authoritative, evidence-linked list. In
+summary: multi-round FIX/inventory-refresh/adjudication reconciliation onto
+prior canonical rows is not yet wired (single-round FIX only); multi-review
+is implemented and tested but not default-wired into ordinary Round 1
+dispatch (opt-in, see `SKILL.md`); `__main__.py`'s `status` recovery cannot
+yet distinguish `CANCELLED_BEFORE_REVIEW`/awaiting-confirmation from a
+mid-Stage-0 crash; multi-review's disclosed OAuth-token-sharing and
+post-publish-forge-race residuals apply whenever it runs.

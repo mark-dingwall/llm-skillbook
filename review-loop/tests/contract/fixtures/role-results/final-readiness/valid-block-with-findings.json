@@ -1,0 +1,21 @@
+{
+  "request_id": "fr-3",
+  "role_id": "final-readiness",
+  "target_seal": "seal-C",
+  "round_input_seal": null,
+  "payload": {
+    "verdict": "BLOCK",
+    "evidence": "The artifact still contradicts the authority document on retry semantics.",
+    "procedural_blocker": null,
+    "source_findings": [
+      {
+        "id": "FR-F1",
+        "claim": "Retries exceed the documented cap of two attempts.",
+        "severity": "Important",
+        "locator_ids": [
+          "src/retry.py:88"
+        ]
+      }
+    ]
+  }
+}

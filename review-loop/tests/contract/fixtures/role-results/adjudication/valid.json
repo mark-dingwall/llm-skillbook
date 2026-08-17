@@ -1,0 +1,31 @@
+{
+  "request_id": "adj-1",
+  "role_id": "adjudication",
+  "target_seal": "seal-A",
+  "round_input_seal": "seal-round-1",
+  "payload": {
+    "decisions": [
+      {
+        "id": "ROW-1",
+        "decision": "UPHOLD",
+        "evidence_locator": "docs/decisions/ADR-12.md#L20",
+        "fact_linkage": "ADR-12 explicitly accepts this risk for internal tooling.",
+        "authority_identity": "ADR-12"
+      },
+      {
+        "id": "ROW-2",
+        "decision": "UPHOLD",
+        "evidence_locator": "spec.md#L80",
+        "fact_linkage": "Spec section 4 confirms this input is pre-validated upstream.",
+        "authority_identity": null
+      },
+      {
+        "id": "ROW-3",
+        "decision": "BOUNCE",
+        "evidence_locator": "src/app.py:44",
+        "fact_linkage": null,
+        "authority_identity": null
+      }
+    ]
+  }
+}

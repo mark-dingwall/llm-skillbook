@@ -1,0 +1,76 @@
+{
+  "request_id": "tri-1",
+  "role_id": "triage",
+  "target_seal": "seal-A",
+  "round_input_seal": "seal-round-1",
+  "payload": {
+    "report_ids": [
+      "rep-1",
+      "rep-2"
+    ],
+    "findings": [
+      {
+        "canonical_id": "LEDGER-1",
+        "sources": [
+          {
+            "report_id": "rep-1",
+            "finding_id": "f1",
+            "claim": "Missing null check",
+            "severity": "Important",
+            "locators": [
+              "a.py:10"
+            ]
+          }
+        ],
+        "current_severity": "Important",
+        "factual": "CONFIRMED",
+        "state": "OPEN",
+        "evidence_locators": [
+          "a.py:10"
+        ]
+      },
+      {
+        "canonical_id": "LEDGER-2",
+        "sources": [
+          {
+            "report_id": "rep-1",
+            "finding_id": "f2",
+            "claim": "Unused import",
+            "severity": "Minor",
+            "locators": [
+              "b.py:1"
+            ]
+          }
+        ],
+        "current_severity": "Minor",
+        "factual": "CONFIRMED",
+        "state": "OPEN",
+        "evidence_locators": [
+          "b.py:1"
+        ]
+      },
+      {
+        "canonical_id": "LEDGER-3",
+        "sources": [
+          {
+            "report_id": "rep-2",
+            "finding_id": "g1",
+            "claim": "Race condition",
+            "severity": "Critical",
+            "locators": [
+              "c.py:5",
+              "c.py:9"
+            ]
+          }
+        ],
+        "current_severity": "Critical",
+        "factual": "CONFIRMED",
+        "state": "OPEN",
+        "evidence_locators": [
+          "c.py:5",
+          "c.py:9"
+        ]
+      }
+    ]
+  }
+}

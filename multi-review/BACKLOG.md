@@ -358,6 +358,75 @@ delivery; they are not current operational guidance.
    argument from a new `bypass_args` field in `CLI_SPEC`. Error if user requests
    `--bypass-perms --sandbox none`.
 
+### Current versus planned containment
+
+The supported headless-driver contract currently permits a caller to wrap one
+complete multi-review invocation in Bubblewrap. That whole-call wrapper is
+tested for reference reads and process-tree shutdown, but multi-review does not
+currently construct Bubblewrap containment itself. Every reviewer subprocess
+inside that call shares the driver's mount namespace.
+
+Phase 2 moves the containment boundary inward: multi-review launches each
+reviewer CLI invocation through its own Bubblewrap wrapper. Say
+**whole-call caller containment** for the current contract and **per-reviewer
+subprocess containment** for Phase 2. Do not call these “per-call” and
+“per-process” without qualification: a review run contains several calls and a
+reviewer CLI may itself create several operating-system processes.
+
+### Priority consumer contract: review-loop
+
+Review-loop will use current whole-call caller containment as an explicitly
+disclosed interim boundary. Phase 2 is priority work because review-loop's
+strong evidence-integrity path requires the following stricter profile for the
+fixed `claude`/`codex` pair:
+
+1. **Containment is required.** The caller must be able to request Bubblewrap
+   with no `auto -> none` downgrade. Missing, unusable, or rejected Bubblewrap
+   fails the multi-review call; review-loop decides whether to use its ordinary
+   holistic fallback.
+2. **One namespace per reviewer invocation.** Claude and Codex each run in a
+   separate child Bubblewrap namespace. Synthesis is disabled by review-loop;
+   no synthesis containment is needed for this consumer path.
+3. **Exact read scope.** Bind each declared input or context regular file
+   read-only at its exact resolved path. Create destination ancestors inside the
+   namespace, but do not bind the host parent directory: siblings are not part
+   of the review merely because they share a directory.
+4. **Driver-private output.** Reviewer namespaces must not expose the driver
+   prompt transport, claimed output directory, `.REVIEW.md.tmp`, `REVIEW.md`,
+   another reviewer's output, or any caller canonical/prior-round state. The
+   trusted driver alone captures reviewer streams and publishes the aggregate
+   after every reviewer wrapper has terminated and been reaped.
+5. **Ephemeral mutable state.** Each reviewer receives a fresh home, client
+   state, cache, and scratch directory for that invocation. Never bind live
+   host `~/.claude`, `~/.codex`, or a shared host cache writable in this
+   profile. Bind only the minimum verified authentication/configuration file
+   read-only at the location expected inside scratch; discard scratch after the
+   driver has retained its evidence.
+6. **Minimal runtime closure.** Resolve the fixed CLI executable/package,
+   interpreter, libraries, certificates/DNS inputs, and runner content before
+   launch. Bind that closure read-only and fail if it intersects a review input
+   or the caller's sealed target. Do not obtain runtime or dependency content
+   from the material under review.
+7. **Explicit residual network risk.** Preserve provider network access. This
+   protects filesystem integrity and limits readable host data; it is not a
+   confidentiality boundary because a compromised reviewer can exfiltrate any
+   mounted input or credential.
+8. **Whole-tree termination proof.** Use a PID namespace,
+   `--die-with-parent`, and a fresh session/process-group identity. Deadlines and
+   cancellation signal the reviewer Bubblewrap wrapper, not a launcher shim.
+   Accept a reviewer result only after the wrapper and all observed descendants
+   are gone; an unproved cleanup is a failed call.
+9. **Fail-closed mapping.** An unknown CLI, unresolved runtime, missing exact
+   auth mapping, escaping/special input, mount collision, or state/output path
+   overlap is rejected before launch. There is no partial or uncontained
+   execution for the requested reviewer.
+
+This consumer contract supplies containment only. Review-loop separately needs
+an opt-in verbatim custom prompt, strict terminal status and participant review
+records, exact model-default behavior, and safely serialized aggregate
+provenance. Do not couple those report-contract changes to the generalized
+sandbox selector, but test their composition with this profile.
+
 ### Per-CLI bypass-perms
 
 | CLI      | Mechanism                                              | Status |
@@ -374,8 +443,10 @@ delivery; they are not current operational guidance.
 Use `--share-net` (full network access inside sandbox). Past attempts at
 endpoint allowlisting severed CLI ↔ inference-provider HTTPS. Risk
 acknowledged: a compromised model could exfil to an arbitrary endpoint.
-Mitigation = read-only file mounts, no host filesystem access, per-CLI
-state dirs writable but bench-scoped.
+Mitigation = read-only file mounts and no undeclared host filesystem access.
+The general persistent-state profile may use per-CLI writable bench-scoped
+state; the review-loop profile uses only fresh disposable mutable state as
+specified above.
 
 ### bwrap recipe (sketch)
 
@@ -384,6 +455,14 @@ writable (so caches/sessions persist for prompt-cache hits), every input +
 context file's parent dir ro-bound, `/usr /bin /lib /lib64 /etc` ro, HOME
 tmpfs'd then state dirs over-mounted, `--clearenv` + selective env passlist
 (API keys per CLI), `--share-net`, `--die-with-parent`, `--new-session`.
+
+The sketch below describes the original general persistent-state proposal. It
+does **not** satisfy the review-loop consumer profile: that profile replaces
+live writable state with per-invocation scratch, mounts exact files rather than
+host parent directories, omits every driver/caller output path, and adds
+`--unshare-pid` plus verified wrapper-directed cleanup. Implement these as
+declared containment policies with shared low-level mount helpers, not as a
+review-loop-specific shell command or an undocumented caller convention.
 
 WSL2: `/mnt/wsl` must be ro-bound or DNS breaks (etc/resolv.conf is a
 symlink there).
@@ -494,6 +573,27 @@ Context files stay inline (they're framing docs, small).
    mid-stream.
 4. bwrap recipe portability: WSL2 (`/mnt/wsl` ro-bind for DNS), Linux native,
    macOS / non-bwrap host falls back to `--sandbox none`.
+5. Required-containment negative: the review-loop profile never takes the
+   `auto -> none` path; missing or unusable Bubblewrap fails before reviewer
+   launch.
+6. Exact-scope negative: a reviewer can read every declared file but cannot
+   read an undeclared sibling in the same host directory.
+7. Output-isolation negative: fake Claude and Codex descendants cannot read or
+   modify prompt transport, `.REVIEW.md.tmp`, `REVIEW.md`, peer artifacts, or
+   caller state. Failure must occur at the filesystem boundary, not through
+   prompt compliance.
+8. Ephemeral-state negative: reviewers may write their fresh scratch home and
+   client state, but cannot modify live host client state or cache content;
+   scratch changes disappear after evidence retention.
+9. Runtime/auth allowlist: the resolved read-only runtime closure and exact
+   authentication inputs are sufficient for live Claude and Codex calls and
+   contain no review data, caller state, or writable host configuration.
+10. Shutdown matrix: timeout and targeted cancellation signal each reviewer
+    Bubblewrap wrapper, observe distinct launcher/engine descendants where
+    applicable, and prove every captured PID is gone before aggregation.
+11. Path safety: reject symlinks or special inputs, missing paths, ancestor
+    mount collisions, runtime/input intersections, and any driver-output or
+    caller-state overlap before launching a reviewer.
 
 ### Risks / open questions
 
@@ -504,9 +604,11 @@ Context files stay inline (they're framing docs, small).
 2. Synthesis pass operates on reviewer output text (not source) — no change.
 3. bwrap is Linux-only. macOS gets `--sandbox none` (manual risk acceptance)
    or future `sandbox-exec` work.
-4. Per-CLI cache sharing: verified claude/codex/opencode state dirs, plus each
-   explicitly mapped agy/pykrete/grok state dir, are writable binds so cache
-   and login state survive across runs. Deliberate; document in README.
+4. Per-CLI cache sharing: the general persistent-state profile may deliberately
+   writable-bind verified state directories so cache and login state survive
+   across runs; document that posture in README. The review-loop profile must
+   instead use fresh disposable state and exact read-only authentication
+   inputs.
 5. Path resolution: reference manifest uses absolute paths. Resolve relative
    inputs early (`Path.resolve()`) before building bwrap mounts.
 

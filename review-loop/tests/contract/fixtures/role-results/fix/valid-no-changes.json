@@ -1,0 +1,12 @@
+{
+  "request_id": "fix-2",
+  "role_id": "fix",
+  "target_seal": "seal-B",
+  "round_input_seal": "seal-round-1",
+  "payload": {
+    "changes": [],
+    "test_trace": [],
+    "external_actions_attempted": false,
+    "external_actions_note": null
+  }
+}

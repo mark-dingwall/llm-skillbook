@@ -1,0 +1,11 @@
+{
+  "description": "An explicitly-selected behavioral skill test for a document that directly controls agent behavior (design: 'RED/GREEN pressure scenarios are required when developing review-loop's own skill or role prompts, where the document directly controls agent behavior; they are not a universal per-target document gate'). This gate exists because the repository author named it explicitly, not because a document gate is invented by default.",
+  "gates": [
+    {
+      "id": "doc-behavior",
+      "argv": ["python3", "-m", "pytest", "tests/test_behavior.py", "-q"],
+      "applicability": "applicable",
+      "rationale": "repository explicitly selected this RED/GREEN behavioral fixture for guide.md"
+    }
+  ]
+}

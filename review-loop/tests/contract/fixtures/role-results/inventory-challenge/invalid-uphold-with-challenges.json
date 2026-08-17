@@ -1,0 +1,10 @@
+{
+  "request_id": "ic-1",
+  "role_id": "inventory-challenge",
+  "target_seal": "seal-A",
+  "round_input_seal": null,
+  "payload": {
+    "verdict": "UPHOLD",
+    "challenges": []
+  }
+}

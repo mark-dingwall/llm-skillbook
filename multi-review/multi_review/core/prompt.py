@@ -292,6 +292,7 @@ def build_prompt(
     prompt_file: Path | None = None,
     allow_missing: bool = False,
     nonce: str | None = None,
+    verbatim: bool = False,
 ) -> str:
     """Assemble a reviewer prompt.
 
@@ -305,11 +306,43 @@ def build_prompt(
     prompt_file:   Path to a file whose text overrides the template.
     allow_missing: If True, missing files produce warnings instead of SystemExit.
     nonce:         Override the random nonce (for deterministic tests).
+    verbatim:      Review-loop opt-in (PromptFile.verbatim_custom_prompt). The
+                   delivered prompt body is ``custom_prompt`` exactly, byte for
+                   byte — no preambles, no manifest, no wrapping. ``files`` is
+                   still preflight-checked for readable scope (proving the
+                   reviewer's tools can reach it) but never rendered; the
+                   caller's custom_prompt is expected to already describe what
+                   to review. Callers pass ``prompt_file=None`` and
+                   ``context_files=[]`` with this flag (enforced upstream by
+                   ``promptfile.validate``).
     """
     if files is None:
         files = []
     if context_files is None:
         context_files = []
+
+    if verbatim:
+        for f in files:
+            try:
+                resolved = f.resolve(strict=True)
+            except FileNotFoundError:
+                if not allow_missing:
+                    raise SystemExit(f"error: input file not found: {f}")
+                print(f"Warning: input file not found: {f}", file=sys.stderr)
+                continue
+            except OSError as e:
+                if not allow_missing:
+                    raise SystemExit(f"error: cannot resolve input file {f}: {e}")
+                print(f"Warning: cannot resolve input file {f}: {e}", file=sys.stderr)
+                continue
+            if not resolved.is_file():
+                raise SystemExit(f"error: input path is not a regular file: {resolved}")
+            try:
+                with resolved.open("rb"):
+                    pass
+            except OSError as e:
+                raise SystemExit(f"error: cannot read input file {resolved}: {e}")
+        return custom_prompt or ""
 
     bodies: list[tuple[Path, str]] = []
     for f in context_files:

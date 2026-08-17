@@ -1,0 +1,27 @@
+{
+  "request_id": "rate-2",
+  "role_id": "rating",
+  "target_seal": "seal-A",
+  "round_input_seal": null,
+  "payload": {
+    "complexity": "high",
+    "risk": "med",
+    "evidence": [
+      {
+        "axis": "complexity",
+        "statement": "Touches concurrency-sensitive session refresh logic."
+      },
+      {
+        "axis": "risk",
+        "statement": "A regression could allow a tampered token to be accepted."
+      }
+    ],
+    "gestalt": {
+      "factors": [
+        "Crosses three independently-owned modules.",
+        "Crosses three independently-owned modules.",
+        "Prior incident in this subsystem was caused by a similar miss."
+      ]
+    }
+  }
+}

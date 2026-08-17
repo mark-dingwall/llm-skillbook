@@ -1,0 +1,44 @@
+{
+  "request_id": "ev-1",
+  "role_id": "evidence",
+  "target_seal": "seal-A",
+  "round_input_seal": null,
+  "payload": {
+    "gates": [
+      {
+        "id": "tests",
+        "argv": [
+          "pytest",
+          "-q"
+        ],
+        "applicability": "applicable",
+        "classification": "required",
+        "rationale": "Existing pytest suite covers the change."
+      },
+      {
+        "id": "lint",
+        "argv": [
+          "ruff",
+          "check",
+          "."
+        ],
+        "applicability": "applicable",
+        "classification": "supporting",
+        "rationale": "Static lint catches obvious mistakes."
+      },
+      {
+        "id": "tests",
+        "argv": [
+          "pytest",
+          "-q"
+        ],
+        "applicability": "applicable",
+        "classification": "required",
+        "rationale": "Existing pytest suite covers the change."
+      }
+    ],
+    "evidence_gaps": [
+      "No type checker is configured for this project."
+    ]
+  }
+}

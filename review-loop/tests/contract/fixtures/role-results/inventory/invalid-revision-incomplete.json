@@ -1,0 +1,63 @@
+{
+  "request_id": "inv-3",
+  "role_id": "inventory-revision",
+  "target_seal": "seal-A",
+  "round_input_seal": null,
+  "payload": {
+    "areas": [
+      {
+        "id": "A1",
+        "aliases": [],
+        "consequence": "Important",
+        "generalist_miss": true,
+        "generalist_miss_evidence": "Auth check logic requires deep familiarity with the session model.",
+        "surfaces": [
+          "src/auth/session.py"
+        ],
+        "owning_file_ids": [
+          "file-1"
+        ],
+        "charter": "Does the session refresh correctly reject a tampered token?"
+      },
+      {
+        "id": "A2",
+        "aliases": [],
+        "consequence": "Minor",
+        "generalist_miss": false,
+        "generalist_miss_evidence": null,
+        "surfaces": [
+          "src/util/format.py"
+        ],
+        "owning_file_ids": [
+          "file-2"
+        ],
+        "charter": "Are formatting helpers correct for edge-case inputs?"
+      },
+      {
+        "id": "A3",
+        "aliases": [],
+        "consequence": "Minor",
+        "generalist_miss": false,
+        "generalist_miss_evidence": null,
+        "surfaces": [
+          "src/util/newmod.py"
+        ],
+        "owning_file_ids": [
+          "file-3"
+        ],
+        "charter": "Does the new module validate its inputs?"
+      }
+    ],
+    "priority_order": [
+      "A1",
+      "A2",
+      "A3"
+    ],
+    "resolutions": [
+      {
+        "challenge_id": "c1",
+        "resolution": "Added area A3 covering the previously omitted concern."
+      }
+    ]
+  }
+}
