@@ -150,6 +150,32 @@ class CleanTracerFixture:
 
         return _scout
 
+    def scout_with_failing_supporting_gate(self):
+        """Proposes the passing required baseline PLUS a failing supporting
+        gate -- design: "An executed applicable failure -- INCLUDING a
+        supporting gate -- prevents convergence."""
+
+        def _scout() -> ValidatedRoleArtifact:
+            self.events.append("scout")
+            payload = {
+                "gates": [
+                    {
+                        "id": "tests", "argv": ["python3", "-c", "print('baseline gate ok')"],
+                        "applicability": "applicable", "classification": "required",
+                        "rationale": "baseline: the target must at least import cleanly",
+                    },
+                    {
+                        "id": "lint", "argv": ["python3", "-c", "exit(1)"],
+                        "applicability": "applicable", "classification": "supporting",
+                        "rationale": "supporting: pretend lint check that always fails",
+                    },
+                ],
+                "evidence_gaps": [],
+            }
+            return _role_artifact("req-scout", "evidence", self.seal.digest, None, payload)
+
+        return _scout
+
     def gate_dispatch(self):
         host = resolve_gate_host_paths()
 
@@ -328,6 +354,53 @@ class CleanTracerTests(CleanTracerFixture, unittest.TestCase):
         ids = {g["id"]: g for g in gates}
         self.assertEqual(set(ids), {"tests", "lint"})
         self.assertEqual(ids["lint"]["classification"], "supporting")
+
+
+@unittest.skipUnless(BWRAP_AVAILABLE, "bwrap is not installed")
+class FailedGateBlocksReviewTests(CleanTracerFixture, unittest.TestCase):
+    """An executed applicable gate failure -- including a merely
+    SUPPORTING-classified one -- must prevent round 1 dispatch and end the
+    run NOT_CONVERGED, end to end through the real gate-execution path.
+    """
+
+    def test_failed_supporting_gate_blocks_round1_and_yields_not_converged(self):
+        run_state = self.controller.create_run(self.intent())
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout_with_failing_supporting_gate(),
+            gate_dispatch=self.gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier="low",
+        )
+        self.assertEqual(stage0.run_state.stage, "STAGE0")
+        gates = {g.gate_id: g for g in stage0.gate_results}
+        self.assertEqual(gates["tests"].status, "PASSED")
+        self.assertEqual(gates["lint"].status, "FAILED")
+        self.assertFalse(stage0.review_may_start)
+        self.assertIn("gate lint failed", stage0.blocking_reasons)
+
+        def dispatch_role_must_not_be_called(expectation):
+            self.fail("round 1 must never dispatch a reviewer when review_may_start is False")
+
+        round1 = self.controller.run_round1(stage0, dispatch_role=dispatch_role_must_not_be_called)
+        self.assertEqual(round1.roster, ())
+        self.assertEqual(round1.raw_reports, ())
+        self.assertEqual(round1.run_state.stage, "COMPLETE")
+
+        terminal = round1.run_state.snapshot["processor_state"]["compute_terminal"]
+        self.assertEqual(terminal["terminal_verdict"], "NOT_CONVERGED")
+        self.assertFalse(terminal["merge_ready"])
+        self.assertIn("gates_not_ready", terminal["failed_conditions"])
+
+        # never reached REVIEW/TRIAGE/CLOSE at all
+        self.assertNotIn("plan_roster", round1.run_state.snapshot["processor_state"])
+        self.assertNotIn("apply_ledger_decisions", round1.run_state.snapshot["processor_state"])
+        self.assertNotIn("record_final_challenge", round1.run_state.snapshot["processor_state"])
+
+        report = generate_report(round1.run_state)
+        self.assertIn("NOT_CONVERGED", report)
+        self.assertIn("Merge-ready: False", report)
 
 
 @unittest.skipUnless(BWRAP_AVAILABLE, "bwrap is not installed")

@@ -218,6 +218,13 @@ class Stage0Outcome:
     areas: tuple[InventoryArea, ...]
     priority_order: tuple[str, ...]
     tier: str
+    # Mirrors reconcile_gates' own compact rollup (state._gates:
+    # "review_may_start": not any("failed" in reason for reason in blocks)).
+    # Defaults to the fail-closed value: every early-abort Stage0Outcome
+    # (INDETERMINATE / CANCELLED_BEFORE_REVIEW) stops before gates are ever
+    # reconciled, so "may review start" is unknown, not true.
+    review_may_start: bool = False
+    blocking_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -468,8 +475,11 @@ class Controller:
 
         gates_projection = {"target_seal": seal, "gates": gate_dicts}
         updated = _issue(store, operation="reconcile_gates", projection=gates_projection, evidence=gate_evidence)
-        kernel_gaps = updated["processor_state"]["reconcile_gates"]["evidence_gaps"]
+        reconciled = updated["processor_state"]["reconcile_gates"]
+        kernel_gaps = reconciled["evidence_gaps"]
         evidence_gaps = tuple(dict.fromkeys(list(plan.evidence_gaps) + list(kernel_gaps)))
+        review_may_start = reconciled["review_may_start"]
+        blocking_reasons = tuple(reconciled["blocking_reasons"])
 
         inventory_projection = {**final_owner.projection, "prior_areas": [], "mappings": [], "invalidators": {}}
         updated = _issue(store, operation="refresh_inventory", projection=inventory_projection, evidence=inventory_evidence)
@@ -497,7 +507,55 @@ class Controller:
             areas=areas,
             priority_order=priority_order,
             tier=tier,
+            review_may_start=review_may_start,
+            blocking_reasons=blocking_reasons,
         )
+
+    def _close_blocked_stage0(self, stage0: Stage0Outcome, new_id: Callable[[], str]) -> RunState:
+        """Compute a NOT_CONVERGED terminal verdict for a run that Stage 0
+        itself blocked (design: "Any executed applicable gate that does not
+        produce its expected passing signal stops NOT CONVERGED"). Round 1
+        never dispatches, so `round1_triage_complete` /
+        `scheduled_reports_usable` / `raw_reports_reconciled` are honestly
+        `False` and no `final_challenge` was ever attempted; the kernel's own
+        `gates_not_ready` conjunct (from `reconcile_gates`' real
+        `blocking_reasons`) is what actually drives NOT_CONVERGED here --
+        those other unmet conjuncts just make the failure impossible to
+        misread as anything else.
+        """
+        run_state = stage0.run_state
+        seal = run_state.governing_seal
+        store = CanonicalStore(run_state.run_root)
+        processor = run_state.snapshot["processor_state"]
+        policy = processor["derive_policy"]
+        active_areas = processor["refresh_inventory"]["active_areas"]
+        gates = processor["reconcile_gates"]
+        lifecycle = {
+            "confirmation": "not_required" if not policy["confirmation_required"] else "confirmed",
+            "deadline_expired": False,
+            "round1_triage_complete": False,
+            "scheduled_reports_usable": False,
+            "raw_reports_reconciled": False,
+            "any_indeterminate": False,
+            "expected_final_seal": seal,
+            "actual_final_seal": seal,
+        }
+        final_challenge = {
+            "state": "BLOCKED_BEFORE_REVIEW", "fresh": False, "target_seal": seal,
+            "source_finding_ids": [], "artifact_id": "no-final-challenge-blocked-by-gates",
+            "retry_required": False,
+        }
+        projection = {
+            "lifecycle": lifecycle, "ledger": [], "gates": gates,
+            "areas": active_areas, "final_challenge": final_challenge,
+        }
+        evidence = [_artifact(new_id(), "close-computation", seal, {
+            "lifecycle": lifecycle, "blocked_before_review": True,
+            "blocking_reasons": list(stage0.blocking_reasons),
+        })]
+        updated = _issue(store, operation="compute_terminal", projection=projection, evidence=evidence)
+        reason = "blocked before review: " + "; ".join(stage0.blocking_reasons)
+        return RunState(run_state.run_root, run_state.governing_seal, updated, "COMPLETE", reason)
 
     # --- Round 1: freeze roster, dispatch holistic/adversarial/specialists ---
 
@@ -510,6 +568,15 @@ class Controller:
         new_id: Callable[[], str] = _new_id,
     ) -> Round1Outcome:
         from .execution import default_capacity
+
+        if stage0.run_state.stage != "STAGE0":
+            raise ControllerError(f"run_round1 requires a STAGE0 outcome, got stage={stage0.run_state.stage!r}")
+        if not stage0.review_may_start:
+            # A failed applicable gate -- required OR supporting -- means no
+            # reviewer is ever dispatched; the kernel's own gates rollup
+            # already carries this as review_may_start=False.
+            blocked_state = self._close_blocked_stage0(stage0, new_id)
+            return Round1Outcome(run_state=blocked_state, roster=(), raw_reports=())
 
         run_state = stage0.run_state
         seal = run_state.governing_seal
