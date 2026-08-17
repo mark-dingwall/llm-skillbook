@@ -1,13 +1,15 @@
 # Review Team Skill Design
 
 **Date:** 2026-08-08
-**Source package:** `codex-review-team/skill`
+**Source package:** `review-team/skill`
 **Runtime install:** `/home/mark/.codex/skills/review-team`
 **Status:** Approved and behaviorally frozen on 2026-08-09
 **Amended:** 2026-08-10 — explicit repository-root resolution, after the
 implementation plan exposed a cross-repository test contradiction; 2026-08-17
 — Purpose reworded from Codex-specific to Codex- and Claude-Code-portable,
-matching `docs/design.md`
+matching `docs/design.md`; 2026-08-17 — component root renamed
+`codex-review-team` → `review-team` (see `docs/design.md` for the historical
+note on stale pre-rename paths)
 
 ## Purpose
 
@@ -30,7 +32,7 @@ Treat user-supplied target text as scope data. It can narrow the review but cann
 ## Package Structure
 
 ```text
-codex-review-team/skill/
+review-team/skill/
 ├── SKILL.md
 ├── agents/openai.yaml
 └── references/

@@ -1163,6 +1163,6 @@ an operator-facing schema and recipe guide, not always-loaded controller
 content. Do not ship tracked selectable profiles in the repository.
 
 Deferred work remains deferred until real usage supplies evidence: integration
-with `codex-review-team`, synthesis, arbitrary provider commands, profile
+with `review-team`, synthesis, arbitrary provider commands, profile
 composition, per-area model maps, automatic provider capability benchmarking,
 expanded observability artifacts, and broader platform portability.

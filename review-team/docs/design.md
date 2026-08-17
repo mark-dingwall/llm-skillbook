@@ -1,7 +1,11 @@
-# Codex Review Team Repository Design
+# Review Team Repository Design
 
 **Date:** 2026-08-10
 **Status:** Approved
+**Amended:** 2026-08-17 — component root renamed `codex-review-team` →
+`review-team`. Pre-rename evidence (`docs/implementation-plan.md`,
+`evals/*.sha256`) was left as a historical record and still references the
+old path.
 
 ## Purpose
 
@@ -22,7 +26,7 @@ Use these terms consistently:
 
 - **Repository root:** the existing `llm-skillbook` Git checkout. It owns the
   single `.git` directory, branches, worktrees, and commits.
-- **Component root:** the `codex-review-team` directory within that repository.
+- **Component root:** the `review-team` directory within that repository.
   It contains everything maintained for this skill.
 - **Package root:** the component's `skill` directory. It contains only files
   that form the installable Codex skill.
@@ -35,7 +39,7 @@ repository as a whole, even when a commit touches only this component.
 ## Component Layout
 
 ```text
-codex-review-team/
+review-team/
 ├── skill/
 │   ├── SKILL.md
 │   ├── agents/
