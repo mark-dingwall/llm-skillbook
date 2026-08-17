@@ -77,7 +77,13 @@ def generate_report(run_state: RunState) -> str:
     lines.append(f"- Governing/target-baseline seal: `{run_state.governing_seal}`")
     terminal = _get(processor, "compute_terminal")
     if terminal is not None:
-        lines.append("- Final seal matched expected seal at CLOSE.")
+        # The MVP CLOSE does NOT fresh-re-seal the target (Task-6 -> Task-9
+        # carry-forward b), so this is not an attestation that the target bytes
+        # match a reviewed identity -- do not imply one.
+        lines.append(
+            "- CLOSE ran against the anchor governing seal; no fresh re-seal was "
+            "performed (seal-drift check deferred to Task 9)."
+        )
     lines.append("")
 
     gates = _get(processor, "reconcile_gates")

@@ -171,6 +171,27 @@ def is_test_path(path: str) -> bool:
     return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
 
 
+# Dependency manifests + lockfiles a FIX must never alter (design: "never alter
+# dependency manifests or lockfiles" / "never install dependencies or initialize
+# tooling"). A pure JSON validator can't see the delta; FIX owns it, so the
+# rejection lives here. Conservative + fail-closed: a changed path with any of
+# these basenames is rejected even when declared and bound to an authorized ID.
+_DEPENDENCY_TOOLING_BASENAMES = frozenset({
+    "poetry.lock", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock",
+    "pnpm-lock.yaml", "pipfile.lock", "cargo.lock", "gemfile.lock", "composer.lock",
+    "go.sum", "go.mod", "pyproject.toml", "setup.py", "setup.cfg", "pipfile",
+    "package.json", "cargo.toml", "gemfile", "composer.json",
+})
+
+
+def is_dependency_or_tooling_path(path: str) -> bool:
+    """A dependency manifest / lockfile a FIX may not alter (fail-closed)."""
+    name = Path(path).name.lower()
+    if name in _DEPENDENCY_TOOLING_BASENAMES:
+        return True
+    return name.startswith("requirements") and name.endswith(".txt")
+
+
 # --- FIX request / validated candidate / applied transition -----------------
 
 
@@ -262,6 +283,13 @@ class FixController:
         # Only FILE changes are manifest-declarable; an implicit parent-directory
         # entry (e.g. a new ``tests/`` dir) is not a change the implementer declares.
         actual_paths = {e.path for e in delta.entries if "file" in (e.before_type, e.after_type)}
+        # Reject a dependency/lockfile/tooling change even when declared+authorized:
+        # net is ON and the copy is writable, so an install would land as an
+        # accepted filesystem change otherwise (design: no dep/lockfile/tooling
+        # mutation to obtain evidence).
+        tooling = sorted(p for p in actual_paths if is_dependency_or_tooling_path(p))
+        if tooling:
+            raise FixError(f"FIX must not alter dependency/lockfile/tooling paths: {tooling}")
         declared_paths: set[str] = set()
         bound_ids: set[str] = set()
         for change in art["changes"]:

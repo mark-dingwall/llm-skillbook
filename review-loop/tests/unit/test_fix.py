@@ -190,6 +190,18 @@ class FixCandidateTests(unittest.TestCase):
         validated = self.fixctl.validate_candidate(self.request, self.before, after, manifest)
         self.assertEqual(validated.changed_paths, ("tests/test_calc.py",))
 
+    def test_declared_lockfile_or_manifest_change_is_rejected(self):
+        # Even declared + bound to an authorized ID, a dependency/lockfile change
+        # is rejected (net is ON + copy writable, so it would land an install).
+        for tooling in ("poetry.lock", "package-lock.json", "pyproject.toml", "requirements.txt", "go.mod"):
+            with self.subTest(path=tooling):
+                (self.copy / tooling).write_text("dep = 1\n")
+                after = seal_target(self.copy, GitPolicy(enabled=False))
+                manifest = _fix_artifact(SEAL, [(tooling, ["F1"])], expected_ids=("F1",))
+                with self.assertRaises(FixError):
+                    self.fixctl.validate_candidate(self.request, self.before, after, manifest)
+                (self.copy / tooling).unlink()
+
 
 def _stub_run_state(root: Path) -> RunState:
     return RunState(run_root=root / "run", governing_seal=SEAL, snapshot={"processor_state": {}}, stage="TRIAGE")

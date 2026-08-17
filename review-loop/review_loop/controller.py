@@ -1020,13 +1020,27 @@ class Controller:
         active_areas = processor["refresh_inventory"]["active_areas"]
         gates = processor["reconcile_gates"]
         final_challenge = processor["record_final_challenge"]
+        # A FIX_VERIFIED row here was verified against a DISPOSABLE COPY; the
+        # authoritative target was never written (write-back + baseline seal
+        # advancement are Task 9). Emitting CONVERGED/merge-ready would be a
+        # false green for bytes that still contain the finding, so CLOSE fails
+        # closed: mark the run indeterminate with an explicit reason rather than
+        # trusting the vacuous anchor==anchor seal check. (A future promoted fix
+        # would clear this once state.py/artifacts.py gain seal advancement.)
+        copy_only_fixes = [r["id"] for r in ledger_rows if r["state"] == "FIX_VERIFIED"]
+        reason = None
+        if copy_only_fixes:
+            reason = (
+                "authoritative target not repaired: disposable-copy fix not promoted "
+                f"to the sealed target (rows {copy_only_fixes}); promotion deferred to Task 9"
+            )
         lifecycle = {
             "confirmation": "not_required" if not policy["confirmation_required"] else "confirmed",
             "deadline_expired": False,
             "round1_triage_complete": True,
             "scheduled_reports_usable": True,
             "raw_reports_reconciled": True,
-            "any_indeterminate": False,
+            "any_indeterminate": bool(copy_only_fixes),
             "expected_final_seal": seal,
             "actual_final_seal": seal,
         }
@@ -1034,6 +1048,9 @@ class Controller:
             "lifecycle": lifecycle, "ledger": ledger_rows, "gates": gates,
             "areas": active_areas, "final_challenge": final_challenge,
         }
-        evidence = [_artifact(new_id(), "close-computation", seal, {"lifecycle": lifecycle})]
+        evidence = [_artifact(new_id(), "close-computation", seal, {
+            "lifecycle": lifecycle, "unpromoted_fix_rows": copy_only_fixes,
+        })]
         updated = _issue(store, operation="compute_terminal", projection=projection, evidence=evidence)
-        return RunState(run_state.run_root, run_state.governing_seal, updated, "COMPLETE", None)
+        stage = "INDETERMINATE" if copy_only_fixes else "COMPLETE"
+        return RunState(run_state.run_root, run_state.governing_seal, updated, stage, reason)

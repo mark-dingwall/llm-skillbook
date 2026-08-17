@@ -217,7 +217,7 @@ class FindingsLoopTests(unittest.TestCase):
         triage = self.controller.run_triage(round1, triager=self._triager())
         return triage, round1
 
-    def test_open_finding_is_fixed_verified_and_closes_converged(self):
+    def test_open_finding_is_fixed_but_close_fails_closed_until_promotion(self):
         # Rebuild the evidence plan the controller discovered (run_fix needs it).
         from review_loop.evidence import discover_evidence
         plan = discover_evidence((), (), self._scout())
@@ -268,11 +268,19 @@ class FindingsLoopTests(unittest.TestCase):
 
         challenge = self.controller.run_final_challenge(adjudicated.run_state, final_challenger=self._final_challenger())
         final = self.controller.close(challenge)
+        # HONEST fail-closed: the fix was verified only against the disposable
+        # copy; the authoritative target was never written, so CLOSE must NOT
+        # emit a merge-ready CONVERGED for bytes that still contain the finding.
         terminal = final.snapshot["processor_state"]["compute_terminal"]
-        self.assertEqual(terminal["terminal_verdict"], "CONVERGED")
-        self.assertTrue(terminal["merge_ready"])
-        self.assertEqual(terminal["failed_conditions"], [])
-        self.assertIn("CONVERGED", generate_report(final))
+        self.assertEqual(terminal["terminal_verdict"], "NOT_CONVERGED")
+        self.assertFalse(terminal["merge_ready"])
+        self.assertIn("indeterminate", terminal["failed_conditions"])
+        self.assertEqual(final.stage, "INDETERMINATE")
+        self.assertIn("not repaired", final.reason)
+        self.assertIn("Task 9", final.reason)
+        report = generate_report(final)
+        self.assertIn("Merge-ready: False", report)
+        self.assertNotIn("Merge-ready: True", report)
 
     def test_undeclared_fix_change_fails_closed_before_fix_applied(self):
         from review_loop.evidence import discover_evidence
@@ -413,6 +421,28 @@ class AdjudicationTwoCallTests(unittest.TestCase):
 
         with self.assertRaises(ControllerError):
             self.controller.run_adjudication(run_state, [], adjudicator=adjudicator)
+
+    def test_intentional_settlement_carries_file_authorized_user_acceptance(self):
+        run_state = _open_ledger(self.run_root, ["F1"])
+        proof = (EvidenceArtifact("ack", "user-acceptance", 1, SEAL, canonical_bytes({"ack": 1})),)
+        settlements = [{"id": "F1", "state": "INTENTIONAL", "proof_artifact_ids": ["ack"], "manifest_artifact_id": None}]
+
+        def adjudicator(exp):
+            payload = {"decisions": [{
+                "id": "F1", "decision": "UPHOLD", "evidence_locator": "calc.py:9",
+                "fact_linkage": "deliberate, documented design choice",
+                "authority_identity": "maintainer:alice",  # file-authorized user acceptance
+            }]}
+            return _role_artifact(exp.request_id, "adjudication", exp.target_seal, exp.round_input_seal, payload,
+                                  expected_ids=exp.expected_ids, extra=exp.extra)
+
+        out = self.controller.run_adjudication(
+            run_state, settlements, adjudicator=adjudicator,
+            authority_kinds={"F1": "file_authorized"}, proof_evidence=proof,
+        )
+        self.assertEqual(out.status, "UPHOLD")
+        rows = out.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
+        self.assertEqual(rows[0]["state"], "INTENTIONAL")
 
 
 class DeferredBoundaryTests(unittest.TestCase):
