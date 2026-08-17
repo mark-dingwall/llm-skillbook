@@ -16,7 +16,8 @@ the evidence that ran, evidence gaps, degraded behavior, and residual limits.
 The production CLI intentionally handles only durable mechanical operations:
 
 - `create-run` seals the target and records invocation intent.
-- `status` recovers the furthest durable stage.
+- `status` derives a coarse stage from the furthest durable processor
+  operation.
 - `report` renders the canonical run report.
 
 The role-driving stages — Stage 0, review, TRIAGE, FIX, adjudication, final
@@ -40,12 +41,14 @@ green result.
 
 ## Current scope and limits
 
-A single review round is wired end to end. When TRIAGE leaves Important or
-Critical findings open, the sole FIX role works in a contained disposable
-copy; its candidate delta and post-FIX gates are verified before an exact
-write-back can promote the result to the authoritative target. Later-round
-TRIAGE reconciliation, baseline advancement, inventory refresh, and
-restaffing are not wired and are refused rather than approximated.
+The controller supports one single-round review cycle when an external host
+supplies the role rendering, strict validation, dispatch callbacks, and stage
+sequencing. This component does not ship that end-to-end host driver. When
+TRIAGE leaves Important or Critical findings open, the sole FIX role works in a
+contained disposable copy; its candidate delta and post-FIX gates are verified
+before an exact write-back can promote the result to the authoritative target.
+Later-round TRIAGE reconciliation, baseline advancement, inventory refresh,
+and restaffing are not wired and are refused rather than approximated.
 
 Multi-review is available only when the host explicitly supplies its adapter;
 ordinary review remains the default. Use that opt-in only for a high/max run
@@ -57,6 +60,10 @@ There are also deliberately visible reporting and recovery limits:
 
 - `status` cannot durably distinguish a pre-review cancellation or a
   confirmation-stage indeterminate result from a Stage 0 interruption.
+- If a verified disposable-copy FIX was not promoted, CLOSE correctly
+  persists `NOT_CONVERGED` and `merge_ready=false`, but `status` derives the
+  coarse stage as `COMPLETE` rather than the controller's in-memory
+  `INDETERMINATE` outcome.
 - The generated report renders canonical verdicts and ledger state, but its
   mutation-evidence and degraded-behavior sections are not yet fully derived
   from run state.
