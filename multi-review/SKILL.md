@@ -79,7 +79,7 @@ Prepare prompt:
      --cli claude --out-dir <REVIEWS_DIR> \
      --text-file <REVIEWS_DIR>/claude.txt \
      --duration-seconds <claude_duration> \
-     --task-mode review --model claude-opus-4-7
+     --task-mode review --model opus
    ```
    This produces `<REVIEWS_DIR>/claude.md` + `<REVIEWS_DIR>/claude.state.json` matching the shape `spawn.py` would emit. The Step 7 aggregator's `## Summary` heading check (M13) still applies and will demote a Task-subagent return that lacks the heading.
 
@@ -124,7 +124,7 @@ First, build the synthesis prompt (both branches):
     --cli claude --out-dir <SESSION_DIR> \
     --text-file <SESSION_DIR>/synth.txt \
     --duration-seconds <synth_duration> \
-    --task-mode synthesize --model claude-opus-4-7
+    --task-mode synthesize --model opus
   ```
   This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
 - Else: build argv with `<SYNTH_MODEL_FLAG>` = `--model <resolved.models[resolved.synthesizer]>` if `resolved.models[resolved.synthesizer]` is set, else **nothing** (no token at all) — conditional token, same construction as Step 5's `<MODEL_FLAG>`:

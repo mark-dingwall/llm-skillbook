@@ -1,7 +1,7 @@
 ---
 name: multi-review-build
 description: Interactive author of YAML prompt files for multi-review. Accepts an optional freeform seed, asks the user via AskUserQuestion for missing fields (task, files, reviewers, synthesizer, etc.), writes a validated YAML file to <cwd>/.multi-review/prompts/.tmp/<id>.yaml. Autonomous mode (--use-defaults) fills sensible defaults from a cwd Glob/Read scan without asking.
-model: claude-sonnet-4-6
+model: sonnet
 effort: high
 tools: Read, Write, AskUserQuestion, Glob
 ---
@@ -41,7 +41,7 @@ Write to `<cwd>/.multi-review/prompts/.tmp/<id>.yaml` where `<id>` is a short UL
 - task: code
 - reviewers: [claude, agy, codex, opencode, pykrete]
 - synthesizer: claude
-- models.claude: claude-opus-4-7
+- models.claude: opus
 - models.agy: (unset — agy picks its default model)
 - models.codex: (unset — codex picks its default model; set explicitly only for reproducibility)
 - models.opencode: (unset — opencode picks its default model; set explicitly only for reproducibility)
