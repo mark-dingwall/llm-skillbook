@@ -118,8 +118,12 @@ report. Adjudication returns per-row `UPHOLD`, `BOUNCE`, or `UNDECIDED`.
   the complete sealed run before CLOSE can go green. None of these three may
   themselves create readiness or settle a row merely by upholding.
 - **Malformed role output gets exactly one retry**, then the enclosing stage
-  is `INDETERMINATE`. Adjudication gets at most two calls total (a clean
-  first pass's `UNDECIDED` subset retries once; anything else is final).
+  is `INDETERMINATE`. The host-supplied ordinary Round 1 review dispatch owns
+  that retry; `Controller.run_round1` validates only the returned attempt and
+  raises on an unusable result, which the host must convert to the
+  indeterminate outcome. Controller-owned semantic roles use the controller's
+  retry boundary. Adjudication gets at most two calls total (a clean first
+  pass's `UNDECIDED` subset retries once; anything else is final).
 - **Tier changes effort, never completion semantics.** What counts as
   settled, what "converged" and "merge-ready" mean, and whether adjudication
   runs do not weaken at a lower tier. `CLOSE` derives both verdicts
@@ -169,19 +173,22 @@ fixed Claude+Codex pair (`review_loop/multi_review.py`), reusing the same
 canonical holistic prompt verbatim. It is fully implemented and tested but
 **no default caller constructs and passes it** — `run_round1` without that
 argument runs ordinary single-reviewer holistic dispatch. Wire it in
-yourself (construct `MultiReviewAdapter` with an OAuth credential source and
-`multi_review`-profile-derived model pins) only for a `high`/`max` run where
-you have accepted its disclosed residual limitations: the interim
+yourself only after resolving every host prerequisite and safely constructing
+`MultiReviewAdapter` with an OAuth credential source and
+`multi_review`-profile-derived model pins. Resolution failure or unsafe
+construction stops closed before any fallback exists. Use the adapter only
+for a `high`/`max` run where you have accepted its disclosed residual
+limitations: the interim
 shared-namespace containment means a compromised reviewer subprocess can see
 driver transport/output and (via retained network access) exfiltrate any
 mounted input or credential; the OAuth token is inherited by both fixed
 clients under whole-call containment; and a reviewer winning the
 post-publish race can in principle forge output that passes validation
 (mitigated by teardown-race timing, not by the validator). Disclose these in
-the hand-back whenever multi-review actually ran. Bubblewrap is required; an
-unavailable driver, Bubblewrap, or fixed participant takes automatic
-ordinary-holistic fallback (never a retry of the multi-review call) unless
-the failure is itself a seal mismatch, which is `INDETERMINATE` instead.
+the hand-back whenever multi-review actually ran. After safe construction,
+only a structured adapter fallback result takes the ordinary holistic path
+once (never a retry of the multi-review call). A seal mismatch is
+`INDETERMINATE` instead.
 
 ## Confirmation behavior
 

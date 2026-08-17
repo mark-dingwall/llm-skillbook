@@ -96,6 +96,14 @@ or unavailable-reviewer non-convergence is `blocked`; and converged but not
 merge-ready is `blocked` with its named blocker. Fix only between rounds and
 re-review the required post-fix subject.
 
+After implementation review passes and before acceptance, compare the
+post-review seal, confirm the reviewed implementation commit and every other
+sealed path are unchanged, and run fresh risk-proportionate deterministic
+checks. Record the commands, results, reviewed commit, and matching seal and
+identity evidence in the ledger. Route a verification defect through the
+invalidation graph, reconcile unexpected drift read-only, and block when a
+required verification environment is unavailable.
+
 ## Finish is a recoverable logical operation
 
 Stage 13 writes the report, allocates one stable `finish_id`, records Finish as
@@ -104,6 +112,12 @@ operation through `ready`, `claimed`, `menu_pending`, `choice_recorded`,
 `executing`, and `terminal`; `blocked` is a resumable overlay. Persist the
 required journal receipts before a claim, menu or unattended resolution, and
 side effect, then persist the reconciled terminal or blocked receipt.
+
+Before claiming, the workflow must record a passing pre-claim capability
+receipt for durable journal interleaving and read-only Git/forge
+reconciliation. If that capability is missing or the receipt is not passing,
+record `ready -> blocked`; do not claim, present a menu, resolve an unattended
+choice, or invoke `finish-authority`.
 
 `finish-authority` is invoked exactly once for a `finish_id`, as the sole and
 last external skill invocation. This is recoverable exactly-once control, not

@@ -67,6 +67,21 @@ claiming a change is ready. Then reinstall the Claude target when a canonical
 agent changed: `--dev` links the skill directory but still copies subagent
 files, so it does not update an already installed agent definition.
 
+From the repository root, use these stable gates:
+
+```bash
+python3 -m pytest \
+  'tests/test_documentation.py::test_documentation_entrypoints[multi-review]' \
+  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[multi-review]' -q
+uv run --project multi-review --extra dev pytest multi-review/tests -q
+python3 -m pytest tests/test_plugin_agents.py -q
+```
+
+Documentation-test failure means an entry point, exact local AGENTS symlink,
+or Markdown target is invalid. Component-suite failure means live
+multi-review behavior or a contract regressed. Plugin-agent-test failure means
+a copied agent differs from its canonical definition or became a symlink.
+
 Keep manual procedures only for interactions that cannot be made executable in
 the component tests. Preserve paid-network and historical-observation labels
 where they describe the evidentiary limits of a smoke procedure; do not turn

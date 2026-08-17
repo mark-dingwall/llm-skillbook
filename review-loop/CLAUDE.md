@@ -65,19 +65,24 @@ explicitly selected profile requires an operator decision to use defaults; do
 not silently substitute defaults or model pins.
 
 Malformed semantic output gets its defined retry and then stops the enclosing
-stage indeterminate. Preserve fail-closed boundaries that are not yet wired:
-later-round ledger reconciliation, inventory refresh, and baseline advancement
-must not be simulated; a final-readiness block has no supplemental-TRIAGE
-implementation; and some cancellation/confirmation outcomes are not durable
-enough for `status` recovery to distinguish them.
+stage indeterminate. The host-supplied ordinary Round 1 review callback owns
+its one retry; the controller validates only the returned attempt and raises
+on an unusable result, which the host must treat as indeterminate. Other
+semantic-role retries remain controller-owned. Preserve fail-closed boundaries
+that are not yet wired: later-round ledger reconciliation, inventory refresh,
+and baseline advancement must not be simulated; a final-readiness block has no
+supplemental-TRIAGE implementation; and some cancellation/confirmation
+outcomes are not durable enough for `status` recovery to distinguish them.
 
 ## Multi-review
 
 Multi-review is an explicit host-supplied replacement for the ordinary
 holistic slot, never the default path. Restrict it to an accepted high/max
-use case with the configured fixed pair and disclosed residuals. Driver,
-Bubblewrap, participant, or aggregate-validation unavailability takes the
-ordinary holistic fallback once; a target or input-seal mismatch is
-indeterminate and must not fall back. Preserve the distinct whole-call
-containment model and its credential-sharing and post-publication race
-residuals in any hand-back that actually uses multi-review.
+use case with the configured fixed pair and disclosed residuals. The host must
+first resolve prerequisites and safely construct the contained adapter;
+resolution failure or unsafe construction stops closed. Only a structured
+fallback result returned by that adapter can take the ordinary holistic path
+once. A target or input-seal mismatch is indeterminate and must not fall back.
+Preserve the distinct whole-call containment model and its credential-sharing
+and post-publication race residuals in any hand-back that actually uses
+multi-review.

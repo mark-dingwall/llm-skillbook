@@ -24,8 +24,16 @@ duplicating component inventories or implementation prose here.
 Before publishing a local Markdown link or a placeholder for a forthcoming
 record, resolve it from the document containing it. Verify that the target
 exists, and run the focused documentation contract after changing entry
-points. A placeholder must be unmistakably marked as such and must not be
-presented as current authority.
+points:
+
+```bash
+python3 -m pytest tests/test_documentation.py -q
+```
+
+A failure means a required README or CLAUDE entry point is missing, an
+`AGENTS.md` link is not the exact local `CLAUDE.md` symlink, or a local
+Markdown target does not resolve. A placeholder must be unmistakably marked
+as such and must not be presented as current authority.
 
 The approved [documentation design](superpowers/specs/2026-08-18-repository-documentation-design.md)
 and [implementation plan](superpowers/plans/2026-08-18-repository-documentation.md)

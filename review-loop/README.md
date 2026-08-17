@@ -36,8 +36,9 @@ PREFLIGHT → STAGE0 → REVIEW → TRIAGE → FIX → CLOSE
 
 At any unsafe or incomplete boundary, the run fails closed rather than
 silently continuing. A failed applicable gate, seal mismatch, malformed role
-output after its retry, expired deadline, or uncontained dispatch prevents a
-green result.
+output after its required retry, expired deadline, or uncontained dispatch
+prevents a green result. The host-provided ordinary Round 1 dispatch owns that
+reviewer's one retry; other semantic-role retries are controller-owned.
 
 ## Current scope and limits
 
@@ -53,8 +54,10 @@ and restaffing are not wired and are refused rather than approximated.
 Multi-review is available only when the host explicitly supplies its adapter;
 ordinary review remains the default. Use that opt-in only for a high/max run
 whose operator accepts the documented containment residuals. If its driver,
-containment, or fixed participant is unavailable, the holistic slot falls back
-once to ordinary review; seal drift is indeterminate, never a fallback.
+containment, or fixed participant becomes unavailable after safe adapter
+construction, a structured adapter result falls back once to ordinary review.
+Missing setup prerequisites or unsafe adapter construction fail closed before
+fallback is available; seal drift is indeterminate, never a fallback.
 
 There are also deliberately visible reporting and recovery limits:
 
