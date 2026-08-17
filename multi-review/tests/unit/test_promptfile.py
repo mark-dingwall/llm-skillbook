@@ -468,3 +468,29 @@ def test_use_cli_defaults_accepted_without_models(tmp_path):
     }
     pf = fill_defaults(raw)
     validate(pf, base_dir=tmp_path)  # must not raise
+
+
+def test_require_complete_status_requires_verbatim_custom_prompt(tmp_path):
+    """Expected dispatch fields are derived from the verbatim prompt held in
+    driver memory — there's no other channel, so this opt-in is meaningless
+    (and unsafe to attempt) without verbatim_custom_prompt."""
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "code", "files": [str(src)],
+        "require_complete_status": True,
+    }
+    with pytest.raises(ValidationError, match="require_complete_status"):
+        validate(fill_defaults(raw), base_dir=tmp_path)
+
+
+def test_require_complete_status_accepted_with_verbatim_custom_prompt(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    raw = {
+        "prompt_format_version": 2, "task": "custom", "files": [str(src)],
+        "verbatim_custom_prompt": True, "custom_prompt": "DO X",
+        "require_complete_status": True,
+    }
+    pf = fill_defaults(raw)
+    validate(pf, base_dir=tmp_path)  # must not raise

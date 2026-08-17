@@ -4,12 +4,13 @@ Contains:
 - resolve_output_path: auto-suffix collision avoidance
 - yaml_list: compact YAML list formatter
 - write_review_md: emit YAML frontmatter + per-reviewer sections + Consensus Summary
-- review-loop opt-in (require_complete_status): parse_review_record_expectations,
-  parse_qualified_review_record — the review-record classifier for the narrow
-  review-loop driver opt-in (multi-review/BACKLOG.md "Priority consumer
-  contract: review-loop"). Independent of, but shape-compatible with, the
-  review-loop-side classifier in review_loop/prompts.py:validate_review_report
-  (pinned by review-loop/tests/contract/test_multi_review_records.py).
+- review-loop opt-in (require_complete_status): parse_raw_report_ids,
+  parse_verbatim_dispatch_header, parse_qualified_review_record — the
+  review-record classifier for the narrow review-loop driver opt-in
+  (multi-review/BACKLOG.md "Priority consumer contract: review-loop").
+  Independent of, but shape-compatible with, the review-loop-side classifier
+  in review_loop/prompts.py:validate_review_report (pinned by
+  review-loop/tests/contract/test_multi_review_records.py).
 """
 from __future__ import annotations
 
@@ -58,25 +59,24 @@ def yaml_list(items: list[str]) -> str:
 
 # -------- review-loop opt-in: review-record classifier --------
 #
-# Validates one participant's fenced ```review-record``` JSON block against a
-# controller-supplied expectation (multi_review.py's --review-record-expect),
-# and the exact terminal REVIEW-STATUS line. Only exercised when
-# PromptFile.require_complete_status is set — every other caller's output is
-# untouched. Field shape (_RECORD_KEYS/_FINDING_KEYS/_SEVERITIES) mirrors
-# review_loop/prompts.py's ReviewRecord/SourceFinding so a valid review-loop
-# report qualifies here too; the two classifiers are independent code (this
-# repo does not import review_loop), pinned equivalent by
-# review-loop/tests/contract/test_multi_review_records.py.
+# Validates one participant's fenced ```review-record``` JSON block against
+# the dispatch fields parsed from the driver's own verbatim prompt (the
+# single source of truth for what was actually sent — see
+# parse_verbatim_dispatch_header) plus a driver-side raw_report_id (see
+# parse_raw_report_ids), and the exact terminal REVIEW-STATUS line. Only
+# exercised when PromptFile.require_complete_status is set — every other
+# caller's output is untouched. Field shape (_RECORD_KEYS/_FINDING_KEYS/
+# _SEVERITIES) mirrors review_loop/prompts.py's ReviewRecord/SourceFinding so
+# a valid review-loop report qualifies here too; the two classifiers are
+# independent code (this repo does not import review_loop), pinned
+# equivalent by review-loop/tests/contract/test_multi_review_records.py.
 
 class ReviewRecordError(Exception):
-    """A --review-record-expect argument or a reviewer's review-record body
-    was rejected as malformed, mismatched, or not terminally COMPLETE."""
+    """A --raw-report-id argument, the verbatim prompt's dispatch header, or a
+    reviewer's review-record body was rejected as malformed, mismatched, or
+    not terminally COMPLETE."""
 
 
-_EXPECTATION_KEYS = {
-    "request_id", "role", "charter_id", "target_seal",
-    "round_input_seal", "scope_locator_ids", "raw_report_id",
-}
 _RECORD_KEYS = {
     "request_id", "role", "charter_id", "target_seal",
     "round_input_seal", "scope_locator_ids", "source_findings",
@@ -106,48 +106,102 @@ def _nonempty_str(value: object) -> bool:
     return isinstance(value, str) and bool(value)
 
 
-def parse_review_record_expectations(raw: str, reviewers: list[str]) -> dict[str, dict]:
-    """Parse --review-record-expect JSON into a per-CLI expectation mapping.
+def parse_raw_report_ids(pairs: list[str], reviewers: list[str]) -> dict[str, str]:
+    """Parse repeated --raw-report-id CLI=ID values into a {cli: id} map.
 
-    Every name in ``reviewers`` must have an entry with exactly
-    _EXPECTATION_KEYS. Raises ReviewRecordError on any structural problem —
-    this is startup-time (pre-dispatch) config validation, not a runtime
-    reviewer-output classification.
+    raw_report_id is a DRIVER-SIDE label assigned by slot — the reviewer's
+    review-record body never declares it, so it is never compared against
+    anything the reviewer sends. It is purely echoed into the qualified
+    record for that CLI's frontmatter entry, correlating the slot to the
+    controller's preallocated artifact ID. Every name in ``reviewers`` must
+    have exactly one entry; a missing slot fails closed rather than silently
+    omitting that reviewer's raw_report_id.
     """
-    try:
-        data = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise ReviewRecordError(f"--review-record-expect is not valid JSON: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ReviewRecordError("--review-record-expect must be a JSON object")
+    result: dict[str, str] = {}
+    for pair in pairs:
+        cli, sep, raw_id = pair.partition("=")
+        if not sep or not cli or not raw_id:
+            raise ReviewRecordError(f"--raw-report-id must be CLI=ID, got {pair!r}")
+        if cli in result:
+            raise ReviewRecordError(f"--raw-report-id specified more than once for {cli!r}")
+        result[cli] = raw_id
+    missing = [cli for cli in reviewers if cli not in result]
+    if missing:
+        raise ReviewRecordError(f"--raw-report-id missing for reviewer(s): {', '.join(missing)}")
+    return result
 
-    expectations: dict[str, dict] = {}
-    for cli in reviewers:
-        entry = data.get(cli)
-        if not isinstance(entry, dict) or set(entry) != _EXPECTATION_KEYS:
-            raise ReviewRecordError(
-                f"--review-record-expect is missing or malformed for reviewer {cli!r}"
-            )
-        for key in ("request_id", "role", "charter_id", "target_seal", "raw_report_id"):
-            if not _nonempty_str(entry[key]):
-                raise ReviewRecordError(
-                    f"--review-record-expect[{cli!r}].{key} must be a non-empty string"
-                )
-        if entry["round_input_seal"] is not None and not _nonempty_str(entry["round_input_seal"]):
-            raise ReviewRecordError(
-                f"--review-record-expect[{cli!r}].round_input_seal must be null or non-empty"
-            )
-        scope = entry["scope_locator_ids"]
-        if (
-            not isinstance(scope, list)
-            or not all(_nonempty_str(s) for s in scope)
-            or len(set(scope)) != len(scope)
-        ):
-            raise ReviewRecordError(
-                f"--review-record-expect[{cli!r}].scope_locator_ids must be unique non-empty strings"
-            )
-        expectations[cli] = dict(entry)
-    return expectations
+
+_DISPATCH_HEADER_KEYS = (
+    "request_id", "role", "charter_id", "target_seal", "round_input_seal", "scope_locator_ids",
+)
+
+
+def parse_verbatim_dispatch_header(prompt_text: str) -> dict:
+    """Derive expected review-record dispatch fields from the verbatim prompt
+    this driver actually sent — the single source of truth, never a second
+    caller-supplied channel that could drift from what was dispatched.
+
+    Mirrors review_loop/resources/review.md's fixed header shape: one
+    ``key: value`` line per _DISPATCH_HEADER_KEYS name, in the leading block
+    before the first blank line. ``round_input_seal`` is the literal token
+    ``null`` for round one, else a non-empty string. ``scope_locator_ids`` is
+    a JSON array of unique non-empty strings (JSON, not a bespoke delimiter,
+    so it round-trips unambiguously through str.format's Mapping[str, str]
+    substitution contract in review_loop/prompts.py:render_prompt).
+    """
+    header_lines: list[str] = []
+    for line in prompt_text.splitlines():
+        if line.strip() == "":
+            break
+        header_lines.append(line)
+
+    fields: dict[str, str] = {}
+    for line in header_lines:
+        key, sep, value = line.partition(": ")
+        if sep and key in _DISPATCH_HEADER_KEYS and key not in fields:
+            fields[key] = value
+
+    missing = [key for key in _DISPATCH_HEADER_KEYS if key not in fields]
+    if missing:
+        raise ReviewRecordError(
+            f"verbatim prompt is missing dispatch header field(s): {', '.join(missing)}"
+        )
+    for key in ("request_id", "role", "charter_id", "target_seal"):
+        if not _nonempty_str(fields[key]):
+            raise ReviewRecordError(f"verbatim prompt dispatch header {key} must be non-empty")
+
+    round_input_seal: str | None = fields["round_input_seal"]
+    if round_input_seal == "null":
+        round_input_seal = None
+    elif not _nonempty_str(round_input_seal):
+        raise ReviewRecordError(
+            "verbatim prompt dispatch header round_input_seal must be 'null' or non-empty"
+        )
+
+    try:
+        scope_locator_ids = json.loads(fields["scope_locator_ids"])
+    except json.JSONDecodeError as exc:
+        raise ReviewRecordError(
+            f"verbatim prompt dispatch header scope_locator_ids is not valid JSON: {exc}"
+        ) from exc
+    if (
+        not isinstance(scope_locator_ids, list)
+        or not all(_nonempty_str(s) for s in scope_locator_ids)
+        or len(set(scope_locator_ids)) != len(scope_locator_ids)
+    ):
+        raise ReviewRecordError(
+            "verbatim prompt dispatch header scope_locator_ids must be a JSON array "
+            "of unique non-empty strings"
+        )
+
+    return {
+        "request_id": fields["request_id"],
+        "role": fields["role"],
+        "charter_id": fields["charter_id"],
+        "target_seal": fields["target_seal"],
+        "round_input_seal": round_input_seal,
+        "scope_locator_ids": scope_locator_ids,
+    }
 
 
 def _parse_source_findings(raw: object) -> list[dict] | None:

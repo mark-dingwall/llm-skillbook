@@ -114,6 +114,11 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
             raise ValidationError("verbatim_custom_prompt does not support context_files")
     if pf.use_cli_defaults and pf.models:
         raise ValidationError("use_cli_defaults does not allow models: caller must not pin any CLI")
+    if pf.require_complete_status and not pf.verbatim_custom_prompt:
+        raise ValidationError(
+            "require_complete_status requires verbatim_custom_prompt: expected review-record "
+            "dispatch fields are derived only from the exact prompt the driver actually sent"
+        )
     if not pf.reviewers:
         raise ValidationError("reviewers: must not be empty")
     for r in pf.reviewers:

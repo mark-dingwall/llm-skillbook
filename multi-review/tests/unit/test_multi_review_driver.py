@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from multi_review.core.adapters import Usage
 from multi_review.core.fanout import ReviewerResult
@@ -507,14 +508,82 @@ def test_progress_lines_go_to_stderr(tmp_path, monkeypatch, capsys):
 
 # -- Task 10: review-loop opt-in — prompt transport integrity ---------------
 
-REQUIRE_COMPLETE_YAML = """\
-    prompt_format_version: 2
-    task: code
-    files: [target.py]
-    reviewers: [codex, agy]
-    synthesizer: none
-    require_complete_status: true
-"""
+DISPATCH_HEADER_FIELDS = {
+    "request_id": "req-1", "role": "adversarial", "charter_id": "chart-1",
+    "target_seal": "seal-1", "round_input_seal": None, "scope_locator_ids": ["loc-1"],
+}
+
+
+def _dispatch_header_text(fields=None, subject="Review this."):
+    d = dict(DISPATCH_HEADER_FIELDS)
+    if fields:
+        d.update(fields)
+    seal = "null" if d["round_input_seal"] is None else d["round_input_seal"]
+    return (
+        f"request_id: {d['request_id']}\n"
+        f"role: {d['role']}\n"
+        f"charter_id: {d['charter_id']}\n"
+        f"target_seal: {d['target_seal']}\n"
+        f"round_input_seal: {seal}\n"
+        f"scope_locator_ids: {json.dumps(d['scope_locator_ids'])}\n"
+        f"\n{subject}"
+    )
+
+
+def _write_require_complete_promptfile(tmp_path, reviewers=("codex", "agy"), fields=None):
+    """A verbatim_custom_prompt=true + require_complete_status=true prompt
+    file whose custom_prompt carries the review_loop/resources/review.md-shaped
+    dispatch header this driver derives expectations from."""
+    (tmp_path / "target.py").write_text("def f():\n    return 1\n")
+    pf = tmp_path / "prompt.yaml"
+    pf.write_text(yaml.safe_dump({
+        "prompt_format_version": 2,
+        "task": "custom",
+        "files": ["target.py"],
+        "reviewers": list(reviewers),
+        "synthesizer": "none",
+        "verbatim_custom_prompt": True,
+        "require_complete_status": True,
+        "custom_prompt": _dispatch_header_text(fields),
+    }))
+    return pf
+
+
+def _run_require_complete(tmp_path, monkeypatch, fanout, reviewers=("codex", "agy"),
+                          fields=None, extra_argv=()):
+    pf = _write_require_complete_promptfile(tmp_path, reviewers, fields)
+    out = tmp_path / "round-1"
+    monkeypatch.setattr(driver, "run_all_reviewers", fanout)
+    prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    prior_sigint_handler = signal.getsignal(signal.SIGINT)
+    try:
+        code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out), *extra_argv])
+    finally:
+        signal.signal(signal.SIGTERM, prior_sigterm_handler)
+        signal.signal(signal.SIGINT, prior_sigint_handler)
+    return code, out
+
+
+def _raw_report_id_argv(clis):
+    argv = []
+    for cli in clis:
+        argv += ["--raw-report-id", f"{cli}=raw-{cli}"]
+    return argv
+
+
+def _record_body(fields=None, source_findings=(), terminal="REVIEW-STATUS: COMPLETE"):
+    d = dict(DISPATCH_HEADER_FIELDS)
+    if fields:
+        d.update(fields)
+    record = {
+        "request_id": d["request_id"], "role": d["role"], "charter_id": d["charter_id"],
+        "target_seal": d["target_seal"], "round_input_seal": d["round_input_seal"],
+        "scope_locator_ids": d["scope_locator_ids"], "source_findings": list(source_findings),
+    }
+    return (
+        "## Summary\n\nLooks fine.\n\n"
+        f"```review-record\n{json.dumps(record)}\n```\n{terminal}"
+    )
 
 
 class _TamperingFanout(_RecordingFanout):
@@ -526,43 +595,15 @@ class _TamperingFanout(_RecordingFanout):
         return results
 
 
-def _expectation(cli, **overrides):
-    base = {
-        "request_id": "req-1", "role": "adversarial", "charter_id": "chart-1",
-        "target_seal": "seal-1", "round_input_seal": None,
-        "scope_locator_ids": ["loc-1"], "raw_report_id": f"raw-{cli}",
-    }
-    base.update(overrides)
-    return base
-
-
-def _expect_argv(clis):
-    return ["--review-record-expect", json.dumps({cli: _expectation(cli) for cli in clis})]
-
-
-def _record_body(expectation, source_findings=(), terminal="REVIEW-STATUS: COMPLETE"):
-    record = {
-        "request_id": expectation["request_id"], "role": expectation["role"],
-        "charter_id": expectation["charter_id"], "target_seal": expectation["target_seal"],
-        "round_input_seal": expectation["round_input_seal"],
-        "scope_locator_ids": expectation["scope_locator_ids"],
-        "source_findings": list(source_findings),
-    }
-    return (
-        "## Summary\n\nLooks fine.\n\n"
-        f"```review-record\n{json.dumps(record)}\n```\n{terminal}"
-    )
-
-
 def test_require_complete_status_clean_run_dispatches_and_publishes(tmp_path, monkeypatch):
-    codex_body = _record_body(_expectation("codex"))
-    agy_body = _record_body(_expectation("agy"))
+    codex_body = _record_body()
+    agy_body = _record_body()
     fanout = _RecordingFanout(results={
         "codex": _result("codex", text=codex_body),
         "agy": _result("agy", text=agy_body),
     })
-    code, out = _run(tmp_path, monkeypatch, REQUIRE_COMPLETE_YAML, fanout,
-                     extra_argv=_expect_argv(["codex", "agy"]))
+    code, out = _run_require_complete(tmp_path, monkeypatch, fanout,
+                                      extra_argv=_raw_report_id_argv(["codex", "agy"]))
     text = (out / "REVIEW.md").read_text()
     assert code == 0
     assert fanout.calls  # dispatch happened
@@ -572,12 +613,25 @@ def test_require_complete_status_clean_run_dispatches_and_publishes(tmp_path, mo
     assert "raw_report_id: raw-agy" in text
 
 
-def test_require_complete_status_needs_review_record_expect(tmp_path):
-    """Startup-time config error: the flag is required whenever the opt-in is set."""
-    pf = _write_promptfile(tmp_path, REQUIRE_COMPLETE_YAML)
+def test_require_complete_status_needs_raw_report_id_for_every_reviewer(tmp_path):
+    """Startup-time config error: a raw_report_id is required for every fixed
+    slot whenever the opt-in is set — fail closed, never proceed with a
+    missing slot."""
+    pf = _write_require_complete_promptfile(tmp_path)
     out = tmp_path / "round-1"
     assert driver.main(["--prompt-file", str(pf), "--out-dir", str(out)]) == 2
     assert not out.exists()
+
+
+def test_raw_report_id_rejected_without_require_complete_status(tmp_path):
+    """Fail closed on flag misuse in the other direction too: --raw-report-id
+    means nothing (and is refused rather than silently ignored) unless the
+    opt-in that consumes it is active."""
+    pf = _write_promptfile(tmp_path, THREE_YAML)
+    out = tmp_path / "round-1"
+    code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out),
+                        "--raw-report-id", "codex=raw-codex"])
+    assert code == 2
 
 
 def test_require_complete_status_rejects_prompt_tampered_before_dispatch(tmp_path, monkeypatch):
@@ -585,7 +639,7 @@ def test_require_complete_status_rejects_prompt_tampered_before_dispatch(tmp_pat
     between the driver's write and dispatch. The driver must catch this before
     launching any fixed client, not merely after."""
     fanout = _RecordingFanout()
-    pf = _write_promptfile(tmp_path, REQUIRE_COMPLETE_YAML)
+    pf = _write_require_complete_promptfile(tmp_path)
     out = tmp_path / "round-1"
     real_write_text = Path.write_text
 
@@ -598,7 +652,7 @@ def test_require_complete_status_rejects_prompt_tampered_before_dispatch(tmp_pat
     monkeypatch.setattr(Path, "write_text", tamper_after_prompt_write)
     monkeypatch.setattr(driver, "run_all_reviewers", fanout)
     code = driver.main(["--prompt-file", str(pf), "--out-dir", str(out),
-                        *_expect_argv(["codex", "agy"])])
+                        *_raw_report_id_argv(["codex", "agy"])])
 
     assert code == 1
     assert fanout.calls == [], "reviewers must never be dispatched against a drifted transport"
@@ -626,8 +680,8 @@ def test_require_complete_status_rejects_prompt_tampered_during_fanout(tmp_path,
             return results
 
     fanout = _Tamper()
-    code, out = _run(tmp_path, monkeypatch, REQUIRE_COMPLETE_YAML, fanout,
-                     extra_argv=_expect_argv(["codex", "agy"]))
+    code, out = _run_require_complete(tmp_path, monkeypatch, fanout,
+                                      extra_argv=_raw_report_id_argv(["codex", "agy"]))
 
     assert code == 1
     assert fanout.calls, "tampering happens mid/post-fanout, so dispatch did occur"

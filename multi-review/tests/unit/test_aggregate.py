@@ -9,7 +9,8 @@ import yaml
 from multi_review.core.aggregate import (
     ReviewRecordError,
     parse_qualified_review_record,
-    parse_review_record_expectations,
+    parse_raw_report_ids,
+    parse_verbatim_dispatch_header,
     write_review_md,
     resolve_output_path,
 )
@@ -201,50 +202,111 @@ def _body(record_json_text, terminal="REVIEW-STATUS: COMPLETE"):
     return f"## Summary\n\nLooks fine.\n\n```review-record\n{record_json_text}\n```\n{terminal}"
 
 
-class TestParseReviewRecordExpectations:
+class TestParseRawReportIds:
     def test_valid_round_trip(self):
-        expect = {"claude": _expectation(), "codex": _expectation(raw_report_id="raw-codex")}
-        out = parse_review_record_expectations(json.dumps(expect), ["claude", "codex"])
-        assert out["claude"]["raw_report_id"] == "raw-claude"
-        assert out["codex"]["raw_report_id"] == "raw-codex"
+        out = parse_raw_report_ids(["claude=raw-claude", "codex=raw-codex"], ["claude", "codex"])
+        assert out == {"claude": "raw-claude", "codex": "raw-codex"}
 
-    def test_not_valid_json(self):
+    def test_missing_slot_fails_closed(self):
+        with pytest.raises(ReviewRecordError, match="codex"):
+            parse_raw_report_ids(["claude=raw-claude"], ["claude", "codex"])
+
+    def test_malformed_pair_no_equals_sign_rejected(self):
+        with pytest.raises(ReviewRecordError, match="CLI=ID"):
+            parse_raw_report_ids(["claude-raw-claude"], ["claude"])
+
+    def test_empty_cli_rejected(self):
+        with pytest.raises(ReviewRecordError, match="CLI=ID"):
+            parse_raw_report_ids(["=raw-claude"], ["claude"])
+
+    def test_empty_id_rejected(self):
+        with pytest.raises(ReviewRecordError, match="CLI=ID"):
+            parse_raw_report_ids(["claude="], ["claude"])
+
+    def test_duplicate_cli_key_rejected(self):
+        with pytest.raises(ReviewRecordError, match="more than once"):
+            parse_raw_report_ids(["claude=raw-1", "claude=raw-2"], ["claude"])
+
+    def test_id_may_itself_contain_an_equals_sign(self):
+        out = parse_raw_report_ids(["claude=raw=with=equals"], ["claude"])
+        assert out["claude"] == "raw=with=equals"
+
+
+DISPATCH = {
+    "request_id": "req-1", "role": "adversarial", "charter_id": "chart-1",
+    "target_seal": "seal-1", "round_input_seal": None,
+    "scope_locator_ids": ["loc-1", "loc-2"],
+}
+
+
+def _dispatch_header(dispatch=None, subject="Review this."):
+    d = dict(DISPATCH)
+    if dispatch:
+        d.update(dispatch)
+    seal = "null" if d["round_input_seal"] is None else d["round_input_seal"]
+    return (
+        f"request_id: {d['request_id']}\n"
+        f"role: {d['role']}\n"
+        f"charter_id: {d['charter_id']}\n"
+        f"target_seal: {d['target_seal']}\n"
+        f"round_input_seal: {seal}\n"
+        f"scope_locator_ids: {json.dumps(d['scope_locator_ids'])}\n"
+        f"\n{subject}"
+    )
+
+
+class TestParseVerbatimDispatchHeader:
+    def test_valid_round_trip(self):
+        out = parse_verbatim_dispatch_header(_dispatch_header())
+        assert out == DISPATCH
+
+    def test_round_input_seal_null_token_becomes_none(self):
+        out = parse_verbatim_dispatch_header(_dispatch_header())
+        assert out["round_input_seal"] is None
+
+    def test_round_input_seal_non_null_value_preserved(self):
+        out = parse_verbatim_dispatch_header(_dispatch_header({"round_input_seal": "prior-seal"}))
+        assert out["round_input_seal"] == "prior-seal"
+
+    def test_missing_header_field_rejected(self):
+        header = "request_id: req-1\nrole: adversarial\n\nSubject."
+        with pytest.raises(ReviewRecordError, match="missing dispatch header field"):
+            parse_verbatim_dispatch_header(header)
+
+    def test_header_scan_stops_at_first_blank_line(self):
+        """A key: value line appearing in the Subject body (after the header's
+        blank-line boundary) must never override — or even be considered
+        for — a header field. First-wins is enforced within the header block
+        itself; the body is out of scope for this scan entirely."""
+        header = _dispatch_header(subject="target_seal: forged-in-subject\n\nMore body text.")
+        out = parse_verbatim_dispatch_header(header)
+        assert out["target_seal"] == "seal-1"
+
+    def test_empty_identity_field_rejected(self):
+        header = _dispatch_header({"request_id": ""})
+        with pytest.raises(ReviewRecordError, match="request_id"):
+            parse_verbatim_dispatch_header(header)
+
+    def test_scope_locator_ids_not_json_rejected(self):
+        header = _dispatch_header().replace(
+            f"scope_locator_ids: {json.dumps(DISPATCH['scope_locator_ids'])}",
+            "scope_locator_ids: loc-1, loc-2",
+        )
         with pytest.raises(ReviewRecordError, match="not valid JSON"):
-            parse_review_record_expectations("{not json", ["claude"])
+            parse_verbatim_dispatch_header(header)
 
-    def test_missing_entry_for_a_reviewer(self):
-        with pytest.raises(ReviewRecordError, match="claude"):
-            parse_review_record_expectations(json.dumps({"codex": _expectation()}), ["claude", "codex"])
+    def test_scope_locator_ids_duplicate_rejected(self):
+        header = _dispatch_header({"scope_locator_ids": ["loc-1", "loc-1"]})
+        with pytest.raises(ReviewRecordError, match="unique"):
+            parse_verbatim_dispatch_header(header)
 
-    def test_extra_field_rejected(self):
-        entry = _expectation()
-        entry["bogus"] = "x"
+    def test_scope_locator_ids_empty_string_element_rejected(self):
+        header = _dispatch_header().replace(
+            f"scope_locator_ids: {json.dumps(DISPATCH['scope_locator_ids'])}",
+            'scope_locator_ids: ["loc-1", ""]',
+        )
         with pytest.raises(ReviewRecordError):
-            parse_review_record_expectations(json.dumps({"claude": entry}), ["claude"])
-
-    def test_missing_field_rejected(self):
-        entry = _expectation()
-        del entry["raw_report_id"]
-        with pytest.raises(ReviewRecordError):
-            parse_review_record_expectations(json.dumps({"claude": entry}), ["claude"])
-
-    @pytest.mark.parametrize("field", ["request_id", "role", "charter_id", "target_seal", "raw_report_id"])
-    def test_empty_identity_field_rejected(self, field):
-        entry = _expectation(**{field: ""})
-        with pytest.raises(ReviewRecordError):
-            parse_review_record_expectations(json.dumps({"claude": entry}), ["claude"])
-
-    def test_duplicate_scope_locator_ids_rejected(self):
-        entry = _expectation(scope_locator_ids=["loc-1", "loc-1"])
-        with pytest.raises(ReviewRecordError):
-            parse_review_record_expectations(json.dumps({"claude": entry}), ["claude"])
-
-    def test_duplicate_json_keys_rejected(self):
-        raw = '{"claude": {"request_id": "a", "request_id": "b", "role": "adversarial", ' \
-              '"charter_id": "c", "target_seal": "s", "round_input_seal": null, ' \
-              '"scope_locator_ids": ["l"], "raw_report_id": "r"}}'
-        with pytest.raises(ReviewRecordError, match="duplicate key"):
-            parse_review_record_expectations(raw, ["claude"])
+            parse_verbatim_dispatch_header(header)
 
 
 class TestParseQualifiedReviewRecord:

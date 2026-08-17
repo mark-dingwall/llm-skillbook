@@ -36,7 +36,8 @@ import yaml
 from multi_review.core.aggregate import (
     ReviewRecordError,
     parse_qualified_review_record,
-    parse_review_record_expectations,
+    parse_raw_report_ids,
+    parse_verbatim_dispatch_header,
     write_review_md,
 )
 from multi_review.core.fanout import ReviewerResult, run_all_reviewers
@@ -265,11 +266,15 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
     p.add_argument("--prompt-file", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--timeout", type=int, default=None)
-    # review-loop opt-in only (PromptFile.require_complete_status). Carries
-    # per-CLI dispatch identity + the controller-preallocated raw report ID
-    # for that fixed slot — small structured metadata, never the prompt body,
-    # so this stays consistent with "prompt transport never in argv."
-    p.add_argument("--review-record-expect", type=str, default=None)
+    # review-loop opt-in only (PromptFile.require_complete_status). Each
+    # repeated CLI=ID pair is the controller-preallocated raw report ID for
+    # that fixed slot — a short driver-side label, never the prompt body, so
+    # this stays consistent with "prompt transport never in argv." Dispatch
+    # identity fields (request_id/role/etc.) are NOT taken from argv at all —
+    # they are derived from the verbatim prompt this driver actually sends
+    # (see parse_verbatim_dispatch_header), so there is no second channel
+    # that could drift from what was dispatched.
+    p.add_argument("--raw-report-id", action="append", default=[], metavar="CLI=ID")
     args = p.parse_args(argv)
 
     # Resolve once while the caller's foreign cwd is still the reference point.
@@ -306,19 +311,18 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
     # indistinguishable in the results list and double-count toward the synthesis gate.
     reviewers = list(dict.fromkeys(pf.reviewers))
 
-    review_record_expectations: dict[str, dict] | None = None
+    # Fail closed on flag misuse in either direction: the raw-report-id
+    # channel only makes sense paired with the opt-in that consumes it.
+    raw_report_ids: dict[str, str] = {}
     if pf.require_complete_status:
-        if not args.review_record_expect:
-            print("error: require_complete_status needs --review-record-expect",
-                  file=sys.stderr)
-            return 2
         try:
-            review_record_expectations = parse_review_record_expectations(
-                args.review_record_expect, reviewers,
-            )
+            raw_report_ids = parse_raw_report_ids(args.raw_report_id, reviewers)
         except ReviewRecordError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+    elif args.raw_report_id:
+        print("error: --raw-report-id requires require_complete_status", file=sys.stderr)
+        return 2
 
     base = prompt_file.parent
 
@@ -341,6 +345,18 @@ def _run_driver(argv: list[str] | None, *, restore_signal_handlers: bool) -> int
         # dispatched yet, so there is nothing to salvage.
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    review_record_expectations: dict[str, dict] | None = None
+    if pf.require_complete_status:
+        try:
+            dispatch_header = parse_verbatim_dispatch_header(prompt_text)
+        except ReviewRecordError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        review_record_expectations = {
+            cli: {**dispatch_header, "raw_report_id": raw_report_ids[cli]}
+            for cli in reviewers
+        }
 
     claim_ref: list[Path | None] = [None]
     prior_sigterm_handler = signal.getsignal(signal.SIGTERM)
