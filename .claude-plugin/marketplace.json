@@ -1,0 +1,8 @@
+{
+  "name": "llm-skillbook",
+  "description": "Code-review and feature-delivery skills for Claude Code and Codex.",
+  "owner": { "name": "mark-dingwall" },
+  "plugins": [
+    { "name": "llm-skillbook", "source": "." }
+  ]
+}
