@@ -52,6 +52,10 @@ When an authority request says **“no more questions,” “fewer questions,”
 specification and context to assemble the entire remaining decision frontier.
 For each actual decision, record a recommended resolution or default, its
 assumptions, and its acceptance and scope consequences; omit or reopen none.
+Calling the aggregate a “recommended” or “complete” packet is not a substitute
+for explicitly recording those resolution/default, assumption, and
+acceptance/scope consequences for every decision. A packet missing any of them
+remains incomplete in Harden.
 
 Interactive or supervised mode presents that complete record once for
 whole-packet approval or rejection; approval authorizes the recorded defaults.
