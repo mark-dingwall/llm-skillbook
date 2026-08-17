@@ -4,10 +4,10 @@
 
 - Work-unit/run ID:
 - Automation mode: `interactive | supervised | unattended`
-- Overall status: `pending | active | blocked | complete | invalidated`
+- Overall status: `active | blocked | complete`
 - Worktree:
 - Branch:
-- Base identity:
+- Base identity: (the run's fork point; Stage 14 independently re-determines and records it as the Finish journal's `confirmed base`)
 
 ## Canonical artifacts
 
@@ -26,7 +26,7 @@ never receive their own frozen blob identity.
 
 | stage | stage state | entry/exit evidence | current |
 | --- | --- | --- | --- |
-|  | `pending | active | blocked | complete | invalidated` |  |  |
+|  | `pending \| active \| blocked \| complete \| invalidated` |  |  |
 
 - Current stage/state:
 
@@ -35,7 +35,7 @@ never receive their own frozen blob identity.
 | authority type | authority | rationale/affected requirements or scenarios | evidence |
 | --- | --- | --- | --- |
 | user approval |  |  |  |
-| delegated authority | `user | agent:<mode>` |  |  |
+| delegated authority | `user \| agent:<mode>` |  |  |
 
 ## Implementation progress
 
@@ -49,7 +49,7 @@ never receive their own frozen blob identity.
 
 | review | state | stage charter | completion criterion | native verdicts | stable report reference | content seal |
 | --- | --- | --- | --- | --- | --- | --- |
-|  | `not_started | review_active | pass | changes_required | blocked` |  |  |  |  |  |
+|  | `not_started \| review_active \| pass \| changes_required \| blocked` |  |  |  |  |  |
 
 - For `review_active`, only: `await or recover the existing review`.
 
@@ -59,9 +59,11 @@ never receive their own frozen blob identity.
 | --- | --- | --- | --- |
 |  |  |  |  |
 
+- Verification state: `pending \| passed \| blocked`.
+
 | requirement/scenario | acceptance method | acceptance state | authority | evidence | fallback |
 | --- | --- | --- | --- | --- | --- |
-|  | `automated | UAT | not_applicable` | `pending | approved | rejected | infeasible | waived` |  |  |  |
+|  | `automated \| UAT \| not_applicable` | `pending \| approved \| rejected \| infeasible \| waived` |  |  |  |
 
 ## Blockers and change requests
 
@@ -69,6 +71,8 @@ never receive their own frozen blob identity.
 | --- | --- | --- | --- | --- |
 | blocker |  |  |  |  |
 | change request |  |  |  |  |
+
+- Blocker/change-request state: `open \| resolved`.
 
 ## Finish journal
 
@@ -78,10 +82,10 @@ canonical artifact. It carries exactly these fields:
 | field | value |
 | --- | --- |
 | `finish_id` |  |
-| current phase | `ready | claimed | menu_pending | choice_recorded | executing | terminal | blocked` |
+| current phase | `ready \| claimed \| menu_pending \| choice_recorded \| executing \| terminal \| blocked` |
 | prior phase (recorded only while `blocked`) |  |
 | exact menu/presentation ID |  |
-| selected choice | `local merge to confirmed base | Push-and-PR | Keep branch/worktree` |
+| selected choice | `local merge to confirmed base \| Push-and-PR \| Keep branch/worktree` |
 | authority |  |
 | confirmed base |  |
 | base tip |  |

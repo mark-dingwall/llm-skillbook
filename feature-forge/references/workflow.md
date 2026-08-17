@@ -19,8 +19,8 @@ docs/feature-forge/runs/YYYY-MM-DD-<work-unit>/final-report.md
 `<work-unit>` is the deterministic slug used in every path, the run identifier,
 and `feature/<work-unit>`. It is lowercase ASCII letters and digits separated
 by single hyphens, begins and ends alphanumeric, and is rejected (not silently
-sanitized) if it contains a separator, traversal segment, whitespace, leading
-dash, or invalid Git-ref content.
+sanitized) if it contains consecutive hyphens or any non-hyphen separator, a
+traversal segment, whitespace, a leading dash, or invalid Git-ref content.
 
 Stage states are `pending | active | blocked | complete | invalidated`. Review
 states are `not_started | review_active | pass | changes_required | blocked`.
@@ -86,8 +86,8 @@ A mismatch, rejected approval, change request, missing review return, or dirty
 path first enters **read-only drift reconciliation**: inventory and attribute
 without staging, modifying, stashing, resetting, or discarding anything.
 Unresolved material drift is `blocked`. An authorized correction invalidates the
-affected stage and its dependents, then resumes at the earliest invalidated
-node. An unrelated dirty path blocks advancement; attributable changes must be
+affected stage and its dependents, then resumes at the root cause's correction
+stage — the Resume point named in the fixed graph below — before its dependents. An unrelated dirty path blocks advancement; attributable changes must be
 reconciled under the relevant stage and checkpoint rule.
 
 Before Final verification, a post-review seal comparison permits only the exact
@@ -145,7 +145,9 @@ Create these eight checkpoint categories only when the corresponding tree differ
    produce more than one explicit-path commit only when state differs: the `claimed`
    commit before method execution, the `menu_pending` commit before menu delivery or
    unattended resolution, the atomic `choice_recorded`-then-`executing` commit before
-   any side effect, and the atomic terminal-or-blocked commit after reconciliation. No
+   any side effect, and the atomic terminal-or-blocked commit after reconciliation. The
+   `blocked` overlay may also commit from any nonterminal phase — including the
+   `ready -> blocked` capability-gate outcome before `claimed`. No
    category 8 record commit permits another external-skill invocation; the
    finish-authority dispatch remains the sole and last external skill invocation.
 
@@ -165,8 +167,8 @@ explicit change control rather than being marked complete.
 ### Stage 1: Preflight
 
 - **Entry:** a bounded work unit is invoked and no canonical run has yet been selected.
-- **Owned action/artifact:** confirm Git; reject invalid slug/ref content; inspect same-date run collision and every all-date same-slug branch/worktree collision; compare intent, base, and identity; choose explicit resume, new, unused suffix, or block outcome; validate a review-loop-compatible, user-authorized runner; inventory and attribute dirty paths; create or verify reuse of an isolated non-primary worktree before the first tracked write; create/reuse the ledger and project stages to native tasks.
-- **Exit evidence:** Git/worktree/branch identity, collision decision, runner validation, dirty-path reconciliation, and one ledger row with exactly one next action.
+- **Owned action/artifact:** confirm Git; select and record the automation mode (`supervised` when the invocation omits it); reject invalid slug/ref content; inspect same-date run collision and every all-date same-slug branch/worktree collision; compare intent, base, and identity; resolve the collision by mode — supervised/interactive asks resume-versus-new, unattended takes the lowest unused numeric suffix only when intents are clearly distinct and otherwise blocks; validate the user-authorized *runner* (the reviewer-CLI configuration `review-loop` requires to dispatch reviewers) and never substitute a generic subagent mechanism for it, asking at preflight when none is configured under supervised/interactive mode and blocking when none is pre-authorized under unattended mode; inventory and attribute dirty paths; create or verify reuse of an isolated non-primary worktree before the first tracked write; create/reuse the ledger and project stages to native tasks.
+- **Exit evidence:** Git/worktree/branch identity, automation-mode selection, collision decision, runner validation, dirty-path reconciliation, and one ledger row with exactly one next action.
 - **Failure/blocked return:** unresolved collision, unauthorized/unavailable runner, non-attributable dirt, non-Git repository, or inability to isolate blocks here; identity match resumes instead of creating a duplicate.
 - **Next action:** Stage 2: Brainstorm.
 
@@ -383,25 +385,3 @@ action.
   category 8 ledger/report transaction, on the correct preserved location: the base
   checkout for local merge, or the preserved feature branch/worktree for Push-and-PR
   and Keep.
-
-## Per-stage acceptance table
-
-Every stage below has an entry predicate, owned artifact/action, evidence gate,
-failure or blocked return, and one sole next action.
-
-| Stage | Entry predicate | Owned artifact/action | Evidence gate | Failure or blocked return | Sole next action |
-|---|---|---|---|---|---|
-| 1 Preflight | invoked work unit | canonical run, isolation, ledger | Git/identity/runner/dirty-path record | block or explicitly resume/new/suffix | 2 Brainstorm |
-| 2 Brainstorm | preflight complete | initial specification | adapter return and draft checkpoint | recover or block | 3 Harden |
-| 3 Harden | initial specification | hardened specification | decisions/authority record | harden or block | 4 Candidate gate |
-| 4 Candidate gate | hardening returned | candidate validation | empty frontier/Open questions | 3 Harden or block | 5 Specification review |
-| 5 Specification review | sealed candidate | specification review | pass content seal | await/recover, correct, or block | 6 Specification freeze |
-| 6 Specification freeze | review pass | frozen specification | blob identity/checkpoint | reconcile or block | 7 Plan |
-| 7 Plan | matching frozen spec | canonical plan | adapter return/draft checkpoint | recover or block | 8 Plan review |
-| 8 Plan review | reviewed-plan candidate | plan review/freeze | pass seal/blob/checkpoint | await/recover, correct, or block | 9 Implement |
-| 9 Implement | matching frozen baselines | implementation table/content | commits and local evidence | recover, invalidate, or block | 10 Implementation review |
-| 10 Implementation review | clean implementation | implementation review | final pass seal | await/recover, fix, or invalidate | 11 Final verification |
-| 11 Final verification | final review pass | deterministic verification | commands/results/seal comparison | root-cause return or block | 12 Acceptance |
-| 12 Acceptance | current verification | acceptance outcomes | every required evidence row | root-cause return or block | 13 Report |
-| 13 Report | acceptance complete | final report, ledger, `finish_id` allocation | checkpoint 7 commit, `ready` phase, clean tree | return or block | claim `<finish_id>` |
-| 14 Finish | phase `ready`, sole action claim `<finish_id>` | durable `ready`-to-`terminal` Finish operation (category 8) | terminal or blocked category-8 receipt | block (never a duplicate invocation) | terminal |

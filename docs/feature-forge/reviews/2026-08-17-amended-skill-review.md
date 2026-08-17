@@ -61,7 +61,7 @@ The three fixes postdate GREEN Campaign B, so the Finish/adapter-family controls
 
 ## Direct 13-scenario coverage
 
-Every REQ-001..012 / SCN-001..013 has direct recorded evidence: GREEN Campaign B (package `2552769`) for the non-Finish scenarios (unchanged by the remediation), plus the targeted `fcc2b8b` re-verification for the Finish/adapter family, plus the holistic reviewer's individual per-scenario walk of the current package. SCN-013 (Finish-crash) is exercised by the FINISH-CRASH control; its residual is recorded below, not hidden.
+Every REQ-001..012 / SCN-001..013 has recorded campaign evidence: GREEN Campaign B (package `2552769`) for the non-Finish scenarios (unchanged by the remediation), plus the targeted `fcc2b8b` re-verification for the Finish/adapter family. The holistic reviewer's per-scenario walk of `fcc2b8b` corroborates this, but is prose inspection, which the frozen spec (design.md:986-989) does not count as direct coverage evidence — it is not relied on as such here. SCN-013 (Finish-crash) is exercised by the FINISH-CRASH control; its residual is recorded below, not hidden. **Coverage residual:** the Finish/adapter family has direct *campaign* evidence only against `2552769`; the shipped `fcc2b8b` was re-verified targeted (×5), not by a full 21-control campaign — see Residuals.
 
 ## Change-control note (Task-6 qualification bar)
 
@@ -71,7 +71,8 @@ The frozen plan's Task-6 rule ("every control passes 5/5, else fix owner and res
 
 1. **FINISH-CRASH `FCr-3`** — on a Push-and-PR crash where the push is proven but PR state is unknown, some fresh responses conclude `terminal` instead of `blocked`. The recovery contract covers ambiguous effects generally; it does not explicitly decompose Push-and-PR into two independently-conclusive sub-effects. Backlog: state that decomposition, and split FINISH-CRASH's four conjoined predicates into finer controls (their conjunction makes single-shot 5/5 fragile).
 2. **Qualification method** — adopt the variance-aware bar above in the fixtures/plan under change control.
-3. Wording minors above.
+3. **Shipped-package coverage** — the Finish/adapter family (SCN-006/012/013 and the adapter controls) has direct campaign evidence only against `2552769`; the shipped `fcc2b8b` was re-verified targeted (×5), not by a full 21-control campaign. Prose inspection does not close this gap. Backlog: a full campaign against `fcc2b8b` under the variance-aware bar.
+4. Wording minors above.
 
 ## Install / publish readiness
 

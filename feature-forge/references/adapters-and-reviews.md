@@ -66,7 +66,10 @@ the controller; it must not emulate, silently weaken, or bypass the boundary.
   handoff.
 - **Return boundary:** returns after local verification for the dispatched
   scope, without invoking or offering branch finishing, nor deleting
-  caller-owned progress state.
+  caller-owned progress state. Both wrapped skills otherwise treat
+  `superpowers:finishing-a-development-branch` as an unconditional terminal
+  step; the adapter must stop the run before that step — Feature Forge owns
+  finishing at Stage 14 — and blocks if it cannot enforce that halt.
 - **Feature Forge replacements:** use exactly the execution mode selected
   below; retain frozen specification/plan authority; never change plan
   checkboxes; use the workflow-owned implementation table, commits, evidence,
@@ -75,8 +78,11 @@ the controller; it must not emulate, silently weaken, or bypass the boundary.
 - **Return artifact:** for every plan task, its status, owned commit, local
   verification evidence, and a result suitable for the implementation table.
 - **Block rule:** return `blocked` when the selected skill is unavailable, a
-  fixed contract cannot be honored, required authority is missing, or the
-  skill cannot enforce the replacements.
+  fixed contract cannot be honored, authority for a material or out-of-scope
+  decision is missing, or the skill cannot enforce the replacements. The
+  wrapped skill still rules on in-scope ambiguity and continues per its own
+  design rather than stalling; only material or out-of-scope authority gaps
+  block.
 
 ### finish-authority
 
@@ -140,6 +146,14 @@ implementation table, not a worker's own state, records completion. This is a
 dispatch-completeness contract, not an invitation to create a new packet
 document outside the canonical run artifacts named in `workflow.md`.
 
+`review-loop` self-derives its reviewer roster from a risk-surface inventory of
+the sealed scope; it takes no caller-supplied *charter* parameter. The three
+charters below are Feature Forge's per-stage review focus. The controller
+conveys them through `review-loop`'s actual inputs — the subject set, the
+subject-versus-ground-truth split, the one-line deployment context, and the
+completion criterion — and uses them to frame the subject and interpret the
+returned verdicts, not as a constraint `review-loop` enforces.
+
 ### Specification review
 
 Review the captured intent, repository constraints, and named authorities.
@@ -166,21 +180,23 @@ root-cause classification through the workflow contract.
 
 ## Native review result mapping and round invariants
 
-Map each native review result exactly as follows:
+`review-loop` closes with two verdicts — convergence (`CONVERGED` /
+`NOT CONVERGED`) and merge-readiness. Map them exactly as follows:
 
-| Native review result | Workflow review result |
+| Native `review-loop` result | Workflow review result |
 | --- | --- |
 | `CONVERGED` + merge-ready | `pass` |
-| actionable findings | `changes_required` |
-| `INDETERMINATE` / no viable fix / missing authority / unavailable capability | `blocked` |
-| `CONVERGED` + not merge-ready | `blocked` with the named blocker |
+| `NOT CONVERGED` handed back with surviving actionable findings a correction can address | `changes_required` |
+| `NOT CONVERGED` from an `INDETERMINATE` round, oscillation, no viable fix, missing authority, or unavailable runner | `blocked` |
+| `CONVERGED` + not merge-ready (backlogged or unverifiable Important+ blockers) | `blocked` with the named blocker |
 
 For every review round, the controller must:
 
 1. Persist `review_active` before dispatch. While it is active, obey the
    workflow rule that permits only await or recovery of that existing review.
-2. Pass the exact subject, frozen **ground truth**, applicable charter, and
-   completion criterion to the reviewer.
+2. Pass the exact subject, frozen **ground truth**, and completion criterion to
+   `review-loop`, conveying the applicable charter's review focus through its
+   subject set and one-line deployment context.
 3. Keep loop reports **outside the sealed tree**. During the round, mutate
    neither the target nor the ledger.
 4. On return, first record both native verdicts, the stable report reference,
@@ -200,36 +216,3 @@ verification and permits only the recorded controller-ledger delta and its
 recorded review-evidence reference; it separately confirms the reviewed
 implementation commit and every other sealed path remain unchanged. Any other
 delta blocks advancement under the workflow contract.
-
-## Acceptance checklist
-
-- [ ] `brainstorm-return`, `plan-return`, `execute-return`, and
-  `finish-authority` are the only four adapter headings, each with an
-  installed skill, retained method, return boundary, Feature Forge
-  replacements, return artifact, and block-if-unenforceable rule.
-- [ ] `brainstorm-return` returns before Harden; `plan-return` returns before
-  its execution offer or start; `execute-return` names exactly
-  `superpowers:subagent-driven-development` or exactly
-  `superpowers:executing-plans`, never an unnamed inline substitute.
-- [ ] `finish-authority` consumes and enforces, but never defines or writes,
-  the workflow-owned `finish_id` journal, its phases, the `blocked` overlay,
-  the pre-claim capability check, `ready -> blocked`, or `claimed`; it claims
-  no runtime callback.
-- [ ] Every worker packet field (task ID/frozen plan task, REQ-NNN/SCN-NNN,
-  owned paths, interfaces/signatures, invariants, dependencies/already-verified
-  inputs, exact verification command/evidence, prohibition on changing frozen
-  spec/plan or inventing cross-task authority) is present, and a packet
-  missing any field must not be dispatched.
-- [ ] Exactly three review charters exist — Specification review, Plan
-  review, Implementation review — and no fourth.
-- [ ] Every native-result mapping produces `pass`, `changes_required`, or the
-  prescribed `blocked` result.
-- [ ] Every review persists `review_active`, passes subject/ground truth/
-  charter/completion criterion, keeps reports outside the sealed tree, and on
-  return records verdicts/report reference/content seal first, then applies
-  the fixed mapping.
-- [ ] Candidate-review (Specification/Plan) fixes need not be committed
-  between rounds — only re-sealed and re-reviewed before `pass`.
-  Implementation-review fixes are committed, re-sealed, and re-reviewed
-  between rounds. Post-review seal comparison permits only the recorded
-  controller-ledger delta before final verification.

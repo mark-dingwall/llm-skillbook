@@ -6,7 +6,7 @@
 
 ## Immutable lineage
 
-- Final qualified package: commit `255276983d7edf68eda610e5bbedf155503c7828` (after the FcR-4 remediation), package tree `cec9fd89102e03254f9505acef12f9bf99415f47`.
+- Campaign-B qualified package: commit `255276983d7edf68eda610e5bbedf155503c7828` (after the FcR-4 remediation), package tree `cec9fd89102e03254f9505acef12f9bf99415f47`. **This is not the shipped final package:** three faithfulness fixes to `workflow.md`/`adapters-and-reviews.md` postdate this campaign, shipping as commit `fcc2b8b` (tree `f9cedbc09bc310dad696e3bc39f583ec941e0b1c`); they were re-verified targeted in the Task-7 review, not by a full re-run.
 - Frozen fixture: blob `9930bdf84882c18b4cdc7316d55270281975990f` (identical to Task R0; unchanged).
 - Amended specification: commit `37177b2af88baf1be84b95aaf9f4c24a6391d9eb`, blob `f5e5d648bb8cbdb6f661c87cc6ff9b98476db09d`.
 - Historical fixture (immutable, not re-derived): blob `968ecd43bf966d803b64d8927b89819c3fba1134`.

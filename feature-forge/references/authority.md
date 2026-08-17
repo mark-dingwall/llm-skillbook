@@ -92,8 +92,10 @@ The specification includes the durable intent brief, identifies every material
 decision's `user` or `agent:<mode>` authority, and records assumptions and
 delegated decisions. It classifies every requirement's acceptance as
 `automated`, `UAT`, or `not_applicable`; a `not_applicable` classification must
-explain why no acceptance action applies. It also records the four required
-UAT fields for each UAT-classified requirement. The Candidate gate requires
+explain why no acceptance action applies. When choosing that classification,
+UI, CLI, and externally consumed API behavior are strong signals to classify as
+`UAT`; purely internal behavior normally uses `automated` acceptance. It also
+records the four required UAT fields for each UAT-classified requirement. The Candidate gate requires
 the `Open questions` section to be present and empty.
 
 ## Candidate, freeze, and change control
@@ -185,15 +187,3 @@ Only user authority waives a UAT outside this unattended substitution path.
 `infeasible` blocks required behavior absent a user method or waiver
 decision; `rejected` returns through root-cause classification per the
 acceptance contract above.
-
-## Acceptance checklist
-
-- [ ] The applicable mode is `interactive` (`none`), `supervised` (`default`), or `unattended` (`full`), and every pause/block rule is obeyed.
-- [ ] Material, minor, and in-scope decisions are classified; uncertainty was classified upward.
-- [ ] Every material authority is recorded as `user` or `agent:<mode>` against the durable intent brief.
-- [ ] The hardening design tree resolved discoverable facts, recomputed its prerequisite-ready frontier, and terminated with both frontier and `Open questions` empty.
-- [ ] The canonical specification contains all eleven required sections, including `Intent and authority` and an empty `Open questions` section.
-- [ ] Every normative requirement uses `REQ-NNN` with one observable `SHALL` or `MUST`; important scenarios use `SCN-NNN` and `GIVEN/WHEN/THEN`.
-- [ ] The candidate and freeze gates are satisfied; every delta has an editorial/non-editorial classification and the workflow-owned invalidation graph is applied.
-- [ ] Every acceptance row has an `automated`, `UAT`, or `not_applicable` method and is `pending`, `approved`, `rejected`, `infeasible`, or `waived`.
-- [ ] Each UAT declares all four required fields (participant, observable exercise, unattended automated substitute, evidence criterion); unattended work blocks where no adequate substitute exists, and every unattended UAT record is `waived`/`agent:unattended`, never a claimed human approval.

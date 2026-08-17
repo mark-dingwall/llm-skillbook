@@ -3,7 +3,7 @@
 ## Outcome
 
 - Work-unit/run ID:
-- Overall status: `pending | active | blocked | complete | invalidated`
+- Overall status: `active | blocked | complete`
 - Outcome/date:
 - Sole next permitted action or terminal outcome:
 
@@ -31,7 +31,7 @@
 
 | requirement/scenario | method | state | authority | evidence | fallback |
 | --- | --- | --- | --- | --- | --- |
-|  | `automated | UAT | not_applicable` | `pending | approved | rejected | infeasible | waived` |  |  |  |
+|  | `automated \| UAT \| not_applicable` | `pending \| approved \| rejected \| infeasible \| waived` |  |  |  |
 
 ### Human UAT/sign-off
 
