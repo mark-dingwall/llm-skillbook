@@ -421,7 +421,12 @@ def _write_back_file(dest_parent_fd: int, name: str, data: bytes, mode: int) -> 
     except OSError as exc:
         raise SealError(f"cannot write target entry: {name!r}") from exc
     try:
-        os.write(fd, data)
+        # os.write can short-write; loop until the buffer is fully drained
+        # rather than trust a single call to have written everything.
+        view = memoryview(data)
+        while view:
+            n = os.write(fd, view)
+            view = view[n:]
         os.fchmod(fd, mode)
         os.fsync(fd)
     finally:
@@ -458,11 +463,17 @@ def _remove_leaf(dest_parent_fd: int, name: str, before_type: str) -> None:
     if before_type == "file":
         if not stat.S_ISREG(st.st_mode):
             raise SealError(f"expected a regular file to remove: {name!r}")
-        os.unlink(name, dir_fd=dest_parent_fd)
+        try:
+            os.unlink(name, dir_fd=dest_parent_fd)
+        except OSError as exc:
+            raise SealError(f"cannot remove write-back target: {name!r}") from exc
     elif before_type == "dir":
         if not stat.S_ISDIR(st.st_mode):
             raise SealError(f"expected a directory to remove: {name!r}")
-        os.rmdir(name, dir_fd=dest_parent_fd)
+        try:
+            os.rmdir(name, dir_fd=dest_parent_fd)
+        except OSError as exc:
+            raise SealError(f"cannot remove write-back target directory: {name!r}") from exc
     else:
         raise SealError(f"unsupported removed entry type: {before_type!r}")
 

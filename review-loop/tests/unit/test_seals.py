@@ -280,6 +280,28 @@ class ApplyDeltaToTargetTests(unittest.TestCase):
         result = seal_target(self.dest, NO_GIT)
         self.assertEqual(result.digest, after.digest)
 
+    def test_large_file_replay_is_byte_exact(self):
+        # os.write can short-write on a single call; a file large enough to
+        # exceed one write's chunk must still land byte-for-byte, not
+        # silently truncated. 8 MiB of pseudorandom bytes (not compressible,
+        # not all-zero) comfortably exceeds any single-call write chunk.
+        import random
+
+        payload = random.Random(0).randbytes(8 * 1024 * 1024)
+        (self.source / "big.bin").write_bytes(payload)
+        (self.dest / "big.bin").write_bytes(b"")
+        before = seal_target(self.dest, NO_GIT)
+        after = seal_target(self.source, NO_GIT)
+
+        with tempfile.TemporaryDirectory() as out:
+            delta = materialize_delta(before, after, Path(out) / "delta.bin")
+
+        apply_delta_to_target(delta, source_root=self.source, dest_root=self.dest)
+
+        self.assertEqual((self.dest / "big.bin").read_bytes(), payload)
+        result = seal_target(self.dest, NO_GIT)
+        self.assertEqual(result.digest, after.digest)
+
     def test_reverse_order_removal_empties_a_directory_the_fix_also_removed(self):
         (self.dest / "sub").mkdir()
         (self.dest / "sub" / "only.txt").write_bytes(b"x")
