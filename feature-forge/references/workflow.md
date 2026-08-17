@@ -372,6 +372,12 @@ Push-and-PR — forge state, both read-only, before taking any action.
   atomically persist `blocked` under category 8 recording the ambiguity, evidence,
   **the prior phase it interrupted** (for example `executing`), and no executable
   next side effect — never guess or repeat it.
+- If instead the side effect's outcome is conclusively reconciled — proven to have
+  occurred or proven not to have occurred — recovery writes the conclusive terminal
+  receipt (phase `terminal`, overall run `complete`, no next action) in one atomic
+  category 8 ledger/report transaction, on the correct preserved location: the base
+  checkout for local merge, or the preserved feature branch/worktree for Push-and-PR
+  and Keep.
 
 ## Per-stage acceptance table
 
