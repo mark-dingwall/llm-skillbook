@@ -1,6 +1,8 @@
 from dataclasses import asdict, dataclass
 from typing import Callable
 
+from .artifacts import ArtifactMismatch, ProjectionAuthority, TransitionEnvelope
+
 
 @dataclass(frozen=True)
 class ValidationIssue:
@@ -233,6 +235,57 @@ def _policy_values(tier: str) -> dict[str, object]:
     values = dict(POLICIES[tier])
     values["multi_review_rounds"] = list(values["multi_review_rounds"])
     return values
+
+
+def _derive_compact_policy(projection: dict[str, object]) -> dict[str, object]:
+    """Derive policy from the issued two-axis rating projection only."""
+    issues: list[ValidationIssue] = []
+    _exact_fields(projection, "$.projection", {"explicit_tier", "no_confirm", "ratings"}, issues)
+    explicit = projection.get("explicit_tier")
+    no_confirm = projection.get("no_confirm")
+    ratings = projection.get("ratings")
+    if explicit is not None and explicit not in TIERS:
+        issues.append(ValidationIssue("$.projection.explicit_tier", "value", "tier is invalid"))
+    if type(no_confirm) is not bool:
+        issues.append(ValidationIssue("$.projection.no_confirm", "type", "must be boolean"))
+    if not isinstance(ratings, list):
+        issues.append(ValidationIssue("$.projection.ratings", "type", "must be an array"))
+        ratings = []
+    if explicit in TIERS:
+        if ratings:
+            issues.append(ValidationIssue("$.projection.ratings", "forbidden", "explicit tier has no ratings"))
+        if issues:
+            raise InputValidation(issues)
+        return {"tier": explicit, "source": "explicit", "confirmation_required": False, **_policy_values(explicit)}
+    if len(ratings) != 2:
+        issues.append(ValidationIssue("$.projection.ratings", "count", "automatic selection needs two ratings"))
+    axes = {"complexity": 0, "risk": 0}
+    gestalt = False
+    for index, rating in enumerate(ratings):
+        path = f"$.projection.ratings[{index}]"
+        if not isinstance(rating, dict):
+            issues.append(ValidationIssue(path, "type", "rating must be an object"))
+            continue
+        _exact_fields(rating, path, {"complexity", "risk", "gestalt_step"}, issues)
+        for axis in axes:
+            value = rating.get(axis)
+            if value not in TIERS:
+                issues.append(ValidationIssue(f"{path}.{axis}", "value", "axis is invalid"))
+            else:
+                axes[axis] = max(axes[axis], TIERS.index(str(value)))
+        if type(rating.get("gestalt_step")) is not bool:
+            issues.append(ValidationIssue(f"{path}.gestalt_step", "type", "must be boolean"))
+        else:
+            gestalt = gestalt or bool(rating["gestalt_step"])
+    if issues:
+        raise InputValidation(issues)
+    tier_index = max(axes.values())
+    if axes["complexity"] >= TIERS.index("high") and axes["risk"] >= TIERS.index("high"):
+        tier_index += 1
+    if gestalt:
+        tier_index += 1
+    tier = TIERS[min(tier_index, len(TIERS) - 1)]
+    return {"tier": tier, "source": "automatic", "confirmation_required": tier == "max" and not no_confirm, **_policy_values(tier)}
 
 
 CONSEQUENCES = ("Minor", "Important", "Critical")
@@ -1994,7 +2047,41 @@ OPERATIONS: dict[str, Operation] = {
 }
 
 
-def process(request: object) -> dict[str, object]:
+def apply(
+    envelope: TransitionEnvelope,
+    snapshot: dict[str, object],
+    authority: ProjectionAuthority,
+) -> dict[str, object]:
+    """Apply one issued compact projection to an in-memory canonical snapshot.
+
+    The controller creates the authority from the persisted snapshot.  This
+    function deliberately accepts no caller-authored registry fragments.
+    """
+    if not isinstance(authority, ProjectionAuthority):
+        raise ArtifactMismatch("state transitions require canonical projection authority")
+    authority.validate(envelope, snapshot)
+    operation = OPERATIONS.get(envelope.operation)
+    if operation is None:
+        raise ArtifactMismatch("unknown issued transition operation")
+    projection = envelope.projection
+    try:
+        result = _derive_compact_policy(projection) if envelope.operation == "derive_policy" else operation(projection)
+    except InputValidation as exc:
+        raise ArtifactMismatch("issued projection is invalid for its operation") from exc
+    updated = dict(snapshot)
+    processor_state = dict(snapshot.get("processor_state", {}))
+    processor_state[envelope.operation] = result
+    updated["processor_state"] = processor_state
+    return updated
+
+
+def process_test_fixture(request: object) -> dict[str, object]:
+    """Legacy test adapter for processor unit fixtures only.
+
+    Production transitions enter through :func:`apply`, with authority created
+    by the controller from persisted canonical state.  This adapter is kept
+    deliberately out of the package exports and CLI's normal invocation.
+    """
     if not isinstance(request, dict):
         return _failure(ValidationIssue("$", "type", "request must be an object"))
 

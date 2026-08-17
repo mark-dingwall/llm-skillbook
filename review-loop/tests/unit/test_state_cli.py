@@ -10,7 +10,7 @@ class StateCliTests(unittest.TestCase):
         env = dict(os.environ)
         env["PYTHONPATH"] = "review-loop"
         return subprocess.run(
-            [sys.executable, "-m", "review_loop"],
+            [sys.executable, "-m", "review_loop", "--test-fixture"],
             input=stdin,
             text=True,
             capture_output=True,

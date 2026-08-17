@@ -1,3 +1,11 @@
-from .state import ValidationIssue, process
+from .artifacts import ArtifactMismatch, ArtifactRef, ProjectionAuthority, TransitionEnvelope
+from .state import ValidationIssue, apply
 
-__all__ = ["ValidationIssue", "process"]
+__all__ = [
+    "ArtifactMismatch",
+    "ArtifactRef",
+    "ProjectionAuthority",
+    "TransitionEnvelope",
+    "ValidationIssue",
+    "apply",
+]

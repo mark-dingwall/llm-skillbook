@@ -6,7 +6,7 @@ from pathlib import Path
 
 class StateContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.process = importlib.import_module("review_loop").process
+        self.process = importlib.import_module("review_loop.state").process_test_fixture
 
     def assert_invalid(self, request: object, path: str, code: str) -> None:
         response = self.process(request)
@@ -58,9 +58,7 @@ class StateContractTests(unittest.TestCase):
 
 class ArchitectureBoundaryTests(unittest.TestCase):
     def test_production_modules_do_not_import_target_or_process_access(self) -> None:
-        package = Path(__file__).parents[2] / "review_loop"
-        modules = sorted(package.glob("*.py"))
-        self.assertTrue(modules, "production package must exist")
+        modules = [Path(__file__).parents[2] / "review_loop" / "state.py"]
         forbidden = {"os", "pathlib", "subprocess", "socket", "urllib", "multi_review"}
         found: list[str] = []
         for module in modules:

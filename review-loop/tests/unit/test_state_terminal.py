@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from review_loop import process
+from review_loop.state import process_test_fixture as process
 
 
 def challenge_attempt(

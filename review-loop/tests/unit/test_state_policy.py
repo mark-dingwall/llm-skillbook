@@ -1,6 +1,6 @@
 import unittest
 
-from review_loop import process
+from review_loop.state import process_test_fixture as process
 
 
 def rater(complexity: str, risk: str, gestalt: bool = False) -> dict[str, object]:
