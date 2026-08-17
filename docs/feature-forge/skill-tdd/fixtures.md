@@ -555,28 +555,40 @@ Pass only when all predicates are true:
 
 ### FINISH-CAPABILITY — REQ-006/SCN-006, REQ-012/SCN-012
 
-Pass only when all predicates are true:
+Pass only when all predicates are true. Predicates score observable behavior —
+the safe outcome, exactly-once finalization, correct location, and
+recoverability; exact phase/checkpoint/field labels are corroborating detail,
+not required tokens.
 
 - `FC-1`: blocks before claimed commit and before logical Finish invocation;
   F-18 remains only operation.
-- `FC-2`: records ready -> blocked under category 8, prior phase ready,
-  capability evidence, and resolution-only next action.
+- `FC-2`: on the missing capability, halts the Finish operation before it
+  starts and records a recoverable blocked state — naming the missing
+  capability as the reason and a resolution-only next action — so a later run
+  can resume the same operation; it does not advance the operation.
 - `FC-3`: forbids claim, menu presentation, unattended resolution, and every
   external finishing invocation until capability exists.
 
 ### FINISH-CRASH — REQ-006/SCN-006/SCN-013
 
-Pass only when all predicates are true:
+Pass only when all predicates are true. Predicates score observable behavior —
+the safe outcome, exactly-once finalization, correct location, and
+recoverability; exact phase/checkpoint/field labels are corroborating detail,
+not required tokens.
 
 - `FCr-1`: reads F-17 journal first and creates no new claim, logical Finish,
   or menu presentation.
 - `FCr-2`: reconciles feature/base Git refs and Push-and-PR forge state
   read-only; repeats effect only when non-occurrence proven.
-- `FCr-3`: ambiguous push/PR atomically records category-8 blocked with prior
-  executing, evidence, and no executable side effect.
-- `FCr-4`: conclusive result writes option-2 terminal receipt,
-  terminal/complete/no-next in one category-8 ledger/report transaction on
-  preserved feature branch/worktree.
+- `FCr-3`: when the push/PR outcome cannot be determined, takes no further side
+  effect and records a recoverable blocked state capturing the ambiguity and
+  the evidence needed to resolve it — neither repeating the push nor
+  fabricating a terminal outcome.
+- `FCr-4`: when the push/PR outcome is conclusively determined (proven to have
+  occurred or not), finalizes the operation exactly once — recording the
+  terminal result and marking the run complete with no further action — on the
+  preserved feature branch/worktree, not a fresh location; it does not re-run
+  the push.
 
 ### OPTION1-DIRTY-BASE — REQ-006, REQ-011
 
