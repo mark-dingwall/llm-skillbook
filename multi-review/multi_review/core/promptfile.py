@@ -150,12 +150,37 @@ def validate(pf: PromptFile, base_dir: Path | None = None) -> None:
         if not resolved.is_file():
             raise ValidationError(f"context_files: path is not a regular file: {p}")
 
+# A duplicate mapping key (e.g. two `task:` lines) is silently resolved to
+# whichever value loaded last under plain yaml.safe_load — the same
+# last-value-wins hazard the review-record JSON parser in aggregate.py
+# guards against with its object_pairs_hook. Reject it loudly instead.
+class _DuplicateKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_mapping_no_duplicates(loader: yaml.SafeLoader, node, deep=False):
+    seen: set = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"duplicate key: {key!r}", key_node.start_mark,
+            )
+        seen.add(key)
+    return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+
+
+_DuplicateKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping_no_duplicates,
+)
+
+
 def load_promptfile(path: Path) -> PromptFile:
     try:
         text = path.read_text(encoding="utf-8")
     except UnicodeError as exc:
         raise ValidationError(f"{path}: prompt file is not valid UTF-8: {exc}") from exc
-    raw = yaml.safe_load(text)
+    raw = yaml.load(text, Loader=_DuplicateKeyLoader)
     if not isinstance(raw, dict):
         raise ValidationError(f"{path}: top-level must be a mapping")
     pf = fill_defaults(raw)

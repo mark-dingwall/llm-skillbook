@@ -634,6 +634,54 @@ def test_raw_report_id_rejected_without_require_complete_status(tmp_path):
     assert code == 2
 
 
+def test_argv_has_no_channel_to_name_dispatch_identity_fields(tmp_path):
+    """The prompt-vs-flag mismatch class this design closes: there is no flag
+    at all (--request-id, --target-seal, --review-record-expect, ...) that
+    could name a dispatch field independently of the verbatim prompt. The
+    only per-CLI argv input is --raw-report-id, and that carries an opaque
+    label, never an identity field a review-record is validated against."""
+    pf = _write_require_complete_promptfile(tmp_path)
+    out = tmp_path / "round-1"
+    for flag in ("--request-id", "--target-seal", "--round-input-seal",
+                "--scope-locator-ids", "--review-record-expect", "--charter-id", "--role"):
+        with pytest.raises(SystemExit):
+            driver.main(["--prompt-file", str(pf), "--out-dir", str(out), flag, "anything"])
+
+
+def test_expectation_tracks_whichever_prompt_was_actually_sent(tmp_path, monkeypatch):
+    """Structural proof that the expectation can't drift from what was sent:
+    change only the prompt's target_seal (no separate expectation channel
+    exists to update in lockstep), and a review-record correct for the OLD
+    seal must now fail, while one matching the NEW seal succeeds — because
+    the expectation is derived fresh from prompt_text on every run, not
+    pinned by some independent argv value that could go stale."""
+    tmp_a, tmp_b = tmp_path / "a", tmp_path / "b"
+    tmp_a.mkdir()
+    tmp_b.mkdir()
+
+    old_seal_body = _record_body()  # target_seal: seal-1, the default
+    fanout = _RecordingFanout(results={"codex": _result("codex", text=old_seal_body)})
+    code, out = _run_require_complete(
+        tmp_a, monkeypatch, fanout, reviewers=("codex",),
+        fields={"target_seal": "seal-DIFFERENT"},
+        extra_argv=_raw_report_id_argv(["codex"]),
+    )
+    text = (out / "REVIEW.md").read_text()
+    assert code == 1
+    assert 'reviewers_failed: ["codex"]' in text
+    assert "does not match dispatch expectation" in text
+
+    new_seal_body = _record_body({"target_seal": "seal-DIFFERENT"})
+    fanout2 = _RecordingFanout(results={"codex": _result("codex", text=new_seal_body)})
+    code2, out2 = _run_require_complete(
+        tmp_b, monkeypatch, fanout2, reviewers=("codex",),
+        fields={"target_seal": "seal-DIFFERENT"},
+        extra_argv=_raw_report_id_argv(["codex"]),
+    )
+    assert code2 == 0
+    assert 'reviewers_succeeded: ["codex"]' in (out2 / "REVIEW.md").read_text()
+
+
 def test_require_complete_status_rejects_prompt_tampered_before_dispatch(tmp_path, monkeypatch):
     """Break caught: a reviewer (or anything with fs access) rewrites prompt.txt
     between the driver's write and dispatch. The driver must catch this before

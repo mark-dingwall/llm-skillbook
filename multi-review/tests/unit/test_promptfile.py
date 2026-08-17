@@ -1,6 +1,7 @@
 # tests/unit/test_promptfile.py
 from pathlib import Path
 import pytest
+import yaml
 from multi_review.core.promptfile import (
     PromptFile, load_promptfile, validate, fill_defaults, ValidationError,
 )
@@ -494,3 +495,47 @@ def test_require_complete_status_accepted_with_verbatim_custom_prompt(tmp_path):
     }
     pf = fill_defaults(raw)
     validate(pf, base_dir=tmp_path)  # must not raise
+
+
+# -- Fix round 1: reject duplicate promptfile YAML keys ----------------------
+
+def test_load_promptfile_rejects_duplicate_top_level_key(tmp_path):
+    """Plain yaml.safe_load silently keeps the LAST of two `task:` lines —
+    the same last-value-wins hazard the review-record JSON parser rejects.
+    A duplicate key is malformed input; every legitimate promptfile has
+    unique keys, so this only ever rejects something already broken."""
+    src = tmp_path / "x.py"
+    src.write_text("")
+    p = tmp_path / "prompt.yaml"
+    p.write_text(
+        f"prompt_format_version: 2\ntask: code\ntask: custom\nfiles: [{src}]\n"
+    )
+    with pytest.raises(yaml.YAMLError, match="duplicate key"):
+        load_promptfile(p)
+
+
+def test_load_promptfile_rejects_duplicate_nested_key(tmp_path):
+    src = tmp_path / "x.py"
+    src.write_text("")
+    p = tmp_path / "prompt.yaml"
+    p.write_text(
+        f"prompt_format_version: 2\ntask: code\nfiles: [{src}]\n"
+        "models: {codex: gpt-a, codex: gpt-b}\n"
+    )
+    with pytest.raises(yaml.YAMLError, match="duplicate key"):
+        load_promptfile(p)
+
+
+def test_load_promptfile_accepts_unique_keys(tmp_path):
+    """Regression guard: the duplicate-key loader must not reject ordinary,
+    well-formed promptfiles — only ones that actually repeat a key."""
+    src = tmp_path / "x.py"
+    src.write_text("")
+    p = tmp_path / "prompt.yaml"
+    p.write_text(
+        f"prompt_format_version: 2\ntask: code\nfiles: [{src}]\n"
+        "models: {codex: gpt-a, agy: gpt-b}\n"
+    )
+    pf = load_promptfile(p)  # must not raise
+    assert pf.task == "code"
+    assert pf.models == {"codex": "gpt-a", "agy": "gpt-b"}
