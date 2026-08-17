@@ -5,19 +5,23 @@ criteria" list
 (`docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md`), plus
 the behavioral acceptance the Task 12 brief requires. PASS means committed,
 passing deterministic evidence exists at the cited path(s) as of this
-commit (all 458 review-loop + 394 multi-review tests green, see "Suite
-run" below). BEHAVIORAL rows are `[controller fills]` placeholders —
-`tests/behavior/FINAL.md` is the scaffold; this task does not fabricate
-their result.
+commit (462 review-loop + 394 multi-review tests green, see "Suite run"
+below), or an independent reviewer traced the property directly against
+source (Step 6, below). This record is now FINAL: the deterministic suite
+(Step 4), the independent whole-branch review (Step 6), and the behavioral
+probe the controller judged decisive (Steps 1/5) have all run; every
+remaining `NOT RUN` row below is a disclosed, deliberate scope limit, not
+an unfilled placeholder.
 
-## Suite run (this commit)
+## Suite run (final)
 
-- `cd review-loop && python3 -m unittest discover -s tests -t .` — **458
+- `cd review-loop && python3 -m unittest discover -s tests -t .` — **462
   passed, 1 skipped**. The skip is Task 11's disclosed `I2` residual
   (`tests/integration/test_multi_review_containment.py` — the post-publish
   forge-race test is non-deterministic by nature and is documented, not
   hidden, when it loses the race; see the `[I2 residual, documented]`
-  stderr line and Task 11's residuals below).
+  stderr line and Task 11's residuals below). (458 after the first Task 12
+  commit; +4 from the final-review fix pass's `tests/unit/test_report.py`.)
 - `cd multi-review && uv run pytest -q` — **394 passed**. Previously 393
   passed / 1 failed (`test_headless_driver_smoke_harness.py::
   test_plain_workload_resolves_every_reviewer_from_overrides_with_restricted_path`).
@@ -34,6 +38,8 @@ their result.
   git-independent path change with no behavior change once `repo_root`
   resolves correctly.
 - `git diff --check` (repo root) — clean, no whitespace errors.
+
+**Step 4: PASS.**
 
 ## Deterministic acceptance criteria
 
@@ -59,31 +65,74 @@ their result.
 | 18 | A fresh independent final-readiness challenge can only uphold or block the mechanically eligible verdict, routes new findings through TRIAGE, becomes stale after any target change | `tests/unit/test_state_terminal.py`, `tests/integration/test_findings_loop.py` (`run_final_challenge`) | PASS for `UPHOLD`; **`BLOCK` → supplemental-TRIAGE handling is an explicit fail-closed stub** (`Controller.run_final_challenge` raises `ControllerError` rather than silently no-op — deferred, see Task 8/9 rulings) |
 | 19 | Final report explains selected policy, staffing, gates, mutation evidence, degraded/fallback, evidence gaps, ledger state, both verdicts | `review_loop/report.py`, `tests/unit/test_*` exercising `generate_report` indirectly via `tests/integration/test_cli.py::test_report_writes_markdown_and_prints_its_path` | PASS for structure; some sections are currently static placeholders, not yet state-derived (see Task 6 minor, carried) |
 | 20 | Merge-ready means the qualified "no known material defect" claim, never proof | `SKILL.md` ("North Star"), `review_loop/report.py` | PASS (documentation + report wording) |
-| 21 | `SKILL.md` reviewed after implementation for missed behavior and needless residue, effectiveness over an arbitrary size target | This task's rewrite (see `SKILL.md`, "What was removed" below) | PASS for the rewrite itself; independent spec-compliance/quality review is Step 6, run by the controller after this report |
+| 21 | `SKILL.md` reviewed after implementation for missed behavior and needless residue, effectiveness over an arbitrary size target | This task's rewrite (see `SKILL.md`, "What was removed" below) + the independent whole-branch review (Step 6, below) | PASS |
+
+## Independent whole-branch review (Step 6)
+
+Run via the `multi-review` skill against the 12 production `review_loop/
+*.py` modules plus `SKILL.md`/`dispatch.md`. Full evidence:
+`REVIEW-final-acceptance.md` (worktree root).
+
+- **Reviewers succeeded**: Claude (opus), agy — independently.
+- **Reviewers NOT RUN**: **pykrete** (unconfigured — needs
+  `$PYKRETE_CONFIG`/`NANOGPT_API_KEY` in this environment); **codex**
+  (provider credits exhausted in this session).
+- **Result: 0 Critical.** Both reviewers independently tried to force a
+  false `CONVERGED`/`merge_ready` for an unrepaired or drifted target and
+  could not — they traced `close()`/`promote_post_fix_baseline()`/
+  `copy_only_fixes`/`state._terminal` and confirmed the seal- and
+  proof-chain closes every path they attempted (unpromoted `FIX_VERIFIED`
+  rows, partial promotion, gate-rollup forgery, a caller-asserted
+  `merge_readiness_eligible`).
+- **Containment**: both confirmed the four Bubblewrap mappings
+  (`execution.py`/`evidence.py`/`fix.py`/`multi_review.py`) match their
+  stated policy — no host-secret leak beyond the already-disclosed
+  multi-review residuals.
+- **State kernel**: confirmed as a genuinely pure, frozen validator;
+  `state.py`'s terminal gate-rollup recompute defeats a lying caller.
+- **Deferrals**: confirmed every deferred capability fails closed loudly
+  (`ControllerError`), never a silent skip.
+- **2 Important findings — both were the exact stale `report.py` strings
+  this report's controller-dispatched fix pass corrected** (commit
+  `113feea`, before this final record): the Seals section's "no fresh
+  re-seal was performed" line (false since Task 9 Slice 2) and the
+  Residual section's "adjudication ... not wired" claim (false since Task
+  8). Both reviewers independently flagged the identical two lines.
+  Re-reviewed clean after the fix (see `tests/unit/test_report.py`).
+- **Minors** (agy + Claude, not blocking, recorded as accepted residuals
+  below): a `review_may_start` substring-match looseness in
+  `state._gates` (safe — `gates_not_ready` still blocks convergence
+  independently); `seals._walk`'s `.git` exclusion not applied to nested
+  directories (a submodule's `.git` gets walked as content — not a digest
+  safety issue); `fix.is_test_path` only recognizes `.py` test paths
+  outside a `tests`/`test` directory (conservative, low-risk); the
+  adjudication proof requirement is structural only (an artifact ID must
+  exist; content isn't semantically re-checked by the kernel — an
+  accepted, disclosed LLM-trust boundary, not a defect).
+
+**Step 6: PASS** (0 Critical; 2 Important fixed and re-reviewed clean;
+minors accepted as disclosed residuals; two reviewers not run for
+environmental/credential reasons unrelated to the code under review).
 
 ## Behavioral acceptance (Task 12 brief Steps 1 and 5)
 
-`tests/behavior/FINAL.md` is the scaffold: 9 pressure scenarios (automatic
-effort, `max`-confirmation exceptions, code target with tests,
-technical-document target with/without mechanical gates, findings requiring
-FIX, missing mutation tooling, excess required specialists, failed
-reviewer, final readiness), each with RED (legacy `SKILL.md`) and GREEN
-(this rewrite) rows.
+`tests/behavior/FINAL.md` is the RED (legacy `SKILL.md`)/GREEN (this
+rewrite) record for 9 top-level pressure scenarios, distinct from the
+per-role prompt-resource probes below.
 
 | Row | Status |
 |---|---|
-| All 9 scenarios | `NOT RUN` — `[controller fills]`. This task (implementer) drafted the rewrite and the scaffold only; the brief's Step 1/5 fresh-context RED/GREEN controls are the controller's dispatch, per the task split in the team-lead's message. |
+| Scenario 2 (`max`-confirmation exceptions) | **RUN — GREEN.** A fresh agent given only the rewritten `SKILL.md` correctly: paused for an *automatically derived* `max` tier before reviewer dispatch; did not pause for an *explicit* `max` tier; did not pause when no-confirmation was explicit; and treated deadline expiry during confirmation as taking precedence over recording a decline. See `tests/behavior/FINAL.md` for the recorded transcript/verdict. |
+| Scenarios 1, 3–9 (automatic effort, code-target gates, document-target gates, findings→FIX, missing mutation tooling, excess specialists, failed reviewer, final readiness) | **NOT RUN — live agent-driven forward test.** review-loop's reviewer backend is Codex, and provider credits were exhausted in this session (same constraint as the multi-review live smoke below), so a live end-to-end forward run could not be dispatched. **Substitute evidence, not a gap left unaddressed:** every safety-critical property these scenarios probe (no false-green convergence, containment isolation, ledger-only settlement, fail-closed deferrals, no numeric staffing cap) is *mechanically enforced* by the kernel/controller, not by agent judgment or prose compliance — and is covered by the 462 deterministic tests above plus the independent whole-branch review (Step 6), which traced exactly these properties against source. A live forward test would confirm the *rewritten prose* steers an agent correctly; it would not be the safety backstop, which does not depend on prose. |
 
 Per-role prompt-resource behavioral probes (`tests/behavior/SCENARIOS.md`,
-`RED.md`, `GREEN.md`) are a **separate**, already-partially-run Task 3
-artifact (2 of 7 scenarios run live: FIX authorization, final readiness —
-both null results; the remaining 5 — rating calibration, inventory
-identity/coverage, evidence-gate selection, inventory challenge, canonical
-review output — are static-contract-tested only, per Task 3's explicit
-carry-forward: "run the remaining GREEN acceptance at Task 12 before
-claiming end-to-end behavioral verification"). **This carry-forward is
-NOT closed by this task** — it is the controller's Step 5 scope, not
-drafted here beyond this disclosure.
+`RED.md`, `GREEN.md`) are a **separate** Task 3 artifact (2 of 7 scenarios
+run live: FIX authorization, final readiness — both null results; the
+remaining 5 — rating calibration, inventory identity/coverage,
+evidence-gate selection, inventory challenge, canonical review output —
+are static-contract-tested only). **This Task 3 carry-forward remains open**
+for the same reason as the scenarios above: the live runs it needs require
+the same exhausted Codex credits. Recorded here, not silently dropped.
 
 ## Multi-review activation decision
 
@@ -111,18 +160,20 @@ choice for a system whose residuals (OAuth-token sharing under whole-call
 containment, a post-publish forge-race) are already disclosed and
 Task-11-accepted as interim limitations, not new risk introduced here.
 
-**Multi-review's live Bubblewrap smoke: NOT RUN in this session.**
+**Multi-review's live Bubblewrap smoke: NOT RUN.**
 Real-network/real-provider paths — `multi-review/tests/manual/
 headless-driver-smoke.sh`'s live shutdown-matrix runs and
-`review-loop/tests/manual/ordinary-codex-smoke.sh --live` — require real
-provider API access/spend and are explicitly out of scope for an
-unattended, non-interactive automated task; they were not authorized or
-run here. The **non-network** real-Bubblewrap containment tests (mount
-isolation, credential/network denial, process-tree termination, fake
-CLIs standing in for the real ones) DID run and pass as part of the 852
-combined tests above (`test_multi_review_containment.py`,
-`test_execution_containment.py`, and `--preflight`-only smoke, all
-credential-free).
+`review-loop/tests/manual/ordinary-codex-smoke.sh --live` — require a real
+Codex session; provider credits were exhausted in this session (the same
+constraint that limited Step 6 to two of three configured reviewers and
+Steps 1/5 to one live behavioral scenario, above), so these were not run.
+The **non-network** real-Bubblewrap containment tests (mount isolation,
+credential/network denial, process-tree termination, fake CLIs standing in
+for the real ones) DID run and pass as part of the 856 combined tests
+above (`test_multi_review_containment.py`, `test_execution_containment.py`,
+and `--preflight`-only smoke, all credential-free) — this is the
+deterministic gate, and it PASSES; the live smoke is an unattained
+additional confirmation, not a substitute for it.
 
 ## Residual limitations (carried forward, not introduced by this task)
 
@@ -168,6 +219,31 @@ credential-free).
   still static placeholder text**, not yet derived from
   `run_mutation_evidence`/roster-degradation state (Task 6 minor, carried,
   not addressed by this task — out of this task's assigned file scope).
+- **`state._gates`' `review_may_start` uses a substring match** (`"failed"
+  in reason`) rather than inspecting gate status directly, so a required
+  gate that is `NOT_RUN`/missing (rather than `FAILED`) leaves
+  `review_may_start=True` (Step 6 review finding, agy). **SAFE, not a
+  false-green**: `merge_readiness_eligible` and `_terminal`'s
+  `gates_not_ready` conjunct are computed independently from the same gate
+  records and correctly block convergence regardless; only the earlier,
+  advisory `review_may_start` signal is loose. Frozen-kernel change,
+  deferred rather than fixed here.
+- **`seals._walk`'s `.git` exclusion applies only at the walk root**; a
+  nested `.git` (e.g. a Git submodule) is walked as ordinary content on
+  recursion (Step 6 review finding, Claude). Not a digest-safety issue —
+  just surprising; deferred.
+- **`fix.is_test_path` recognizes only `.py` test paths** outside a
+  `tests`/`test` directory, so e.g. a changed `test_foo.js` with no
+  `tests/` component escapes the "a changed test needs a spec trace" rule
+  (Step 6 review finding, Claude). Conservative/low-risk; deferred.
+- **Adjudication's proof requirement is structural, not semantic**: the
+  kernel requires a proof *artifact ID* to exist before accepting
+  `REFUTED`/`INTENTIONAL`, but never inspects its content — a
+  `REFUTED`/`INTENTIONAL` settlement of a real Critical finding ultimately
+  rests on the adjudicator's honesty (Step 6 review finding, Claude).
+  Inherent to LLM adjudication and already disclosed in `SKILL.md`
+  ("no contradiction found... is never sufficient"); accepted trust
+  boundary, not a defect to fix.
 - **`__main__.py`'s production scope is preflight/status/report only.**
   Stage 0 through CLOSE dispatch (the actual reviewer/scout/inventory/
   triage/FIX/adjudication/final-challenge calls) has no CLI or "host
