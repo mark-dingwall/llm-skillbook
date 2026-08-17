@@ -914,22 +914,24 @@ fragment.
 The driver's v2 schema adds optional `verbatim_custom_prompt`, defaulting to
 false. It is valid only with `task: custom` and a non-empty `custom_prompt`.
 When true, the driver treats `custom_prompt` as an exact byte payload: before
-launching each client it writes and byte-compares that client's prompt-body file
-against the payload, then delivers only those bytes. It adds no injection or
+launching the fixed clients it writes and byte-compares its prompt transport
+against the payload, then delivers only those in-memory bytes over stdin. It
+adds no injection or
 reference preamble, title, context body, file manifest, delimiter, or trailing
 newline. The required `files` list still validates sealed scope and controls
 what the contained clients can read; it is not rendered into the prompt body.
-A mismatch is a driver validation failure. Existing non-review-loop tasks and
-custom-prompt callers retain the current wrapped behavior unless they opt in.
+A mismatch before launch or after fan-out is a driver validation failure.
+Existing non-review-loop tasks and custom-prompt callers retain the current
+wrapped behavior unless they opt in.
 
 Prompt bodies never travel in process arguments. The adapter writes the driver
 YAML to a transient per-round transport path outside the still-empty output
 directory and passes only its path and short scalar options to the multi-review
-driver. The driver writes any per-client prompt-body file to that client's
-read-only input view, separate from its private aggregation directory, and
-delivers prompts through stdin for supported clients; clients without stdin
-receive only a short instruction naming that file. This preserves the existing
-E2BIG protection without granting a client access to driver-owned artifacts.
+driver. The fixed Claude/Codex clients both receive prompt bytes through stdin.
+This preserves the existing E2BIG protection. Under interim whole-call
+containment, the on-disk transport is visible in the shared namespace, so its
+pre/post byte check is required and the final report discloses that it was not a
+driver-private mount.
 
 ## 6. State and artifacts
 
@@ -1152,6 +1154,11 @@ for contained callers and has exercised caller-supplied Bubblewrap mount and
 process-tree shutdown recipes across the fixed reviewer CLIs. Review-loop owns
 only its concrete call mapping, containment wrapper, validation, and fallback;
 it does not add multi-review's separately planned generalized sandbox CLI.
+For this MVP, that supported whole-call caller containment is an accepted
+interim boundary. Multi-review's prioritized Phase 2 will move the boundary to
+one native Bubblewrap namespace per reviewer subprocess; adopting that stronger
+profile is follow-up hardening, not a prerequisite for the ordinary path or this
+MVP's multi-review slot.
 
 The adapter treats multi-review as a black box with one request and one report:
 
@@ -1244,15 +1251,17 @@ adapter launches the headless driver inside a `bwrap --unshare-pid
 --die-with-parent` wrapper and sends termination signals to that wrapper. It
 starts from multi-review's tested containment recipe, reducing it to the exact
 fixed-pair runtime and inputs below; any necessary divergence must be justified
-by an adapter test. The adapter gives the driver a private aggregation and
-staging directory and read-only binds the driver YAML plus exactly that `files`
-union. In Round 1, its target-path component is the full sealed target
+by an adapter test. The adapter gives the whole call one fresh aggregation,
+transport, home/state, and scratch mapping; read-only binds the driver YAML plus
+exactly that `files` union; and exposes no live host client-state directory
+writable. In Round 1, its target-path component is the full sealed target
 regular-file set; in a later focused round it is only the declared
 changed/surface target files, while its review-data component is the exact run
 artifacts. The two components retain their separate baseline and call-input-seal
 validation even though the driver's `files` list unites them. The separately
-sealed driver YAML is available only to the driver, not the contained clients,
-so `files` both validates and limits what they can read. Before dispatch, resolve the tested
+sealed driver YAML is driver transport rather than a client-visible `files`
+entry, although the current whole-call namespace does not make it inaccessible
+to a hostile reviewer process. Before dispatch, resolve the tested
 driver runtime closure. Its checkout, interpreter or managed environment, CLI
 executables, libraries, and required package/cache content must all lie outside
 the sealed target; none may be obtained from a target-path scope or a review-data
@@ -1262,24 +1271,33 @@ The resolved runtime closure is otherwise available read-only so the tested
 command can actually start under containment.
 
 No live host client-state directory, including `~/.claude` or `~/.codex`, is
-writable in the sandbox. Each fixed client gets its own fresh scratch home/state
-directory for that driver call, discarded after evidence has been retained. Each
-client starts in its own child Bubblewrap/mount-namespace view, constructed by
-the driver from the adapter's exact call-input mapping. That view omits the
-private aggregation/staging directory—including `.REVIEW.md.tmp`, final
-`REVIEW.md`, and any driver-only transport staging. The driver captures client
-output, terminates/reaps the client's process group before aggregation, and
-alone publishes the final report. Bind only the minimum exact
-credential/configuration files needed to authenticate as read-only;
-client-generated caches, session files, and other mutable state are written to
-scratch.
+writable in the sandbox. The fixed clients receive fresh scratch home/state
+directories for that driver call, discarded after evidence has been retained.
+Bind only the minimum exact credential/configuration files needed to
+authenticate as read-only; client-generated caches, session files, and other
+mutable state are written to scratch. The driver captures participant streams
+in memory, waits for and reaps the reviewer subprocesses, and only then writes
+and atomically publishes the aggregate. The output directory is fresh and
+claimed before dispatch, and the adapter rejects any malformed, inconsistent,
+special, or non-regular final artifact.
+
+The interim whole-call namespace means reviewer subprocesses can see the
+driver's transport and writable aggregation/scratch mounts and can interfere
+with sibling processes. The post-fan-out publication order and strict aggregate
+validation reduce false-evidence risk, but this is not the same boundary as
+driver-private output. Treat attempted interference or unexpected output state
+as call failure and ordinary fallback, and disclose this residual limitation in
+every run that uses multi-review. When multi-review's prioritized per-reviewer
+subprocess profile lands, adopt it to make driver transport/output, peer
+artifacts, and live host state inaccessible at the mount boundary; do not
+reimplement that generalized native facility inside review-loop.
 
 Any host settings file that can define executable hooks remains read-only and
 is not copied into mutable scratch. Scratch is never reused or promoted back to
 host state. Canonical state, the ledger, prior rounds, and the rest of the run
-root are not mounted writable. These explicit binds are
-required even below `$HOME`: the containment recipe tmpfs-mounts `$HOME`, so
-host paths otherwise do not exist in the sandbox. The adapter preserves
+root are not mounted writable. These explicit binds are required even below
+`$HOME`: the containment recipe uses a fresh home, so host paths otherwise do
+not exist in the sandbox. The adapter preserves
 required network access and performs the seal checks around the call. Exact
 mount and environment recipes belong in the implementation plan and adapter
 tests, not in `SKILL.md`. There is no multi-review containment bypass in the
@@ -1426,18 +1444,22 @@ fixed-slot raw IDs, hostile multiline/YAML-shaped/delimiter-looking claims and
 duplicate frontmatter keys, driver failure, missing Bubblewrap, deadlines, recognized
 zero-exit pin-downgrade signals, driver-YAML byte drift before or after dispatch,
 and ordinary fallback. Separate
-tests prove that every scheduled call gets one fresh empty driver-private output
+tests prove that every scheduled call gets one fresh empty claimed output
 directory; the driver, interpreter/environment, fixed CLIs, and required
 read-only package content can start inside the `$HOME` tmpfs recipe; exact
 later-round target and review-data inputs are readable only through the exact
 `files` union; the runtime/credential allowlist contains no review data; a
 target-contained driver runtime takes ordinary fallback; and an unlisted target
 file is unreadable.
-Clients may write only their fresh scratch, while the driver alone can write or
-publish prompt transport and aggregate artifacts. Fake clients and descendants
-attempting to alter prompt transport, `.REVIEW.md.tmp`, or `REVIEW.md` must fail
-and lead to fallback. Live host client state, canonical state, and prior rounds
-remain non-writable; scratch cannot persist hooks or other state to the host.
+Clients may write only the fresh whole-call output/scratch surfaces; live host
+client state, the target, canonical state, and prior rounds remain non-writable,
+and scratch cannot persist hooks or other state to the host. Fake clients that
+precreate, replace, link, or corrupt prompt transport, `.REVIEW.md.tmp`, or
+`REVIEW.md` must make publication or adapter validation fail and take ordinary
+fallback, never create usable evidence. A contract test records that current
+whole-call containment does not hide those paths and therefore keeps the
+residual-limitation disclosure operative until native per-reviewer containment
+is adopted.
 Tests also prove that no multi-review retry occurs, expiry and recovery terminate
 the whole call tree before fallback or an INDETERMINATE result, pre/post seal
 drift from every review path voids the stage without fallback, and prompt bodies
@@ -1513,11 +1535,11 @@ The MVP is acceptable when:
   bytes or falls back without launching a wrapped prompt;
 - every scheduled high/max multi-review slot uses the fixed CLI pair at tested
   tool defaults or exact explicit pins and uses its resolved fallback profile;
-- every multi-review call uses one fresh round output directory, while
-  only the driver may write its private aggregation artifacts, disposable client
-  scratch remains writable under containment, live host client state remains
-  non-writable, and seal drift from any review path voids the round instead of
-  falling back;
+- every multi-review call uses one fresh round output directory and disposable
+  whole-call home/scratch, live host client state remains non-writable,
+  malformed or interfered-with output cannot become usable evidence, the
+  interim shared-namespace limitation is disclosed, and seal drift from any
+  review path voids the round instead of falling back;
 - profiles can refine dispatch but cannot alter safety or convergence;
 - state survives host/session restarts outside the sealed target without
   rebasing a deadline, including the immutable round-one ground-truth inventory
