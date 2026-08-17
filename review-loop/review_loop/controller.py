@@ -331,6 +331,18 @@ class AdjudicationOutcome:
     settled: bool
 
 
+@dataclass(frozen=True)
+class PromotionRecord:
+    """The result of ``promote_post_fix_baseline``: which ledger ids' verified
+    FIX delta was actually written back to the authoritative target, and the
+    seal ``close()`` must find there afterward. Pure in-memory record -- the
+    run's single fixed ``governing_seal`` carries no new canonical field for
+    it (single-round promotion, not multi-baseline advancement).
+    """
+    covered_ids: tuple[str, ...]
+    after_seal: str
+
+
 class Controller:
     def __init__(self, xdg_config_home: Path | None = None) -> None:
         self._xdg_config_home = xdg_config_home
@@ -838,7 +850,7 @@ class Controller:
 
         fixctl = FixController(run_state, work, new_id=new_id)
         request = fixctl.prepare(open_rows, seal, evidence_plan)
-        validated = fixctl.validate_candidate(request, before, after, manifest)
+        validated = fixctl.validate_candidate(request, before, after, manifest, copy_root=copy_root)
         transition = fixctl.apply(validated)
 
         gate_rerun = self.rerun_gates(
@@ -958,25 +970,60 @@ class Controller:
             status=status, attempts=attempt, settled=settled,
         )
 
-    # --- explicit fail-closed tripwires for the Task-9 deferrals --------
-    #
-    # These paths CANNOT be implemented without a new canonical seal-advancement
-    # surface in artifacts.py/state.py (both frozen boundaries here). They exist
-    # as loud fail-closed stubs -- never silent no-ops -- so a real multi-round
-    # run stops with a clear diagnostic instead of quietly skipping the deferred
-    # work before Task 9 lands (team-lead ruling: "fail closed on any of these").
+    # --- promotion: write a verified single-round FIX back to the real target ---
 
-    def promote_post_fix_baseline(self, *_args, **_kwargs) -> "RunState":
-        """DEFERRED to Task 9: promote a verified post-FIX disposable-copy
-        identity to a NEW governing baseline seal (and apply the validated
-        candidate back to the authoritative target). The snapshot's
-        governing_seal is immutable; advancing it needs an artifacts.py surface.
+    def promote_post_fix_baseline(
+        self,
+        run_state: RunState,
+        validated: "ValidatedFix",
+        target_root: Path,
+        *,
+        new_id: Callable[[], str] = _new_id,
+    ) -> "PromotionRecord":
+        """Replay ``validated``'s already-verified FIX delta from its disposable
+        copy onto the REAL, authoritative target -- single-round promotion only
+        (the run's fixed ``governing_seal`` is never advanced to a new baseline;
+        that is multi-round seal advancement, still deferred and loudly
+        fail-closed via ``run_triage``/``run_adjudication``'s guards).
+
+        Pure I/O + verification, fail-closed on any drift: the real target must
+        reseal to exactly ``validated.before_seal`` before anything is written
+        (FIX only ever touched the disposable copy, so the target should be
+        unchanged) -- then ``FixController.write_back`` replays the delta --
+        then the target must reseal to exactly ``validated.after_seal`` (an
+        incomplete or wrong replay, or a mid-write-back crash that leaves the
+        tree half-written, must never be silently accepted as a promoted fix).
+        Returns the promotion record naming which ledger ids this write-back
+        covers, for ``close()`` to check honestly.
         """
-        raise ControllerError(
-            "post-FIX baseline seal advancement (new governing seal + candidate "
-            "write-back to the authoritative target) is deferred to Task 9; the "
-            "governing seal is immutable without an artifacts.py/state.py surface"
-        )
+        from .fix import FixController
+        from .seals import GitPolicy, seal_target
+
+        target_root = Path(target_root)
+        pre = seal_target(target_root, GitPolicy(enabled=False))
+        if pre.digest != validated.before_seal:
+            raise ControllerError(
+                "promotion aborted: the authoritative target has drifted since FIX ran "
+                f"(expected pre-FIX seal {validated.before_seal!r}, found {pre.digest!r})"
+            )
+        fixctl = FixController(run_state, Path(run_state.run_root) / "promote", new_id=new_id)
+        fixctl.write_back(validated, target_root)
+        post = seal_target(target_root, GitPolicy(enabled=False))
+        if post.digest != validated.after_seal:
+            raise ControllerError(
+                "promotion aborted: write-back did not reproduce the verified post-FIX seal "
+                f"(expected {validated.after_seal!r}, found {post.digest!r}); the target may now "
+                "be partially written -- inspect it before retrying"
+            )
+        return PromotionRecord(covered_ids=validated.bound_ids, after_seal=validated.after_seal)
+
+    # --- explicit fail-closed tripwire for the still-deferred Task-9 work ----
+    #
+    # MutationResult persistence needs a new canonical home in artifacts.py/
+    # state.py (both frozen boundaries here). It exists as a loud fail-closed
+    # stub -- never a silent no-op -- so a real run stops with a clear
+    # diagnostic instead of quietly skipping the deferred work before a later
+    # task lands (team-lead ruling: "fail closed on any of these").
 
     def record_mutation_result(self, *_args, **_kwargs) -> "RunState":
         """DEFERRED to Task 9: give ``evidence.MutationResult`` a durable
@@ -1011,7 +1058,34 @@ class Controller:
         updated = _issue(store, operation="record_final_challenge", projection=projection, evidence=evidence)
         return RunState(run_state.run_root, run_state.governing_seal, updated, "CLOSE", None)
 
-    def close(self, run_state: RunState, *, new_id: Callable[[], str] = _new_id) -> RunState:
+    def close(
+        self, run_state: RunState, *, promotion: "PromotionRecord | None" = None, new_id: Callable[[], str] = _new_id,
+    ) -> RunState:
+        """Compute the terminal verdict, with a genuine (never vacuous) seal
+        comparison for both the promoted and no-FIX paths.
+
+        ``expected_final_seal`` is always ``governing_seal``: the compact
+        ``reconcile_gates`` records were logged against it (state.py's own
+        gates-recompute enforces this, unconditionally), so it cannot be
+        swapped for a post-FIX seal without corrupting that recompute. The
+        genuineness instead comes from what decides whether ``actual_final_seal``
+        is ALLOWED to echo it: a FRESH reseal of the real target, taken right
+        now, independently verified against the honest reference for this run
+        -- ``promotion.after_seal`` (what write-back actually proved it wrote)
+        for a genuinely-promoted run, or the anchor policy's own seal for an
+        untouched one. Only when that fresh reseal matches does
+        ``actual_final_seal`` get to equal ``expected_final_seal``; any drift
+        -- pre-existing, mid-run, or after promotion -- surfaces as a real
+        mismatch, so a false merge-ready is impossible.
+
+        A FIX_VERIFIED row not covered by ``promotion`` was verified only
+        against a disposable copy; the authoritative target was never written
+        for it, so it still forces NOT_CONVERGED via ``any_indeterminate``,
+        independent of the seal check above (a partially-promoted batch must
+        not slip through on the seal match alone).
+        """
+        from .seals import GitPolicy, seal_target
+
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
         processor = run_state.snapshot["processor_state"]
@@ -1020,20 +1094,40 @@ class Controller:
         active_areas = processor["refresh_inventory"]["active_areas"]
         gates = processor["reconcile_gates"]
         final_challenge = processor["record_final_challenge"]
-        # A FIX_VERIFIED row here was verified against a DISPOSABLE COPY; the
-        # authoritative target was never written (write-back + baseline seal
-        # advancement are Task 9). Emitting CONVERGED/merge-ready would be a
-        # false green for bytes that still contain the finding, so CLOSE fails
-        # closed: mark the run indeterminate with an explicit reason rather than
-        # trusting the vacuous anchor==anchor seal check. (A future promoted fix
-        # would clear this once state.py/artifacts.py gain seal advancement.)
-        copy_only_fixes = [r["id"] for r in ledger_rows if r["state"] == "FIX_VERIFIED"]
+        target_root = Path(processor["preflight"]["resolved_target"])
+
+        fix_verified_ids = {r["id"] for r in ledger_rows if r["state"] == "FIX_VERIFIED"}
+        promoted_ids = set(promotion.covered_ids) if promotion is not None else set()
+        if not promoted_ids <= fix_verified_ids:
+            raise ControllerError(
+                "promotion record covers ledger ids that were never FIX_VERIFIED "
+                f"({sorted(promoted_ids - fix_verified_ids)}); refusing to close"
+            )
+        copy_only_fixes = sorted(fix_verified_ids - promoted_ids)
+
+        if promotion is not None:
+            fresh = seal_target(target_root, GitPolicy(enabled=False))
+            seal_verified = fresh.digest == promotion.after_seal
+        else:
+            delta_policy = processor["preflight"]["delta_policy"]
+            anchor_policy = GitPolicy(
+                enabled=delta_policy["enabled"], base=delta_policy["base"], head=delta_policy["head"],
+                include_untracked=delta_policy["include_untracked"], include_index=delta_policy["include_index"],
+                git_dir_outside_target=delta_policy["git_dir_outside_target"],
+            )
+            fresh = seal_target(target_root, anchor_policy)
+            seal_verified = fresh.digest == seal
+        actual_final_seal = seal if seal_verified else fresh.digest
+
         reason = None
         if copy_only_fixes:
             reason = (
                 "authoritative target not repaired: disposable-copy fix not promoted "
-                f"to the sealed target (rows {copy_only_fixes}); promotion deferred to Task 9"
+                f"to the sealed target (rows {copy_only_fixes})"
             )
+        elif not seal_verified:
+            reason = f"authoritative target drifted from its verified seal (found {fresh.digest!r})"
+
         lifecycle = {
             "confirmation": "not_required" if not policy["confirmation_required"] else "confirmed",
             "deadline_expired": False,
@@ -1042,7 +1136,7 @@ class Controller:
             "raw_reports_reconciled": True,
             "any_indeterminate": bool(copy_only_fixes),
             "expected_final_seal": seal,
-            "actual_final_seal": seal,
+            "actual_final_seal": actual_final_seal,
         }
         projection = {
             "lifecycle": lifecycle, "ledger": ledger_rows, "gates": gates,
@@ -1050,6 +1144,7 @@ class Controller:
         }
         evidence = [_artifact(new_id(), "close-computation", seal, {
             "lifecycle": lifecycle, "unpromoted_fix_rows": copy_only_fixes,
+            "promoted_ids": sorted(promoted_ids),
         })]
         updated = _issue(store, operation="compute_terminal", projection=projection, evidence=evidence)
         stage = "INDETERMINATE" if copy_only_fixes else "COMPLETE"

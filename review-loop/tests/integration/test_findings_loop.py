@@ -267,20 +267,107 @@ class FindingsLoopTests(unittest.TestCase):
         self.assertEqual(sorted(verified[ledger_id]["proof_artifact_ids"]), ["proof-gate", "proof-rereview"])
 
         challenge = self.controller.run_final_challenge(adjudicated.run_state, final_challenger=self._final_challenger())
+        # No promotion is passed: the fix was verified only against the
+        # disposable copy, so CLOSE must NOT emit a merge-ready CONVERGED for
+        # bytes that still contain the finding -- HONEST fail-closed.
         final = self.controller.close(challenge)
-        # HONEST fail-closed: the fix was verified only against the disposable
-        # copy; the authoritative target was never written, so CLOSE must NOT
-        # emit a merge-ready CONVERGED for bytes that still contain the finding.
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())  # real target untouched
         terminal = final.snapshot["processor_state"]["compute_terminal"]
         self.assertEqual(terminal["terminal_verdict"], "NOT_CONVERGED")
         self.assertFalse(terminal["merge_ready"])
         self.assertIn("indeterminate", terminal["failed_conditions"])
         self.assertEqual(final.stage, "INDETERMINATE")
         self.assertIn("not repaired", final.reason)
-        self.assertIn("Task 9", final.reason)
+        self.assertIn("not promoted", final.reason)
         report = generate_report(final)
         self.assertIn("Merge-ready: False", report)
         self.assertNotIn("Merge-ready: True", report)
+
+    def test_promoted_fix_converges_honestly_on_the_real_target(self):
+        # Same as above up through adjudication, but this time the verified
+        # candidate is actually promoted to the real target before CLOSE.
+        from review_loop.evidence import discover_evidence
+        plan = discover_evidence((), (), self._scout())
+
+        triage, _ = self._to_triage()
+        rows = triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
+        ledger_id = rows[0]["id"]
+        buggy_calc = self.target.joinpath("calc.py").read_text()
+        self.assertNotIn("price - price * percent", buggy_calc)
+
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        manifest_id = fix.transition.manifest_ids[ledger_id]
+        gov = fix.run_state.governing_seal
+
+        rereview = self._dispatch_role(())(DispatchExpectation(
+            request_id="rev2", role="holistic", charter_id="holistic", target_seal=gov,
+            round_input_seal=None, scope_locator_ids=("calc.py",),
+        ))[0]
+        proof = (
+            EvidenceArtifact("proof-rereview", "post-fix-review", 1, gov, rereview),
+            EvidenceArtifact("proof-gate", "post-fix-gate", 1, gov,
+                             canonical_bytes({"gate": "tests", "status": "PASSED"})),
+        )
+        settlement = [{
+            "id": ledger_id, "state": "FIX_VERIFIED", "manifest_artifact_id": manifest_id,
+            "proof_artifact_ids": ["proof-rereview", "proof-gate"],
+        }]
+        adjudicated = self.controller.run_adjudication(
+            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(), proof_evidence=proof,
+        )
+        self.assertEqual(adjudicated.status, "UPHOLD")
+
+        # Still untouched right up until promotion.
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
+
+        promotion = self.controller.promote_post_fix_baseline(
+            adjudicated.run_state, fix.transition.validated, self.target,
+        )
+        self.assertEqual(promotion.covered_ids, (ledger_id,))
+
+        # The REAL target now holds the fix -- the honest-convergence proof.
+        repaired_calc = self.target.joinpath("calc.py").read_text()
+        self.assertIn("price - price * percent", repaired_calc)
+        self.assertNotEqual(repaired_calc, buggy_calc)
+
+        challenge = self.controller.run_final_challenge(adjudicated.run_state, final_challenger=self._final_challenger())
+        final = self.controller.close(challenge, promotion=promotion)
+
+        terminal = final.snapshot["processor_state"]["compute_terminal"]
+        self.assertEqual(terminal["terminal_verdict"], "CONVERGED")
+        self.assertTrue(terminal["merge_ready"])
+        self.assertEqual(terminal["failed_conditions"], [])
+        self.assertEqual(final.stage, "COMPLETE")
+        report = generate_report(final)
+        self.assertIn("Merge-ready: True", report)
+        self.assertNotIn("Merge-ready: False", report)
+
+    def test_promotion_fails_closed_on_write_back_drift(self):
+        from dataclasses import replace as _dc_replace
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        buggy_calc = self.target.joinpath("calc.py").read_text()
+
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        # Tamper the recorded after_seal so the real post-write-back reseal
+        # cannot possibly match it: promotion must fail closed rather than
+        # silently accept a target that doesn't reseal to what was claimed.
+        tampered = _dc_replace(fix.transition.validated, after_seal="0" * 64)
+        with self.assertRaises(ControllerError) as ctx:
+            self.controller.promote_post_fix_baseline(fix.run_state, tampered, self.target)
+        self.assertIn("did not reproduce the verified post-FIX seal", str(ctx.exception))
+        # write_back itself already ran (the delta replay was correct); only
+        # the claimed after_seal was wrong -- the real target now holds the fix.
+        self.assertIn("price - price * percent", self.target.joinpath("calc.py").read_text())
+        self.assertNotEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
 
     def test_undeclared_fix_change_fails_closed_before_fix_applied(self):
         from review_loop.evidence import discover_evidence
@@ -466,11 +553,6 @@ class DeferredBoundaryTests(unittest.TestCase):
 
         with self.assertRaises(ControllerError):
             self.controller.run_triage(round1, triager=triager)
-
-    def test_baseline_seal_advancement_is_refused(self):
-        from review_loop.controller import ControllerError
-        with self.assertRaises(ControllerError):
-            self.controller.promote_post_fix_baseline()
 
     def test_mutation_result_persistence_is_refused(self):
         from review_loop.controller import ControllerError

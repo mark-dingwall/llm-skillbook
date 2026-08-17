@@ -12,11 +12,15 @@ install, no commit/stage/deploy, no agent network beyond the provider channel --
 are enforced by ``FixController.validate_candidate`` against the canonical delta,
 never trusted from prompt compliance.
 
-Seal advancement across rounds (promoting a verified post-FIX identity to the
-next round's governing baseline) needs a canonical seal-advancement surface in
-artifacts.py/state.py and is Task 9's remit (progress.md: recovery + seal-drift);
-this module records FIX_APPLIED against the run's anchor governing seal with the
-verified delta + manifest retained as canonical evidence.
+This module records FIX_APPLIED against the run's anchor governing seal with the
+verified delta + manifest retained as canonical evidence, and (Task 9 Slice 2)
+provides ``write_back`` -- wired into ``Controller.promote_post_fix_baseline`` --
+to replay a verified single-round FIX from its disposable copy onto the REAL
+target. Seal ADVANCEMENT across rounds (promoting a verified post-FIX identity
+to the NEXT round's governing baseline) is a different thing -- it needs a
+canonical seal-advancement surface in artifacts.py/state.py and stays deferred
+(progress.md: recovery + seal-drift); the governing seal is a fixed anchor for
+the whole run either way.
 """
 from __future__ import annotations
 
@@ -341,9 +345,10 @@ class FixController:
     def write_back(self, validated: ValidatedFix, target_root: Path) -> None:
         """Replay ``validated``'s already-verified delta onto the real target.
 
-        Pure mechanics -- nothing in this task calls it (Slice 2's remit is
-        wiring it into promotion). Fails closed if the candidate was never
-        given a disposable-copy root to replay from, and re-derives the
+        Pure mechanics, called by ``Controller.promote_post_fix_baseline``
+        (Task 9 Slice 2), sandwiched between its own before/after reseal
+        checks. Fails closed if the candidate was never given a
+        disposable-copy root to replay from, and re-derives the
         changed file paths from the delta as defense in depth: even though
         ``validate_candidate`` already proved ``changed_paths`` equals the
         verified delta, this re-checks it here rather than trusting a
