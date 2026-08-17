@@ -18,19 +18,23 @@ Fan out a code review across multiple AI models in parallel, aggregate results i
 
 ## Install
 
-Run setup once from the cloned repository:
+Installed by the repo-level installer (see the [repo README](../README.md#install)):
 
 ```bash
-uv run python -m multi_review.cli.setup --source-repo $(pwd)
+python3 ../install.py multi-review --target both      # ~/.claude + ~/.agents/skills
+python3 ../install.py multi-review --target both --dev # symlink for edit-in-place
 ```
 
-Setup copies `skills/multi-review/` and `agents/*.md` into `~/.claude/`.
+`--target claude` copies the skill to `~/.claude/skills/multi-review/` and its
+subagents to `~/.claude/agents/`; `--target codex` copies to
+`~/.agents/skills/multi-review/`. In-repo, Claude uses the `.claude-plugin/`
+marketplace and Codex auto-discovers via `.agents/skills/`.
 
-For iterating on the skill itself, `--dev` symlinks instead of copying so edits take effect without re-running setup:
-
-```bash
-uv run python -m multi_review.cli.setup --source-repo $(pwd) --dev
-```
+**Codex note:** the interactive `/multi-review` orchestration uses Claude Code
+Task subagents. Under Codex use the headless driver
+(`uv run <skill-dir>/multi_review.py --prompt-file … --out-dir …`); implicit
+Codex invocation is disabled in `agents/openai.yaml`. The skill's Python runs
+from any cwd via `scripts/py` (`uv run --project <skill> --locked`).
 
 ## Pykrete setup
 
