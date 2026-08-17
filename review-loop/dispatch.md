@@ -38,6 +38,17 @@ mechanism. Real Bubblewrap containment tests live in
 `review-loop/tests/integration/test_multi_review_containment.py` and
 `multi-review/tests/unit/test_headless_driver_smoke_harness.py`.
 
+## Running the Python (`$SKILL_DIR/scripts/py`)
+
+`$SKILL_DIR` is this skill's own directory (absolute path of the folder holding
+`SKILL.md`) — substitute it literally. Run every `review_loop` Python — the
+`__main__.py` CLI below and any `Controller`-driving library snippet — through
+`$SKILL_DIR/scripts/py` (e.g. `"$SKILL_DIR/scripts/py" -m review_loop status
+--run-root <path>`). The launcher resolves the skill's shipped project +
+lockfile, so imports and deps work from any caller working directory. (The
+in-repo test suite calls `python3 -m review_loop` directly — that path is
+test-only and unaffected.)
+
 ## The `__main__.py` CLI
 
 Two invocation surfaces, deliberately unequal in trust — see the module's

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Loop"
+  short_description: "Converging multi-round adversarial review with a mechanical green verdict"
+  default_prompt: "Use $review-loop to run a risk-proportionate multi-round review of these changes before merge."

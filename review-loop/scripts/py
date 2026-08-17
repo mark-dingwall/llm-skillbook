@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Run this skill's Python from ANY working directory.
+# Resolves the skill root from the script's own location (correct for copy,
+# symlink, and plugin installs alike), then runs under uv against the shipped
+# project + lockfile so imports and deps resolve regardless of caller cwd.
+set -euo pipefail
+root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+exec uv run --project "$root" --locked python "$@"
