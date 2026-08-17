@@ -1,7 +1,6 @@
 # Review Loop Redesign
 
-**Status:** Amendment independently reviewed; pending operator decision on the
-multi-review adapter's MVP placement
+**Status:** Approved for replacement implementation planning
 
 **Date:** 2026-08-14
 
@@ -48,7 +47,8 @@ claim. The redesign retains:
 This is an MVP. It does not add review-team integration, synthesis, arbitrary
 reviewer commands in profiles, profile inheritance, a general workflow engine,
 provider benchmarking, an event log, command transcripts, durable copied input
-trees, or a portable non-GNU sealing implementation. Numeric specialist or
+trees, a portable non-GNU sealing implementation, or multi-review's planned
+general-purpose `--sandbox {auto,bwrap,none}` facility. Numeric specialist or
 finding caps, an `xhigh` tier, and direct integration into every phase of an
 external planning or implementation workflow are explicit non-goals, not
 deferred extensions.
@@ -131,10 +131,13 @@ helpers:
    explicit fragments from a JSON context, and validates raw Markdown review
    reports. It is the sole production and fixture path for every dispatched
    LLM prompt and the sole ordinary-dispatch report classifier.
-3. **Multi-review adapter.** Converts one canonical holistic request into the
-   repo-local multi-review driver's v2 prompt file, invokes it under the required
-   containment policy, validates its report, and returns either a usable
-   holistic report or a structured fallback reason.
+3. **Multi-review adapter.** A late, isolated MVP integration that converts one
+   canonical holistic request into the repo-local multi-review driver's
+   supported v2 headless request, invokes that driver inside caller-provided
+   Bubblewrap containment, validates its report, and returns either a usable
+   holistic report or a structured fallback reason. It reuses multi-review's
+   tested embedding and shutdown contract; it does not implement a generalized
+   sandbox selector or duplicate multi-review's fan-out machinery.
 
 These are separate units, not one mixed script and not a plugin framework. Each
 has a narrow interface and independent tests. They may share small data types
@@ -1142,6 +1145,14 @@ profiles or override the contained multi-review pair.
 
 ## 8. Multi-review boundary and failure handling
 
+This integration is scheduled after the ordinary controller path and its
+deterministic boundaries work end to end, but it remains part of MVP
+acceptance. Multi-review already exposes a supported headless v2 driver contract
+for contained callers and has exercised caller-supplied Bubblewrap mount and
+process-tree shutdown recipes across the fixed reviewer CLIs. Review-loop owns
+only its concrete call mapping, containment wrapper, validation, and fallback;
+it does not add multi-review's separately planned generalized sandbox CLI.
+
 The adapter treats multi-review as a black box with one request and one report:
 
 ```text
@@ -1228,7 +1239,12 @@ the aggregate ID and each source-finding ID is the pair of participant raw
 preservation rather than a second merge, deduplication, or synthesis
 implementation inside review-loop.
 
-Bubblewrap is required. The adapter gives the driver a private aggregation and
+Bubblewrap is required. Following multi-review's supported caller contract, the
+adapter launches the headless driver inside a `bwrap --unshare-pid
+--die-with-parent` wrapper and sends termination signals to that wrapper. It
+starts from multi-review's tested containment recipe, reducing it to the exact
+fixed-pair runtime and inputs below; any necessary divergence must be justified
+by an adapter test. The adapter gives the driver a private aggregation and
 staging directory and read-only binds the driver YAML plus exactly that `files`
 union. In Round 1, its target-path component is the full sealed target
 regular-file set; in a later focused round it is only the declared
@@ -1531,9 +1547,11 @@ evidence artifact, not the unchanged implementation foundation.
 
 Use its observed interface and review findings to write the clean
 replacement implementation plan for the prompt/report helper, prompt resources,
-adapter, profiles, evidence discovery and execution, bounded FIX mapping,
-controller rewrite, migration of focused fixtures, documentation, and final
-forward test. The plan keeps the deterministic policy kernel,
+profiles, evidence discovery and execution, bounded FIX mapping, controller
+rewrite, migration of focused fixtures, documentation, the late isolated
+multi-review adapter, and final forward test. The ordinary path must work end to
+end before the adapter is introduced, while adapter acceptance remains required
+for MVP completion. The plan keeps the deterministic policy kernel,
 `record_specialist_coverage`, structured seal-bound proof references, and
 terminal recomputation, but replaces rich processor inputs with the compact
 validated projections defined in section 3. Replace the old plan rather than
