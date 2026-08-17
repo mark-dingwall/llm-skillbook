@@ -21,8 +21,12 @@ def test_codex_payload_ships_runtime_excludes_dev(tmp_path):
     for keep in ("SKILL.md", "pyproject.toml", "uv.lock", "scripts/py",
                  "agents/openai.yaml", "multi_review"):
         assert (root / keep).exists(), f"payload missing {keep}"
-    for drop in ("tests", "docs", "BACKLOG.md", "CLAUDE.md", "__pycache__"):
+    for drop in ("tests", "docs", "BACKLOG.md", "CLAUDE.md", "AGENTS.md", "__pycache__"):
         assert not (root / drop).exists(), f"payload leaked dev-only {drop}"
+
+
+def test_maintainer_guidance_is_excluded_by_name():
+    assert {"README.md", "CLAUDE.md", "AGENTS.md"} <= install.EXCLUDE_TOP
 
 
 def test_claude_splits_subagents(tmp_path):
