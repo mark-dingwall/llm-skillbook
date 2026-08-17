@@ -55,10 +55,11 @@ synthesizer: none
 ```
 
 Paths in `files` and `context_files` are resolved relative to the prompt file.
-Omit `models` to use each CLI's default, or set a YAML entry to select a model
-or provider-specific model family for a headless/external route. That YAML does
-not override the Claude Code Task subagents used by the interactive workflow;
-those use their agent definitions.
+When `models` is omitted, each headless/external route uses its configured
+default, which may be supplied by multi-review or by the CLI itself. Set a YAML
+entry to select a model or provider-specific model family for that route. YAML
+does not override the Claude Code Task subagents used by the interactive
+workflow; those use their agent definitions.
 
 Known reviewers are not necessarily defaults. In particular, opt-in reviewers
 must be named explicitly in the prompt rather than added to an automatic set.
@@ -89,9 +90,11 @@ is recorded as a failed reviewer while the remaining reviewers can continue.
 ## Read results carefully
 
 One failed or unavailable reviewer does not discard the reviews that completed:
-the final report records both successful and failed slots. Synthesis is only
-attempted when enough reviewer output is available, and a synthesis failure is
-reported without hiding the underlying reviews.
+the final report records both successful and failed slots. With enough reviewer
+output, the headless driver attempts synthesis and reports a synthesis failure
+without hiding the underlying reviews. The interactive workflow still
+aggregates the raw reviews, but when its synthesis produces no output its
+consensus section is labelled skipped rather than carrying the failure reason.
 
 A consensus summary is an interpretation of those reviewer outputs, not an
 independent review or an extra vote. Do not double-weight it when deciding what

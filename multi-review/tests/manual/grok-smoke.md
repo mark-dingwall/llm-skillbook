@@ -186,7 +186,7 @@ substitution above to whichever step spawns the grok subprocess. Confirm:
 - grok appears as a *failed section* with a `CLI not found` error.
 - The run still produces its review file (exit 0, claude succeeded).
 - The path the skill reports is `<cwd>/REVIEW-<slug>.md` (SKILL.md Step 7) —
-  not a bare `REVIEW.md`, which no code path writes, and possibly
+  the interactive skill does not write a bare `REVIEW.md`; it may be
   auto-suffixed `-2` if a prior run left a file there.
 
 ## Pass criteria

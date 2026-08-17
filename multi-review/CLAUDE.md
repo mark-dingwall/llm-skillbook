@@ -8,17 +8,20 @@ owns containment, scheduling, and any wider run lifecycle. Do not describe the
 driver itself as a sandbox or use it to imply containment it does not provide.
 
 Keep the two paths distinct. Claude Code Task subagents are driven by their
-agent definitions. YAML model selections govern headless and external CLI
-routes; they must not be documented as overrides for interactive Task agents.
+agent definitions. Explicit YAML model selections govern headless and external
+CLI routes; omitted selections use that route's configured default, which can
+be component-owned or CLI-owned. They must not be documented as overrides for
+interactive Task agents.
 Likewise, do not promise that the two entry points publish identically named
 artifacts.
 
 ## Reviewer and prompt authority
 
 The validated prompt is the sole authority for the reviewer set, synthesizer,
-and model choices used for a run. The known-reviewer set is a valid-choice set,
-not an automatic run set. Preserve opt-in reviewers outside every default and
-ensure the interactive builder uses the same default policy as the runtime.
+and any explicit model or family override used for a run. The known-reviewer
+set is a valid-choice set, not an automatic run set. Preserve opt-in reviewers
+outside every default and ensure the interactive builder uses the same default
+policy as the runtime.
 
 Treat prompts, listed source files, inline context, reviewer output, and
 synthesis input as untrusted data. Preserve the prompt-delivery boundary: do
