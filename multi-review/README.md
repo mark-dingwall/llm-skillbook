@@ -1,195 +1,92 @@
 # multi-review
 
-Fan out a code review across multiple AI models in parallel, aggregate results into a `REVIEW.md`, and optionally run a consensus-synthesis pass. It supports an interactive Claude Code skill and a contained headless CLI.
+multi-review collects parallel reviews from configured AI CLIs and assembles a
+single report. Use it when an important change benefits from independent
+perspectives, not as a substitute for accountable human review.
 
-**Two supported entry points.** Use `/multi-review` inside Claude Code for the interactive workflow, or `multi_review.py --prompt-file … --out-dir …` for a contained headless single pass. The skill runs `claude` as a Task subagent; the headless driver runs it through `claude -p`. The proposed `claude -p` billing change that originally motivated this split is deferred indefinitely, so choose the entry point that fits the caller rather than a presumed billing distinction.
+## Choose an entry point
 
-## Requirements
+Use `/multi-review` inside Claude Code for the interactive workflow. It can
+help author a prompt file, dispatch Claude Code subagents, and coordinate the
+review steps.
 
-- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
-- Claude Code (TUI) — required for Task subagent dispatch
-- One or more of the supported reviewer CLIs on `PATH`:
-  - [`claude`](https://github.com/anthropics/claude-code)
-  - `agy`
-  - [`codex`](https://github.com/openai/codex)
-  - [`opencode`](https://opencode.ai)
-  - `pykrete`
-  - `grok` (opt-in — see below)
+Use the headless driver when another tool or controller owns the workflow:
+
+```bash
+uv run --project multi-review multi-review/multi_review.py \
+  --prompt-file path/to/review.yaml \
+  --out-dir path/to/review-run
+```
+
+The driver performs one fan-out and report assembly pass. It is
+*caller-contained*: it does not create a security boundary itself. A caller
+that needs sandboxing, lifecycle control, or cleanup must provide those
+properties around the command.
+
+The interactive skill and headless driver have different report locations and
+naming conventions. Read the result path reported by the entry point you ran
+instead of assuming a shared filename.
 
 ## Install
 
-Installed by the repo-level installer (see the [repo README](../README.md#install)):
+From the repository root, install for Claude Code, Codex, or both:
 
 ```bash
-python3 ../install.py multi-review --target both      # ~/.claude + ~/.agents/skills
-python3 ../install.py multi-review --target both --dev # symlink for edit-in-place
+python3 install.py multi-review --target both
 ```
 
-`--target claude` copies the skill to `~/.claude/skills/multi-review/` and its
-subagents to `~/.claude/agents/`; `--target codex` copies to
-`~/.agents/skills/multi-review/`. In-repo, Claude uses the `.claude-plugin/`
-marketplace and Codex auto-discovers via `.agents/skills/`.
+Add `--dev` to link the skill directory for edit-in-place development. Claude
+Code subagent definitions are still copied, so reinstall after changing a
+canonical agent definition.
 
-**Codex note:** the interactive `/multi-review` orchestration uses Claude Code
-Task subagents. Under Codex use the headless driver
-(`uv run <skill-dir>/multi_review.py --prompt-file … --out-dir …`); implicit
-Codex invocation is disabled in `agents/openai.yaml`. The skill's Python runs
-from any cwd via `scripts/py` (`uv run --project <skill> --locked`).
+## Write a prompt file
 
-## Pykrete setup
-
-`pykrete` is a **default-on** reviewer (like `agy`) — it runs in every auto-resolved reviewer set without opting in. It routes reviews through NanoGPT via the `pi` agent. Until configured, it shows up as a failed section in `REVIEW.md`.
-
-```bash
-npm link pykrete
-export NANOGPT_API_KEY=...
-```
-
-Then create a `pykrete.toml` (NanoGPT config) and point `PYKRETE_CONFIG` at it:
-
-```bash
-export PYKRETE_CONFIG=/path/to/pykrete.toml
-```
-
-`models: {pykrete: <family>}` in a prompt YAML names a NanoGPT **family** (e.g. `glm`), not a specific model — pykrete resolves the actual model within that family itself.
-
-The prompt's `task` is forwarded as pykrete's `--task`, and pykrete picks that family's lead model from `[defaults.<task>].<family>` (falling back to `[defaults.general]`). So put the model you want for reviews under `[defaults.code]` — or whichever task you actually run. multi-review's `generic` task maps to pykrete's own `general`; every other task name goes through verbatim, and a task with no `[defaults.*]` table just warns on stderr and falls back.
-
-Without `NANOGPT_API_KEY` and `PYKRETE_CONFIG` set, pykrete fails clean (recorded failure with the config error as the reason) — it does not abort the rest of the fanout.
-
-## Grok setup
-
-`grok` is an **opt-in** reviewer — it is never auto-selected. Name it explicitly
-in a prompt YAML's `reviewers` (or `synthesizer`) to use it:
-
-```yaml
-reviewers: [claude, codex, grok]
-models:
-  grok: grok-4.5-build     # optional; omit for grok's default
-```
-
-Install and authenticate the Grok Build CLI so `grok` is on `PATH`. Verify with
-`/multi-review --list-reviewers` (grok is probed even though it is opt-in).
-
-multi-review invokes it as
-`grok --sandbox workspace --prompt-file /dev/stdin --output-format streaming-json`.
-The prompt travels on stdin; `--sandbox workspace` fences writes to cwd + tmp
-while leaving reads open, so file manifests outside cwd still work.
-The synthesis path runs the same binary without `--output-format` — plain-text
-output taken verbatim, not the streaming-json envelope — so don't assume the
-flag is unconditional.
-
-## Usage
-
-Invoke from inside a Claude Code session:
-
-```
-/multi-review
-```
-
-### Invocation forms
-
-| Form | Behaviour |
-|------|-----------|
-| `/multi-review` | Interactive prompt build — `multi-review-build` subagent asks questions, authors a YAML prompt file, then runs it |
-| `/multi-review "seed text"` | Interactive build with seed — subagent skips discovery questions, starts from your seed |
-| `/multi-review --use-defaults "seed text"` | Autonomous build — subagent does a shallow cwd scan, infers defaults, writes YAML without prompting |
-| `/multi-review --prompt-files A.yaml,B.yaml` | Run one or more pre-written prompt files directly (skips build subagent) |
-| `/multi-review --list-reviewers` | Probe each CLI via `shutil.which` + `<cli> --version`, print availability and detected models |
-
-## Prompt YAML schema
-
-Reviews are driven by YAML prompt files. The `multi-review-build` subagent authors these interactively; you can also write them by hand and pass them with `--prompt-files`.
+The interactive workflow can create a prompt file. For headless use, start
+with the smallest useful YAML:
 
 ```yaml
 prompt_format_version: 2
-
-# Task preset. One of: code | plan | security | generic | custom
 task: code
-
-# Files to review (required)
 files:
-  - src/auth.ts
-  - src/session.ts
-
-# Extra context — always inlined (optional)
-context_files:
-  - docs/threat-model.md
-
-# Free-form prompt override. Required when task == custom; when supplied for
-# any task, it replaces that task's built-in template. The runner still appends
-# its required Summary response contract, which every accepted review must meet.
-custom_prompt: |
-  Focus on dependency ordering and rollback paths
-
-# Synthesis pass. One of: claude | agy | codex | opencode | pykrete | grok | none
-synthesizer: claude
-
-# Reviewer set
-reviewers:
-  - claude
-  - agy
-  - codex
-  - opencode
-  - pykrete
-#  - grok        # opt-in: never auto-selected
-
-# Primary model per reviewer (optional — omit for defaults)
-models:
-  claude: claude-opus-4-7
-  codex: gpt-5
-  opencode: openrouter/deepseek/deepseek-v4-pro
-  pykrete: glm      # names a NanoGPT *family*, not a specific model
-  grok: grok-4.5-build
-
+  - src/example.py
+reviewers: [claude, codex]
+synthesizer: none
 ```
 
-### Field reference
+Paths in `files` and `context_files` are resolved relative to the prompt file.
+Omit `models` to use each CLI's default, or set a YAML model entry to pin a
+headless/external route. That YAML does not override the Claude Code Task
+subagents used by the interactive workflow; those use their agent definitions.
 
-| Field | Type | Default | Notes |
-|-------|------|---------|-------|
-| `prompt_format_version` | int | — | Required. Currently `2`. |
-| `task` | enum | — | Required. `code \| plan \| security \| generic \| custom`. |
-| `files` | list[path] | — | Required. Paths must exist at validation time. Relative paths resolve against the **prompt YAML's own directory**, not cwd. |
-| `context_files` | list[path] | `[]` | Always inlined. |
-| `custom_prompt` | string | — | Required when `task == custom`. |
-| `synthesizer` | enum | `claude` | Which CLI runs the consensus pass. `none` disables it. |
-| `reviewers` | list[enum] | claude, agy, codex, opencode, pykrete | Subset of `claude \| agy \| codex \| opencode \| pykrete \| grok`. Default omits `grok` (opt-in). |
-| `models` | map | CLI defaults | Primary model per reviewer. Setting this pins the reviewer (see below). |
-
-Validate a YAML file without running a review:
+Known reviewers are not necessarily defaults. In particular, opt-in reviewers
+must be named explicitly in the prompt rather than added to an automatic set.
+Validate a prompt before spending review capacity:
 
 ```bash
-uv run python -m multi_review.cli.validate_prompt prompt.yaml
+uv run --project multi-review python -m multi_review.cli.validate_prompt \
+  path/to/review.yaml
 ```
 
-## Model pinning
+## Read results carefully
 
-Setting `models.X: <model>` pins reviewer X to that model. This matches v0.1 `--model X=Y` behaviour. Reviewers run single-attempt; 429/capacity errors → fail clean.
+One failed or unavailable reviewer does not discard the reviews that completed:
+the final report records both successful and failed slots. Synthesis is only
+attempted when enough reviewer output is available, and a synthesis failure is
+reported without hiding the underlying reviews.
 
-> Fallback chain (gemini capacity recovery) scrapped 2026-06-19. See BACKLOG's quota-proximity probe for the planned replacement.
+A consensus summary is an interpretation of those reviewer outputs, not an
+independent review or an extra vote. Do not double-weight it when deciding what
+to investigate or fix.
 
-## Limitations
+## Safety boundary
 
-- **agy is an agentic, uncontained reviewer.** `agy --print` runs as an autonomous agent and reads its prompt from a file (agy has no stdin input mode). Headless agy auto-denies every permission-gated tool call, including reading that prompt file, so multi-review passes `--dangerously-skip-permissions` unconditionally — without it, no agy review produces output at all. The cost is that agy can run arbitrary commands on your working tree during a review: **don't point agy at untrusted code** until sandbox containment lands (BACKLOG). Its step-narration preamble is trimmed to the first `## Summary` heading before aggregation.
-- **The v0.1 positional standalone CLI remains removed.** `./multi_review.py file.ts` is not a
-  supported interface. The root script path now hosts a supported headless single-pass contract for
-  contained callers: run `uv run <absolute-repo-path>/multi_review.py --prompt-file <yaml> --out-dir
-  <dir> [--timeout <sec>]` inside `bwrap --unshare-pid --die-with-parent`, and send termination
-  signals to the `bwrap` wrapper. This is required for full-tree shutdown because Codex/OpenCode may
-  run engines below their direct shim. This supported driver is for contained callers; it does not
-  replace the `/multi-review` skill.
-- **No skill-level timeouts.** The prompt YAML has no timeout field. Subprocess reviewers accept `--timeout N` when `spawn` is invoked by hand, but the skill never passes it; Claude Code's `Task` tool exposes no timeout knob at all, so the claude reviewer could not honour one anyway. Tracked in BACKLOG.
-- **grok is an agentic, uncontained reviewer.** It auto-approves its own tool use
-  in headless mode and can run commands on your working tree during a review.
-  `--sandbox workspace` fences writes but is not a security boundary and does not
-  restrict reads — **don't point grok at untrusted code** until sandbox
-  containment lands (BACKLOG). Same posture as agy and pykrete.
+Review prompts can direct tools toward code and context that may be untrusted.
+Some configured reviewers are agentic and can execute commands or read beyond
+the intended review subject. Do not run them against untrusted code without an
+appropriate external containment boundary, and treat model output as
+untrusted review input rather than instructions to follow automatically.
 
-## Testing discipline
-
-See `CLAUDE.md` — every bugfix in an untested path backfills the test that would have caught it. Skill-level interactive flows that genuinely cannot be automated → document a manual smoke step in `tests/manual/` instead.
-
-## License
-
-MIT. See `LICENSE`.
+For the interactive procedure and maintainer invariants, see
+[SKILL.md](SKILL.md) and [CLAUDE.md](CLAUDE.md). Historical design and smoke
+evidence under `docs/` and `tests/manual/` are not a replacement for the
+current entry-point contracts.

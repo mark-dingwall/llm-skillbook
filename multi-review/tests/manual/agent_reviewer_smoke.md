@@ -6,7 +6,7 @@
      --prompt-file tests/fixtures/prompts/valid.yaml --out-dir /tmp/reviewer-smoke
    ```
 2. From inside the Claude Code TUI in this repo, dispatch via Task using
-   `skills/multi-review/templates/reviewer_task.md` with `<PROMPT_PATH>` set to the
+   `multi-review/templates/reviewer_task.md` with `<PROMPT_PATH>` set to the
    prepared prompt: `Task(subagent_type="multi-review-reviewer", prompt=<filled template>)`.
 3. Expect a structured response with `## Summary`, `## Critical`, `## Concerns`, `## Style / Maintainability`, `## Strengths` sections.
 4. Verify the subagent called no write tools.

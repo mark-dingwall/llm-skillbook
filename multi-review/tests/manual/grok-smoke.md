@@ -44,13 +44,14 @@ From `multi_review/core/reviewers.py`:
 
 ## Precondition — reinstall first, or the smoke is worthless
 
-`setup.py` *copies* `skills/multi-review/` and `agents/*.md` into `~/.claude`
-(it symlinks only under `--dev`), so a checkout with this branch's edits does
-**not** change what Claude Code actually runs. Every case below exercises the
-installed copy. Begin the procedure with:
+The repository installer copies canonical agent definitions into `~/.claude`.
+`--dev` symlinks the skill directory, but it still copies the agents, so a
+checkout with changed canonical agents does **not** change what Claude Code
+actually runs until it is reinstalled. Every case below exercises the installed
+copy. From the repository root, begin the procedure with:
 
 ```bash
-uv run python -m multi_review.cli.setup --source-repo $(pwd)     # or --dev to symlink
+python3 install.py multi-review --target claude                  # add --dev to symlink the skill
 grep -c grok ~/.claude/agents/multi-review-build.md              # expect >= 1
 grep -c 'resolved.reviewers' ~/.claude/skills/multi-review/SKILL.md  # expect >= 1
 ```

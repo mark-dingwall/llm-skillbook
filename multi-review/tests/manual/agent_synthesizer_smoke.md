@@ -12,6 +12,6 @@
      --out-prompt-file /tmp/synth-smoke/synth-prompt.md \
      --out-nonce-file /tmp/synth-smoke/synth-nonce.txt
    ```
-3. Dispatch via Task using `skills/multi-review/templates/synthesizer_task.md`:
+3. Dispatch via Task using `multi-review/templates/synthesizer_task.md`:
    `Task(subagent_type="multi-review-synthesizer", prompt=<filled template>)`.
 4. Verify the output has Headline, Agreed Strengths, Agreed Concerns, Divergent Views, and a trailing `<filename>` suggestion — and no `## Consensus Summary` heading (the host adds it).
