@@ -231,10 +231,78 @@ class QualifiedReport:
     review: ValidatedReview
 
 
+# Disclosed, accepted interim limitations of this whole-call (not
+# per-reviewer) containment shape. Written to every call's on-disk run
+# evidence (`<call_dir>/diagnostics/LIMITATIONS.txt`) and carried on every
+# `MultiReviewResult` -- never silently true, always surfaced (fix round 1,
+# I1/I2 from review):
+#
+#  * shared-namespace: reviewer subprocesses (real or fake) run inside the
+#    SAME sandbox instance as the driver's own transport/output files
+#    (prompt.txt, .REVIEW.md.tmp, REVIEW.md). Native per-reviewer
+#    containment is deferred (out of this task's scope).
+#  * cross-reviewer token exposure (I1): the wrapper exports
+#    CLAUDE_CODE_OAUTH_TOKEN into the ONE process tree the driver's fanout
+#    spawns both reviewers from, with no per-reviewer env isolation
+#    (multi_review.core.fanout.run_reviewer sets no per-CLI `env=`). The
+#    codex reviewer therefore inherits the Claude token even though it never
+#    needs it. With the retained provider network, a prompt-injected codex
+#    reviewer -- the exact untrusted-target threat this containment exists
+#    for -- could exfiltrate it. This is inherent to whole-call (vs
+#    per-reviewer) containment; the fixed 6-variable `--clearenv` allowlist
+#    is still satisfied (this is the app's own token, not an injected HOST
+#    secret), so it is not a mount/env-policy defect, but it is a real,
+#    accepted residual risk of this MVP shape.
+#  * post-publish forge race (I2): a reviewer that wins the narrow window
+#    between the driver's own atomic `REVIEW.md` publish (`.replace()`) and
+#    the whole sandbox's teardown (when the wrapped command exits, the
+#    kernel tears down the `--unshare-pid` namespace and everything still
+#    running in it) can overwrite `/out/REVIEW.md` with a forged aggregate.
+#    Every field this adapter's `_collect()` re-verifies (request_id/role/
+#    charter_id/target_seal/round_input_seal/scope_locator_ids from the
+#    shared `/request.yaml`; both `--raw-report-id` values, readable from
+#    `/proc/*/cmdline` in the shared PID namespace; the constant
+#    `reviewers_succeeded` shape) is itself readable inside the sandbox by
+#    ANY process in it, including a malicious reviewer's own detached
+#    background process -- so a forged aggregate CAN pass every check this
+#    adapter runs. The real (and only) barrier is process-teardown timing,
+#    not validation. See
+#    tests/integration/test_multi_review_containment.py::
+#    EndToEndAdapterTests::test_post_publish_forge_race_is_sometimes_accepted_documented_residual_risk.
+#    Full closure needs native per-reviewer containment (deferred).
+#  * interpreter-seed: `seed_uv_python_toolchain` (below) seeds HOME's
+#    uv-managed Python toolchain from a dereferenced host copy because the
+#    brief's literal fixed env/mount list alone cannot resolve a `>=3.11`
+#    interpreter inside a synthetic `HOME` on this host (system Python is
+#    3.10). Disclosed as a deviation from the literal brief, not a security
+#    concern -- content into an already-writable, already-listed mount, no
+#    new mount or `--setenv`.
+KNOWN_LIMITATIONS: tuple[str, ...] = (
+    "shared-namespace: fake/real reviewer subprocesses run inside the same sandbox "
+    "instance as the driver's own transport/output files (prompt.txt, .REVIEW.md.tmp, "
+    "REVIEW.md); native per-reviewer containment is deferred.",
+    "cross-reviewer token exposure: the driver spawns both reviewers from one process "
+    "tree with no per-reviewer env isolation, so the codex reviewer inherits "
+    "CLAUDE_CODE_OAUTH_TOKEN despite never needing it; with the retained provider "
+    "network, a prompt-injected codex reviewer could exfiltrate it. Per-reviewer env "
+    "isolation is out of scope for this whole-call wrapper.",
+    "post-publish forge race: a reviewer that wins the race immediately after the "
+    "driver's atomic REVIEW.md publish can produce a forged aggregate that passes "
+    "every adapter-side validation check (every field re-verified is itself readable "
+    "inside the shared sandbox); the only real barrier is bwrap's process-teardown "
+    "timing, not validation.",
+    "interpreter-seed: HOME's uv-managed Python toolchain is seeded from a "
+    "dereferenced host copy (see seed_uv_python_toolchain) because the fixed env/mount "
+    "list alone cannot resolve a >=3.11 interpreter inside a synthetic HOME; disclosed "
+    "as a deviation from the literal brief, not a security concern.",
+)
+
+
 @dataclass(frozen=True)
 class MultiReviewResult:
     reports: tuple[QualifiedReport, QualifiedReport] | None
     fallback_reason: str | None
+    limitations: tuple[str, ...] = KNOWN_LIMITATIONS
 
     def __post_init__(self) -> None:
         if (self.reports is None) == (self.fallback_reason is None):
@@ -259,6 +327,16 @@ def render_verbatim_prompt(request: HolisticRequest) -> str:
     This reuses review.md's own field stringification and fragment
     composition byte-for-byte, only dropping that one leading title line so
     the header lands first, exactly as Task 10's parser requires.
+
+    M4 (fix round 1, noted not fixed): the `safety.md`/`round-one.md`
+    fragment set and order below is hand-duplicated from
+    `prompts.py`'s own composition, not delegated to
+    `prompts.render_prompt`'s `FRAGMENTS` registry, because `"holistic"`
+    isn't (and can't cheaply become) a registered fragment there and
+    `prompts.py` is out of this task's file scope. If `prompts.py`'s
+    fragment set or order ever changes, this function's fragment list must
+    be updated to match by hand -- there is no shared source of truth
+    enforcing that beyond this comment.
     """
     review_text = (RESOURCES / "review.md").read_text(encoding="utf-8")
     if not review_text.startswith(_REVIEW_TEMPLATE_TITLE):
@@ -537,6 +615,14 @@ class _RunOutcome:
     process_tree_terminated: bool
 
 
+def _write_limitations_evidence(diagnostics_dir: Path) -> None:
+    """Write the disclosed interim-limitation note into this call's own
+    on-disk run evidence, unconditionally, before dispatch -- not just an
+    in-memory `MultiReviewResult.limitations` field."""
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / "LIMITATIONS.txt").write_text("\n\n".join(KNOWN_LIMITATIONS) + "\n", encoding="utf-8")
+
+
 def _run_call(
     argv: list[str],
     oauth_token: str,
@@ -691,6 +777,7 @@ class MultiReviewAdapter:
         argv, _wrapper, paths = build_multi_review_call(
             request, policy, self._host, call_dir, timeout_seconds=remaining,
         )
+        _write_limitations_evidence(call_dir / "diagnostics")
 
         request_yaml_before = paths.request_yaml.read_bytes()
 
@@ -705,6 +792,20 @@ class MultiReviewAdapter:
             term_grace_seconds=self._term_grace_seconds, kill_grace_seconds=self._kill_grace_seconds,
             diagnostics_dir=call_dir / "diagnostics", popen=self._popen,
         )
+
+        # The seal-drift recheck runs unconditionally, before any other
+        # post-call outcome is decided (M3 fix round 1): a timed-out or
+        # non-terminating call is still INDETERMINATE, never a fallback, if
+        # the target actually drifted during it -- "seal drift is
+        # INDETERMINATE, never fallback" has no exception for "and also the
+        # call misbehaved in some other way."
+        after = seal_target(Path(request.target_root), GitPolicy(enabled=False))
+        if after.digest != request.target_seal:
+            raise MultiReviewIndeterminate(
+                f"target seal drifted during the sandboxed call: expected {request.target_seal!r}, "
+                f"found {after.digest!r}"
+            )
+
         if not outcome.process_tree_terminated:
             return MultiReviewResult(reports=None, fallback_reason="multi-review call tree did not terminate")
         if outcome.timed_out:
@@ -713,13 +814,6 @@ class MultiReviewAdapter:
         if paths.request_yaml.read_bytes() != request_yaml_before:
             return MultiReviewResult(
                 reports=None, fallback_reason="driver-config request.yaml drifted during the call",
-            )
-
-        after = seal_target(Path(request.target_root), GitPolicy(enabled=False))
-        if after.digest != request.target_seal:
-            raise MultiReviewIndeterminate(
-                f"target seal drifted during the sandboxed call: expected {request.target_seal!r}, "
-                f"found {after.digest!r}"
             )
 
         if outcome.exit_status != 0:

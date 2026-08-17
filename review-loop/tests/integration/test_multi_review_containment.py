@@ -41,6 +41,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FAKE_PROBE = FIXTURES / "fake_reviewer.py"  # Task 5's generic directive-based probe
 FAKE_MR = FIXTURES / "fake_mr_reviewer.py"
 FAKE_MR_TAMPER = FIXTURES / "fake_mr_reviewer_tamper.py"
+FAKE_MR_FORGE = FIXTURES / "fake_mr_reviewer_forge.py"
 
 BWRAP = shutil.which("bwrap")
 
@@ -240,11 +241,75 @@ class EndToEndAdapterTests(unittest.TestCase):
         self.assertEqual(self.target.joinpath("foo.py").read_text(), "x = 1\n")
 
     def test_shared_namespace_tampering_yields_ordinary_fallback_never_usable_evidence(self):
+        """Scope: PRE-publish tampering, during fanout (fake_mr_reviewer_tamper.py
+        corrupts prompt.txt/.REVIEW.md.tmp/REVIEW.md unconditionally, at the
+        very start, before any reviewer -- including itself -- has finished).
+        The driver's own post-fanout `_verify_prompt_transport()` re-hash
+        catches the corrupted prompt.txt and aborts before publishing.
+
+        This does NOT cover the POST-publish race -- see
+        `test_post_publish_forge_race_is_sometimes_accepted_documented_residual_risk`
+        below for that separate, NOT reliably caught, residual (I2)."""
         host = _make_fake_host(self.root / "host", codex_fixture=FAKE_MR_TAMPER)
         adapter = MultiReviewAdapter(host, "fake-oauth-token-not-a-real-credential", term_grace_seconds=5, kill_grace_seconds=5)
         result = adapter.invoke(self.request, MultiReviewPolicy(timeout_seconds=180))
         self.assertIsNone(result.reports, "tampered output must never be accepted as usable evidence")
         self.assertIsNotNone(result.fallback_reason)
+
+    def test_post_publish_forge_race_is_sometimes_accepted_documented_residual_risk(self):
+        """I2 (fix round 1, honest test per team-lead request -- not a claim
+        of a guaranteed catch): fake_mr_reviewer_forge.py answers honestly in
+        its foreground process (fanout sees a normal successful reviewer),
+        but ALSO double-forks a DETACHED background process that races the
+        driver's own process-tree teardown to overwrite `/out/REVIEW.md`,
+        AFTER the driver's atomic publish, with a forged aggregate built from
+        information genuinely readable inside the shared sandbox (this
+        reviewer's own dispatch header + both --raw-report-id values scraped
+        from /proc/*/cmdline).
+
+        Every field `MultiReviewAdapter._collect()` re-verifies is exactly
+        what the forger can also read and reproduce, so a WIN is
+        indistinguishable from a real successful pair: this test documents,
+        honestly, that `invoke()` accepts the forged aggregate when the
+        forger wins the race. The real (and only) barrier is bwrap's
+        `--unshare-pid` namespace teardown timing, not this adapter's
+        validation -- full closure needs native per-reviewer containment
+        (deferred, out of this task's scope).
+        """
+        host = _make_fake_host(self.root / "host", codex_fixture=FAKE_MR_FORGE)
+        adapter = MultiReviewAdapter(host, "fake-oauth-token-not-a-real-credential", term_grace_seconds=5, kill_grace_seconds=5)
+        result = adapter.invoke(self.request, MultiReviewPolicy(timeout_seconds=180))
+        # Whatever the real outcome is, it must be internally consistent
+        # (exactly one of reports/fallback_reason) -- MultiReviewResult's own
+        # __post_init__ already enforces that; asserted again here for a
+        # clear, named failure if it were ever violated.
+        self.assertTrue((result.reports is None) != (result.fallback_reason is None))
+        if result.reports is not None:
+            forged = [
+                r for r in result.reports
+                if any("FORGED-BY-POST-PUBLISH-RACE" in f.claim for f in r.review.record.source_findings)
+            ]
+            self.assertTrue(
+                forged,
+                "invoke() accepted a REVIEW.md that was NOT the forged one -- "
+                "the forger lost this particular race (also a legitimate, "
+                "honestly-reported outcome; the residual is about what "
+                "happens when it wins, not that it always wins)",
+            )
+            # Document the residual honestly: this run accepted forged content.
+            print(
+                "\n[I2 residual, documented] the post-publish forge race was "
+                f"WON this run: invoke() accepted {len(forged)} forged report(s) "
+                "as usable evidence.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"\n[I2 residual, documented] the forge LOST this run "
+                f"(fallback_reason={result.fallback_reason!r}); the race is "
+                "real but not deterministic in either direction.",
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":

@@ -278,6 +278,19 @@ class MultiReviewAdapterFallbackTests(unittest.TestCase):
         self.assertIsNone(result.reports)
         self.assertIn("deadline", result.fallback_reason)
 
+    def test_seal_drift_during_a_timed_out_call_is_indeterminate_not_fallback(self):
+        # M3 (fix round 1): the seal-drift recheck must run even when the
+        # call also timed out / failed to terminate -- seal drift always
+        # wins, never masked by a co-occurring timeout/termination failure.
+        def on_call(argv, n):
+            (self.target / "mutated-during-timeout.py").write_text("surprise")
+            return _FakeProc(exit_status=0, hang=True)
+
+        adapter, factory = self._adapter(on_call, term_grace_seconds=0.05, kill_grace_seconds=0.05)
+        policy = MultiReviewPolicy(deadline=datetime.now(timezone.utc) + timedelta(seconds=0))
+        with self.assertRaises(MultiReviewIndeterminate):
+            adapter.invoke(self.request, policy)
+
     def test_unterminable_process_tree_is_a_fallback_never_accepts_output(self):
         def on_call(argv, n):
             proc = _FakeProc(exit_status=0, hang=True, unterminable=True)
