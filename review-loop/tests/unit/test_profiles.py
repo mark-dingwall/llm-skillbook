@@ -143,7 +143,7 @@ class ProfileSchemaTests(unittest.TestCase):
             {"claude": "provider-model-a", "codex": "provider-model-b"},
         )
 
-    def test_multi_review_models_rejects_non_pair_key(self):
+    def test_multi_review_models_rejects_unknown_key(self):
         with self.assertRaises(ProfileError):
             self.load(
                 "version: 1\n"
@@ -151,6 +151,35 @@ class ProfileSchemaTests(unittest.TestCase):
                 "  multi_review:\n"
                 "    models:\n"
                 "      gemini: provider-model-a\n"
+            )
+
+    def test_multi_review_models_rejects_claude_only(self):
+        with self.assertRaises(ProfileError):
+            self.load(
+                "version: 1\n"
+                "holistic:\n"
+                "  multi_review:\n"
+                "    models:\n"
+                "      claude: provider-model-a\n"
+            )
+
+    def test_multi_review_models_rejects_codex_only(self):
+        with self.assertRaises(ProfileError):
+            self.load(
+                "version: 1\n"
+                "holistic:\n"
+                "  multi_review:\n"
+                "    models:\n"
+                "      codex: provider-model-b\n"
+            )
+
+    def test_multi_review_models_rejects_empty_pair(self):
+        with self.assertRaises(ProfileError):
+            self.load(
+                "version: 1\n"
+                "holistic:\n"
+                "  multi_review:\n"
+                "    models: {}\n"
             )
 
     def test_multi_review_models_rejects_empty_value(self):
@@ -161,6 +190,7 @@ class ProfileSchemaTests(unittest.TestCase):
                 "  multi_review:\n"
                 "    models:\n"
                 "      claude: ''\n"
+                "      codex: provider-model-b\n"
             )
 
     def test_unsupported_capability_label_rejected(self):
@@ -178,6 +208,10 @@ class ProfileSchemaTests(unittest.TestCase):
     def test_unknown_version_rejected(self):
         with self.assertRaises(ProfileError):
             self.load("version: 2\n")
+
+    def test_boolean_version_rejected(self):
+        with self.assertRaises(ProfileError):
+            self.load("version: true\n")
 
     def test_missing_version_rejected(self):
         with self.assertRaises(ProfileError):

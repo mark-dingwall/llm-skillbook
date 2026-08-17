@@ -230,6 +230,15 @@ class SealInputsTests(unittest.TestCase):
         with self.assertRaises(SealError):
             seal_inputs([self.root / "d"], "target-seal-digest")
 
+    def test_rejects_symlinked_parent_directory(self):
+        real_dir = self.root / "real-dir"
+        real_dir.mkdir()
+        (real_dir / "truth.md").write_bytes(b"truth")
+        link_dir = self.root / "link-dir"
+        link_dir.symlink_to(real_dir)
+        with self.assertRaises(SealError):
+            seal_inputs([link_dir / "truth.md"], "target-seal-digest")
+
 
 class RunRootOverlapTests(unittest.TestCase):
     def setUp(self):

@@ -143,8 +143,11 @@ def _open_root(root: Path) -> int:
 
 
 def _walk(dir_fd: int, prefix: str, out: list[SealEntry], root_exclude: frozenset[str] = frozenset()) -> None:
-    with os.scandir(dir_fd) as it:
-        names = sorted(entry.name for entry in it)
+    try:
+        with os.scandir(dir_fd) as it:
+            names = sorted(entry.name for entry in it)
+    except OSError as exc:
+        raise SealError(f"cannot list directory: {prefix or '.'}") from exc
     if not prefix:
         names = [name for name in names if name not in root_exclude]
     for name in names:
@@ -262,8 +265,11 @@ def seal_inputs(paths: Sequence[Path], target_seal: str) -> InputSeal:
     entries: list[SealEntry] = []
     for raw in paths:
         p = Path(raw)
+        flags = os.O_RDONLY | os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
         try:
-            parent_fd = os.open(str(p.parent), os.O_RDONLY | os.O_DIRECTORY)
+            parent_fd = os.open(str(p.parent), flags)
         except OSError as exc:
             raise SealError(f"cannot open parent of input: {p}") from exc
         try:

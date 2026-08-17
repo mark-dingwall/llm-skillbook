@@ -115,6 +115,10 @@ def _multi_review(value: object, path: str) -> dict[str, str]:
     assert isinstance(models, dict)
     unknown = set(models) - set(MULTI_REVIEW_PARTICIPANTS)
     _require(not unknown, f"{path}.models may only pin {MULTI_REVIEW_PARTICIPANTS}")
+    _require(
+        set(models) == set(MULTI_REVIEW_PARTICIPANTS),
+        f"{path}.models must pin the full non-empty {MULTI_REVIEW_PARTICIPANTS} pair",
+    )
     out: dict[str, str] = {}
     for key, raw in models.items():
         out[key] = _model(raw, f"{path}.models.{key}")
@@ -148,7 +152,10 @@ def _normal_role(value: object, path: str) -> RolePins:
 
 def _parse_profile(raw: object, path: Path) -> ReviewProfile:
     data = _object(raw, "profile", {"version", "max_time_seconds", "holistic", "adversarial", "specialists"})
-    _require(data.get("version") == SUPPORTED_VERSION, f"profile version must be {SUPPORTED_VERSION}: {path}")
+    _require(
+        type(data.get("version")) is int and data.get("version") == SUPPORTED_VERSION,
+        f"profile version must be {SUPPORTED_VERSION}: {path}",
+    )
     max_time = data.get("max_time_seconds")
     if max_time is not None:
         _require(

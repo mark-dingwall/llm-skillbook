@@ -43,9 +43,15 @@ specialists:
 
 Every field is optional except `version`. An omitted field inherits the
 tier default. Unknown keys, unknown versions, wrong types, non-positive
-`max_time_seconds`, unsupported capability labels, and `multi_review.models`
-keys outside `claude`/`codex` are all rejected. Duplicate mapping keys are
-rejected at every nesting level (last-key-wins parsing is not tolerated).
+`max_time_seconds`, and unsupported capability labels are all rejected.
+Duplicate mapping keys are rejected at every nesting level (last-key-wins
+parsing is not tolerated).
+
+If `holistic.multi_review.models` is present at all, it must pin the
+*complete* `claude`/`codex` pair with non-empty values — a partial pin
+(only `claude`, only `codex`, or an empty `models: {}`) is rejected, as is
+any key outside that pair. There is no way to configure just one side of
+the multi-review slot.
 
 An explicit model pin is never silently substituted: if it cannot be
 honored, that participant fails rather than falling back to a default
