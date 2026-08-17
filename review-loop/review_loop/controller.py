@@ -684,8 +684,26 @@ class Controller:
         *,
         dispatch_role: Callable[[DispatchExpectation], tuple[bytes, ProcessCompletion]],
         capacity: int | None = None,
+        multi_review_dispatch: "Callable[[DispatchExpectation], object] | None" = None,
         new_id: Callable[[], str] = _new_id,
     ) -> Round1Outcome:
+        """`multi_review_dispatch`, when supplied, replaces `dispatch_role`
+        for the ``"holistic"`` roster entry only: it is called with the same
+        `DispatchExpectation` and must return a
+        `multi_review.MultiReviewResult` (Task 11 -- the caller-contained
+        fixed-pair multi-review slot). On a validated aggregate, its two
+        qualified reports become two ``RawReport``s for this one roster
+        entry (both role ``"holistic"``, same expectation, distinct
+        preallocated report ids) -- ``run_triage`` already aggregates across
+        however many raw reports Round 1 produced, so no further change is
+        needed there. On a structured ordinary-fallback reason, this falls
+        through to the unchanged `dispatch_role` path below (no multi-review
+        retry). `multi_review.MultiReviewIndeterminate` is never caught here
+        -- target/round-input seal drift propagates straight out, exactly
+        like every other uncaught `ControllerError` this function already
+        raises (design: "target/input seal drift is INDETERMINATE, never
+        fallback").
+        """
         from .execution import default_capacity
 
         if stage0.run_state.stage != "STAGE0":
@@ -733,6 +751,17 @@ class Controller:
                 request_id=request_id, role=role, charter_id=charter_id, target_seal=seal,
                 round_input_seal=None, scope_locator_ids=scope_locator_ids,
             )
+            if role == "holistic" and multi_review_dispatch is not None:
+                mr_result = multi_review_dispatch(expectation)
+                if mr_result.reports is not None:
+                    for qualified in mr_result.reports:
+                        raw_reports.append(
+                            RawReport(report_id=qualified.report_id, role=role, review=qualified.review)
+                        )
+                    continue
+                # structured ordinary-fallback reason: dispatch exactly the
+                # same single-reviewer path every other role already uses,
+                # for this same expectation -- no multi-review retry.
             body, process = dispatch_role(expectation)
             outcome = validate_review_report(body, expectation, process)
             if isinstance(outcome, UnusableReview) or not outcome.usable:
