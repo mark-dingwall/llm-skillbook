@@ -49,10 +49,10 @@ mappings, the `__main__.py` CLI, and troubleshooting.
 
 ## Redesign and history
 
-- [`Review Loop Redesign`](../docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
+- [`Review Loop Redesign`](docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
   — governing design; where this README or `SKILL.md` and that document
   disagree, the design governs.
-- [`docs/history/review-loop/`](../docs/history/review-loop/) — archived
+- [`docs/history/`](docs/history/) — archived
   decision record, prior tier-and-roster plan, and research inputs; retained
   for context, not implementation authority.
 - `tests/baseline/`, `tests/adjudication/`, `tests/dispatch/`,
