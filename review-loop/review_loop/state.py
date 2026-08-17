@@ -19,6 +19,7 @@ POLICIES = {
 }
 REQUIRED_GATE_IDS = ("tests",)
 INVALIDATORS = {"surface_changed", "dependency_changed", "contract_changed", "finding_reopened", "identity_changed", "new_depth_evidence"}
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -257,78 +258,309 @@ def _gates(p: dict[str, object], required_gate_ids: list[str]) -> dict[str, obje
 
 
 def _ledger(p: dict[str, object], prior_state: object) -> dict[str, object]:
-    data=_object(p,"projection",{"prior_rows","decisions","manifests","target_seal","adjudication"})
-    _require(isinstance(data["prior_rows"],list) and isinstance(data["decisions"],list) and isinstance(data["manifests"],list),"projection","ledger lists required")
-    prior_attempt = None
-    if prior_state is not None:
-        _require(
-            isinstance(prior_state, dict),
+    projection_keys = {"decisions", "manifests", "target_seal", "adjudication"}
+    initializing = prior_state is _MISSING
+    data = _object(
+        p,
+        "projection",
+        projection_keys | ({"initial_rows"} if initializing else set()),
+    )
+    _require(
+        isinstance(data["target_seal"], str) and data["target_seal"],
+        "projection.target_seal",
+        "missing seal",
+    )
+    _require(
+        isinstance(data["decisions"], list)
+        and isinstance(data["manifests"], list),
+        "projection",
+        "ledger lists required",
+    )
+
+    canonical = None
+    if initializing:
+        raw_rows = data["initial_rows"]
+        row_path = "projection.initial_rows"
+    else:
+        canonical = _object(
+            prior_state,
             "canonical.apply_ledger_decisions",
-            "must be an object",
+            {
+                "rows",
+                "pending_fix_ids",
+                "round_indeterminate",
+                "next_adjudication",
+            },
         )
-        assert isinstance(prior_state, dict)
-        prior_attempt = prior_state.get("next_adjudication")
+        raw_rows = canonical["rows"]
+        row_path = "canonical.apply_ledger_decisions.rows"
+    _require(isinstance(raw_rows, list), row_path, "must be an array")
+
+    row_fields = {
+        "id",
+        "source_ids",
+        "reported_severity",
+        "current_severity",
+        "factual",
+        "state",
+        "proof_artifact_ids",
+        "manifest_artifact_id",
+        "target_seal",
+    }
+    ledger_states = {"OPEN", "FIX_APPLIED", "FIX_VERIFIED", "REFUTED", "INTENTIONAL"}
+    prior: dict[str, dict[str, object]] = {}
+    for i, raw in enumerate(raw_rows):
+        path = f"{row_path}[{i}]"
+        row = _object(raw, path, row_fields)
+        ident = row["id"]
+        source_ids = _ids(row["source_ids"], f"{path}.source_ids")
+        proof_ids = _ids(row["proof_artifact_ids"], f"{path}.proof_artifact_ids")
+        manifest = row["manifest_artifact_id"]
+        _require(
+            isinstance(ident, str)
+            and ident
+            and ident not in prior
+            and bool(source_ids),
+            path,
+            "invalid row identity",
+        )
+        _require(
+            row["reported_severity"] in CONSEQUENCES
+            and row["current_severity"] in CONSEQUENCES
+            and row["factual"] in {"CONFIRMED", "PLAUSIBLE", "UNVERIFIABLE"}
+            and row["state"] in ledger_states,
+            path,
+            "invalid row state",
+        )
+        _require(
+            row["target_seal"] == data["target_seal"]
+            and (
+                manifest is None
+                or isinstance(manifest, str)
+                and bool(manifest)
+            ),
+            path,
+            "invalid row proof binding",
+        )
+        if initializing:
+            _require(
+                row["state"] == "OPEN" and not proof_ids and manifest is None,
+                path,
+                "initial rows must be unsettled OPEN rows",
+            )
+        normalized = dict(row)
+        normalized["source_ids"] = source_ids
+        normalized["proof_artifact_ids"] = proof_ids
+        prior[ident] = normalized
+
+    prior_attempt = None
+    if canonical is not None:
+        expected_pending = [
+            row["id"]
+            for row in prior.values()
+            if row["state"] in {"OPEN", "FIX_APPLIED"}
+        ]
+        _require(
+            _ids(
+                canonical["pending_fix_ids"],
+                "canonical.apply_ledger_decisions.pending_fix_ids",
+            )
+            == expected_pending,
+            "canonical.apply_ledger_decisions.pending_fix_ids",
+            "does not match canonical rows",
+        )
+        _require(
+            canonical["round_indeterminate"] is False,
+            "canonical.apply_ledger_decisions.round_indeterminate",
+            "must be false",
+        )
+        prior_attempt = canonical["next_adjudication"]
         if prior_attempt is not None:
             prior_attempt = _object(
                 prior_attempt,
                 "canonical.apply_ledger_decisions.next_adjudication",
                 {"attempt", "pending_ids"},
             )
-            _require(
-                prior_attempt["attempt"] == 2,
-                "canonical.apply_ledger_decisions.next_adjudication.attempt",
-                "must schedule attempt two",
-            )
             pending = _ids(
                 prior_attempt["pending_ids"],
                 "canonical.apply_ledger_decisions.next_adjudication.pending_ids",
             )
             _require(
-                bool(pending),
-                "canonical.apply_ledger_decisions.next_adjudication.pending_ids",
-                "must not be empty",
+                prior_attempt["attempt"] == 2
+                and bool(pending)
+                and set(pending) <= set(prior),
+                "canonical.apply_ledger_decisions.next_adjudication",
+                "must schedule known rows for attempt two",
             )
             prior_attempt = {"attempt": 2, "pending_ids": pending}
-    prior={}
-    for i, raw in enumerate(data["prior_rows"]):
-        row=_object(raw,f"projection.prior_rows[{i}]",{"id","source_ids","reported_severity","current_severity","factual","state","proof_artifact_ids","manifest_artifact_id","target_seal"})
-        _require(row["target_seal"]==data["target_seal"] and row["id"] not in prior, f"projection.prior_rows[{i}]", "invalid prior row")
-        prior[row["id"]]=row
-    manifest_map={}
+
+    manifest_map: dict[str, object] = {}
     for i, raw in enumerate(data["manifests"]):
-        manifest=_object(raw,f"projection.manifests[{i}]",{"id","finding_id"})
-        _require(isinstance(manifest["id"],str) and manifest["id"] and manifest["id"] not in manifest_map and manifest["finding_id"] in prior,f"projection.manifests[{i}]","invalid manifest")
-        manifest_map[manifest["id"]]=manifest["finding_id"]
-    proposed={}; green=[]
+        path = f"projection.manifests[{i}]"
+        manifest = _object(raw, path, {"id", "finding_id"})
+        _require(
+            isinstance(manifest["id"], str)
+            and manifest["id"]
+            and manifest["id"] not in manifest_map
+            and manifest["finding_id"] in prior,
+            path,
+            "invalid manifest",
+        )
+        manifest_map[manifest["id"]] = manifest["finding_id"]
+
+    legal = {
+        "OPEN": {"OPEN", "FIX_APPLIED", "REFUTED", "INTENTIONAL"},
+        "FIX_APPLIED": {"OPEN", "FIX_APPLIED", "FIX_VERIFIED"},
+        "FIX_VERIFIED": {"OPEN", "FIX_VERIFIED"},
+        "REFUTED": {"OPEN", "REFUTED"},
+        "INTENTIONAL": {"OPEN", "INTENTIONAL"},
+    }
+    proposed: dict[str, dict[str, object]] = {}
+    green: list[str] = []
     for i, raw in enumerate(data["decisions"]):
-        item=_object(raw,f"projection.decisions[{i}]",{"id","state","proof_artifact_ids","manifest_artifact_id"}); ident=item["id"]; old=prior.get(ident)
-        _require(old is not None and ident not in proposed and item["state"] in {"OPEN","FIX_APPLIED","FIX_VERIFIED","REFUTED","INTENTIONAL"},f"projection.decisions[{i}]","unknown or invalid decision")
-        before, after=old["state"],item["state"]
-        legal={"OPEN":{"OPEN","FIX_APPLIED","REFUTED","INTENTIONAL"},"FIX_APPLIED":{"OPEN","FIX_APPLIED","FIX_VERIFIED"},"FIX_VERIFIED":{"OPEN","FIX_VERIFIED"},"REFUTED":{"OPEN","REFUTED"},"INTENTIONAL":{"OPEN","INTENTIONAL"}}
-        _require(after in legal[before],f"projection.decisions[{i}].state","illegal ledger transition")
-        manifest=item["manifest_artifact_id"]
-        if after == "FIX_APPLIED": _require(manifest_map.get(manifest)==ident,f"projection.decisions[{i}].manifest_artifact_id","manifest must be linked to finding")
-        if after == "FIX_VERIFIED": _require(manifest_map.get(manifest)==ident and manifest==old.get("manifest_artifact_id"),f"projection.decisions[{i}].manifest_artifact_id","must retain linked applied manifest")
-        if after in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: _require(bool(_ids(item["proof_artifact_ids"],f"projection.decisions[{i}].proof_artifact_ids")),f"projection.decisions[{i}]","settlement needs proof")
-        merged=dict(old); merged.update({"state":after,"proof_artifact_ids":item["proof_artifact_ids"],"manifest_artifact_id":manifest}); proposed[ident]=merged
-        if after in {"FIX_VERIFIED","REFUTED","INTENTIONAL"}: green.append(ident)
-    _require(set(proposed)==set(prior),"projection.decisions","must decide every existing row")
-    adjudication=data["adjudication"]
+        path = f"projection.decisions[{i}]"
+        item = _object(
+            raw,
+            path,
+            {"id", "state", "proof_artifact_ids", "manifest_artifact_id"},
+        )
+        ident = item["id"]
+        old = prior.get(ident) if isinstance(ident, str) else None
+        _require(
+            old is not None
+            and ident not in proposed
+            and item["state"] in ledger_states,
+            path,
+            "unknown or invalid decision",
+        )
+        assert old is not None and isinstance(ident, str)
+        before, after = old["state"], item["state"]
+        _require(after in legal[before], f"{path}.state", "illegal ledger transition")
+        proof_ids = _ids(item["proof_artifact_ids"], f"{path}.proof_artifact_ids")
+        manifest = item["manifest_artifact_id"]
+        _require(
+            manifest is None or isinstance(manifest, str) and bool(manifest),
+            f"{path}.manifest_artifact_id",
+            "must be a non-empty ID or null",
+        )
+        if after == "FIX_APPLIED":
+            _require(
+                manifest_map.get(manifest) == ident,
+                f"{path}.manifest_artifact_id",
+                "manifest must be linked to finding",
+            )
+        if after == "FIX_VERIFIED":
+            _require(
+                manifest_map.get(manifest) == ident
+                and manifest == old.get("manifest_artifact_id"),
+                f"{path}.manifest_artifact_id",
+                "must retain linked applied manifest",
+            )
+        if after in {"FIX_VERIFIED", "REFUTED", "INTENTIONAL"}:
+            _require(bool(proof_ids), path, "settlement needs proof")
+        merged = dict(old)
+        merged.update(
+            {
+                "state": after,
+                "proof_artifact_ids": proof_ids,
+                "manifest_artifact_id": manifest,
+            }
+        )
+        proposed[ident] = merged
+        if after in {"FIX_VERIFIED", "REFUTED", "INTENTIONAL"}:
+            green.append(ident)
+    _require(
+        set(proposed) == set(prior),
+        "projection.decisions",
+        "must decide every existing row",
+    )
+
+    adjudication = data["adjudication"]
     if green:
-        _require(isinstance(adjudication,dict),"projection.adjudication","green decisions require adjudication")
-        a=_object(adjudication,"projection.adjudication",{"attempt","status","decided_ids","proof_artifact_id"}); _require(a["attempt"] in {1,2} and a["status"] in {"UPHOLD","BOUNCE","UNDECIDED","FAILED"},"projection.adjudication","invalid attempt")
-        ids=set(_ids(a["decided_ids"],"projection.adjudication.decided_ids")); _require(ids <= set(green),"projection.adjudication.decided_ids","unknown decision")
-        _require(a["status"] in {"FAILED","UNDECIDED"} or isinstance(a["proof_artifact_id"],str) and a["proof_artifact_id"],"projection.adjudication.proof_artifact_id","settled outcome needs proof")
-        if a["status"]=="UPHOLD": _require(ids==set(green),"projection.adjudication","uphold needs all decisions")
-        if a["attempt"] == 1: _require(prior_attempt is None,"canonical.apply_ledger_decisions.next_adjudication","first attempt cannot replay state")
+        _require(
+            isinstance(adjudication, dict),
+            "projection.adjudication",
+            "green decisions require adjudication",
+        )
+        a = _object(
+            adjudication,
+            "projection.adjudication",
+            {"attempt", "status", "decided_ids", "proof_artifact_id"},
+        )
+        _require(
+            a["attempt"] in {1, 2}
+            and a["status"] in {"UPHOLD", "BOUNCE", "UNDECIDED", "FAILED"},
+            "projection.adjudication",
+            "invalid attempt",
+        )
+        ids = set(_ids(a["decided_ids"], "projection.adjudication.decided_ids"))
+        _require(
+            ids <= set(green),
+            "projection.adjudication.decided_ids",
+            "unknown decision",
+        )
+        _require(
+            a["status"] in {"FAILED", "UNDECIDED"}
+            or isinstance(a["proof_artifact_id"], str)
+            and bool(a["proof_artifact_id"]),
+            "projection.adjudication.proof_artifact_id",
+            "settled outcome needs proof",
+        )
+        if a["status"] in {"UPHOLD", "BOUNCE"}:
+            _require(
+                ids == set(green),
+                "projection.adjudication",
+                "settled outcome must decide every green decision",
+            )
+        if a["attempt"] == 1:
+            _require(
+                prior_attempt is None,
+                "canonical.apply_ledger_decisions.next_adjudication",
+                "first attempt cannot replay state",
+            )
         else:
-            expected={"attempt":2,"pending_ids":green}
-            _require(prior_attempt==expected,"canonical.apply_ledger_decisions.next_adjudication","attempt two must consume prior retry state")
-        if a["status"] in {"FAILED","UNDECIDED"} and a["attempt"]==1: return {"rows":list(prior.values()),"pending_fix_ids":[r["id"] for r in prior.values() if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":{"attempt":2,"pending_ids":green}}
-        if a["status"] in {"FAILED","UNDECIDED"}: proposed={ident:prior[ident] for ident in prior}
-        if a["status"]=="BOUNCE": proposed={ident:(prior[ident] if ident in ids else value) for ident,value in proposed.items()}
-    else: _require(adjudication is None and prior_attempt is None,"projection.adjudication","no adjudication pending")
-    rows=list(proposed.values()); return {"rows":rows,"pending_fix_ids":[r["id"] for r in rows if r["state"] in {"OPEN","FIX_APPLIED"}],"round_indeterminate":False,"next_adjudication":None}
+            expected = {"attempt": 2, "pending_ids": green}
+            _require(
+                prior_attempt == expected,
+                "canonical.apply_ledger_decisions.next_adjudication",
+                "attempt two must consume prior retry state",
+            )
+        if a["status"] in {"FAILED", "UNDECIDED"} and a["attempt"] == 1:
+            rows = list(prior.values())
+            return {
+                "rows": rows,
+                "pending_fix_ids": [
+                    row["id"]
+                    for row in rows
+                    if row["state"] in {"OPEN", "FIX_APPLIED"}
+                ],
+                "round_indeterminate": False,
+                "next_adjudication": {"attempt": 2, "pending_ids": green},
+            }
+        if a["status"] in {"FAILED", "UNDECIDED"}:
+            proposed = {ident: prior[ident] for ident in prior}
+        if a["status"] == "BOUNCE":
+            proposed = {
+                ident: (prior[ident] if ident in ids else value)
+                for ident, value in proposed.items()
+            }
+    else:
+        _require(
+            adjudication is None and prior_attempt is None,
+            "projection.adjudication",
+            "no adjudication pending",
+        )
+    rows = list(proposed.values())
+    return {
+        "rows": rows,
+        "pending_fix_ids": [
+            row["id"]
+            for row in rows
+            if row["state"] in {"OPEN", "FIX_APPLIED"}
+        ],
+        "round_indeterminate": False,
+        "next_adjudication": None,
+    }
 
 
 def _challenge(p: dict[str, object]) -> dict[str, object]:
@@ -392,7 +624,7 @@ def apply(envelope: TransitionEnvelope, snapshot: dict[str, object], authority: 
         if envelope.operation == "apply_ledger_decisions":
             result = _ledger(
                 envelope.projection,
-                processor_state.get("apply_ledger_decisions"),
+                processor_state.get("apply_ledger_decisions", _MISSING),
             )
         elif envelope.operation == "reconcile_gates":
             result = _gates(
