@@ -70,8 +70,8 @@ own docstring for the full rationale:
     stage from persisted `processor_state` keys. `CANCELLED_BEFORE_REVIEW`
     and an awaiting-confirmation `INDETERMINATE` have no durable marker yet
     (see `RunState`'s docstring in `controller.py`) and both currently
-    report as `STAGE0` on recovery — a disclosed limitation, not a bug fix
-    owed to this task (`tests/ACCEPTANCE.md`).
+    report as `STAGE0` on recovery — a disclosed recovery limitation, not a
+    caller-repairable condition.
   - `report --run-root <path>` — writes `<run_root>/REPORT.md` via
     `report.generate_report` and prints its path.
 - **Test-only**: `python3 -m review_loop --test-fixture`, JSON `{"snapshot":
