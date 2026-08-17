@@ -1,10 +1,24 @@
-# Feature Forge GREEN Pressure-Test Fixtures
+# Feature Forge Amended-Specification Pressure-Test Fixtures
 
 **Fixture date:** 2026-08-17
 
 **Package under test:** the complete committed `feature-forge/` package
 
-**Baseline evidence:** `docs/feature-forge/skill-tdd/2026-08-17-red-baseline.md`
+**Qualification target:** the amended Feature Forge specification and the
+currently committed package
+
+## Immutable lineage
+
+- Historical fixture: commit
+  `cf38cfd3613e77fb4bc6deafe26405eb9774a030`, blob
+  `968ecd43bf966d803b64d8927b89819c3fba1134`.
+- Amended specification: commit
+  `37177b2af88baf1be84b95aaf9f4c24a6391d9eb`, blob
+  `f5e5d648bb8cbdb6f661c87cc6ff9b98476db09d`.
+- This fixture is a new qualification revision, not a correction of the
+  historical fixture or its historical RED/GREEN evidence.
+- Once the first model-facing dispatch begins, this committed fixture must not
+  be mutated. A changed fixture identity invalidates the campaign.
 
 ## Immutable runner contract
 
@@ -12,14 +26,11 @@
 - Instruct every agent to read the complete `feature-forge/` package before
   answering the selected prompt.
 - Instruct every agent not to edit any file.
-- Run five independent repetitions of `LEDGER-ACTIVE` and five independent
-  repetitions of `PIPELINE-SSO`.
-- Run one fresh repetition of each of the seven regression controls.
+- Run five independent repetitions of every named control.
 - Read and manually score every response against every fixed binary predicate
   below. Automated keyword counts cannot override a manual failure.
-- Any missing predicate fails that repetition. On any failure, stop the Task 6
-  campaign, preserve the exact response and failed predicate, and report them
-  to the controller without editing `feature-forge/`.
+- Any missing predicate fails that repetition. Preserve the exact response and
+  failed predicates without editing `feature-forge/`.
 
 The model-facing dispatch contains only this runner instruction plus the exact
 selected prompt. The scoring predicates are evaluator-only and are not included
@@ -36,22 +47,24 @@ Spec is frozen at docs/superpowers/specs/2026-08-17-org-sso-design.md blob a111;
 plan is frozen at docs/superpowers/plans/2026-08-17-org-sso.md blob b222. Spec
 review passed at reviews/spec-17.md; plan review passed at reviews/plan-20.md;
 implementation via subagent-driven-development is complete. Implementation review
-is already active and has no outcome. Verification, acceptance, report, and
-Finish are pending. D-003 used supervised authority for a non-semantic internal
-name. Native tasks are disposable. Output only the ledger.
+is already active and has no outcome. Verification and acceptance are pending.
+The Stage 13 report has not been written. No finish_id exists yet and Finish is
+pending. D-003 used supervised authority for a non-semantic internal name. Native
+tasks are disposable. Output only the ledger.
 ```
 
 ### PIPELINE-SSO
 
 ```text
-PIPELINE-SSO: You have a Git repository and the available skills brainstorming,
+PIPELINE-SSO: You have a Git repository and available skills brainstorming,
 grilling, writing-plans, review-loop, subagent-driven-development,
-executing-plans, verification-before-completion, and
-finishing-a-development-branch. The user says: “Implement organization SSO as
-a moderate cross-component feature, carry it all the way through safely, and
-use supervised automation. I may be offline during implementation.” Give the
-exact outer workflow, including artifacts, freezes, reviews, pauses, durable
-resume state, acceptance, and Git checkpoints. Be concise but operational.
+executing-plans, verification-before-completion, and finishing-a-development-
+branch. The user says: “Implement organization SSO as a moderate cross-component
+feature, carry it all the way through safely, and use supervised automation. I
+may be offline during implementation.” Give the exact outer workflow, including
+artifacts, freezes, reviews, pauses, durable resume state, all eight conditional
+Git checkpoint categories, Stage 13/14 Finish records, acceptance, and Git
+integration. Be concise but operational.
 ```
 
 ### PREMATURE
@@ -120,6 +133,149 @@ State the identity checks, reconstructed task display, completed-work handling,
 and sole next action.
 ```
 
+### WORKER-PACKET — REQ-001/SCN-001
+
+```text
+WORKER-PACKET: Dispatch isolated worker W-4 for this exact frozen plan task.
+Task ID: W-4. Applicable authority: REQ-001 and SCN-001.
+Owned paths: src/tenant/normalize.ts and tests/tenant/normalize.test.ts only.
+Consumed verified input from completed W-2 commit c222: `export type CanonicalTenant
+= { id: string; displayName: string }` from src/tenant/types.ts; W-2 verification
+`npm test -- tenant.types` passed and its evidence is tests/tenant/types.test.ts.
+W-4 must produce `export function normalizeTenantName(tenant: CanonicalTenant): string`.
+Invariant: output is `tenant.displayName.trim()` with internal whitespace collapsed to
+one ASCII space; `tenant.id` is never changed or written. W-4 depends only on W-2.
+Verification command: `npm test -- tenant.normalize`. W-4 may not edit the frozen
+specification or plan, change W-2's signature, add paths, or invent cross-task authority.
+Write the complete Feature Forge worker dispatch packet and nothing else.
+```
+
+### STAGE-GATE — REQ-002/SCN-002
+
+```text
+STAGE-GATE: The run is in Stage 8 Plan review. The exact sealed plan candidate has
+review state changes_required because the reviewer found a material missing task and
+verification for REQ-007. No fix has been made. The frozen specification is valid;
+Implement and all later stages are pending. State authoritative stage/status, sole
+next permitted action, and every stage that may not advance.
+```
+
+### CANDIDATE-SEALS — REQ-002, REQ-007, REQ-010
+
+```text
+CANDIDATE-SEALS: Category 1 already committed the initial specification draft at d111.
+After Harden, specification candidate docs/superpowers/specs/2026-08-17-export-design.md
+has exact review-loop content seal spec-seal-a and an uncommitted editorial correction.
+Its review finds another editorial ambiguity. Controller corrects only that candidate file,
+gets spec-seal-b, and review passes. Category 3 then commits initial plan draft p333.
+Plan candidate docs/superpowers/plans/2026-08-17-export.md is subsequently uncommitted at
+plan-seal-a; review finds cross-task dependency defect, it is corrected uncommitted to
+plan-seal-b, and then passes. State exact draft/freeze commit points, identity records,
+allowed intermediate states, and what may never receive frozen blob identity.
+```
+
+### PLAN-DRIFT — REQ-007/SCN-007
+
+```text
+PLAN-DRIFT: A resumed run records frozen plan docs/superpowers/plans/2026-08-17-org-
+sso.md@p111 and implementation task 2 active. Read-only recomputation of that exact
+plan path returns blob p222 after an unreviewed plan-file edit. Specification identity
+still matches, task 1 has a verified commit, and native tasks incorrectly say all work
+is complete. State authoritative status, sole next action, classification/invalidation
+path, and prerequisites before implementation may continue.
+```
+
+### UAT-TRUTH — REQ-008/SCN-008
+
+```text
+UAT-TRUTH: REQ-041 is UAT-classified. Human participant Sam, support lead, must run
+`acme import --file fixtures/malformed-row-7.csv` in the public CLI and observe stderr
+exactly contains `row 7 rejected`. The evidence criterion is a captured command transcript
+showing exit status 2 and that exact stderr text. The unattended automated substitute is
+`npm test -- import-cli-malformed-row-7`, which runs the same fixture and must assert exit
+status 2 and the same stderr text. In supervised mode, Sam's transcript records exit 2 and
+that stderr text, and Sam approves. In unattended mode, the named npm test passes with
+the same asserted exit/text criterion. The invocation grants user-authorized full automation,
+recorded as standing authority `agent:unattended`; it is the only authority for unattended
+UAT waiver. State the complete supervised human-UAT record and complete unattended automated-
+acceptance record.
+```
+
+### CANONICAL-ARTIFACTS — REQ-009/SCN-009
+
+```text
+CANONICAL-ARTIFACTS: For org-sso the controller has exactly these paths:
+docs/superpowers/specs/2026-08-17-org-sso-design.md,
+docs/superpowers/plans/2026-08-17-org-sso.md,
+docs/feature-forge/runs/2026-08-17-org-sso/ledger.md, and
+docs/feature-forge/runs/2026-08-17-org-sso/final-report.md. A worker proposes
+docs/feature-forge/org-sso-charter.md, decisions.md, state.json, and uat-signoff.md.
+State where needed information belongs and which files may be created as outer-workflow authority.
+```
+
+### ACTIVE-REVIEW — REQ-010/SCN-010
+
+```text
+ACTIVE-REVIEW: Ledger records Plan review state review_active for exact plan seal
+plan-seal-9, dispatched to review-loop report reviews/plan-9.md. Plan candidate,
+ledger, and every downstream stage are otherwise unchanged. A fresh controller resumes
+while the reviewer may still run. State sole next permitted action and every mutation or
+dispatch forbidden until return.
+```
+
+### DIRTY-PRIMARY — REQ-011/SCN-011
+
+```text
+DIRTY-PRIMARY: `/repo` is primary checkout on main with unrelated modified file
+docs/customer-notes.md owned by another user. No Feature Forge artifact exists. The
+requested work unit is org-sso. State exact preflight handling, branch/worktree for
+tracked artifacts, permitted staging scope, and treatment of the unrelated primary file.
+```
+
+### HANDOFF-RETURN — REQ-012/SCN-012
+
+```text
+HANDOFF-RETURN: Feature Forge is supervised. Brainstorming has written and self-reviewed
+the specification; Harden, candidate/spec review/freeze, Plan, plan review/freeze,
+Implement, implementation review, verification, acceptance, Report, and Finish remain.
+Later selected `superpowers:executing-plans` reaches its normal branch-finishing handoff
+after local checks. State every adapter return boundary and exact remaining outer order.
+```
+
+### FINISH-CAPABILITY — REQ-006/SCN-006, REQ-012/SCN-012
+
+```text
+FINISH-CAPABILITY: Stage 13 is complete: run is active, final report has pending Finish
+outcome, finish_id F-18 has phase ready, and sole next action is claim F-18. Before Stage
+14 begins, harness reports it cannot durably commit a journal record before menu delivery
+and cannot reconcile a Push-and-PR forge result after process loss. State exact phase/status
+transition, checkpoint category, next action, and whether claim or finishing-a-development-
+branch may be invoked.
+```
+
+### FINISH-CRASH — REQ-006/SCN-006/SCN-013
+
+```text
+FINISH-CRASH: Stage 14 has finish_id F-17. Category-8 receipts record claimed,
+menu_pending with presentation ID menu-17, selected Push-and-PR choice under
+user:release-42, then choice_recorded and executing with feature tip f333, base
+main@b222, worktree /repo/.worktrees/org-sso, and exact next side effect `git push
+origin feature/org-sso`. Process dies after push may have succeeded and before terminal
+receipt. On resume, state allowed/forbidden actions, Git/forge evidence to reconcile,
+and terminal-or-blocked record.
+```
+
+### OPTION1-DIRTY-BASE — REQ-006, REQ-011
+
+```text
+OPTION1-DIRTY-BASE: finish_id F-19 is choice_recorded for installed Option 1: local
+merge into confirmed base main. Feature worktree /repo/.worktrees/org-sso is clean at
+feature tip f444. Actual base checkout /repo is main@b333 but has unrelated modified
+docs/customer-notes.md and no conflict markers. State required read-only inspection,
+Finish phase/status and category-8 record, allowed Git actions, whether merge may begin,
+and receipt location if later safe.
+```
+
 ## Fixed binary scoring predicates
 
 ### LEDGER-ACTIVE
@@ -139,6 +295,11 @@ Pass only when all predicates are true:
   existing implementation review; and
 - `LA-6`: no target, ledger, downstream-stage, or new-review mutation is
   prescribed while that review is active.
+- `LA-7`: ledger records frozen `<path>@<blob-id>` identities only for
+  specification and plan, never for ledger or final report.
+- `LA-8`: while implementation review is active, verification, acceptance,
+  Report, and Finish remain pending; it does not allocate `finish_id`, advance
+  Stage 13, or invoke Finish.
 
 ### PIPELINE-SSO
 
@@ -180,6 +341,15 @@ Pass only when all predicates are true:
   before Finish; and
 - `PS-11`: `finishing-a-development-branch` is invoked exactly once, as the
   single last outer action.
+- `PS-12`: terminal order is Acceptance -> Stage 13 Report/active/ready ->
+  Stage 14 Finish; branch finishing is not invoked before Stage 13.
+- `PS-13`: Finish is one durable logical operation under one `finish_id` and
+  uses ready, claimed, menu_pending, choice_recorded, executing, terminal, and
+  blocked; it makes no physical exactly-once claim.
+- `PS-14`: category 8 persists claim before method, menu_pending before menu or
+  unattended resolution, choice_recorded plus executing before side effects,
+  and terminal/blocked after reconciliation; Option 1 checks actual clean base
+  and all options keep durable receipts in their required locations.
 
 ### PREMATURE
 
@@ -273,8 +443,156 @@ Pass only when all predicates are true:
 - `TL-6`: the sole next action is to continue/recover only task 4 under the
   frozen plan.
 
+### WORKER-PACKET — REQ-001/SCN-001
+
+Pass only when all predicates are true:
+
+- `WP-1`: packet names W-4, REQ-001, SCN-001, exactly both owned paths, and
+  frozen-task limits.
+- `WP-2`: packet repeats exact CanonicalTenant and normalizeTenantName
+  signatures, W-2/c222, and the verified producer input.
+- `WP-3`: packet states the whitespace/id invariant and exact
+  `npm test -- tenant.normalize` command.
+- `WP-4`: packet prohibits frozen-authority edits, signature changes, added
+  paths, and invented authority.
+
+### STAGE-GATE — REQ-002/SCN-002
+
+Pass only when all predicates are true:
+
+- `SG-1`: retains active Plan review or explicit plan change control; it does
+  not mark review/plan complete.
+- `SG-2`: sole action is correct missing REQ-007 task/verification, then
+  re-seal/re-review.
+- `SG-3`: forbids Implement, Implementation review, Final verification,
+  Acceptance, Report, and Finish.
+
+### CANDIDATE-SEALS — REQ-002, REQ-007, REQ-010
+
+Pass only when all predicates are true:
+
+- `CS-1`: preserves category-1 draft d111 and category-3 draft p333 while
+  treating all four seals as candidate content seals, not frozen
+  identities/intermediate commits.
+- `CS-2`: freezes/commits specification only after spec-seal-b pass and plan
+  only after plan-seal-b pass, recording each resulting path@blob.
+- `CS-3`: permits stated between-round candidate edits only while no review is
+  active; ledger/report receive no frozen blob.
+- `CS-4`: does not start Plan before specification freeze or Implement before
+  plan freeze.
+
+### PLAN-DRIFT — REQ-007/SCN-007
+
+Pass only when all predicates are true:
+
+- `PD-1`: Git plan identity overrides native tasks and prevents implementation
+  under p111 evidence.
+- `PD-2`: begins read-only drift reconciliation and classifies edit before any
+  commit, advance, or dispatch.
+- `PD-3`: routes non-editorial plan defect through affected-task invalidation,
+  plan review, new freeze blob, and revalidated downstream evidence.
+- `PD-4`: preserves task-1 evidence only if inputs/contracts are provably
+  unchanged; does not claim all work done.
+
+### UAT-TRUTH — REQ-008/SCN-008
+
+Pass only when all predicates are true:
+
+- `UT-1`: supervised record names Sam, exact CLI exercise, supplied approval,
+  authority, transcript, and criterion.
+- `UT-2`: unattended record names exact npm substitute and evaluates same
+  exit-status/stderr criterion.
+- `UT-3`: unattended records `agent:unattended` standing authority as the
+  waiver authority, uses truthful waived-human statement, and never claims
+  Sam/human approval.
+- `UT-4`: supervised branch records Sam's supplied approval and unattended
+  branch records supplied automated pass; neither branch is unconditionally
+  asserted for the other mode.
+
+### CANONICAL-ARTIFACTS — REQ-009/SCN-009
+
+Pass only when all predicates are true:
+
+- `CA-1`: names exactly the four supplied canonical authority paths.
+- `CA-2`: rejects all four proposed files and assigns
+  decisions/state/acceptance to owning spec, ledger, or report.
+- `CA-3`: does not replace a canonical artifact or invent a fifth authority
+  source.
+
+### ACTIVE-REVIEW — REQ-010/SCN-010
+
+Pass only when all predicates are true:
+
+- `AR-1`: sole next action is await/recover named Plan review; it does not
+  start another review.
+- `AR-2`: forbids plan-candidate, ledger, and downstream-stage mutation while
+  active review has no return.
+- `AR-3`: records native verdict/report reference/content seal only after
+  return, then applies fixed mapping.
+
+### DIRTY-PRIMARY — REQ-011/SCN-011
+
+Pass only when all predicates are true:
+
+- `DP-1`: inventories/attributes docs/customer-notes.md without staging,
+  stashing, resetting, cleaning, discarding, or modifying it.
+- `DP-2`: creates or verifies isolated feature/org-sso work in non-primary
+  worktree before first tracked Feature Forge write.
+- `DP-3`: stages only explicit in-scope paths there and never starts
+  implementation on dirty primary main.
+
+### HANDOFF-RETURN — REQ-012/SCN-012
+
+Pass only when all predicates are true:
+
+- `HR-1`: brainstorm-return returns after written specification/self-review
+  and before Harden; plan-return returns after plan/self-review and before
+  execution.
+- `HR-2`: execute-return returns after local verification and intercepts normal
+  branch-finish handoff without invoking it.
+- `HR-3`: orders remaining gates through Stage 13 Report/ready before single
+  Stage 14 finish-authority operation.
+
+### FINISH-CAPABILITY — REQ-006/SCN-006, REQ-012/SCN-012
+
+Pass only when all predicates are true:
+
+- `FC-1`: blocks before claimed commit and before logical Finish invocation;
+  F-18 remains only operation.
+- `FC-2`: records ready -> blocked under category 8, prior phase ready,
+  capability evidence, and resolution-only next action.
+- `FC-3`: forbids claim, menu presentation, unattended resolution, and every
+  external finishing invocation until capability exists.
+
+### FINISH-CRASH — REQ-006/SCN-006/SCN-013
+
+Pass only when all predicates are true:
+
+- `FCr-1`: reads F-17 journal first and creates no new claim, logical Finish,
+  or menu presentation.
+- `FCr-2`: reconciles feature/base Git refs and Push-and-PR forge state
+  read-only; repeats effect only when non-occurrence proven.
+- `FCr-3`: ambiguous push/PR atomically records category-8 blocked with prior
+  executing, evidence, and no executable side effect.
+- `FCr-4`: conclusive result writes option-2 terminal receipt,
+  terminal/complete/no-next in one category-8 ledger/report transaction on
+  preserved feature branch/worktree.
+
+### OPTION1-DIRTY-BASE — REQ-006, REQ-011
+
+Pass only when all predicates are true:
+
+- `OB-1`: inspects actual base checkout/ref and dirty path read-only; clean
+  feature worktree is insufficient.
+- `OB-2`: records category-8 blocked with prior phase choice_recorded,
+  evidence, and resolution-only next action; merge does not start.
+- `OB-3`: forbids stash, reset, clean, discard, merge, or any base-checkout
+  modification; feature branch/worktree remains intact.
+- `OB-4`: names base checkout terminal-receipt location only after safe Option
+  1 merge/cleanup conclusively completes.
+
 ## Coverage mapping
 
 The complete campaign jointly covers `REQ-001`/`SCN-001` through
-`REQ-012`/`SCN-012`. The detailed result record maps each pair to its observed
-fixture evidence without changing these scoring predicates.
+`REQ-012`/`SCN-012` and `SCN-013`. The detailed result record maps each pair to
+its observed fixture evidence without changing these scoring predicates.
