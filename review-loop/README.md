@@ -1,85 +1,77 @@
 # review-loop
 
-A deterministic controller for multi-round external code/document review
-that actually converges: reviewers find, TRIAGE verifies findings against
-sources into a ledger, FIX resolves accepted findings under contained
-mutation, and CLOSE computes both verdicts mechanically from the ledger —
-never from a round's silence or an aggregate "looks clean."
+`review-loop` is a deterministic controller for an external code or document
+review. It records a sealed target, review evidence, TRIAGE decisions, and
+FIX evidence in a canonical ledger. Code, not a reviewer saying "looks
+clean", derives the terminal verdict and merge-readiness from that ledger.
 
-**Core principle: a green verdict is a ledger fact, checked by code, not
-asserted by an LLM.** State transitions, sealing, containment, and the two
-terminal verdicts are owned by `review_loop/state.py`'s kernel and the
-helpers around it; LLMs own only semantic judgment (risk identity, rating,
-findings, adjudication) within resource-scoped prompts they cannot escape.
+> No known material defect after risk-proportionate independent challenge and
+> applicable deterministic evidence gates.
 
-> No known material defect, after the artifact has survived risk-proportionate
-> independent challenge and all applicable deterministic evidence gates.
+That is a qualified operational verdict, never proof. A hand-back must name
+the evidence that ran, evidence gaps, degraded behavior, and residual limits.
 
-This is a qualified operational claim, never proof — see `SKILL.md`'s North
-Star and every hand-back's disclosed evidence and residual limitations.
+## Operating the current boundary
 
-## How it works
+The production CLI intentionally handles only durable mechanical operations:
+
+- `create-run` seals the target and records invocation intent.
+- `status` recovers the furthest durable stage.
+- `report` renders the canonical run report.
+
+The role-driving stages — Stage 0, review, TRIAGE, FIX, adjudication, final
+challenge, and CLOSE — require a host/controller caller. That caller renders
+the applicable role prompt, dispatches it through a tested containment mapping,
+validates the raw result, and calls the controller. It must not substitute a
+shell state machine or caller-authored canonical projections. See
+[SKILL.md](SKILL.md) for the controller contract and [dispatch.md](dispatch.md)
+for CLI requests and execution mappings.
+
+The lifecycle is:
 
 ```
-PREFLIGHT   seal target, resolve profile/deadline/tier intent, ground truth
-STAGE0      evidence scout + gates, inventory (owner → challenge), rating
-REVIEW      freeze roster, dispatch holistic + adversarial + specialists
-TRIAGE      strict-JSON triage of every usable raw report → ledger
-FIX         contained mutation, manifest- and delta-verified
-CLOSE       final-readiness challenge, then the mechanical terminal rollup
+PREFLIGHT → STAGE0 → REVIEW → TRIAGE → FIX → CLOSE
 ```
 
-See `SKILL.md` for the full controller contract (stages, invariants, role
-dispatch, confirmation behavior, hand-back), and `dispatch.md` for execution
-mappings, the `__main__.py` CLI, and troubleshooting.
+At any unsafe or incomplete boundary, the run fails closed rather than
+silently continuing. A failed applicable gate, seal mismatch, malformed role
+output after its retry, expired deadline, or uncontained dispatch prevents a
+green result.
 
-## Files
+## Current scope and limits
 
-- `SKILL.md` — the controller contract (the skill itself)
-- `dispatch.md` — execution mappings, the CLI, troubleshooting
-- `DESIGNING_PROFILES.md` — operator-facing profile schema and recipes
-- `review_loop/` — the implementation: `controller.py` (orchestrator),
-  `state.py` (compact-projection kernel), `artifacts.py` (canonical
-  store + projection authority), `seals.py`, `evidence.py`, `fix.py`,
-  `profiles.py`, `prompts.py`, `report.py`, `multi_review.py`,
-  `resources/*.md` (per-role prompt resources), `__main__.py` (CLI)
-- `tests/ACCEPTANCE.md` — MVP acceptance record: criteria, evidence, status
-- `tests/behavior/` — RED/GREEN behavioral controls for `SKILL.md` itself
-- `tests/{unit,integration,contract}/` — the deterministic suite
+A single review round is wired end to end. When TRIAGE leaves Important or
+Critical findings open, the sole FIX role works in a contained disposable
+copy; its candidate delta and post-FIX gates are verified before an exact
+write-back can promote the result to the authoritative target. Later-round
+TRIAGE reconciliation, baseline advancement, inventory refresh, and
+restaffing are not wired and are refused rather than approximated.
 
-## Install
+Multi-review is available only when the host explicitly supplies its adapter;
+ordinary review remains the default. Use that opt-in only for a high/max run
+whose operator accepts the documented containment residuals. If its driver,
+containment, or fixed participant is unavailable, the holistic slot falls back
+once to ordinary review; seal drift is indeterminate, never a fallback.
 
-Code-backed skill — needs [`uv`](https://docs.astral.sh/uv/). Its Python runs
-from any working directory via `scripts/py` (`uv run --project <skill> --locked`).
+There are also deliberately visible reporting and recovery limits:
 
-```bash
-python3 ../install.py review-loop --target both      # ~/.claude + ~/.agents/skills
-python3 ../install.py review-loop --target both --dev # symlink for edit-in-place
-```
+- `status` cannot durably distinguish a pre-review cancellation or a
+  confirmation-stage indeterminate result from a Stage 0 interruption.
+- The generated report renders canonical verdicts and ledger state, but its
+  mutation-evidence and degraded-behavior sections are not yet fully derived
+  from run state.
+- `merge_ready` is mechanical and conservative; the current kernel does not
+  yet represent a distinct "converged but not merge-ready" terminal outcome.
+- A final-readiness `BLOCK` stops closed because its supplemental-TRIAGE path
+  is not yet implemented.
 
-In-repo, Claude uses the `.claude-plugin/` marketplace and Codex auto-discovers
-via `.agents/skills/`. See the [repo README](../README.md#install).
+[DESIGNING_PROFILES.md](DESIGNING_PROFILES.md) explains the optional,
+safety-bounded profile format.
 
-## Redesign and history
+## History
 
-- [`Review Loop Redesign`](docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
-  — governing design; where this README or `SKILL.md` and that document
-  disagree, the design governs.
-- [`docs/history/`](docs/history/) — archived
-  decision record, prior tier-and-roster plan, and research inputs; retained
-  for context, not implementation authority.
-- `tests/baseline/`, `tests/adjudication/`, `tests/dispatch/`,
-  `tests/state-processor/` — RED/GREEN and TDD evidence from the prior
-  hand-rolled-loop and bounded-prototype implementations; retained as
-  historical evidence, not a description of the current controller.
-
-## Known limitations
-
-See `tests/ACCEPTANCE.md` for the authoritative, evidence-linked list. In
-summary: multi-round FIX/inventory-refresh/adjudication reconciliation onto
-prior canonical rows is not yet wired (single-round FIX only); multi-review
-is implemented and tested but not default-wired into ordinary Round 1
-dispatch (opt-in, see `SKILL.md`); `__main__.py`'s `status` recovery cannot
-yet distinguish `CANCELLED_BEFORE_REVIEW`/awaiting-confirmation from a
-mid-Stage-0 crash; multi-review's disclosed OAuth-token-sharing and
-post-publish-forge-race residuals apply whenever it runs.
+The [historical materials](docs/history/) preserve superseded workflows and
+research as context, not operating authority. The retained [redesign
+document](docs/superpowers/specs/2026-08-14-review-loop-redesign-design.md)
+is design lineage; current operation follows the shipped skill, dispatch
+guidance, and controller behavior.
