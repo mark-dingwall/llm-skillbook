@@ -5,7 +5,7 @@ Code and OpenAI Codex. Choose the smallest workflow that matches the job:
 
 | Workflow | Use it for |
 |---|---|
-| [Feature Forge](feature-forge/README.md) | Carrying a bounded, nontrivial Git work unit from specification through reviewed acceptance |
+| [feature-forge](feature-forge/README.md) | Carrying a bounded, nontrivial Git work unit from specification through reviewed acceptance |
 | [multi-review](multi-review/README.md) | Collecting parallel reviews from configured AI tools and assembling one report |
 | [review-loop](review-loop/README.md) | Running a fail-closed, ledger-backed review process through an external host/controller |
 | [review-team](review-team/README.md) | Getting a high-confidence, read-only review from independent workers |
