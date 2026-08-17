@@ -1,6 +1,6 @@
 # Feature Forge
 
-**Status:** Frozen specification baseline
+**Status:** Frozen amended specification baseline
 
 **Date:** 2026-08-17
 
@@ -116,8 +116,10 @@ Feature Forge explicitly regains control at these boundaries:
    or begin execution.
 3. The selected execution skill returns after all implementation tasks and
    their local verification; it does not invoke branch finishing.
-4. Branch finishing is invoked exactly once, by Feature Forge, at the terminal
-   stage.
+4. Branch finishing is invoked as one durable logical Finish operation, by
+   Feature Forge, at the terminal stage. The operation is keyed by a stable
+   `finish_id`; process-crash recovery resumes that operation rather than
+   invoking a second one.
 
 These are caller-owned adapter boundaries, not requests to alter the installed
 subskills. Feature Forge supplies four named adapter contracts:
@@ -134,17 +136,29 @@ subskills. Feature Forge supplies four named adapter contracts:
 - `execute-return`: perform the selected execution skill's complete task and
   local-review method, then return the implementation result instead of
   invoking branch finishing or deleting caller-owned progress state; and
-- `finish-authority`: in interactive/supervised mode, perform the complete
-  branch-finishing method including its integration menu. In unattended mode,
-  retain its verification and environment checks but replace the synchronous
-  menu with the invocation's pre-authorized outcome, defaulting to its
+- `finish-authority`: perform the complete branch-finishing method: run its
+  fresh tests, detect the Git/worktree environment, determine and where needed
+  confirm the base, preserve all three installed choices, and execute the
+  selected choice. In interactive/supervised mode, present the installed
+  integration menu once. In unattended mode, replace only that synchronous
+  menu with the invocation's recorded pre-authorized choice, defaulting to its
   non-destructive Keep option; never infer push, merge, deploy, publish, or
-  cleanup authority.
+  cleanup authority. Feature Forge wraps that method with the durable journal
+  boundaries in Section 13: the claim commit before the method begins, the
+  choice/executing commit before side effects, and the terminal-or-blocked
+  commit after reconciliation. The installed skill exposes no callback or
+  resumable runtime handle; recovery reads the journal and continues the same
+  method under the existing `finish_id`. It must never create a second claim,
+  re-present a possibly presented menu, or start a second logical Finish
+  operation.
 
 Each adapter replaces only the deviations explicitly enumerated in its named
 contract. If the harness cannot enforce that contract, Feature Forge blocks
 before invocation rather than allowing a duplicate or premature transition.
-The package documents the exact adapter prompts as part of the MVP.
+In particular, if the environment cannot durably interleave the Finish journal
+with menu selection and side effects or cannot reconcile Git and forge state
+on recovery, it blocks before the Finish claim. The package documents the exact
+adapter prompts as part of the MVP.
 
 ## 5. Canonical artifacts
 
@@ -173,6 +187,12 @@ The ledger is the durable source of coarse workflow state. Harness-native
 tasks are a disposable projection. The specification is the semantic source of
 requirements and decisions. The plan is the source of implementation tasks.
 The ledger links to those documents; it does not duplicate their prose.
+
+Frozen blob identities apply only to the independently reviewed and frozen
+specification and plan. The ledger and final report are deliberately mutable
+run records: their truth is established by transition history, checkpoint
+commits, and durable Finish receipts, not by pretending that their Stage 13
+content is a terminal frozen identity.
 
 `review-loop` artifacts must remain outside the target tree sealed at dispatch,
 as required by that skill. Feature Forge calls it with the exact subject,
@@ -213,10 +233,12 @@ It contains:
 11. Open questions
 
 The acceptance portion classifies each requirement's acceptance method as
-`automated`, `UAT`, or `not_applicable`. A UAT entry names the participant and
-observable exercise plus an unattended automated substitute and its evidence
-criterion. If no adequate substitute exists, unattended mode blocks rather
-than weakening acceptance. `not_applicable` includes a rationale. Run-time UAT
+`automated`, `UAT`, or `not_applicable`. A UAT entry names the participant, the
+observable exercise, the unattended automated substitute, and the criterion
+that the substitute's evidence must satisfy. All four fields are required; a
+substitute without an explicit evidence criterion is not adequate. If no
+adequate substitute exists, unattended mode blocks rather than weakening
+acceptance. `not_applicable` includes a rationale. Run-time UAT
 state is `pending`, `approved`, `rejected`, `infeasible`, or `waived`, with
 authority and evidence. `rejected` returns to defect classification;
 `infeasible` blocks unless the user waives or changes the method. Only the user
@@ -327,6 +349,9 @@ After specification review passes, its committed content identity becomes the
 it. A later-discovered specification defect creates an explicit change request
 and returns to the minimum necessary specification stage. After amendment, the
 affected specification and downstream artifacts are reviewed and re-frozen.
+The word frozen applies only after that independent review and freeze gate; it
+does not apply to a mutable ledger or report merely because either records a
+frozen identity.
 
 Change classification is recorded as one of: `editorial`, `plan-only defect`,
 `implementation defect`, `specification defect`, or `new request`. Every change
@@ -360,7 +385,13 @@ transition above.
 
 After plan review passes, the committed plan identity becomes the **frozen plan
 baseline**. Progress tracking uses native tasks or an execution ledger; it must
-not mutate the frozen plan's checkbox syntax.
+not mutate the frozen plan's checkbox syntax. Before those freeze commits, the
+specification candidate and plan candidate are reviewed as exact sealed file
+content. Fixes between their review rounds need not create a checkpoint commit;
+the next round receives a new exact content seal, and only the declared freeze
+commit establishes the baseline. Clean, committed content is mandatory for the
+implementation review and final verification subjects, not for these two
+pre-freeze candidate reviews.
 
 Additional machinery is allowed only when a named requirement, invariant,
 existing project convention, or deterministic evidence gate requires it.
@@ -394,15 +425,18 @@ Feature Forge executes these stages in order:
 4. **Candidate gate:** require an empty frontier and `Open questions` section;
    record delegated assumptions and the applicable approval.
 5. **Specification review:** invoke `review-loop` with the specification
-   charter.
+   charter over the exact sealed candidate file content. Candidate fixes
+   between rounds may remain uncommitted until the freeze checkpoint.
 6. **Specification freeze:** commit the reviewed specification and record its
    Git content identity.
 7. **Plan:** use `superpowers:writing-plans` against the frozen specification.
    Add a Feature Forge execution note immediately after its required header:
    plan checkboxes are frozen authority, progress lives in the run ledger, and
    workers must not edit the plan to mark completion.
-8. **Plan review:** invoke `review-loop` with the plan charter; then commit and
-   record the frozen plan identity.
+8. **Plan review:** invoke `review-loop` with the plan charter over the exact
+   sealed plan file content; then commit and record the frozen plan identity.
+   Candidate fixes between rounds may remain uncommitted until that freeze
+   checkpoint.
 9. **Implement:** choose subagent-driven or inline execution, preferring
    subagent-driven when two or more plan tasks can be owned independently with
    their contracts already fixed. Use inline execution when work is tightly
@@ -421,10 +455,16 @@ Feature Forge executes these stages in order:
     to classify as UAT; purely internal behavior normally uses automated
     acceptance. Unattended mode records automated evidence and any standing UAT
     waiver.
-13. **Report:** write the final requirement-to-evidence and acceptance report;
-    complete the ledger.
-14. **Finish:** invoke `superpowers:finishing-a-development-branch` exactly
-    once and execute the user's selected integration outcome.
+13. **Report:** write the final requirement-to-evidence and acceptance report
+    with branch-finishing readiness and outcome `pending`; commit acceptance,
+    report, and ledger evidence while the run remains active. Allocate the
+    stable `finish_id`, set Finish phase `ready`, and make the sole next action
+    “claim `<finish_id>`.”
+14. **Finish:** durably claim and commit that `finish_id`, then invoke
+    `superpowers:finishing-a-development-branch` as the sole and last external
+    skill invocation. Journal its menu choice before side effects, execute or
+    recover the same logical operation, and make the ledger/report terminal
+    only after durable outcome evidence exists.
 
 A stage advances only when its artifact and evidence gate are complete. A
 blocked, contradictory, or materially ambiguous stage remains active or
@@ -444,7 +484,8 @@ The review determines whether the specification is faithful, coherent,
 bounded, observable, testable, internally consistent, and complete for its
 declared intent. Automatically resolvable findings may be fixed within the
 candidate scope. Material direction or scope decisions follow automation
-authority.
+authority. Each round reviews the exact candidate file-content seal; it does
+not require an intermediate candidate commit.
 
 ### Plan review
 
@@ -457,7 +498,8 @@ correctness, decomposition and dependency order, cross-task contract
 coherence, and execution/verification adequacy. It reviews code blocks only
 where they establish or violate interfaces, signatures, invariants, test
 intent, dependencies, or architecture. RED/GREEN implementation is responsible
-for ordinary code correctness.
+for ordinary code correctness. Each round reviews the exact plan file-content
+seal; only the passing candidate is committed as the frozen plan.
 
 ### Implementation review
 
@@ -480,8 +522,11 @@ contracts; specification changes follow full change control.
 
 ## 12. Traceability and acceptance
 
-Every implementation-plan task names the requirement and scenario identifiers
-it implements. The final report maps:
+Every implementation-plan task and every context-isolated worker packet names
+the `REQ-NNN` and `SCN-NNN` identifiers it implements and identifies its owned
+interfaces, invariants, dependencies, and verification. A worker packet that
+omits any of those fields is incomplete and must not be dispatched. The final
+report maps:
 
 ```text
 requirement/scenario -> plan task -> test or evidence -> UAT result
@@ -491,12 +536,17 @@ Each row includes an evidence command or artifact reference, outcome, and date.
 Missing, stale, or non-reproducible evidence is not a pass. The final report
 also records the reviewed tree identity, final verification commands/results,
 open defects, acceptance method, human approver when applicable, and an
-explicit branch-finishing readiness verdict.
+explicit branch-finishing readiness verdict. At Stage 13 it truthfully records
+Finish as pending and the run as active. Only Stage 14 may replace that pending
+state with a terminal outcome backed by a durable receipt.
 
-For requirements classified as UAT, the user exercises the named behavior and
-approval or rejection is recorded. Unattended mode runs the declared automated
-substitute and records: "Automated acceptance evidence completed; human
-UAT/sign-off was waived." It must not claim user acceptance.
+For requirements classified as UAT, the named participant performs the named
+observable exercise and approval or rejection is recorded against the declared
+evidence criterion. Unattended mode runs the declared automated substitute,
+tests its result against that same declared evidence criterion, and records:
+"Automated acceptance evidence completed; human UAT/sign-off was waived." It
+must not claim user acceptance or describe an automated substitute as human
+participation.
 
 UAT-discovered defects return to implementation and review. Acceptance is not
 complete while any required behavior lacks evidence or any material defect is
@@ -516,8 +566,10 @@ state:
 - user approvals and delegated-authority records;
 - execution mode and an implementation-progress table containing only plan
   task ID, status, commit ID, and evidence reference;
-- final verification and acceptance status; and
-- blockers or change requests.
+- final verification and acceptance status;
+- blockers or change requests; and
+- the stable `finish_id`, Finish phase, selected choice and authority,
+  base/feature tips, worktree, exact next side effect, and durable receipts.
 
 It does not duplicate requirement or task prose, test commands, review
 findings, or decisions already owned by canonical artifacts. During
@@ -528,8 +580,10 @@ against Git before continuing.
 Stage status is one of `pending`, `active`, `blocked`, `complete`, or
 `invalidated`; review state is one of `not_started`, `review_active`, `pass`,
 `changes_required`, or `blocked`. The ledger always names exactly one next
-permitted action, except when status is terminal. `review_active` permits only
-awaiting or recovering that review; it never permits beginning the next stage.
+permitted action except when Finish phase is `terminal` and overall run status
+is `complete`; then it records the terminal outcome and no next action.
+`review_active` permits only awaiting or recovering that review; it never
+permits beginning the next stage.
 
 The template includes a transition log with event ID, UTC time, from/to state,
 next permitted action, reason/authority, and evidence reference. Persist the
@@ -537,6 +591,91 @@ complete ledger update before every external dispatch and immediately after
 every return. The prescribed Git checkpoints commit accumulated ledger state;
 ordinary transitions do not create extra commits. If a return was not recorded,
 resume recovers the referenced dispatch before it considers re-dispatch.
+
+Finish adds an operation journal inside that existing ledger; it does not add a
+fifth canonical artifact or a runtime service. Exactly-once means one durable
+**logical** Finish operation per run, identified by the `finish_id`. It does not
+claim physically atomic exactly-once effects across a process crash. The Finish
+phases are:
+
+```text
+ready -> claimed -> menu_pending -> choice_recorded -> executing -> terminal
+```
+
+`blocked` is a resumable safe halt reachable from any nonterminal Finish phase,
+not a successor only to `executing`. Its receipt records the prior phase and a
+resolution-only next action. Once the named authority or conclusive evidence is
+supplied, recovery returns to that prior phase under the same `finish_id`; it
+never creates a new Finish operation.
+
+Stage 13 allocates the `finish_id` once and persists `ready`. Stage 14 changes
+the phase to `claimed` and commits that claim under checkpoint category 8
+before beginning the finishing method. That committed claim is the sole
+logical invocation event; recovery never creates another. The controller then
+follows the installed skill's fresh full test suite, Git/common-directory and
+worktree detection, named-branch check, and base-branch determination before
+the menu. A detached HEAD or another environment that cannot retain all three
+installed choices blocks in Feature Forge; it does not silently reduce the
+choice set.
+
+Once those checks pass, persist and commit `menu_pending` under category 8
+before presenting the menu or performing unattended integration. In
+interactive/supervised mode that receipt contains the exact three choices and
+a stable presentation event ID. In unattended mode it instead contains the
+already-resolved choice and authority: the invocation's named pre-authorization
+when present, otherwise Keep with `agent:unattended default-keep` authority.
+The choices remain exactly the installed named-branch choices: (1) Merge back
+to the confirmed base locally, (2) Push and create a Pull Request, and (3) Keep
+the branch as-is.
+
+Because no runtime can atomically couple a ledger commit to delivery of a
+user-facing menu, recovery from an interactive/supervised `menu_pending`
+receipt without a durable choice treats presentation as uncertain: it neither
+presents the menu again nor invents a choice. It records or retains `blocked`
+while awaiting an explicit choice for that `finish_id`; the exact menu is
+already present in the journal. Unattended recovery consumes only the choice
+and authority already committed in `menu_pending`; it never resolves or chooses
+a new default after the crash window.
+
+After a choice is obtained and before its first non-read-only integration step,
+persist `choice_recorded` with the choice, authority, confirmed base, base and
+feature tips, worktree, environment evidence, and the exact next step. Then
+advance to `executing` in the same complete ledger update and commit the
+transition history and current `executing` state atomically under checkpoint
+category 8. No integration side effect begins until that commit succeeds and
+the feature worktree is clean. Before committing Option 1 as `executing`, also
+inspect the actual base checkout that the installed method will use. If it is
+dirty, conflicted, owned by unrelated work, or cannot be reconciled read-only
+to the confirmed base, commit `blocked` with that evidence; never stash, reset,
+clean, merge into, or otherwise alter it. Interactive/supervised recovery never
+re-presents the menu, and unattended recovery never chooses a new default;
+both continue the recorded choice under the same `finish_id`.
+
+Recovery first reads the phase and receipts, then performs read-only
+reconciliation of Git and, for a push/PR choice, forge state. `ready` with no
+claim commit permits the one claim; `claimed` proves the logical method already
+began, so a fresh controller resumes its read-only test/environment/base steps
+under that ID rather than claiming or dispatching again. `menu_pending` follows
+the uncertain-presentation rule above. From `choice_recorded` or `executing`,
+it performs only a recorded next step whose non-occurrence is provable. It
+never repeats a merge, pull, push, PR creation, cleanup, branch deletion, or
+menu presentation. If an external effect may have occurred but cannot be
+identified conclusively, atomically persist `blocked` with the ambiguity,
+evidence, and no executable next side effect under category 8 instead of
+guessing or repeating it.
+
+A terminal outcome requires durable result evidence. For local merge, the
+terminal ledger/report receipt and its category 8 commit are written in the
+base checkout so they survive feature-worktree cleanup and feature-branch
+deletion. For Push-and-PR and Keep, the feature branch and worktree are
+preserved and hold the terminal receipt. The terminal category 8 commit is one
+atomic state transaction: it records the result evidence, changes Finish phase
+to `terminal`, changes overall run status to `complete`, and removes the next
+action in the same ledger/report commit. A blocked receipt likewise records
+its evidence, `blocked` phase/status, and no executable next side effect in one
+category 8 commit. Internal category 8 record commits are Stage 14 bookkeeping,
+not another external skill invocation; the finishing adapter remains the sole
+and last external skill invocation.
 
 On resume, the controller reads the ledger and exact canonical artifacts,
 checks that recorded frozen identities still match, reconstructs native tasks,
@@ -547,19 +686,22 @@ read-only reconciliation. Unresolved material drift becomes `blocked`; an
 authorized correction invalidates the affected stage and dependent stages,
 then resumes at the earliest invalidated gate.
 
-Frozen identity means the Git blob object ID for each canonical file, recorded
-as `<path>@<blob-id>`. Review identity is the exact content seal returned by
-`review-loop`; final verification records the reviewed implementation commit
-and verifies that no implementation path changed after that seal. The
-controller recomputes and compares applicable identities before every
-downstream gate and on resume.
+Frozen identity means the Git blob object ID for each independently frozen
+specification or plan, recorded as `<path>@<blob-id>`. Review identity is the
+exact content seal returned by `review-loop`; final verification records the
+reviewed implementation commit and verifies that no implementation path
+changed after that seal. The controller recomputes and compares applicable
+identities before every downstream gate and on resume. Ledger and final-report
+commits and receipts are mutable lifecycle evidence, not frozen authorities.
 
 The implementation subject begins review and final verification as clean,
-committed content. Each review round is read-only against its whole-tree seal.
-Review-loop fixes occur only between rounds; the changed tree is re-sealed and
-independently reviewed in the next round. `pass` requires a final round over the
-post-fix snapshot. Accepted implementation fixes are committed before the next
-outer gate.
+committed content. Each implementation-review round is read-only against its
+whole-tree seal. Implementation-review fixes occur only between rounds; the
+changed tree is committed, re-sealed, and independently reviewed in the next
+round. `pass` requires a final round over the post-fix snapshot. Specification
+and plan candidate reviews instead seal their exact candidate file content;
+their between-round fixes need not create undeclared commits, and their passing
+content is committed at the declared freeze checkpoint.
 
 The ledger is controller state, not part of the implementation subject. It is
 expected to change from `review_active` to the returned result after the loop
@@ -567,9 +709,11 @@ closes. Before verification, compare the current whole tree to the returned
 seal and accept only the exact run-ledger path plus its recorded evidence
 reference as post-pass differences; inspect those differences and separately
 confirm the implementation commit and every other sealed path are unchanged.
-The final report and completed ledger are committed after verification and
-acceptance, restoring a clean tree before Finish. Any other untracked or
-unstaged content blocks advancement.
+The Stage 13 final report and ledger are committed after verification and
+acceptance with the run active, Finish pending, phase `ready`, and the sole next
+action to claim that `finish_id`, restoring a clean tree before Finish. Stage 14
+then commits its write-ahead and terminal-or-blocked receipts under category 8.
+Any other untracked or unstaged content blocks advancement.
 
 ## 14. Git and commit boundaries
 
@@ -584,7 +728,7 @@ reconciled; otherwise create a separate worktree or block. Stage commits by
 explicit path, inspect the staged diff, and never capture, stash, reset, or
 discard unrelated changes.
 
-Create these checkpoints when the corresponding tree differs:
+Create these checkpoint categories when the corresponding tree differs:
 
 1. `docs: draft <feature> specification` after brainstorming.
 2. `docs: freeze reviewed <feature> specification` after hardening and
@@ -596,12 +740,21 @@ Create these checkpoints when the corresponding tree differs:
 6. `fix: address final <feature> review findings` when final review changes the
    implementation.
 7. `docs: record <feature> acceptance` for the final report, UAT or waiver,
-   verification summary, traceability, and completed ledger.
+   verification summary, traceability, branch-finishing readiness, pending
+   Finish outcome, and active Stage 13 ledger.
+8. `docs: record <feature> finish` for Stage 14 write-ahead/choice records and
+   terminal or blocked receipts whenever the tracked state differs. More than
+   one category 8 commit is permitted when required to place the claim before
+   method execution, the `menu_pending` receipt before menu delivery or
+   unattended resolution, the atomic choice/executing receipt before side
+   effects, and the atomic terminal-or-blocked receipt after reconciliation.
 
 Do not create empty commits, commit during an active review round, amend or
 squash automatically, combine unrelated user changes, or mutate frozen
 artifacts for progress tracking. The worktree must be clean before branch
-finishing begins.
+finishing begins and before each non-read-only integration step. Category 8
+internal record commits are the only prescribed Stage 14 commits; they do not
+authorize another external skill dispatch.
 
 ## 15. Dependencies and deferred escalation
 
@@ -630,8 +783,9 @@ implementation plan for a work unit.
 
 - GIVEN a frozen specification and reviewed plan
 - WHEN a context-isolated worker receives a plan task
-- THEN the task identifies its applicable requirements, interfaces, invariants,
-  and verification without requiring the worker to invent cross-task contracts
+- THEN the worker packet identifies its applicable requirement and scenario
+  IDs, interfaces, invariants, dependencies, and verification
+- AND the worker does not need to invent cross-task contracts
 
 ### REQ-002: Controlled stage advancement
 
@@ -687,8 +841,9 @@ ledger and canonical artifacts after session loss.
 
 ### REQ-006: Delayed branch finishing
 
-Feature Forge SHALL invoke branch finishing only after implementation review,
-fresh verification, acceptance evidence, and final reporting are complete.
+Feature Forge SHALL execute branch finishing as one durable logical Finish
+operation only after implementation review, fresh verification, acceptance
+evidence, and Stage 13 reporting are complete.
 
 #### SCN-006: Execution skill reaches its normal terminal handoff
 
@@ -696,6 +851,19 @@ fresh verification, acceptance evidence, and final reporting are complete.
 - WHEN the selected execution skill would normally finish the branch
 - THEN it returns control to Feature Forge
 - AND Feature Forge completes the remaining assurance stages first
+
+#### SCN-013: Crash after a finishing side effect
+
+- GIVEN Stage 14 has a stable `finish_id`, a recorded choice, and phase
+  `executing`
+- AND the controller loses its process after an integration side effect may
+  have occurred but before a terminal receipt is recorded
+- WHEN a fresh controller resumes the run
+- THEN it reads the existing Finish journal and reconciles Git and forge state
+  before taking any action
+- AND it neither redispatches branch finishing nor re-presents the menu
+- AND it continues only a next step whose prior non-occurrence is proven
+- AND an ambiguous external effect records `blocked` rather than being repeated
 
 ### REQ-007: Immutable reviewed baselines
 
@@ -762,7 +930,7 @@ explicitly staged in-scope paths.
 ### REQ-012: Complete outer pipeline
 
 Feature Forge SHALL retain outer control from preflight through exactly one
-terminal invocation of branch finishing.
+terminal logical Finish operation.
 
 #### SCN-012: Inner skill offers its normal handoff
 
@@ -785,10 +953,40 @@ Feature Forge is a discipline-enforcing skill and must be developed with
 4. Re-run the scenarios with the skill.
 5. Close demonstrated loopholes and re-test until behavior is stable.
 
+Every historical fixture blob named by a baseline or qualification result is
+immutable. A discovered fixture defect or an approved specification revision
+creates a new fixture revision with a new Git blob identity and a new result
+set; it never edits the historical blob in place or retroactively attributes
+new coverage to old runs.
+
 The campaign must cover at least premature implementation, scope expansion,
 plan-review distraction by speculative code, nested execution/early branch
 finishing, unattended authority, resumption after task-state loss, and unsafe
-work on a dirty primary checkout.
+work on a dirty primary checkout. The qualification revision for this amended
+specification must additionally include direct controls for:
+
+- worker authority packets containing the applicable requirement/scenario IDs,
+  interfaces, invariants, dependencies, and verification without invented
+  cross-task authority;
+- plan drift invalidating its prior evidence rather than continuing under an
+  old seal;
+- dirty-primary isolation that leaves unrelated user changes untouched;
+- exact specification-candidate and plan-candidate file seals, including
+  between-round fixes without undeclared commits and freeze only after pass;
+- all four exact adapter contracts—`brainstorm-return`, `plan-return`,
+  `execute-return`, and `finish-authority`—and their return boundaries;
+- UAT truthfulness across the named participant, observable exercise,
+  unattended automated substitute, and evidence criterion;
+- the Stage 13 active/pending to Stage 14 terminal-or-blocked ledger lifecycle;
+  and
+- Finish crash recovery under `SCN-013`, including write-ahead choice evidence,
+  Git/forge reconciliation, no menu re-presentation or redispatch, durable
+  option-specific receipts, and blocking on ambiguous external effects.
+
+A final coverage claim for `REQ-001` through `REQ-012` and `SCN-001` through
+`SCN-013` requires direct recorded evidence for each requirement and scenario.
+A nearby scenario, prose inspection, or an inferred consequence of another
+control does not count as direct evidence.
 
 Structural validation, a cold-reader test, an independent final review, and
 fresh verification are required before installation or publication.
