@@ -224,7 +224,7 @@ def test_builder_autonomous_default_matches_DEFAULT_REVIEWERS():
     fill_defaults entirely. If someone adds grok to that prose list, opt-in is
     silently dead and every Python test still passes. This is the guard.
 
-    Scope caveat: this asserts the REPO copy. `setup.py` copies agents into
+    Scope caveat: this asserts the REPO copy. `../install.py` copies agents into
     ~/.claude (symlinks only under --dev), so a stale install can still differ.
     That is a deployment concern, covered by the reinstall step in
     tests/manual/grok-smoke.md, not something this test can see.

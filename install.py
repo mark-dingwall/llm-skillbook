@@ -53,14 +53,21 @@ def _copy_payload(src: Path, dst: Path) -> None:
             shutil.copy2(child, target)
 
 
-def _guard(dst: Path, force: bool) -> None:
-    """Refuse a destination we did not create (unless --force)."""
-    if dst.exists() and not (dst / MARKER).exists() and not force:
+def _guard(src: Path, dst: Path, force: bool) -> None:
+    """Refuse a destination we did not create (unless --force).
+
+    Ours = a copy carrying MARKER, or a --dev symlink already pointing at src.
+    """
+    if force or not (dst.exists() or dst.is_symlink()):
+        return
+    if dst.is_symlink() and dst.resolve() == src.resolve():
+        return
+    if not (dst / MARKER).exists():
         sys.exit(f"refusing to overwrite {dst} (not installed by this tool; use --force)")
 
 
 def _place(src: Path, dst: Path, dev: bool, force: bool) -> None:
-    _guard(dst, force)
+    _guard(src, dst, force)
     if dst.is_symlink() or dst.exists():
         if dst.is_symlink() or dst.is_file():
             dst.unlink()

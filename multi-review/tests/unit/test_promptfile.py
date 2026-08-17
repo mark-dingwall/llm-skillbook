@@ -331,7 +331,13 @@ def test_nul_in_absolute_file_path_is_reported_as_a_validation_error(tmp_path):
 
 
 def test_symlink_loop_in_input_path_is_reported_as_a_validation_error(tmp_path):
-    """A supported-runtime Path.resolve RuntimeError stays inside validation."""
+    """A symlink loop in an input path stays inside validation, naming the path.
+
+    The exact wording is Python-version dependent — <=3.12 raises RuntimeError in
+    Path.resolve ("invalid path …"); >=3.13 resolves best-effort and the loop is
+    caught by the exists() check ("path does not exist …"). Either way it must be
+    a ValidationError that identifies the offending file, never an uncaught crash.
+    """
     loop = tmp_path / "cycle"
     loop.symlink_to(loop.name)
     prompt = tmp_path / "prompt.yaml"
@@ -339,7 +345,7 @@ def test_symlink_loop_in_input_path_is_reported_as_a_validation_error(tmp_path):
         'prompt_format_version: 2\ntask: code\nfiles: ["cycle/target.py"]\n'
     )
 
-    with pytest.raises(ValidationError, match="invalid path"):
+    with pytest.raises(ValidationError, match=r"cycle/target\.py"):
         load_promptfile(prompt)
 
 
