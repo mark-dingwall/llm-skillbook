@@ -63,7 +63,17 @@ _CREATE_RUN_KEYS = {
 # `run_stage0` call with no durable marker yet (carried forward, not
 # fixed here) -- a purely disk-derived view cannot distinguish either from
 # a plain mid-Stage-0 crash, so both report as "STAGE0" here; see
-# tests/ACCEPTANCE.md.
+# tests/ACCEPTANCE.md. A third, narrower gap: `Controller.close()` also
+# returns an in-memory `stage="INDETERMINATE"` when a FIX_VERIFIED row's
+# delta was verified only against a disposable copy and never promoted to
+# the authoritative target (`copy_only_fixes` non-empty) -- but it still
+# WRITES `compute_terminal`, so `_derive_stage` on disk reports "COMPLETE"
+# for that run, same as any other closed run. This is not a false-green:
+# the authoritative `merge_ready=False` and `failed_conditions` containing
+# `"indeterminate"` are still correctly persisted and surfaced by `status`/
+# `report` via `compute_terminal` itself -- only the coarse *stage* label
+# collapses two different "COMPLETE" causes into one string. Disclosed,
+# not a derivation change.
 _STAGE_ORDER = (
     ("compute_terminal", "COMPLETE"),
     ("record_final_challenge", "CLOSE"),

@@ -77,12 +77,19 @@ def generate_report(run_state: RunState) -> str:
     lines.append(f"- Governing/target-baseline seal: `{run_state.governing_seal}`")
     terminal = _get(processor, "compute_terminal")
     if terminal is not None:
-        # The MVP CLOSE does NOT fresh-re-seal the target (Task-6 -> Task-9
-        # carry-forward b), so this is not an attestation that the target bytes
-        # match a reviewed identity -- do not imply one.
+        # Controller.close() now performs a genuine fresh re-seal of the
+        # authoritative target at CLOSE and compares it against the expected
+        # identity (the verified post-FIX seal for a promoted run, or the
+        # governing/anchor seal for an untouched run) -- a mismatch fails the
+        # "seal" terminal conjunct below (Task 9 Slice 2). Git-index/commit-
+        # drift detection beyond that byte-identity comparison remains
+        # deferred; see tests/ACCEPTANCE.md.
+        seal_drift = "seal" in terminal["failed_conditions"]
         lines.append(
-            "- CLOSE ran against the anchor governing seal; no fresh re-seal was "
-            "performed (seal-drift check deferred to Task 9)."
+            "- CLOSE recomputed a fresh seal of the authoritative target and "
+            "compared it against the expected identity (the verified post-FIX "
+            "seal for a promoted run, the governing/anchor seal otherwise): "
+            + ("mismatch detected (NOT CONVERGED)." if seal_drift else "matched.")
         )
     lines.append("")
 
@@ -128,8 +135,11 @@ def generate_report(run_state: RunState) -> str:
 
     lines.append("## Residual limitations")
     lines.append(
-        "This MVP does not implement multi-round FIX, inventory refresh across "
-        "rounds, or adjudication in this task's controller wiring; see task-6-report.md."
+        "Adjudication and single-round FIX (including post-FIX promotion to the "
+        "authoritative target) are implemented and wired. Deferred: multi-round "
+        "TRIAGE-reconcile onto prior canonical rows, inventory refresh across "
+        "rounds, and round-N coverage/restaffing -- all require governing-seal "
+        "advancement beyond this MVP's single-round scope; see tests/ACCEPTANCE.md."
     )
     lines.append("")
 
