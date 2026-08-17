@@ -1,0 +1,65 @@
+{
+  "request_id": "inv-2",
+  "role_id": "inventory-owner",
+  "target_seal": "seal-B",
+  "round_input_seal": "seal-round-2",
+  "payload": {
+    "areas": [
+      {
+        "id": "A1",
+        "aliases": [],
+        "consequence": "Important",
+        "generalist_miss": true,
+        "generalist_miss_evidence": "Auth check logic requires deep familiarity with the session model.",
+        "surfaces": [
+          "src/auth/session.py"
+        ],
+        "owning_file_ids": [
+          "file-1"
+        ],
+        "charter": "Does the session refresh correctly reject a tampered token?"
+      },
+      {
+        "id": "A3",
+        "aliases": [],
+        "consequence": "Minor",
+        "generalist_miss": false,
+        "generalist_miss_evidence": null,
+        "surfaces": [
+          "src/util/newmod.py"
+        ],
+        "owning_file_ids": [
+          "file-3"
+        ],
+        "charter": "Does the new module validate its inputs?"
+      }
+    ],
+    "priority_order": [
+      "A1",
+      "A3"
+    ],
+    "mappings": [
+      {
+        "prior_id": "A1",
+        "resolution": "continuing",
+        "active_id": "A3",
+        "retirement_reason": null,
+        "invalidators": {
+          "surface_changed": false,
+          "dependency_changed": false,
+          "contract_changed": false,
+          "finding_reopened": false,
+          "identity_changed": false,
+          "new_depth_evidence": false
+        }
+      },
+      {
+        "prior_id": "A2",
+        "resolution": "retired",
+        "active_id": null,
+        "retirement_reason": "Deprecated formatting module was deleted.",
+        "invalidators": null
+      }
+    ]
+  }
+}

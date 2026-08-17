@@ -1,0 +1,12 @@
+{
+  "request_id": "fr-2",
+  "role_id": "final-readiness",
+  "target_seal": "seal-C",
+  "round_input_seal": null,
+  "payload": {
+    "verdict": "BLOCK",
+    "evidence": "The required gate plan omits a passing run of the test suite on the final seal.",
+    "procedural_blocker": "required gate 'tests' has no passing record for the final seal",
+    "source_findings": []
+  }
+}

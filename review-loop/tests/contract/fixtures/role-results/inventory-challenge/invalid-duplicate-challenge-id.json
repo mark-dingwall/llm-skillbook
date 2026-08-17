@@ -1,0 +1,23 @@
+{
+  "request_id": "ic-2",
+  "role_id": "inventory-challenge",
+  "target_seal": "seal-A",
+  "round_input_seal": null,
+  "payload": {
+    "verdict": "CHALLENGE",
+    "challenges": [
+      {
+        "id": "c1",
+        "category": "omission",
+        "statement": "Area covering the payment webhook is missing.",
+        "evidence": "src/webhooks/payments.py implements signature verification with no owning area."
+      },
+      {
+        "id": "c1",
+        "category": "unsupported_claim",
+        "statement": "A2's GENERALIST-MISS claim cites no evidence.",
+        "evidence": "The proposal gives no locator or reasoning for why a generalist would miss this."
+      }
+    ]
+  }
+}

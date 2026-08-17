@@ -1,0 +1,17 @@
+{
+  "request_id": "rate-1",
+  "role_id": "rating",
+  "target_seal": "seal-A",
+  "round_input_seal": null,
+  "payload": {
+    "complexity": "high",
+    "risk": "med",
+    "evidence": [
+      {
+        "axis": "complexity",
+        "statement": "Touches concurrency-sensitive session refresh logic."
+      }
+    ],
+    "gestalt": null
+  }
+}

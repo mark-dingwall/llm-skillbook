@@ -1,0 +1,38 @@
+{
+  "request_id": "fix-1",
+  "role_id": "fix",
+  "target_seal": "seal-B",
+  "round_input_seal": "seal-round-1",
+  "payload": {
+    "changes": [
+      {
+        "path": "src/auth/session.py",
+        "description": "Reject tokens whose signature does not match.",
+        "ledger_ids": [
+          "ROW-10"
+        ],
+        "twin_search_pattern": "verify_signature(",
+        "twin_search_count": 2
+      },
+      {
+        "path": "tests/test_session.py",
+        "description": "Add regression test for tampered signature rejection.",
+        "ledger_ids": [
+          "ROW-10"
+        ],
+        "twin_search_pattern": "def test_verify_signature",
+        "twin_search_count": 0
+      }
+    ],
+    "test_trace": [
+      {
+        "test_path": "tests/test_session.py",
+        "spec_ids": [
+          "ROW-10"
+        ]
+      }
+    ],
+    "external_actions_attempted": false,
+    "external_actions_note": null
+  }
+}
