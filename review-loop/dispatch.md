@@ -97,11 +97,13 @@ a role" section.
   `reconcile_gates`' `blocking_reasons` first — a failed applicable gate
   (required *or* supporting) stops the round before any reviewer runs
   (`Controller._close_blocked_stage0`).
-- **Multi-review took ordinary fallback**: expected whenever the driver,
-  Bubblewrap, or either fixed participant is unavailable, or the driver's
-  strict aggregate validation failed — this is automatic, not a fault to
-  chase, unless the log instead shows a seal-mismatch `INDETERMINATE` (which
-  is never a fallback path; see `SKILL.md`).
+- **Multi-review took ordinary fallback**: first confirm the host resolved all
+  prerequisites and safely constructed the adapter. Missing setup
+  prerequisites or unsafe construction fail closed before fallback is
+  available. After construction, a structured adapter result for a rechecked
+  unavailable runtime, driver or participant, or failed aggregate validation
+  takes the ordinary path once. A seal-mismatch `INDETERMINATE` is never a
+  fallback path; see `SKILL.md`.
 - **The pre-existing `multi-review` smoke-harness `REPO_ROOT` failure**:
   fixed in this task (`tests/manual/headless-driver-smoke.sh` was deriving
   `repo_root` from `git rev-parse --show-toplevel`, which resolves to an
