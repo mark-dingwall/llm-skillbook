@@ -7,10 +7,12 @@ from pathlib import Path
 
 from review_loop.seals import (
     DeltaArtifact,
+    DeltaEntry,
     GitPolicy,
     InputSeal,
     SealError,
     TargetSeal,
+    apply_delta_to_target,
     check_run_root_disjoint,
     materialize_delta,
     seal_inputs,
@@ -238,6 +240,94 @@ class SealInputsTests(unittest.TestCase):
         link_dir.symlink_to(real_dir)
         with self.assertRaises(SealError):
             seal_inputs([link_dir / "truth.md"], "target-seal-digest")
+
+
+class ApplyDeltaToTargetTests(unittest.TestCase):
+    """The write-back primitive: replay an already-verified delta from a
+    disposable-copy source onto the real target. Highest blast radius in the
+    module -- the first thing that writes outside a disposable copy.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.source = self.root / "source"
+        self.dest = self.root / "dest"
+        self.source.mkdir()
+        self.dest.mkdir()
+
+    def test_added_changed_removed_replay_reproduces_after_seal(self):
+        (self.source / "keep.txt").write_bytes(b"keep")
+        (self.dest / "keep.txt").write_bytes(b"keep")
+        (self.source / "gone.txt").write_bytes(b"bye")
+        (self.dest / "gone.txt").write_bytes(b"bye")
+        before = seal_target(self.dest, NO_GIT)
+
+        # Mutate the source to represent the verified after-state: a content
+        # change, a removal, a new file, and a new empty directory.
+        (self.source / "keep.txt").write_bytes(b"keep-changed")
+        (self.source / "gone.txt").unlink()
+        (self.source / "new.txt").write_bytes(b"new")
+        (self.source / "newdir").mkdir()
+        after = seal_target(self.source, NO_GIT)
+
+        with tempfile.TemporaryDirectory() as out:
+            delta = materialize_delta(before, after, Path(out) / "delta.bin")
+
+        apply_delta_to_target(delta, source_root=self.source, dest_root=self.dest)
+
+        result = seal_target(self.dest, NO_GIT)
+        self.assertEqual(result.digest, after.digest)
+
+    def test_reverse_order_removal_empties_a_directory_the_fix_also_removed(self):
+        (self.dest / "sub").mkdir()
+        (self.dest / "sub" / "only.txt").write_bytes(b"x")
+        before = seal_target(self.dest, NO_GIT)
+        # source has neither the file nor the directory: the FIX removed both.
+        after = seal_target(self.source, NO_GIT)
+
+        with tempfile.TemporaryDirectory() as out:
+            delta = materialize_delta(before, after, Path(out) / "delta.bin")
+        self.assertEqual({e.path for e in delta.entries}, {"sub", "sub/only.txt"})
+
+        apply_delta_to_target(delta, source_root=self.source, dest_root=self.dest)
+
+        self.assertFalse((self.dest / "sub").exists())
+        result = seal_target(self.dest, NO_GIT)
+        self.assertEqual(result.digest, after.digest)
+
+    def test_rejects_a_delta_entry_path_that_escapes_dest_root(self):
+        (self.source / "evil.txt").write_bytes(b"x")
+        entry = DeltaEntry(
+            path="../evil.txt", change="added", before_type=None, after_type="file",
+            content_changed=True, mode_changed=True,
+        )
+        delta = DeltaArtifact(
+            output_path=Path("unused"), digest="d", before_seal="b", after_seal="a",
+            entries=(entry,), git_index_changed=False,
+        )
+        with self.assertRaises(SealError):
+            apply_delta_to_target(delta, source_root=self.source, dest_root=self.dest)
+        self.assertFalse((self.root / "evil.txt").exists())
+
+    def test_rejects_a_symlink_component_at_the_write_boundary(self):
+        real_elsewhere = self.root / "elsewhere"
+        real_elsewhere.mkdir()
+        (self.dest / "linked").symlink_to(real_elsewhere)
+        (self.source / "linked").mkdir()
+        (self.source / "linked" / "file.txt").write_bytes(b"x")
+        entry = DeltaEntry(
+            path="linked/file.txt", change="added", before_type=None, after_type="file",
+            content_changed=True, mode_changed=True,
+        )
+        delta = DeltaArtifact(
+            output_path=Path("unused"), digest="d", before_seal="b", after_seal="a",
+            entries=(entry,), git_index_changed=False,
+        )
+        with self.assertRaises(SealError):
+            apply_delta_to_target(delta, source_root=self.source, dest_root=self.dest)
+        self.assertFalse((real_elsewhere / "file.txt").exists())
 
 
 class RunRootOverlapTests(unittest.TestCase):

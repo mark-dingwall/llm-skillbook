@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from review_loop.artifacts import CanonicalStore, EvidenceArtifact, canonical_bytes
@@ -26,7 +27,7 @@ from review_loop.fix import (
     is_test_path,
 )
 from review_loop.prompts import RoleExpectation, validate_role_json
-from review_loop.seals import GitPolicy, materialize_delta, seal_target
+from review_loop.seals import DeltaEntry, GitPolicy, materialize_delta, seal_target
 
 SEAL = "seal-anchor"
 
@@ -270,6 +271,70 @@ class FixApplyTests(unittest.TestCase):
         rows = {r["id"]: r for r in transition.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]}
         self.assertEqual(rows["F1"]["state"], "FIX_APPLIED")
         self.assertEqual(rows["F2"]["state"], "OPEN")
+
+
+class FixWriteBackTests(unittest.TestCase):
+    """The write-back primitive: replay a validated FIX delta from the
+    disposable copy onto the REAL target. Nothing calls this yet (Slice 2
+    wires it into the controller); these tests exercise it directly.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.target = self.root / "target"
+        self.target.mkdir()
+        (self.target / "calc.py").write_text("def d(x):\n    return x + 1\n")
+        self.copy = self.root / "copy"
+        self.copy.mkdir()
+        (self.copy / "calc.py").write_text("def d(x):\n    return x + 1\n")
+        self.before = seal_target(self.copy, GitPolicy(enabled=False))
+        self.fixctl = FixController(_stub_run_state(self.root), self.root / "work")
+        self.request = self.fixctl.prepare(
+            [{"id": "F1", "state": "OPEN"}], SEAL,
+            EvidencePlan(gates=(), evidence_gaps=()),
+        )
+
+    def _validated(self):
+        (self.copy / "calc.py").write_text("def d(x):\n    return x - 1\n")
+        after = seal_target(self.copy, GitPolicy(enabled=False))
+        manifest = _fix_artifact(SEAL, [("calc.py", ["F1"])], expected_ids=("F1",))
+        return after, manifest
+
+    def test_write_back_replays_the_verified_delta_onto_the_real_target(self):
+        after, manifest = self._validated()
+        validated = self.fixctl.validate_candidate(
+            self.request, self.before, after, manifest, copy_root=self.copy,
+        )
+        self.fixctl.write_back(validated, self.target)
+        result = seal_target(self.target, GitPolicy(enabled=False))
+        self.assertEqual(result.digest, validated.after_seal)
+        self.assertEqual((self.target / "calc.py").read_text(), "def d(x):\n    return x - 1\n")
+
+    def test_write_back_without_a_copy_root_fails_closed(self):
+        after, manifest = self._validated()
+        validated = self.fixctl.validate_candidate(self.request, self.before, after, manifest)
+        with self.assertRaises(FixError):
+            self.fixctl.write_back(validated, self.target)
+
+    def test_write_back_is_restricted_to_changed_paths(self):
+        after, manifest = self._validated()
+        validated = self.fixctl.validate_candidate(
+            self.request, self.before, after, manifest, copy_root=self.copy,
+        )
+        # A delta smuggling in a path never declared/verified in changed_paths
+        # must be rejected even though the primitive underneath would happily
+        # try to read it from the copy.
+        smuggled_entry = DeltaEntry(
+            path="secret.py", change="added", before_type=None, after_type="file",
+            content_changed=True, mode_changed=True,
+        )
+        tampered_delta = replace(validated.delta, entries=validated.delta.entries + (smuggled_entry,))
+        tampered = replace(validated, delta=tampered_delta)
+        with self.assertRaises(FixError):
+            self.fixctl.write_back(tampered, self.target)
+        self.assertFalse((self.target / "secret.py").exists())
 
 
 class RoundScopesTests(unittest.TestCase):

@@ -362,6 +362,182 @@ def materialize_delta(before: TargetSeal, after: TargetSeal, output: Path) -> De
     )
 
 
+def _split_relpath(path: str) -> tuple[str, ...]:
+    """Split a delta-entry path into safe components, or fail closed.
+
+    Rejects anything that could escape a descriptor-relative walk: absolute
+    paths, NUL bytes, and any ``.``/``..``/empty component (which also
+    catches a leading/trailing/doubled ``/``).
+    """
+    if not path or path.startswith("/") or "\x00" in path:
+        raise SealError(f"unsafe write-back path rejected: {path!r}")
+    parts = tuple(path.split("/"))
+    if any(part in ("", ".", "..") for part in parts):
+        raise SealError(f"unsafe write-back path rejected: {path!r}")
+    return parts
+
+
+def _walk_parent_dir(root_fd: int, parts: Sequence[str], *, create: bool) -> int:
+    """Descend descriptor-relative through ``parts[:-1]``, rejecting symlinks.
+
+    Every intermediate component is opened ``O_DIRECTORY | O_NOFOLLOW``: a
+    symlink (or any non-directory) at any level makes the open fail, closing
+    the race a caller could use to redirect a write outside the tree via a
+    swapped-in symlink component. Returns an fd for the parent directory of
+    ``parts[-1]``; the caller closes it.
+    """
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.dup(root_fd)
+    try:
+        for part in parts[:-1]:
+            try:
+                next_fd = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise SealError(f"missing write-back parent directory: {part!r}")
+                try:
+                    os.mkdir(part, 0o777, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                next_fd = os.open(part, flags, dir_fd=fd)
+            except OSError as exc:
+                raise SealError(f"cannot descend into write-back path component: {part!r}") from exc
+            os.close(fd)
+            fd = next_fd
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _write_back_file(dest_parent_fd: int, name: str, data: bytes, mode: int) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(name, flags, 0o666, dir_fd=dest_parent_fd)
+    except OSError as exc:
+        raise SealError(f"cannot write target entry: {name!r}") from exc
+    try:
+        os.write(fd, data)
+        os.fchmod(fd, mode)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _write_back_dir(dest_parent_fd: int, name: str, mode: int) -> None:
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        os.mkdir(name, mode, dir_fd=dest_parent_fd)
+    except FileExistsError:
+        pass
+    except OSError as exc:
+        raise SealError(f"cannot create target directory: {name!r}") from exc
+    try:
+        fd = os.open(name, flags, dir_fd=dest_parent_fd)
+    except OSError as exc:
+        raise SealError(f"cannot verify target directory: {name!r}") from exc
+    try:
+        os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
+
+
+def _remove_leaf(dest_parent_fd: int, name: str, before_type: str) -> None:
+    try:
+        st = os.stat(name, dir_fd=dest_parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise SealError(f"cannot stat write-back removal target: {name!r}") from exc
+    if stat.S_ISLNK(st.st_mode):
+        raise SealError(f"refusing to remove a symlink at write-back boundary: {name!r}")
+    if before_type == "file":
+        if not stat.S_ISREG(st.st_mode):
+            raise SealError(f"expected a regular file to remove: {name!r}")
+        os.unlink(name, dir_fd=dest_parent_fd)
+    elif before_type == "dir":
+        if not stat.S_ISDIR(st.st_mode):
+            raise SealError(f"expected a directory to remove: {name!r}")
+        os.rmdir(name, dir_fd=dest_parent_fd)
+    else:
+        raise SealError(f"unsupported removed entry type: {before_type!r}")
+
+
+def apply_delta_to_target(delta: DeltaArtifact, source_root: Path, dest_root: Path) -> None:
+    """Replay an already-verified delta from a disposable-copy source onto
+    the real target. Sibling of ``materialize_delta`` at the opposite end:
+    that function reads two sealed trees and proves what changed; this one
+    writes those changes onto the real, non-disposable target.
+
+    This is the first primitive in the module that writes outside a
+    disposable copy -- highest blast radius. The delta was already validated
+    upstream (``FixController.validate_candidate``), but every path is
+    re-validated here, at the write boundary, via descriptor-relative
+    ``O_NOFOLLOW`` opens: nothing here trusts that the delta is safe just
+    because it was checked earlier.
+
+    Added/changed FILE entries are copied ``source_root/path ->
+    dest_root/path`` (parents created on demand); added/changed DIR entries
+    are created (mode brought to parity with source, covering a directory
+    whose mode alone changed); ``removed`` entries are then applied in
+    REVERSE sorted-path order so a file is unlinked before the directory it
+    was the last occupant of is rmdir'd.
+    """
+    for label, root in (("source", source_root), ("destination", dest_root)):
+        if not Path(root).is_dir():
+            raise SealError(f"write-back {label} is not a directory: {root}")
+
+    src_fd = _open_root(Path(source_root))
+    dest_fd = _open_root(Path(dest_root))
+    try:
+        for entry in sorted(delta.entries, key=lambda e: e.path):
+            if entry.change not in ("added", "changed"):
+                continue
+            parts = _split_relpath(entry.path)
+
+            src_parent_fd = _walk_parent_dir(src_fd, parts, create=False)
+            try:
+                kind, mode, _digest, sfd = _admit(src_parent_fd, parts[-1])
+            finally:
+                os.close(src_parent_fd)
+            try:
+                if kind != entry.after_type:
+                    raise SealError(
+                        f"source entry type does not match the delta for {entry.path!r}: "
+                        f"expected {entry.after_type!r}, found {kind!r}"
+                    )
+                dest_parent_fd = _walk_parent_dir(dest_fd, parts, create=True)
+                try:
+                    if kind == "file":
+                        # _admit already consumed sfd's content while hashing
+                        # it for the digest check above; rewind before re-reading.
+                        os.lseek(sfd, 0, os.SEEK_SET)
+                        data = _read_all(sfd)
+                        _write_back_file(dest_parent_fd, parts[-1], data, mode)
+                    else:
+                        _write_back_dir(dest_parent_fd, parts[-1], mode)
+                finally:
+                    os.close(dest_parent_fd)
+            finally:
+                os.close(sfd)
+
+        removed = sorted((e for e in delta.entries if e.change == "removed"), key=lambda e: e.path, reverse=True)
+        for entry in removed:
+            parts = _split_relpath(entry.path)
+            dest_parent_fd = _walk_parent_dir(dest_fd, parts, create=False)
+            try:
+                _remove_leaf(dest_parent_fd, parts[-1], entry.before_type)
+            finally:
+                os.close(dest_parent_fd)
+    finally:
+        os.close(src_fd)
+        os.close(dest_fd)
+
+
 def check_run_root_disjoint(target_root: Path, run_root: Path) -> None:
     target_root = Path(target_root).resolve()
     run_root = Path(run_root).resolve()

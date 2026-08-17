@@ -28,7 +28,7 @@ from typing import Callable, Mapping, Sequence
 from .artifacts import CanonicalStore, EvidenceArtifact, digest
 from .execution import CodexHostPaths, _CODEX_EXEC_FLAGS
 from .prompts import ValidatedRoleArtifact
-from .seals import DeltaArtifact, TargetSeal, materialize_delta
+from .seals import DeltaArtifact, TargetSeal, apply_delta_to_target, materialize_delta
 
 
 class FixError(Exception):
@@ -212,6 +212,7 @@ class ValidatedFix:
     before_seal: str
     after_seal: str
     strategy: str  # "disposable_copy" | "direct_write"
+    copy_root: Path | None = None  # the disposable-copy root ``write_back`` replays from
 
 
 @dataclass(frozen=True)
@@ -258,6 +259,7 @@ class FixController:
         manifest: ValidatedRoleArtifact,
         *,
         strategy: str = "disposable_copy",
+        copy_root: Path | None = None,
     ) -> ValidatedFix:
         """Reject a FIX candidate before ``apply`` records FIX_APPLIED.
 
@@ -331,7 +333,33 @@ class FixController:
             before_seal=before.digest,
             after_seal=after.digest,
             strategy=strategy,
+            copy_root=copy_root,
         )
+
+    # -- write_back: replay the verified delta onto the REAL target ----------
+
+    def write_back(self, validated: ValidatedFix, target_root: Path) -> None:
+        """Replay ``validated``'s already-verified delta onto the real target.
+
+        Pure mechanics -- nothing in this task calls it (Slice 2's remit is
+        wiring it into promotion). Fails closed if the candidate was never
+        given a disposable-copy root to replay from, and re-derives the
+        changed file paths from the delta as defense in depth: even though
+        ``validate_candidate`` already proved ``changed_paths`` equals the
+        verified delta, this re-checks it here rather than trusting a
+        ``ValidatedFix`` handed in from elsewhere.
+        """
+        if validated.copy_root is None:
+            raise FixError("write_back requires a validated candidate with a disposable-copy root")
+        actual_file_paths = {
+            e.path for e in validated.delta.entries if "file" in (e.before_type, e.after_type)
+        }
+        if actual_file_paths != set(validated.changed_paths):
+            raise FixError(
+                "write_back delta does not match the validated changed_paths "
+                f"(delta: {sorted(actual_file_paths)}, changed_paths: {sorted(validated.changed_paths)})"
+            )
+        apply_delta_to_target(validated.delta, source_root=validated.copy_root, dest_root=target_root)
 
     # -- apply: record OPEN -> FIX_APPLIED for the bound IDs -----------------
 
