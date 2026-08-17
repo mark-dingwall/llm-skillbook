@@ -86,3 +86,26 @@ once. A target or input-seal mismatch is indeterminate and must not fall back.
 Preserve the distinct whole-call containment model and its credential-sharing
 and post-publication race residuals in any hand-back that actually uses
 multi-review.
+
+## Verification
+
+Run the local entry-point and link checks from the repository root:
+
+```bash
+python3 -m pytest \
+  'tests/test_documentation.py::test_documentation_entrypoints[review-loop]' \
+  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[review-loop]' -q
+```
+
+Run the complete component suite with a Python and dependencies satisfying
+`review-loop/pyproject.toml`:
+
+```bash
+python3 -m pytest review-loop/tests -q
+```
+
+The real-containment tests pass their running interpreter into Bubblewrap.
+That interpreter and its runtime closure must therefore be visible read-only
+at the same absolute paths inside the tested mapping. In particular, an
+ephemeral interpreter beneath `/tmp` is hidden by the mapping's `/tmp` tmpfs;
+use a supported Bubblewrap-visible interpreter instead.

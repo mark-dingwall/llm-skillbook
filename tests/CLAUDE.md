@@ -9,3 +9,13 @@ inventory of every shipped file. A passing plugin metadata check does not prove
 agent registration, and mirror synchronization is separately verified by the
 plugin-agent tests. Interpret failures as packaging or discovery regressions,
 not as evidence about component runtime behavior.
+
+## Verification
+
+Run the complete root packaging suite from the repository root:
+
+```bash
+python3 -m pytest tests -q
+```
+
+Component behavior suites remain owned by their component contracts.

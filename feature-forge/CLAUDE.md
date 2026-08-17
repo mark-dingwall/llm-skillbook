@@ -126,3 +126,15 @@ Git and, where applicable, forge evidence read-only; reuse the same
 `finish_id`, never repeat a claim, menu, side effect, or cleanup. If the effect
 cannot be determined conclusively, record `blocked` with the prior phase and a
 resolution-only next action.
+
+## Verification
+
+Feature Forge is instruction-only and has no separate runtime suite in this
+repository. After changing its entry points or links, run its documentation
+parameters from the repository root:
+
+```bash
+python3 -m pytest \
+  'tests/test_documentation.py::test_documentation_entrypoints[feature-forge]' \
+  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[feature-forge]' -q
+```

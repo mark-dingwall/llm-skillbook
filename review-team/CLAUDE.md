@@ -80,3 +80,15 @@ coverage and verification. Do not expose refuted material unless requested at
 invocation. When no candidates survive independent verification, say so
 without claiming the change is safe. An evidence-backed empty Finder or Sweep
 result is complete and valuable; do not pad output to meet a quota.
+
+## Verification
+
+Review Team is instruction-only and has no separate runtime suite in this
+repository. After changing its entry points or links, run its documentation
+parameters from the repository root:
+
+```bash
+python3 -m pytest \
+  'tests/test_documentation.py::test_documentation_entrypoints[review-team]' \
+  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[review-team]' -q
+```

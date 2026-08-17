@@ -1,8 +1,9 @@
 # Plugin agent mirror contract
 
-The root `agents/` files are regular files deliberately kept byte-identical to
-their canonical definitions under `multi-review`. Do not replace them with
-symlinks: Claude plugin registration skips symlinked agents.
+The Claude plugin agent definition files in root `agents/` are regular files
+deliberately kept byte-identical to their canonical definitions under
+`multi-review`. Do not replace those definitions with symlinks: Claude plugin
+registration skips symlinked agents.
 
 Synchronize mirrors by copying from the canonical definitions, then run
 `tests/test_plugin_agents.py`. A successful metadata validation alone is not

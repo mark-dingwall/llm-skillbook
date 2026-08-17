@@ -1,8 +1,8 @@
 # Dispatch mechanics
 
 Operational how-to only. Policy (what must be true before something is
-green, what stops a run, what confirmation means) lives in `SKILL.md` and
-the governing design; this file never restates it.
+green, what stops a run, what confirmation means) lives in `SKILL.md`; this
+file owns only the execution mappings and CLI mechanics described below.
 
 ## Ordinary review execution
 
@@ -104,10 +104,7 @@ a role" section.
   unavailable runtime, driver or participant, or failed aggregate validation
   takes the ordinary path once. A seal-mismatch `INDETERMINATE` is never a
   fallback path; see `SKILL.md`.
-- **The pre-existing `multi-review` smoke-harness `REPO_ROOT` failure**:
-  fixed in this task (`tests/manual/headless-driver-smoke.sh` was deriving
-  `repo_root` from `git rev-parse --show-toplevel`, which resolves to an
-  *enclosing* repository when `multi-review/` is nested in a monorepo/
-  worktree rather than being its own Git repo). If it reappears, check
-  whether `multi-review/` again lacks its own `.git` in the environment
-  running the suite.
+- **The `multi-review` smoke harness reports a `REPO_ROOT` failure**: in a
+  nested checkout, confirm that `tests/manual/headless-driver-smoke.sh`
+  resolves the component root rather than the enclosing Git root, and check
+  whether `multi-review/` has its own `.git` in the test environment.
