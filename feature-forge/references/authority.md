@@ -48,39 +48,18 @@ Integrate each outcome into the same canonical specification, including
 authority and rationale, then recompute. Do not maintain competing specs.
 
 When an authority request says **“no more questions,” “fewer questions,”
-“implement now,”** or an equivalent acceleration phrase, the
-acceleration-trigger response **MUST present the complete accelerated approval
-packet now**; it must not merely announce, describe, or defer packet creation.
-The packet covers the entire remaining decision frontier. Nothing remains
-outside it: it lists every remaining decision, labels each material or minor
-under the existing authority rules, gives a recommendation or recommended
-default for each, and states the assumptions behind it and its acceptance and
-scope consequences.
+“implement now,”** or an equivalent acceleration phrase, use the actual current
+specification and context to assemble the entire remaining decision frontier.
+For each actual decision, record a recommended resolution or default, its
+assumptions, and its acceptance and scope consequences; omit or reopen none.
 
-Use this mandatory, non-compressible response schema: one row or block per
-remaining decision, each containing:
-
-```text
-Decision: <the remaining decision>
-Recommendation/default: <recommended outcome>
-Assumptions: <assumptions behind the outcome>
-Acceptance/scope consequences: <observable acceptance and scope effects>
-```
-
-The response is incomplete and must not proceed if any decision row or field
-is absent. Follow the complete rows with exactly one action:
-
-```text
-Approval: approve or reject the whole packet
-```
-
-After presenting the complete packet, interactive or supervised mode has one
-consolidated sole next action: approval or rejection of that packet; do not
-reopen the individual decisions as new questions. Approval authorizes the
-packet's recorded defaults. In unattended mode, record the packet decisions and
-standing `agent:unattended` authority, then continue. Missing authority or an
-irresolvable contradiction blocks; the process terminates only when both the
-frontier and `Open questions` are empty.
+Interactive or supervised mode presents that complete record once for
+whole-packet approval or rejection; approval authorizes the recorded defaults.
+Unattended mode records the decisions and standing `agent:unattended` authority,
+then continues. If current context does not identify the decisions needed to
+populate the record, remain in Harden and recover them; do not invent decisions
+or implement. Missing authority or an irresolvable contradiction blocks; the
+process terminates only when both the frontier and `Open questions` are empty.
 
 ## Work-unit specification contract
 
