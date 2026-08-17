@@ -65,14 +65,15 @@ outside the checkout, then start a new Claude Code session from that directory:
 
 ```bash
 CHECKOUT=$(pwd)
+INSTALLED_SKILL="$HOME/.claude/skills/multi-review"
 SMOKE_DIR=$(mktemp -d)
 cd "$SMOKE_DIR"
 ```
 
 Replace `<CHECKOUT>` in the prompt examples below with the absolute path saved
-in `CHECKOUT`. This keeps the review subject in the checkout while the Claude
+in `CHECKOUT`. This keeps review subjects in the checkout while the Claude
 Code session resolves `/multi-review` from the installed user-scoped skill and
-agents.
+agents. Commands that invoke Python directly use `INSTALLED_SKILL` explicitly.
 
 ## Procedure
 
@@ -106,7 +107,7 @@ Run it via `/multi-review --prompt-files <yaml>`. Confirm `REVIEW-*.md` has
 ### 3 — Opt-in holds (autonomous builder path)
 
 ```
-/multi-review --use-defaults "review paths.py for correctness"
+/multi-review --use-defaults "review <CHECKOUT>/multi-review/multi_review/core/paths.py for correctness"
 ```
 
 Before the run proceeds (or from the retained `.multi-review/prompts/.tmp/`
@@ -181,7 +182,8 @@ import os
 dirs = [d for d in os.environ['PATH'].split(':') if d and not os.path.isfile(os.path.join(d, 'grok'))]
 print(':'.join(dirs))
 ")
-PATH="$CLEAN_PATH" "$UV_BIN" run python -m multi_review.cli.spawn --cli grok ...
+PATH="$CLEAN_PATH" "$UV_BIN" run --project "$INSTALLED_SKILL" --locked \
+  python -m multi_review.cli.spawn --cli grok ...
 ```
 
 Nothing is renamed, so there is nothing to restore afterward — the real
