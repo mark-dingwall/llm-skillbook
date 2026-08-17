@@ -27,6 +27,12 @@ the returned result in the ledger and follow its declared transition. Invoke
 branch finishing exactly once, only after all remaining Feature Forge gates are
 satisfied; then complete the final report and acceptance.
 
+When the acceleration trigger in [`authority.md`](references/authority.md)
+applies, the current user-facing response must explicitly render every mandatory
+packet-schema row and field; never replace the packet with shorthand such as
+“present/issue the complete packet.” Implementation stays blocked until that
+rendered packet receives the one required approval.
+
 ## Load the contracts
 
 Read [`workflow.md`](references/workflow.md),
