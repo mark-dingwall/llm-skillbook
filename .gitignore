@@ -3,3 +3,4 @@
 .worktrees/
 __pycache__/
 *.pyc
+review-loop/.sdd-history/
