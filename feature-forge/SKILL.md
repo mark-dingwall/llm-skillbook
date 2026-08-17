@@ -33,6 +33,14 @@ packet-schema row and field; never replace the packet with shorthand such as
 “present/issue the complete packet.” Implementation stays blocked until that
 rendered packet receives the one required approval.
 
+Before sending that response, compute N, the number of unresolved decisions.
+Populate rows from the current specification/context: the response must contain
+N literal `Decision:` blocks, N literal `Recommendation/default:` fields, and
+N each of the authority-schema `Assumptions:` and `Acceptance/scope
+consequences:` fields, with exactly one approval action. If any count or field
+does not match, rewrite before sending; do not narrate or substitute the check
+or schema.
+
 ## Load the contracts
 
 Read [`workflow.md`](references/workflow.md),
