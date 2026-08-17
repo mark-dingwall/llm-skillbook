@@ -85,16 +85,16 @@ Every normative feature requirement has a stable `REQ-NNN` identifier and one
 observable `SHALL` or `MUST` statement. Important success, edge, and error
 cases have stable `SCN-NNN` identifiers and use `GIVEN/WHEN/THEN`. Requirements
 and scenarios provide the acceptance vocabulary: each one identifies its
-acceptance classification, method, expected evidence, and declared fallback
-where relevant.
+acceptance classification, method, expected evidence, and — for UAT — the four
+required UAT fields defined below.
 
 The specification includes the durable intent brief, identifies every material
 decision's `user` or `agent:<mode>` authority, and records assumptions and
 delegated decisions. It classifies every requirement's acceptance as
 `automated`, `UAT`, or `not_applicable`; a `not_applicable` classification must
-explain why no acceptance action applies. It also records a fallback for each
-UAT. The Candidate gate requires the `Open questions` section to be present and
-empty.
+explain why no acceptance action applies. It also records the four required
+UAT fields for each UAT-classified requirement. The Candidate gate requires
+the `Open questions` section to be present and empty.
 
 ## Candidate, freeze, and change control
 
@@ -111,7 +111,12 @@ preserving every approved requirement and invariant. Deferral or rejection does
 not open an approval frontier, create a pause, or disturb candidate
 reviewability: an unchanged candidate remains reviewable. Only an explicit,
 authorized expansion of the work unit reopens scope and change control; then
-classify the expansion under this contract and apply the workflow contract.
+classify the expansion under this contract and apply the workflow contract. A
+new request remains deferred unless the user explicitly authorizes that
+expansion; no delegated `agent:<mode>` authority may authorize it itself.
+Machinery beyond this contract — process, artifacts, or checks — is added only
+when a named requirement, invariant, existing project convention, or
+deterministic evidence gate requires it.
 
 Classify a proposed delta before changing a frozen artifact. An **editorial**
 delta corrects wording, formatting, or equivalent clarity while behavior and
@@ -129,16 +134,57 @@ row with method, state, authority, evidence, and any fallback. Methods are
 `automated`, `UAT`, or `not_applicable`; states are `pending`, `approved`,
 `rejected`, `infeasible`, or `waived`.
 
-`automated` uses reproducible deterministic evidence. `UAT` needs an explicit
-human outcome, but every UAT must declare an unattended automated fallback or
-an evidence criterion that can establish the same observable result. If neither
-exists, unattended mode blocks rather than silently waiving the outcome.
-`not_applicable` needs its documented rationale. `infeasible` records why the
-method cannot currently run and blocks required behavior until resolved or
-properly waived. `waived` records the material authority and rationale; it is
-never an implicit approval. `approved` requires current evidence; `rejected`
+`automated` uses reproducible deterministic evidence. `not_applicable` needs
+its documented rationale. `approved` requires current evidence. `rejected`
 returns through root-cause classification and the workflow-owned invalidation
-graph.
+graph. `infeasible` records why the method cannot currently run and blocks
+required behavior until a user supplies a working method or an explicit
+waiver decision resolves it. `waived` records the material authority and
+rationale; it is never an implicit approval.
+
+### UAT contract
+
+This is the sole definition of the UAT acceptance contract; nothing here
+redefines a workflow-owned stage, state, or checkpoint. Every UAT-classified
+requirement's specification entry declares all four fields before Harden can
+terminate:
+
+```text
+named participant; observable exercise; unattended automated substitute;
+evidence criterion that the substitute must satisfy
+```
+
+A record missing any of the four fields is not a complete UAT classification.
+The **evidence criterion** is the one observable result that both the
+participant's judgment and the unattended substitute are tested against — the
+supervised and unattended records differ in who or what produces the
+evidence, never in the criterion itself.
+
+**Interactive/supervised record (authority `user`).** Names the participant,
+the exercise that participant actually performed, its approval or rejection,
+the authority (`user`), and the evidence establishing the criterion was met.
+It records only what that participant actually did in this run; it neither
+invents a human outcome that did not occur nor denies one the run's own
+supplied facts state did occur.
+
+**Unattended record (authority `agent:unattended`).** Unattended mode never
+performs, infers, or claims human participation. It runs the requirement's
+declared unattended automated substitute and evaluates the result against the
+same declared evidence criterion — never a weaker one. When the substitute
+satisfies the criterion, the record states the automated evidence obtained
+and that human UAT was **waived**: state `waived`, standing authority
+`agent:unattended`. It never records `approved`, `user`, or any named human
+(for example, Sam) as the authority for that outcome — waiving is the only
+disposition unattended acceptance may record for a human-classified UAT. If
+the requirement declares no adequate unattended automated substitute, or the
+declared substitute cannot test the evidence criterion, unattended mode does
+not weaken or silently pass acceptance: it records `infeasible` and blocks
+until a user supplies a working method or an explicit waiver.
+
+Only user authority waives a UAT outside this unattended substitution path.
+`infeasible` blocks required behavior absent a user method or waiver
+decision; `rejected` returns through root-cause classification per the
+acceptance contract above.
 
 ## Acceptance checklist
 
@@ -150,4 +196,4 @@ graph.
 - [ ] Every normative requirement uses `REQ-NNN` with one observable `SHALL` or `MUST`; important scenarios use `SCN-NNN` and `GIVEN/WHEN/THEN`.
 - [ ] The candidate and freeze gates are satisfied; every delta has an editorial/non-editorial classification and the workflow-owned invalidation graph is applied.
 - [ ] Every acceptance row has an `automated`, `UAT`, or `not_applicable` method and is `pending`, `approved`, `rejected`, `infeasible`, or `waived`.
-- [ ] Each UAT declares its unattended automated fallback or evidence criterion; unattended work blocks where neither exists.
+- [ ] Each UAT declares all four required fields (participant, observable exercise, unattended automated substitute, evidence criterion); unattended work blocks where no adequate substitute exists, and every unattended UAT record is `waived`/`agent:unattended`, never a claimed human approval.
