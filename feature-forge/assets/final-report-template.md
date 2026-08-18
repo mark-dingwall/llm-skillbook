@@ -35,23 +35,23 @@
 
 ### Human UAT/sign-off
 
-Fill in exactly one of the two mutually exclusive branches below for each
+Fill in exactly one of the three mutually exclusive branches below for each
 UAT-classified requirement, per its declared participant, exercise, substitute,
-and evidence criterion. Never assert both, and never assert either
-unconditionally when the evidence for it was not actually produced in this run.
+and evidence criterion. Never assert more than one, and never assert a branch
+unconditionally when its evidence was not actually produced in this run.
 
 **Human UAT branch** (authority `user`; use only when a named participant
 actually performed the exercise in this run):
 
 ```text
-Human UAT: [participant] performed [observable exercise]; [approved/rejected];
-evidence met [criterion].
+Human UAT: [participant] performed [observable exercise]; [approved because
+evidence met / rejected because evidence did not meet] [criterion].
 ```
 
 - Participant:
 - Observable exercise performed:
 - Result: `approved | rejected`
-- Evidence criterion met:
+- Evidence criterion outcome: `met | not met`
 
 **Automated-substitute branch** (authority `agent:unattended`; use only when
 the declared unattended automated substitute actually ran and produced
@@ -59,13 +59,29 @@ evidence in this run):
 
 ```text
 Automated substitute: [substitute] evaluated [criterion]; [pass/fail].
-Automated acceptance evidence completed; human UAT/sign-off was waived.
+[pass: evidence met the criterion and human UAT was waived / fail: evidence
+did not meet the criterion and acceptance was rejected].
 ```
 
 - Substitute:
 - Evidence criterion evaluated:
 - Result: `pass | fail`
-- Waiver authority/rationale: `agent:unattended`
+- Acceptance state: `waived` for pass; `rejected` for fail
+- Waiver authority/rationale (pass only): `agent:unattended`
+
+**User-waiver branch** (authority `user`; use only when the user explicitly
+waived the declared UAT without performing it in this run):
+
+```text
+User waiver: [authority/evidence] waived [observable exercise] because
+[rationale]. No human exercise or approval is claimed.
+```
+
+- Participant who would have performed UAT:
+- Observable exercise waived:
+- Acceptance state: `waived`
+- Waiver authority/rationale: `user`
+- Waiver-decision evidence:
 
 ## Open defects and authorized exceptions
 

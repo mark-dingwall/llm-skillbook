@@ -2,7 +2,17 @@
 
 **Date:** 2026-08-17
 **Task:** Task 7 — cold reader, independent holistic + adversarial review, fresh verification.
-**Verdict: QUALIFIED** for the amended specification, with recorded residuals and backlog below.
+**Status:** Historical qualification evidence for package `fcc2b8b`; superseded
+for current-package readiness by unreviewed package/fixture changes beginning
+with `8de0869` and `3345e55`.
+**Historical verdict at the reviewed snapshot: QUALIFIED** for the amended
+specification, with recorded residuals and backlog below.
+
+This review does not qualify the current package or current fixture. Commit
+`8de0869` substantively changed three owner references and both templates;
+`3345e55` then changed the fixture predicates and fixture blob. Those inputs
+and all subsequent revisions require fresh review before any current
+install-readiness claim.
 
 ## Qualification inputs (identities)
 
@@ -20,6 +30,8 @@
 | `25404de` | all five package edits (Tasks 2,3,4,5,1) |
 | `2552769` | FcR-4 fix (conclusive Finish-crash terminal receipt) — GREEN Campaign B qualified this |
 | `fcc2b8b` | Task-7 remediation: detached-HEAD block, recovery base-ref reconcile, execute-return caller-progress clause |
+| `8de0869` | Post-qualification owner-reference and template changes; not covered by this review |
+| `3345e55` | Post-qualification behavior-based fixture rewrite; not covered by this review |
 
 ## Step 1 — Cold-reader exercise (fresh reader, package only)
 
@@ -29,7 +41,7 @@ Two rounds (pre- and post-remediation). Final round against `fcc2b8b`: the reade
 
 Both dispatched read-only against `fcc2b8b` + the frozen spec/plan/fixture and RED/GREEN evidence.
 
-- **Holistic:** **QUALIFIED, 0 material defects.** Walked every REQ-001..012 and SCN-001..013 individually against package text; no omissions. Confirmed the three remediation fixes present and faithful (detached-HEAD block `workflow.md:323-326`; base+feature ref reconciliation `workflow.md:358-361`; execute-return caller-progress clause `adapters-and-reviews.md:68-69`).
+- **Holistic:** **QUALIFIED, 0 material defects.** Walked every REQ-001..012 and SCN-001..013 individually against package text; no omissions. Confirmed the three remediation fixes present and faithful in the reviewed `fcc2b8b` snapshot: the detached-HEAD block and base/feature-ref reconciliation in `workflow.md`, and the execute-return caller-progress clause in `adapters-and-reviews.md`.
 - **Adversarial:** **QUALIFIED, 0 material defects.** Genuine attacks on Finish-exactly-once, UAT truth, and ledger/report self-identity all held.
 
 An earlier holistic pass (against `2552769`, pre-remediation) returned NOT QUALIFIED with two genuine gaps — detached-HEAD block (spec §Finish) and Finish-crash base-ref reconciliation. Both were remediated in `fcc2b8b` and re-confirmed closed. That divergence from the adversarial pass (which had passed the same package) is why both reviews are run; the holistic pass earned its place.
@@ -74,6 +86,13 @@ The frozen plan's Task-6 rule ("every control passes 5/5, else fix owner and res
 3. **Shipped-package coverage** — the Finish/adapter family (SCN-006/012/013 and the adapter controls) has direct campaign evidence only against `2552769`; the shipped `fcc2b8b` was re-verified targeted (×5), not by a full 21-control campaign. Prose inspection does not close this gap. Backlog: a full campaign against `fcc2b8b` under the variance-aware bar.
 4. Wording minors above.
 
-## Install / publish readiness
+## Historical install / publish readiness
 
-The package is structurally valid, materially faithful to the amended specification across all requirements and scenarios per two independent reviews (0 material defects), and the review-surfaced gaps are fixed and re-confirmed. It is **ready for installation** as the amended Feature Forge skill. Merge of `feature/feature-forge` to the default branch remains a separate, user-authorized step.
+At `fcc2b8b`, the reviewed package was structurally valid and materially
+faithful to the amended specification across all requirements and scenarios
+per two independent reviews (0 material defects); the review-surfaced gaps
+were fixed and re-confirmed. That snapshot was install-ready. This historical
+conclusion does not apply to the current package after `8de0869` and `3345e55`;
+current readiness requires fresh qualification. Merge of
+`feature/feature-forge` to the default branch remained a separate,
+user-authorized step.
