@@ -384,10 +384,10 @@ class ControllerHolisticFallbackTests(CleanTracerFixture, unittest.TestCase):
         return self.controller.run_stage0(
             run_state,
             scout=self.scout(),
-            gate_dispatch=self.gate_dispatch(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
             inventory_owner=self.inventory_owner(),
             inventory_challenger=self.inventory_challenger(),
-            explicit_tier="low",
+            explicit_tier="high",
             no_confirm=False,
         )
 

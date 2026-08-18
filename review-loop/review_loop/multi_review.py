@@ -222,6 +222,8 @@ class HolisticRequest:
     target_entries: tuple[SealEntry, ...]
     run_root: Path
     raw_report_ids: Mapping[str, str]  # {"claude": <id>, "codex": <id>} -- preallocated by the caller
+    git_policy: GitPolicy = field(default_factory=lambda: GitPolicy(enabled=False))
+    exclusions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -458,6 +460,9 @@ def build_multi_review_call(
     it any longer than that.
     """
     _check_no_target_intersection(host, request.target_root)
+    current = seal_target(Path(request.target_root), request.git_policy, exclusions=request.exclusions)
+    if current.digest != request.target_seal or current.entries != request.target_entries:
+        raise MultiReviewError("multi-review target entries do not match the current sealed target")
     raw_ids = [request.raw_report_ids.get(cli) for cli in _MULTI_REVIEW_REVIEWERS]
     if any(not rid for rid in raw_ids) or len(set(raw_ids)) != len(raw_ids):
         raise MultiReviewError("raw_report_ids must preallocate one distinct, non-empty ID per reviewer")
@@ -756,8 +761,10 @@ class MultiReviewAdapter:
         if unavailable is not None:
             return MultiReviewResult(reports=None, fallback_reason=f"multi-review runtime unavailable: {unavailable}")
 
-        before = seal_target(Path(request.target_root), GitPolicy(enabled=False))
-        if before.digest != request.target_seal:
+        before = seal_target(
+            Path(request.target_root), request.git_policy, exclusions=request.exclusions,
+        )
+        if before.digest != request.target_seal or before.entries != request.target_entries:
             raise MultiReviewIndeterminate(
                 f"target seal drifted before dispatch: expected {request.target_seal!r}, found {before.digest!r}"
             )
@@ -799,8 +806,10 @@ class MultiReviewAdapter:
         # the target actually drifted during it -- "seal drift is
         # INDETERMINATE, never fallback" has no exception for "and also the
         # call misbehaved in some other way."
-        after = seal_target(Path(request.target_root), GitPolicy(enabled=False))
-        if after.digest != request.target_seal:
+        after = seal_target(
+            Path(request.target_root), request.git_policy, exclusions=request.exclusions,
+        )
+        if after.digest != request.target_seal or after.entries != request.target_entries:
             raise MultiReviewIndeterminate(
                 f"target seal drifted during the sandboxed call: expected {request.target_seal!r}, "
                 f"found {after.digest!r}"

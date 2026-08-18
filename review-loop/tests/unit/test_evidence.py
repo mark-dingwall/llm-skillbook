@@ -14,11 +14,13 @@ from review_loop.evidence import (
     build_gate_mapping,
     discover_evidence,
     execute_gate,
+    make_disposable_copy,
     resolve_gate_host_paths,
     validate_gate_argv,
 )
 from review_loop.prompts import RoleValidationError, ValidatedRoleArtifact
-from review_loop.seals import SealEntry, TargetSeal
+from review_loop.controller import ControllerError, _dispatch_gates
+from review_loop.seals import GitPolicy, SealEntry, TargetSeal, seal_target
 
 
 def scout_artifact(gates, gaps=()):
@@ -203,6 +205,20 @@ class ExecuteGateTests(unittest.TestCase):
         )
         self.seal = fake_seal()
 
+    def test_controller_rejects_a_result_for_a_different_gate(self):
+        plan = type("Plan", (), {"gates": (self.gate,)})()
+        wrong = execute_gate(
+            Gate(
+                id="other", argv=("pytest", "other"), applicability="applicable",
+                classification="supporting", rationale="other", provenance="operator",
+            ),
+            self.mapping,
+            self.seal,
+            run=lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, stdout="", stderr=""),
+        )
+        with self.assertRaises(ControllerError):
+            _dispatch_gates(plan, self.seal.digest, lambda _gate: wrong, lambda: "artifact")
+
     def test_zero_exit_is_passed(self):
         def fake_run(argv, **kwargs):
             return subprocess.CompletedProcess(argv, 0, stdout="ok\n", stderr="")
@@ -289,6 +305,23 @@ class ResolveGateHostPathsTests(unittest.TestCase):
         with mock.patch("review_loop.evidence.shutil.which", return_value=None):
             with self.assertRaises(GateContainmentError):
                 resolve_gate_host_paths()
+
+
+class DisposableCopyTests(unittest.TestCase):
+    def test_preserves_directory_modes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            restricted = source / "restricted"
+            restricted.mkdir(mode=0o700)
+            (restricted / "data.txt").write_text("sealed\n")
+            seal = seal_target(source, GitPolicy(enabled=False))
+
+            dest = make_disposable_copy(seal, root / "copy")
+
+            self.assertEqual((dest / "restricted").stat().st_mode & 0o7777, 0o700)
+            self.assertEqual(seal_target(dest, GitPolicy(enabled=False)).digest, seal.digest)
 
 
 if __name__ == "__main__":

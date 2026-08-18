@@ -1,15 +1,18 @@
 import subprocess
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 from review_loop.controller import (
     Controller,
+    ControllerError,
     PreflightError,
     ProfileConfirmationRequired,
     RunState,
 )
 from review_loop.profiles import InvocationIntent
+from review_loop.artifacts import CanonicalStore
 from review_loop.seals import SealError
 
 
@@ -162,6 +165,33 @@ class PreflightTests(unittest.TestCase):
         controller = Controller(xdg_config_home=self.xdg)
         state = controller.create_run(self.intent())
         self.assertEqual(set(state.snapshot["processor_state"]), {"preflight"})
+
+    def _assert_stage0_stops_before_dispatch(self, state):
+        def dispatched(*_args, **_kwargs):
+            self.fail("expired or drifted input must stop before semantic dispatch")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_stage0(
+                state, scout=dispatched, gate_dispatch=dispatched,
+                inventory_owner=dispatched, inventory_challenger=dispatched,
+                explicit_tier="low",
+            )
+
+    def test_ground_truth_drift_stops_before_stage0_dispatch(self):
+        self.controller = Controller(xdg_config_home=self.xdg)
+        state = self.controller.create_run(self.intent())
+        self.ground_truth.write_text("changed authority")
+        self._assert_stage0_stops_before_dispatch(state)
+
+    def test_expired_deadline_stops_before_stage0_dispatch(self):
+        self.controller = Controller(xdg_config_home=self.xdg)
+        state = self.controller.create_run(self.intent(max_time_seconds=60))
+        snapshot = deepcopy(state.snapshot)
+        snapshot["processor_state"]["preflight"]["absolute_expiry"] = "2000-01-01T00:00:00+00:00"
+        store = CanonicalStore(self.run_root)
+        store._replace(snapshot)
+        expired = RunState(state.run_root, state.governing_seal, snapshot)
+        self._assert_stage0_stops_before_dispatch(expired)
 
 
 if __name__ == "__main__":

@@ -105,7 +105,9 @@ class FindingsLoopTests(unittest.TestCase):
         self.target = root / "target"
         _init_git_target(self.target)
         self.run_root = root / "run"
-        self.seal = seal_target(self.target, GitPolicy(enabled=True, base="HEAD"))
+        self.seal = seal_target(
+            self.target, GitPolicy(enabled=True, base="HEAD", include_untracked=True),
+        )
         self.controller = Controller(xdg_config_home=root / "xdg")
         self.host = resolve_gate_host_paths()
         self._plan = {}
@@ -132,7 +134,7 @@ class FindingsLoopTests(unittest.TestCase):
         return _s
 
     def _gate_dispatch_on(self, root: Path):
-        seal = seal_target(root, GitPolicy(enabled=False))
+        seal = self.seal if root == self.target else seal_target(root, GitPolicy(enabled=False))
         return default_gate_dispatcher(self.run_root / f"gates-{root.name}", seal, self.host)
 
     def _inventory_owner(self):
@@ -197,8 +199,11 @@ class FindingsLoopTests(unittest.TestCase):
         return _a
 
     def _final_challenger(self):
-        def _c():
-            return _role_artifact("req-final", "final-readiness", self.seal.digest, None, {"verdict": "UPHOLD"})
+        def _c(exp):
+            return _role_artifact(
+                exp.request_id, "final-readiness", exp.target_seal, exp.round_input_seal,
+                {"verdict": "UPHOLD"},
+            )
         return _c
 
     # --- the loop ----------------------------------------------------
@@ -369,6 +374,38 @@ class FindingsLoopTests(unittest.TestCase):
         self.assertIn("price - price * percent", self.target.joinpath("calc.py").read_text())
         self.assertNotEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
 
+    def test_promotion_rejects_index_only_drift(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import GateResult, discover_evidence
+
+        def synthetic_gate_dispatch(root):
+            target_seal = self.seal.digest if root == self.target else seal_target(
+                root, GitPolicy(enabled=False),
+            ).digest
+
+            def dispatch(gate):
+                return GateResult(
+                    gate.id, gate.argv, gate.classification, gate.applicability,
+                    gate.provenance, gate.rationale, target_seal, "PASSED", 0, "", "",
+                )
+            return dispatch
+
+        self._gate_dispatch_on = synthetic_gate_dispatch
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        _run_git(self.target, "rm", "--cached", "-q", "calc.py")
+
+        with self.assertRaises(ControllerError):
+            self.controller.promote_post_fix_baseline(
+                fix.run_state, fix.transition.validated, self.target,
+            )
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())
+
     def test_undeclared_fix_change_fails_closed_before_fix_applied(self):
         from review_loop.evidence import discover_evidence
         from review_loop.fix import FixError
@@ -531,6 +568,21 @@ class AdjudicationTwoCallTests(unittest.TestCase):
         rows = out.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
         self.assertEqual(rows[0]["state"], "INTENTIONAL")
 
+    def test_invented_settlement_proof_id_is_rejected_before_adjudication(self):
+        from review_loop.controller import ControllerError
+
+        run_state = _open_ledger(self.run_root, ["F1"])
+        settlements = [{
+            "id": "F1", "state": "REFUTED", "proof_artifact_ids": ["invented"],
+            "manifest_artifact_id": None,
+        }]
+
+        def adjudicator(_exp):
+            self.fail("an invented proof ID must stop before adjudication")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_adjudication(run_state, settlements, adjudicator=adjudicator)
+
 
 class DeferredBoundaryTests(unittest.TestCase):
     """The Task-9 deferrals must fail closed LOUDLY -- never silently no-op --
@@ -558,6 +610,20 @@ class DeferredBoundaryTests(unittest.TestCase):
         from review_loop.controller import ControllerError
         with self.assertRaises(ControllerError):
             self.controller.record_mutation_result()
+
+    def test_final_challenge_rejects_an_artifact_replayed_from_an_old_request(self):
+        from review_loop.artifacts import CanonicalStore
+        from review_loop.controller import ControllerError, RunState
+
+        store = CanonicalStore(self.run_root)
+        store.initialize(SEAL, {})
+        state = RunState(self.run_root, SEAL, store.load(), stage="TRIAGE")
+        stale = _role_artifact(
+            "old-request", "final-readiness", SEAL, None, {"verdict": "UPHOLD"},
+        )
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(state, final_challenger=lambda _exp: stale)
 
 
 if __name__ == "__main__":

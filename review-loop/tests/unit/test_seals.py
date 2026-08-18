@@ -162,6 +162,16 @@ class SealTargetTests(unittest.TestCase):
         seal = seal_target(self.root, NO_GIT)
         self.assertIn("weird\nname.txt", {entry.path for entry in seal.entries})
 
+    def test_exclusions_remove_the_path_and_its_descendants(self):
+        (self.root / "keep.txt").write_text("keep")
+        excluded = self.root / "private"
+        excluded.mkdir()
+        (excluded / "secret.txt").write_text("secret")
+
+        seal = seal_target(self.root, NO_GIT, exclusions=("private",))
+
+        self.assertEqual({entry.path for entry in seal.entries}, {"keep.txt"})
+
 
 class GitIndexIdentityTests(unittest.TestCase):
     def setUp(self):
@@ -191,6 +201,16 @@ class GitIndexIdentityTests(unittest.TestCase):
         policy = GitPolicy(enabled=True, base="", head=None)
         with self.assertRaises(SealError):
             seal_target(self.root, policy)
+
+    def test_excluded_index_changes_do_not_change_the_governing_identity(self):
+        (self.root / "private.txt").write_text("one")
+        run_git(self.root, "add", "private.txt")
+        policy = GitPolicy(enabled=True, base="HEAD", head=None, include_index=True)
+        before = seal_target(self.root, policy, exclusions=("private.txt",))
+        (self.root / "private.txt").write_text("two")
+        run_git(self.root, "add", "private.txt")
+        after = seal_target(self.root, policy, exclusions=("private.txt",))
+        self.assertEqual(after.digest, before.digest)
 
     def test_unresolvable_base_is_rejected(self):
         policy = GitPolicy(enabled=True, base="does-not-exist", head=None)

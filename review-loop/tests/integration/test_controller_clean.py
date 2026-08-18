@@ -17,10 +17,13 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
-from review_loop.controller import ConfirmationExpired, Controller
+from review_loop.controller import ConfirmationExpired, Controller, ControllerError
+from review_loop.artifacts import CanonicalStore
 from review_loop.evidence import (
+    GateResult,
     GateProposal,
     build_gate_mapping,
     execute_gate,
@@ -115,7 +118,9 @@ class CleanTracerFixture:
         _init_git_target(self.target)
         self.run_root = root / "run"
         self.xdg = root / "xdg"
-        self.seal = seal_target(self.target, GitPolicy(enabled=True, base="HEAD"))
+        self.seal = seal_target(
+            self.target, GitPolicy(enabled=True, base="HEAD", include_untracked=True),
+        )
         self.controller = Controller(xdg_config_home=self.xdg)
         self.events: list[str] = []
 
@@ -187,6 +192,17 @@ class CleanTracerFixture:
 
         return _dispatch
 
+    def synthetic_gate_dispatch(self):
+        def _dispatch(gate):
+            self.events.append(f"gate:{gate.id}")
+            return GateResult(
+                gate_id=gate.id, argv=gate.argv, classification=gate.classification,
+                applicability=gate.applicability, provenance=gate.provenance,
+                rationale=gate.rationale, target_seal=self.seal.digest, status="PASSED",
+                exit_status=0, stdout_excerpt="", stderr_excerpt="",
+            )
+        return _dispatch
+
     def inventory_owner(self):
         def _owner(expectation: RoleExpectation) -> ValidatedRoleArtifact:
             self.events.append("inventory-owner")
@@ -254,11 +270,69 @@ class CleanTracerFixture:
         return _triage
 
     def final_challenger(self):
-        def _challenge() -> ValidatedRoleArtifact:
+        def _challenge(expectation: RoleExpectation) -> ValidatedRoleArtifact:
             self.events.append("final-challenge")
-            return _role_artifact("req-final", "final-readiness", self.seal.digest, None, {"verdict": "UPHOLD"})
+            return _role_artifact(
+                expectation.request_id, "final-readiness", expectation.target_seal,
+                expectation.round_input_seal, {"verdict": "UPHOLD"},
+            )
 
         return _challenge
+
+
+class DispatchPolicyTests(CleanTracerFixture, unittest.TestCase):
+    def _stage0(self, run_state, tier="low"):
+        return self.controller.run_stage0(
+            run_state, scout=self.scout(), gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(), inventory_challenger=self.inventory_challenger(),
+            explicit_tier=tier,
+        )
+
+    def test_normal_role_model_pins_reach_dispatch_expectations(self):
+        profile = self.xdg / "review-loop" / "profiles" / "pins.yaml"
+        profile.parent.mkdir(parents=True)
+        profile.write_text(
+            "version: 1\n"
+            "holistic:\n  model: holistic-pin\n"
+            "adversarial:\n  model: adversarial-pin\n"
+        )
+        stage0 = self._stage0(self.controller.create_run(self.intent(review_profile="pins")))
+        seen = {}
+
+        def dispatch(expectation):
+            seen[expectation.role] = expectation.model
+            return _review_report_body(expectation), ProcessCompletion(expectation.request_id, 0, True)
+
+        self.controller.run_round1(stage0, dispatch_role=dispatch)
+        self.assertEqual(seen, {"holistic": "holistic-pin", "adversarial": "adversarial-pin"})
+
+    def test_low_tier_rejects_multi_review_before_dispatch(self):
+        stage0 = self._stage0(self.controller.create_run(self.intent()), tier="low")
+
+        def dispatched(_expectation):
+            self.fail("low-tier multi-review must be rejected before dispatch")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_round1(
+                stage0, dispatch_role=dispatched, multi_review_dispatch=dispatched,
+            )
+
+    def test_close_refuses_an_expired_persisted_deadline(self):
+        stage0 = self._stage0(self.controller.create_run(self.intent(max_time_seconds=60)))
+        round1 = self.controller.run_round1(stage0, dispatch_role=self.dispatch_role())
+        triage = self.controller.run_triage(round1, triager=self.triager())
+        challenge = self.controller.run_final_challenge(
+            triage, final_challenger=self.final_challenger(),
+        )
+        snapshot = deepcopy(challenge.snapshot)
+        snapshot["processor_state"]["preflight"]["absolute_expiry"] = "2000-01-01T00:00:00+00:00"
+        CanonicalStore(self.run_root)._replace(snapshot)
+        expired = type(challenge)(
+            challenge.run_root, challenge.governing_seal, snapshot, challenge.stage, challenge.reason,
+        )
+
+        with self.assertRaises(ControllerError):
+            self.controller.close(expired)
 
 
 @unittest.skipUnless(BWRAP_AVAILABLE, "bwrap is not installed")
