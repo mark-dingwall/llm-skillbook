@@ -35,10 +35,10 @@
 
 ### Human UAT/sign-off
 
-Fill in exactly one of the two mutually exclusive branches below for each
+Fill in exactly one of the three mutually exclusive branches below for each
 UAT-classified requirement, per its declared participant, exercise, substitute,
-and evidence criterion. Never assert both, and never assert either
-unconditionally when the evidence for it was not actually produced in this run.
+and evidence criterion. Never assert more than one, and never assert a branch
+unconditionally when its evidence was not actually produced in this run.
 
 **Human UAT branch** (authority `user`; use only when a named participant
 actually performed the exercise in this run):
@@ -68,6 +68,20 @@ did not meet the criterion and acceptance was rejected].
 - Result: `pass | fail`
 - Acceptance state: `waived` for pass; `rejected` for fail
 - Waiver authority/rationale (pass only): `agent:unattended`
+
+**User-waiver branch** (authority `user`; use only when the user explicitly
+waived the declared UAT without performing it in this run):
+
+```text
+User waiver: [authority/evidence] waived [observable exercise] because
+[rationale]. No human exercise or approval is claimed.
+```
+
+- Participant who would have performed UAT:
+- Observable exercise waived:
+- Acceptance state: `waived`
+- Waiver authority/rationale: `user`
+- Waiver-decision evidence:
 
 ## Open defects and authorized exceptions
 

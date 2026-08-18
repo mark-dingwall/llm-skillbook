@@ -39,7 +39,7 @@ never receive their own frozen blob identity.
 
 ## Implementation progress
 
-- Execution mode: `subagent-driven | inline`
+- Execution mode: `delegated | inline`
 
 | plan task | status | commit | evidence |
 | --- | --- | --- | --- |
@@ -47,11 +47,9 @@ never receive their own frozen blob identity.
 
 ## Reviews
 
-| review | state | stage charter | completion criterion | native verdicts | stable report reference | content seal |
+| review | state | stage charter | completion criterion | TRIAGE outcome/open finding IDs | stable run reference | content seal |
 | --- | --- | --- | --- | --- | --- | --- |
 |  | `not_started \| review_active \| pass \| changes_required \| blocked` |  |  |  |  |  |
-
-- For `review_active`, only: `await or recover the existing review`.
 
 ## Verification and acceptance
 
@@ -95,6 +93,7 @@ canonical artifact. It carries exactly these fields:
 | worktree |  |
 | environment/reconciliation evidence |  |
 | exact next side effect |  |
+| completed side-effect receipts |  |
 | durable receipts |  |
 
 ## Transition log
