@@ -57,10 +57,8 @@ the controller; it must not emulate, silently weaken, or bypass the boundary.
 
 ### execute-return
 
-- **Installed skill:** exactly `superpowers:subagent-driven-development` when
-  two or more plan tasks are independently ownable under fixed contracts, or
-  exactly the installed skill `superpowers:executing-plans` for tightly
-  coupled or no-delegation work. No unnamed inline substitute is used.
+- **Installed skill:** exactly the skill selected under
+  [Execution choice](#execution-choice). No unnamed inline substitute is used.
 - **Retained method:** execute bounded, independently verifiable plan tasks
   against their fixed interfaces; verify each owned change before its
   handoff.
@@ -80,9 +78,9 @@ the controller; it must not emulate, silently weaken, or bypass the boundary.
 - **Block rule:** return `blocked` when the selected skill is unavailable, a
   fixed contract cannot be honored, authority for a material or out-of-scope
   decision is missing, or the skill cannot enforce the replacements. The
-  wrapped skill still rules on in-scope ambiguity and continues per its own
-  design rather than stalling; only material or out-of-scope authority gaps
-  block.
+  authority contract's other pause/block triggers remain blocking and are not
+  gated by materiality. Non-material in-scope ambiguity alone does not block:
+  the wrapped skill rules on it and continues per its own design.
 
 ### finish-authority
 

@@ -5,6 +5,8 @@
 internal consistency, safe deterministic implementation
 **Reviewers:** independent holistic and adversarial fresh-context agents
 **Outcome:** PASS
+**Status:** Historical review evidence for the twelve-scenario candidate
+described below; it does not review SCN-013 added by the later refreeze.
 
 ## Round summary
 
@@ -55,3 +57,9 @@ Both original specification reviewers performed a focused amendment review and
 returned zero Critical, Important, or Minor findings. They confirmed that the
 change is identifier-only, preserves every requirement/scenario association,
 and introduces no behavior or scope change.
+
+## Post-review scope disclosure
+
+Commit `37177b2` later added `SCN-013` to the live specification. That scenario
+was outside this review and its focused amendment review, so this record does
+not establish review coverage for the current thirteen-scenario specification.

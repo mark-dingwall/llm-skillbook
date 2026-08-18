@@ -59,7 +59,8 @@ never receive their own frozen blob identity.
 | --- | --- | --- | --- |
 |  |  |  |  |
 
-- Verification state: `pending \| passed \| blocked`.
+- Verification state: record in plain language whether deterministic
+  verification is pending, passed, or blocked, with its evidence above.
 
 | requirement/scenario | acceptance method | acceptance state | authority | evidence | fallback |
 | --- | --- | --- | --- | --- | --- |
@@ -72,7 +73,8 @@ never receive their own frozen blob identity.
 | blocker |  |  |  |  |
 | change request |  |  |  |  |
 
-- Blocker/change-request state: `open \| resolved`.
+- Blocker/change-request state: record in plain language whether the item
+  remains open or has been resolved.
 
 ## Finish journal
 
