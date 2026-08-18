@@ -10,7 +10,7 @@ here.
 
 | Mode | Alias | Without pause | Pause/block |
 | --- | --- | --- | --- |
-| interactive | none | editorial corrections | every nontrivial assumption/material decision and UAT |
+| interactive | none | editorial corrections | execution-mode selection; every nontrivial assumption/material decision and UAT |
 | supervised | default | minor local reversible decisions; execution mode | goals/non-goals, observable behavior, acceptance, compatibility, scope, public/cross-task contracts, security/data posture, major architecture |
 | unattended | full | recorded in-scope decisions and minimum coherence repairs | missing authority, unsafe/irreversible action, unavailable dependency, fundamental intent change, irresolvable contradiction |
 

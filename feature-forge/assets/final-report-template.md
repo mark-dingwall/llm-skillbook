@@ -44,14 +44,14 @@ unconditionally when the evidence for it was not actually produced in this run.
 actually performed the exercise in this run):
 
 ```text
-Human UAT: [participant] performed [observable exercise]; [approved/rejected];
-evidence met [criterion].
+Human UAT: [participant] performed [observable exercise]; [approved because
+evidence met / rejected because evidence did not meet] [criterion].
 ```
 
 - Participant:
 - Observable exercise performed:
 - Result: `approved | rejected`
-- Evidence criterion met:
+- Evidence criterion outcome: `met | not met`
 
 **Automated-substitute branch** (authority `agent:unattended`; use only when
 the declared unattended automated substitute actually ran and produced
@@ -59,13 +59,15 @@ evidence in this run):
 
 ```text
 Automated substitute: [substitute] evaluated [criterion]; [pass/fail].
-Automated acceptance evidence completed; human UAT/sign-off was waived.
+[pass: evidence met the criterion and human UAT was waived / fail: evidence
+did not meet the criterion and acceptance was rejected].
 ```
 
 - Substitute:
 - Evidence criterion evaluated:
 - Result: `pass | fail`
-- Waiver authority/rationale: `agent:unattended`
+- Acceptance state: `waived` for pass; `rejected` for fail
+- Waiver authority/rationale (pass only): `agent:unattended`
 
 ## Open defects and authorized exceptions
 

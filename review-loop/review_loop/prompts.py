@@ -151,6 +151,8 @@ class DispatchExpectation:
     target_seal: str
     round_input_seal: str | None
     scope_locator_ids: tuple[str, ...]
+    model: str | None = None
+    exclusions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

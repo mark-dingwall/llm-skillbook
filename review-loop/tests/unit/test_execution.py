@@ -439,6 +439,11 @@ class CodexMappingArgvTests(unittest.TestCase):
         with self.assertRaises(ExecutionError):
             build_codex_call(bad, self.host, self.call_dir)
 
+    def test_excluded_target_entry_is_rejected_before_mapping(self):
+        request = self._request(exclusions=("a.py",))
+        with self.assertRaises(ExecutionError):
+            build_codex_call(request, self.host, self.call_dir)
+
     def test_empty_directory_entry_uses_dir_not_ro_bind(self):
         req = self._request(target_entries=(SealEntry("emptydir", "dir", 0o755, None),))
         argv, _, _ = build_codex_call(req, self.host, self.call_dir)

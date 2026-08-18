@@ -92,7 +92,7 @@ class MountPolicyProbeTests(unittest.TestCase):
         self.request = HolisticRequest(
             call_id="probe", request_id="req-probe", target_seal=self.seal.digest, round_input_seal=None,
             scope_locator_ids=("target-root",), target_root=self.target,
-            target_entries=tuple(e for e in self.seal.entries if e.path == "foo.py"),
+            target_entries=self.seal.entries,
             run_root=self.root / "run", raw_report_ids={"claude": "c1", "codex": "x1"},
         )
 
@@ -138,7 +138,7 @@ class MountPolicyProbeTests(unittest.TestCase):
         # probe substituted for the wrapper command never sees it either.
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", seen)
 
-    def test_can_read_exact_target_file_and_auth_but_not_unlisted_sibling_or_outside_secret(self):
+    def test_can_read_full_sealed_target_and_auth_but_not_outside_secret(self):
         secret_outside = self.root / "outside-secret.txt"
         secret_outside.write_bytes(b"never-mount-me")
         target_path = str((self.target / "foo.py").resolve())
@@ -153,7 +153,7 @@ class MountPolicyProbeTests(unittest.TestCase):
         self.assertTrue(reads[target_path]["ok"])
         self.assertTrue(reads["/home/review/.codex/auth.json"]["ok"])
         self.assertTrue(reads["/workspace/multi-review/multi_review.py"]["ok"])
-        self.assertFalse(reads[sibling_path]["ok"], "an unlisted sibling of a scoped file must not be readable")
+        self.assertTrue(reads[sibling_path]["ok"], "the holistic slot receives the full sealed target")
         self.assertFalse(reads[str(secret_outside)]["ok"])
 
     def test_cannot_write_auth_or_request_yaml_can_write_home_uv_cache_out(self):

@@ -142,7 +142,17 @@ def _open_root(root: Path) -> int:
         raise SealError(f"cannot open target root: {root}") from exc
 
 
-def _walk(dir_fd: int, prefix: str, out: list[SealEntry], root_exclude: frozenset[str] = frozenset()) -> None:
+def _is_excluded(path: str, exclusions: frozenset[str]) -> bool:
+    return any(path == excluded or path.startswith(f"{excluded}/") for excluded in exclusions)
+
+
+def _walk(
+    dir_fd: int,
+    prefix: str,
+    out: list[SealEntry],
+    root_exclude: frozenset[str] = frozenset(),
+    exclusions: frozenset[str] = frozenset(),
+) -> None:
     try:
         with os.scandir(dir_fd) as it:
             names = sorted(entry.name for entry in it)
@@ -152,11 +162,13 @@ def _walk(dir_fd: int, prefix: str, out: list[SealEntry], root_exclude: frozense
         names = [name for name in names if name not in root_exclude]
     for name in names:
         rel = name if not prefix else f"{prefix}/{name}"
+        if _is_excluded(rel, exclusions):
+            continue
         kind, mode, content_digest, fd = _admit(dir_fd, name)
         try:
             out.append(SealEntry(rel, kind, mode, content_digest))
             if kind == "dir":
-                _walk(fd, rel, out)
+                _walk(fd, rel, out, exclusions=exclusions)
         finally:
             os.close(fd)
 
@@ -195,7 +207,7 @@ def _resolve_ref(root: Path, ref: str | None) -> str:
     return resolved
 
 
-def _git_index_digest(root: Path, git_policy: GitPolicy) -> str | None:
+def _git_index_digest(root: Path, git_policy: GitPolicy, exclusions: frozenset[str]) -> str | None:
     if not git_policy.include_index:
         return None
     result = subprocess.run(
@@ -204,7 +216,14 @@ def _git_index_digest(root: Path, git_policy: GitPolicy) -> str | None:
     )
     if result.returncode != 0:
         raise SealError("cannot read git index")
-    payload = result.stdout
+    records = result.stdout.split(b"\0")
+    payload = b"\0".join(
+        record for record in records if record and not _is_excluded(
+            record.split(b"\t", 1)[-1].decode("utf-8", "surrogateescape"), exclusions
+        )
+    )
+    if payload:
+        payload += b"\0"
     if git_policy.include_untracked:
         others = subprocess.run(
             ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "-z"],
@@ -212,20 +231,33 @@ def _git_index_digest(root: Path, git_policy: GitPolicy) -> str | None:
         )
         if others.returncode != 0:
             raise SealError("cannot enumerate untracked files")
-        payload += b"\x00UNTRACKED\x00" + others.stdout
+        other_records = others.stdout.split(b"\0")
+        filtered = b"\0".join(
+            record for record in other_records if record and not _is_excluded(
+                record.decode("utf-8", "surrogateescape"), exclusions
+            )
+        )
+        payload += b"\x00UNTRACKED\x00" + filtered + (b"\0" if filtered else b"")
     return bytes_digest(payload)
 
 
-def seal_target(root: Path, git_policy: GitPolicy) -> TargetSeal:
+def seal_target(root: Path, git_policy: GitPolicy, *, exclusions: Sequence[str] = ()) -> TargetSeal:
     root = Path(root)
     if not root.is_dir():
         raise SealError(f"target root is not a directory: {root}")
+    normalized_exclusions = frozenset(exclusions)
+    for excluded in normalized_exclusions:
+        if not excluded or excluded.startswith("/") or ".." in Path(excluded).parts:
+            raise SealError(f"unsafe target exclusion: {excluded!r}")
     root_fd = _open_root(root)
     entries: list[SealEntry] = []
     try:
         # .git metadata is never a target-tree input; its identity is bound
         # separately below as the git index digest.
-        _walk(root_fd, "", entries, root_exclude=frozenset({".git"}))
+        _walk(
+            root_fd, "", entries, root_exclude=frozenset({".git"}),
+            exclusions=normalized_exclusions,
+        )
     finally:
         os.close(root_fd)
     entries = tuple(sorted(entries, key=lambda e: e.path))
@@ -237,7 +269,7 @@ def seal_target(root: Path, git_policy: GitPolicy) -> TargetSeal:
         git_dir_outside_target = git_policy.git_dir_outside_target
         git_base_commit = _resolve_ref(root, git_policy.base)
         git_head_commit = _resolve_ref(root, git_policy.head) if git_policy.head else None
-        git_index_digest = _git_index_digest(root, git_policy)
+        git_index_digest = _git_index_digest(root, git_policy, normalized_exclusions)
 
     binding = {
         "schema_version": SCHEMA_VERSION,

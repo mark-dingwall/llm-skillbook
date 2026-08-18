@@ -32,6 +32,7 @@ from .prompts import (
     ValidatedReview,
     ValidatedRoleArtifact,
     validate_review_report,
+    validate_role_json,
 )
 from .seals import GitPolicy, SealEntry, TargetSeal, check_run_root_disjoint, seal_inputs, seal_target
 
@@ -154,6 +155,46 @@ def _target_seal_to_dict(seal: TargetSeal) -> dict[str, object]:
     }
 
 
+def _persisted_git_policy(preflight: dict[str, object]) -> GitPolicy:
+    policy = preflight["delta_policy"]
+    return GitPolicy(
+        enabled=policy["enabled"], base=policy["base"], head=policy["head"],
+        include_untracked=policy["include_untracked"], include_index=policy["include_index"],
+        git_dir_outside_target=policy["git_dir_outside_target"],
+    )
+
+
+def _assert_run_active(run_state: RunState, *, target: bool = False) -> None:
+    preflight = run_state.snapshot.get("processor_state", {}).get("preflight")
+    if not isinstance(preflight, dict):
+        return
+    expiry = preflight.get("absolute_expiry")
+    if expiry is not None and datetime.now(timezone.utc) >= datetime.fromisoformat(expiry):
+        raise ControllerError("persisted run deadline has expired")
+    paths = tuple(Path(entry["path"]) for entry in preflight.get("ground_truth", ()))
+    current_inputs = seal_inputs(paths, run_state.governing_seal)
+    if [_seal_entry_to_dict(entry) for entry in current_inputs.entries] != preflight.get("ground_truth", []):
+        raise ControllerError("external ground-truth input drifted after preflight")
+    if target:
+        current = seal_target(
+            Path(preflight["resolved_target"]), _persisted_git_policy(preflight),
+            exclusions=tuple(preflight.get("resolved_exclusions", ())),
+        )
+        if current.digest != run_state.governing_seal:
+            raise ControllerError("authoritative target drifted from the governing identity")
+
+
+def _selected_model(run_state: RunState, role: str, *, fallback: bool = False) -> str | None:
+    preflight = run_state.snapshot.get("processor_state", {}).get("preflight", {})
+    profile = preflight.get("selected_profile") if isinstance(preflight, dict) else None
+    if not isinstance(profile, dict):
+        return None
+    pins = profile.get("specialists" if role == "specialist" else role)
+    if not isinstance(pins, dict):
+        return None
+    return pins.get("fallback_model" if fallback else "model")
+
+
 class ControllerError(Exception):
     """Stage 0/round orchestration cannot proceed; callers fail closed."""
 
@@ -193,6 +234,7 @@ def _dispatch_gates(
     seal: str,
     gate_dispatch: Callable[[Gate], GateResult],
     new_id: Callable[[], str],
+    result_seal: str | None = None,
 ) -> tuple[list[GateResult], list[dict[str, object]], list["EvidenceArtifact"]]:
     """Execute every applicable gate in ``plan`` and shape its compact record.
 
@@ -213,6 +255,16 @@ def _dispatch_gates(
             })
             continue
         result = gate_dispatch(gate)
+        expected_identity = (
+            gate.id, tuple(gate.argv), gate.classification, gate.applicability,
+            gate.provenance, gate.rationale, result_seal or seal,
+        )
+        actual_identity = (
+            result.gate_id, tuple(result.argv), result.classification, result.applicability,
+            result.provenance, result.rationale, result.target_seal,
+        )
+        if actual_identity != expected_identity:
+            raise ControllerError(f"gate result identity does not match dispatched gate {gate.id!r}")
         gate_results.append(result)
         artifact_id = new_id()
         gate_evidence.append(_artifact(artifact_id, "gate-result", seal, {
@@ -365,7 +417,7 @@ class Controller:
         _check_exclusions(intent.exclusions)
 
         git_policy = _detect_git_policy(target, intent)
-        target_seal = seal_target(target, git_policy)
+        target_seal = seal_target(target, git_policy, exclusions=intent.exclusions)
 
         ground_truth_seal = seal_inputs(list(intent.ground_truth), target_seal.digest)
 
@@ -449,6 +501,7 @@ class Controller:
         interfaces: exactly this order). Malformed retries and a
         confirmation decline/expiry stop before any reviewer is scheduled.
         """
+        _assert_run_active(run_state, target=True)
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
 
@@ -520,6 +573,7 @@ class Controller:
         except (EvidenceDiscoveryIndeterminate, ControllerError) as exc:
             return _indeterminate(str(exc))
 
+        _assert_run_active(run_state, target=True)
         if explicit_tier is not None:
             tier_projection = {"explicit_tier": explicit_tier, "no_confirm": no_confirm, "ratings": []}
             tier_evidence = [_artifact(new_id(), "tier-selection", seal, {"explicit_tier": explicit_tier})]
@@ -600,6 +654,7 @@ class Controller:
         plan: EvidencePlan,
         *,
         gate_dispatch: Callable[[Gate], GateResult],
+        target_seal: str | None = None,
         new_id: Callable[[], str] = _new_id,
     ) -> GateRerunOutcome:
         """Re-execute every applicable gate in ``plan`` and reconcile again.
@@ -616,9 +671,12 @@ class Controller:
         times -- each call simply replaces the compact gates record for the
         current ``run_state.governing_seal``.
         """
+        _assert_run_active(run_state)
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
-        gate_results, gate_dicts, gate_evidence = _dispatch_gates(plan, seal, gate_dispatch, new_id)
+        gate_results, gate_dicts, gate_evidence = _dispatch_gates(
+            plan, seal, gate_dispatch, new_id, result_seal=target_seal,
+        )
         gates_projection = {"target_seal": seal, "gates": gate_dicts}
         updated = _issue(store, operation="reconcile_gates", projection=gates_projection, evidence=gate_evidence)
         reconciled = updated["processor_state"]["reconcile_gates"]
@@ -644,6 +702,7 @@ class Controller:
         misread as anything else.
         """
         run_state = stage0.run_state
+        _assert_run_active(run_state, target=True)
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
         processor = run_state.snapshot["processor_state"]
@@ -709,6 +768,9 @@ class Controller:
 
         if stage0.run_state.stage != "STAGE0":
             raise ControllerError(f"run_round1 requires a STAGE0 outcome, got stage={stage0.run_state.stage!r}")
+        _assert_run_active(stage0.run_state, target=True)
+        if multi_review_dispatch is not None and stage0.tier not in {"high", "max"}:
+            raise ControllerError("multi-review is restricted to high/max tiers")
         if not stage0.review_may_start:
             # A failed applicable gate -- required OR supporting -- means no
             # reviewer is ever dispatched; the kernel's own gates rollup
@@ -751,7 +813,12 @@ class Controller:
             expectation = DispatchExpectation(
                 request_id=request_id, role=role, charter_id=charter_id, target_seal=seal,
                 round_input_seal=None, scope_locator_ids=scope_locator_ids,
+                model=_selected_model(run_state, role),
+                exclusions=tuple(
+                    run_state.snapshot["processor_state"]["preflight"].get("resolved_exclusions", ())
+                ),
             )
+            _assert_run_active(run_state, target=True)
             if role == "holistic" and multi_review_dispatch is not None:
                 mr_result = multi_review_dispatch(expectation)
                 if mr_result.reports is not None:
@@ -763,7 +830,16 @@ class Controller:
                 # structured ordinary-fallback reason: dispatch exactly the
                 # same single-reviewer path every other role already uses,
                 # for this same expectation -- no multi-review retry.
+                expectation = DispatchExpectation(
+                    request_id=expectation.request_id, role=expectation.role,
+                    charter_id=expectation.charter_id, target_seal=expectation.target_seal,
+                    round_input_seal=expectation.round_input_seal,
+                    scope_locator_ids=expectation.scope_locator_ids,
+                    model=_selected_model(run_state, role, fallback=True),
+                    exclusions=expectation.exclusions,
+                )
             body, process = dispatch_role(expectation)
+            _assert_run_active(run_state, target=True)
             outcome = validate_review_report(body, expectation, process)
             if isinstance(outcome, UnusableReview) or not outcome.usable:
                 raise ControllerError(f"round 1 role {role!r} produced no usable report")
@@ -785,6 +861,7 @@ class Controller:
         new_id: Callable[[], str] = _new_id,
     ) -> RunState:
         run_state = round1.run_state
+        _assert_run_active(run_state, target=True)
         # run_triage only ever INITIALIZES the ledger (round 1). Round-N
         # triage-RECONCILE onto prior canonical rows -- and everything that
         # rides on it (reopened settlements, coverage invalidation, successor
@@ -810,6 +887,7 @@ class Controller:
             expected_ids=usable_ids, extra={"raw_findings": raw_findings},
         )
         result = _dispatch_with_retry(lambda: triager(expectation), on_exhausted="triage output was malformed twice")
+        _assert_run_active(run_state, target=True)
         rows = result.projection["rows"]
 
         initial_rows: list[dict[str, object]] = []
@@ -860,6 +938,7 @@ class Controller:
         from .fix import FixController
         from .seals import GitPolicy, seal_target
 
+        _assert_run_active(run_state, target=True)
         seal = run_state.governing_seal
         rows = run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
         open_rows = [r for r in rows if r["state"] == "OPEN"]
@@ -868,7 +947,11 @@ class Controller:
 
         work = Path(run_state.run_root) / "fix" / new_id()
         copy_root = work / "copy"
-        make_disposable_copy(seal_target(Path(target_root), GitPolicy(enabled=False)), copy_root)
+        preflight = run_state.snapshot["processor_state"].get("preflight", {})
+        exclusions = tuple(preflight.get("resolved_exclusions", ())) if isinstance(preflight, dict) else ()
+        make_disposable_copy(
+            seal_target(Path(target_root), GitPolicy(enabled=False), exclusions=exclusions), copy_root,
+        )
         before = seal_target(copy_root, GitPolicy(enabled=False))
 
         expectation = RoleExpectation(
@@ -876,6 +959,7 @@ class Controller:
             expected_ids=tuple(r["id"] for r in open_rows),
         )
         manifest = fix_implementer(copy_root, expectation)
+        _assert_run_active(run_state, target=True)
         after = seal_target(copy_root, GitPolicy(enabled=False))
 
         fixctl = FixController(run_state, work, new_id=new_id)
@@ -884,7 +968,8 @@ class Controller:
         transition = fixctl.apply(validated)
 
         gate_rerun = self.rerun_gates(
-            transition.run_state, evidence_plan, gate_dispatch=post_fix_gate_dispatch(copy_root), new_id=new_id,
+            transition.run_state, evidence_plan, gate_dispatch=post_fix_gate_dispatch(copy_root),
+            target_seal=after.digest, new_id=new_id,
         )
         return FixOutcome(
             run_state=gate_rerun.run_state, transition=transition,
@@ -913,6 +998,7 @@ class Controller:
         green decision; otherwise UPHOLD settles them with the positive
         seal-bound adjudication proof. An empty settlement set makes no call.
         """
+        _assert_run_active(run_state, target=True)
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
         kinds = authority_kinds or {}
@@ -934,6 +1020,21 @@ class Controller:
         for ident, s in by_id.items():
             if s["state"] not in green_states:
                 raise ControllerError(f"settlement {ident!r} proposes non-green state {s['state']!r}")
+
+        registry = run_state.snapshot.get("artifact_registry", {}).get("artifacts", {})
+        pending = {artifact.artifact_id: artifact for artifact in proof_evidence}
+        if len(pending) != len(proof_evidence):
+            raise ControllerError("settlement proof evidence IDs must be unique")
+        if any(artifact.target_seal != seal for artifact in pending.values()):
+            raise ControllerError("settlement proof evidence is bound to a stale seal")
+        available_proof_ids = set(registry) | set(pending)
+        referenced_proof_ids = {
+            proof_id for settlement in settlements for proof_id in settlement.get("proof_artifact_ids", ())
+        }
+        if not referenced_proof_ids <= available_proof_ids:
+            raise ControllerError(
+                f"settlement references non-canonical proof IDs: {sorted(referenced_proof_ids - available_proof_ids)}"
+            )
 
         green_ids = [r_id for r_id in rows if r_id in by_id]
         manifests: list[dict[str, object]] = []
@@ -1029,23 +1130,28 @@ class Controller:
         from .fix import FixController
         from .seals import GitPolicy, seal_target
 
+        _assert_run_active(run_state, target=True)
         target_root = Path(target_root)
-        pre = seal_target(target_root, GitPolicy(enabled=False))
-        if pre.digest != validated.before_seal:
+        preflight = run_state.snapshot["processor_state"]["preflight"]
+        exclusions = tuple(preflight.get("resolved_exclusions", ()))
+        policy = _persisted_git_policy(preflight)
+        pre_tree = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
+        if pre_tree.digest != validated.before_seal:
             raise ControllerError(
                 "promotion aborted: the authoritative target has drifted since FIX ran "
-                f"(expected pre-FIX seal {validated.before_seal!r}, found {pre.digest!r})"
+                f"(expected pre-FIX seal {validated.before_seal!r}, found {pre_tree.digest!r})"
             )
         fixctl = FixController(run_state, Path(run_state.run_root) / "promote", new_id=new_id)
         fixctl.write_back(validated, target_root)
-        post = seal_target(target_root, GitPolicy(enabled=False))
-        if post.digest != validated.after_seal:
+        post_tree = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
+        if post_tree.digest != validated.after_seal:
             raise ControllerError(
                 "promotion aborted: write-back did not reproduce the verified post-FIX seal "
-                f"(expected {validated.after_seal!r}, found {post.digest!r}); the target may now "
+                f"(expected {validated.after_seal!r}, found {post_tree.digest!r}); the target may now "
                 "be partially written -- inspect it before retrying"
             )
-        return PromotionRecord(covered_ids=validated.bound_ids, after_seal=validated.after_seal)
+        post = seal_target(target_root, policy, exclusions=exclusions)
+        return PromotionRecord(covered_ids=validated.bound_ids, after_seal=post.digest)
 
     # --- explicit fail-closed tripwire for the still-deferred Task-9 work ----
     #
@@ -1071,12 +1177,23 @@ class Controller:
         self,
         run_state: RunState,
         *,
-        final_challenger: Callable[[], ValidatedRoleArtifact],
+        final_challenger: Callable[[RoleExpectation], ValidatedRoleArtifact],
         new_id: Callable[[], str] = _new_id,
     ) -> RunState:
+        _assert_run_active(run_state)
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
-        result = _dispatch_with_retry(final_challenger, on_exhausted="final-readiness challenge was malformed twice")
+        expectation = RoleExpectation(
+            request_id=new_id(), role_id="final-readiness", target_seal=seal,
+            round_input_seal=None, expected_ids=(),
+        )
+        result = _dispatch_with_retry(
+            lambda: validate_role_json(
+                "final-readiness", final_challenger(expectation).body, expectation,
+            ),
+            on_exhausted="final-readiness challenge was malformed twice",
+        )
+        _assert_run_active(run_state)
         if result.artifact["verdict"] == "BLOCK":
             raise ControllerError(
                 "final-readiness BLOCK handling (supplemental TRIAGE) is not implemented in this task's scope"
@@ -1116,6 +1233,7 @@ class Controller:
         """
         from .seals import GitPolicy, seal_target
 
+        _assert_run_active(run_state)
         seal = run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
         processor = run_state.snapshot["processor_state"]
@@ -1134,18 +1252,15 @@ class Controller:
                 f"({sorted(promoted_ids - fix_verified_ids)}); refusing to close"
             )
         copy_only_fixes = sorted(fix_verified_ids - promoted_ids)
+        preflight = processor["preflight"]
+        current_policy = _persisted_git_policy(preflight)
+        exclusions = tuple(preflight.get("resolved_exclusions", ()))
 
         if promotion is not None:
-            fresh = seal_target(target_root, GitPolicy(enabled=False))
+            fresh = seal_target(target_root, current_policy, exclusions=exclusions)
             seal_verified = fresh.digest == promotion.after_seal
         else:
-            delta_policy = processor["preflight"]["delta_policy"]
-            anchor_policy = GitPolicy(
-                enabled=delta_policy["enabled"], base=delta_policy["base"], head=delta_policy["head"],
-                include_untracked=delta_policy["include_untracked"], include_index=delta_policy["include_index"],
-                git_dir_outside_target=delta_policy["git_dir_outside_target"],
-            )
-            fresh = seal_target(target_root, anchor_policy)
+            fresh = seal_target(target_root, current_policy, exclusions=exclusions)
             seal_verified = fresh.digest == seal
         actual_final_seal = seal if seal_verified else fresh.digest
 
