@@ -66,6 +66,23 @@ def classify_review_ok(raw_ok: bool, review_text: str) -> tuple[bool, str | None
         return False, "no ## Summary heading in review body"
     return bool(raw_ok), None
 
+
+SYNTHESIS_SECTION_RE = re.compile(
+    r"#{2,3}\s+(agreed strengths|agreed concerns|divergent views)\b",
+    re.IGNORECASE,
+)
+SYNTHESIS_SECTIONS = {"agreed strengths", "agreed concerns", "divergent views"}
+
+
+def classify_synthesis_ok(raw_ok: bool, synthesis_text: str) -> tuple[bool, str | None]:
+    """Require the three consensus sections before publishing synthesis output."""
+    if not raw_ok:
+        return False, None
+    found = {match.group(1).lower() for match in SYNTHESIS_SECTION_RE.finditer(synthesis_text)}
+    if found != SYNTHESIS_SECTIONS:
+        return False, "missing required consensus sections"
+    return True, None
+
 # ---------------------------------------------------------------------------
 # Task templates
 # ---------------------------------------------------------------------------
@@ -349,7 +366,7 @@ def build_prompt(
     bodies: list[tuple[Path, str]] = []
     for f in context_files:
         try:
-            body = f.read_text(errors="replace")
+            body = f.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
             if not allow_missing:
                 if isinstance(e, FileNotFoundError):

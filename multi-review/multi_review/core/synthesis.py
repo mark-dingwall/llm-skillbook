@@ -22,13 +22,13 @@ import time
 from pathlib import Path
 
 from multi_review.core.fanout import (
-    STDERR_TAIL_CHARS,
     STREAM_BUFFER_LIMIT,
     ReviewerResult,
+    StderrTail,
     kill_proc,
     reviewer_ok,
 )
-from multi_review.core.prompt import synthesis_prompt
+from multi_review.core.prompt import classify_synthesis_ok, synthesis_prompt
 from multi_review.core.reviewers import CLI_SPEC, build_command
 
 
@@ -53,12 +53,40 @@ def build_synthesis_input(results: list[ReviewerResult]) -> tuple[str, str]:
 
 # -------- Synthesis runner --------
 
+async def _communicate_with_stderr_tail(
+    proc: asyncio.subprocess.Process,
+    stdin_payload: bytes | None,
+) -> tuple[bytes, str]:
+    """Drain stderr without retaining an unbounded copy of it in memory."""
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+    tail = StderrTail()
+
+    async def drain_stderr() -> None:
+        while chunk := await proc.stderr.read(4096):
+            tail.append(chunk)
+
+    if proc.stdin is not None:
+        try:
+            if stdin_payload is not None:
+                proc.stdin.write(stdin_payload)
+                await proc.stdin.drain()
+            proc.stdin.close()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    stdout_b, _stderr, _exit = await asyncio.gather(
+        proc.stdout.read(), drain_stderr(), proc.wait(),
+    )
+    return stdout_b, tail.text()
+
 async def _run_synthesis_attempt(
     cli: str,
     review_body: str,
     nonce: str,
     model: str | None,
     timeout: int | None,
+    task: str | None = None,
 ) -> tuple[bool, str, str, str | None]:
     prompt = synthesis_prompt(nonce) + "\n\n---\n\n" + review_body
     # argv_file delivery (agy): write the combined prompt to a temp file and
@@ -72,7 +100,7 @@ async def _run_synthesis_attempt(
         tf.close()
         tmp_path = Path(tf.name)
     try:
-        cmd = build_command(cli, model, streaming=False, prompt_path=tmp_path)
+        cmd = build_command(cli, model, streaming=False, prompt_path=tmp_path, task=task)
         try:
             create_process = asyncio.create_subprocess_exec(
                 *cmd,
@@ -98,11 +126,11 @@ async def _run_synthesis_attempt(
         stdin_payload = None if delivery == "argv_file" else prompt.encode()
         try:
             if timeout is None:
-                stdout_b, stderr_b = await proc.communicate(stdin_payload)
+                stdout_b, err = await _communicate_with_stderr_tail(proc, stdin_payload)
             else:
                 assert deadline is not None
-                stdout_b, stderr_b = await asyncio.wait_for(
-                    proc.communicate(stdin_payload),
+                stdout_b, err = await asyncio.wait_for(
+                    _communicate_with_stderr_tail(proc, stdin_payload),
                     timeout=max(0.0, deadline - time.monotonic()),
                 )
         except asyncio.TimeoutError:
@@ -118,11 +146,14 @@ async def _run_synthesis_attempt(
             tmp_path.unlink(missing_ok=True)
 
     text = stdout_b.decode("utf-8", errors="replace").strip()
-    err = stderr_b.decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
     suggested = extract_filename_from_synthesis(text)
     if suggested is not None:
         text = strip_filename_prefix(text)
-    ok = reviewer_ok(cli, proc.returncode, text)
+    ok, classification_error = classify_synthesis_ok(
+        reviewer_ok(cli, proc.returncode, text), text,
+    )
+    if classification_error is not None:
+        err = classification_error if not err else f"{err}\n{classification_error}"
     return ok, text, err, suggested if ok else None
 
 
@@ -132,10 +163,13 @@ async def run_synthesis(
     nonce: str,
     model: str | None,
     timeout: int | None,
+    task: str | None = None,
 ) -> tuple[bool, str, str, str | None, list[str]]:
     """Single synthesis attempt. Returns (ok, text, err, suggested_filename, attempts)."""
     label = model if model is not None else "<default>"
-    ok, text, err, suggested = await _run_synthesis_attempt(cli, review_body, nonce, model, timeout)
+    ok, text, err, suggested = await _run_synthesis_attempt(
+        cli, review_body, nonce, model, timeout, task,
+    )
     return ok, text, err, suggested, [label]
 
 
@@ -266,10 +300,10 @@ async def suggest_filename_haiku(prompt: str, timeout: int | None) -> str | None
 
     try:
         if timeout is None:
-            stdout_b, _ = await proc.communicate(stdin_payload)
+            stdout_b, _ = await _communicate_with_stderr_tail(proc, stdin_payload)
         else:
             stdout_b, _ = await asyncio.wait_for(
-                proc.communicate(stdin_payload),
+                _communicate_with_stderr_tail(proc, stdin_payload),
                 timeout=timeout,
             )
     except asyncio.TimeoutError:

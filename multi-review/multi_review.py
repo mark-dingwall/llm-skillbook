@@ -41,7 +41,11 @@ from multi_review.core.aggregate import (
     write_review_md,
 )
 from multi_review.core.fanout import ReviewerResult, run_all_reviewers
-from multi_review.core.prompt import build_prompt, classify_review_ok
+from multi_review.core.prompt import (
+    build_prompt,
+    classify_review_ok,
+    classify_synthesis_ok,
+)
 from multi_review.core.promptfile import ValidationError, _resolve_path, load_promptfile
 from multi_review.core.synthesis import build_synthesis_input, run_synthesis
 
@@ -204,12 +208,12 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
     synthesis_text = None
     synthesis_ok = False
     synthesis_error = None
-    if pf.synthesizer != "none" and sum(1 for r in raw_results if r.ok) >= 2:
-        body, nonce = build_synthesis_input(raw_results)
+    if pf.synthesizer != "none" and sum(1 for r in classified_results if r.ok) >= 2:
+        body, nonce = build_synthesis_input(classified_results)
         try:
             ok, text, synthesis_error, _suggested, _attempts = await run_synthesis(
                 pf.synthesizer, body, nonce,
-                model=pf.models.get(pf.synthesizer), timeout=timeout,
+                model=pf.models.get(pf.synthesizer), timeout=timeout, task=pf.task,
             )
         except Exception as exc:
             # NamedTemporaryFile in _run_synthesis_attempt runs before its own
@@ -218,10 +222,16 @@ async def _amain(pf, reviewers: list[str], prompt_text: str, prompt_path: Path,
             ok, text, synthesis_error, _suggested, _attempts = False, "", str(exc), None, []
             print(f"[multi_review] synthesis ({pf.synthesizer}): crashed: {exc}",
                   file=sys.stderr, flush=True)
-        synthesis_ok = ok
+        synthesis_ok, validation_error = classify_synthesis_ok(ok, text)
+        if validation_error is not None:
+            synthesis_error = (
+                validation_error if not synthesis_error
+                else f"{synthesis_error}\n{validation_error}"
+            )
         if synthesis_ok:
             synthesis_text = text
-        print(f"[multi_review] synthesis ({pf.synthesizer}): {'ok' if ok else 'failed'}",
+        print(f"[multi_review] synthesis ({pf.synthesizer}): "
+              f"{'ok' if synthesis_ok else 'failed'}",
               file=sys.stderr, flush=True)
 
     staged_review = out_dir / ".REVIEW.md.tmp"

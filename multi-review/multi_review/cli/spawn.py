@@ -19,6 +19,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from multi_review.core.fanout import ReviewerState, ReviewerResult, run_reviewer
+from multi_review.core.prompt import classify_review_ok
 from multi_review.core.reviewers import ALL_REVIEWERS, CLI_SPEC, make_adapter
 from multi_review.core.synthesis import run_synthesis
 
@@ -53,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return _run_synthesize(args)
 
-    prompt = args.prompt_file.read_text()
+    prompt = args.prompt_file.read_text(encoding="utf-8")
 
     state = ReviewerState(
         cli=args.cli,
@@ -76,9 +77,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     duration = time.monotonic() - start
+    result.ok, qualification_error = classify_review_ok(result.ok, result.text)
+    if qualification_error is not None:
+        result.error = result.error or qualification_error
 
     review_path = args.out_dir / f"{args.cli}.md"
-    review_path.write_text(result.text or "")
+    review_path.write_text(result.text or "", encoding="utf-8")
 
     # Drift 2: write "duration_seconds" in JSON (aggregate.py reads this key)
     state_path = args.out_dir / f"{args.cli}.state.json"
@@ -91,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         "final_model": result.model_used,
         "downgraded": result.downgraded,
         "error": result.error,
-    }, indent=2))
+    }, indent=2), encoding="utf-8")
 
     print(json.dumps({
         "ok": result.ok,
@@ -102,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_synthesize(args) -> int:
-    review_body = args.prompt_file.read_text()
+    review_body = args.prompt_file.read_text(encoding="utf-8")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
@@ -113,12 +117,13 @@ def _run_synthesize(args) -> int:
             args.input_nonce,
             args.model,
             args.timeout,
+            args.task,
         )
     )
     duration = time.monotonic() - start
 
     synth_path = args.out_dir / "synth.txt"
-    synth_path.write_text(text or "")
+    synth_path.write_text(text or "", encoding="utf-8")
     final_model = attempts[-1] if attempts else None
     # Same honesty rule as fanout.py's records_family_not_model branch: a
     # NanoGPT family (pykrete's "model") must never be presented as if it
@@ -134,7 +139,7 @@ def _run_synthesize(args) -> int:
         "usage": None,
         "final_model": final_model,
         "suggested_filename": suggested,
-    }, indent=2))
+    }, indent=2), encoding="utf-8")
 
     print(json.dumps({
         "ok": ok,

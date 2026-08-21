@@ -120,6 +120,23 @@ def test_opencode_adapter_reads_part_tokens():
     assert a.usage.cached_tokens == 10
 
 
+@pytest.mark.parametrize("adapter_class", [ClaudeAdapter, CodexAdapter, OpenCodeAdapter])
+def test_json_stream_adapters_ignore_non_object_events(adapter_class):
+    """Break caught: valid JSON scalars/arrays crashed the stdout drain via `.get()`."""
+    adapter = adapter_class()
+    for event in ("null", "[]", '"banner"', "42"):
+        adapter.feed_line(event)
+
+
+def test_opencode_adapter_records_terminal_error():
+    """Break caught: OpenCode could exit zero after an error event and be marked successful."""
+    adapter = OpenCodeAdapter()
+    adapter.feed_line('{"type":"text","part":{"text":"## Summary\\n' + ("x" * 60) + '"}}')
+    adapter.feed_line('{"type":"error","error":{"name":"PermissionDenied"}}')
+
+    assert adapter.last_error == "PermissionDenied"
+
+
 def test_pykrete_adapter_accumulates_plaintext():
     from multi_review.core.adapters import PykreteAdapter
     a = PykreteAdapter(); a.feed_line("## Summary"); a.feed_line("Fine.")

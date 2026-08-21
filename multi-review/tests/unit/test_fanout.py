@@ -54,6 +54,19 @@ def test_reviewer_ok_pykrete_accepts_downgrade_exit3():
     assert reviewer_ok("codex", 0, body) is True
 
 
+def test_stderr_tail_discards_old_chunks_while_draining():
+    """Break caught: reviewer stderr grew without bound until the process ended."""
+    from multi_review.core.fanout import STDERR_TAIL_BYTES, StderrTail
+
+    tail = StderrTail()
+    for index in range(100):
+        tail.append(f"chunk-{index:03d}|".encode() * 100)
+
+    assert len(tail.data) <= STDERR_TAIL_BYTES
+    assert "chunk-099" in tail.text()
+    assert "chunk-000" not in tail.text()
+
+
 def test_run_all_forwards_prompt_path_isolates_crashes_and_reports_results(tmp_path, monkeypatch):
     calls = []
     completed = []

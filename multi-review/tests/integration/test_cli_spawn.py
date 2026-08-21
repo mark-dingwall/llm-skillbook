@@ -3,6 +3,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 def test_spawn_writes_review_and_state(tmp_path, monkeypatch):
@@ -43,7 +44,7 @@ def test_spawn_synthesize_writes_synth_files(tmp_path):
     fake_claude.write_text(
         "#!/bin/sh\n"
         "cat > /dev/null\n"
-        "printf '## Summary\\n\\nSynthesized consensus across reviewers — looks reasonable overall.\\n'\n"
+        "printf '### Agreed Strengths\\n- Clear API.\\n\\n### Agreed Concerns\\n- Missing validation.\\n\\n### Divergent Views\\n- None.\\n'\n"
         "exit 0\n"
     )
     fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC)
@@ -129,3 +130,59 @@ def test_spawn_review_mode_unchanged(tmp_path):
     assert Path(j["review_path"]).name == "claude.md"
     assert Path(j["state_path"]).name == "claude.state.json"
     assert not (out_dir / "synth.txt").exists()
+
+
+def test_spawn_marks_no_summary_output_failed(tmp_path):
+    """Interactive state must be qualified before the synthesis gate reads it."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_claude = fake_bin / "claude"
+    fake_claude.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' '{\"type\":\"result\",\"result\":\"I cannot provide a structured review at this time, but here is some prose.\"}'\n"
+    )
+    fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC)
+    prompt = tmp_path / "p.txt"
+    prompt.write_text("review me")
+    out_dir = tmp_path / "out"
+
+    result = subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.spawn",
+         "--cli", "claude", "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True, env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+    )
+
+    assert result.returncode == 1
+    state = json.loads((out_dir / "claude.state.json").read_text())
+    assert state["ok"] is False
+    assert "Summary" in state["error"]
+
+
+def test_spawn_reads_unicode_prompt_under_ascii_locale(tmp_path):
+    fixture = Path(__file__).parent.parent / "fixtures" / "streams" / "claude" / "success.jsonl"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_claude = fake_bin / "claude"
+    fake_claude.write_text(f"#!/bin/sh\ncat {fixture}\n")
+    fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC)
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_bytes("Review café handling.".encode("utf-8"))
+    out_dir = tmp_path / "out"
+    project_root = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(project_root),
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-m", "multi_review.cli.spawn",
+         "--cli", "claude", "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (out_dir / "claude.md").exists()

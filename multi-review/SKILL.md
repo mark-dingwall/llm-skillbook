@@ -81,7 +81,7 @@ Prepare prompt:
      --duration-seconds <claude_duration> \
      --task-mode review --model opus
    ```
-   This produces `<REVIEWS_DIR>/claude.md` + `<REVIEWS_DIR>/claude.state.json` matching the shape `spawn.py` would emit. The Step 7 aggregator's `## Summary` heading check (M13) still applies and will demote a Task-subagent return that lacks the heading.
+   This produces `<REVIEWS_DIR>/claude.md` + `<REVIEWS_DIR>/claude.state.json` matching the shape `spawn.py` would emit. A return without a `## Summary` heading is recorded with `ok: false` and retained as a failed reviewer slot.
 
 ### Join barrier
 
@@ -108,7 +108,7 @@ If `claude` is not in `resolved.reviewers`, skip the Task dispatch and the `writ
 
 ### Step 6 — Synthesis
 
-If `resolved.synthesizer != none` and ≥2 reviewers succeeded (check `.state.json` `ok` fields):
+If `resolved.synthesizer != none` and ≥2 qualified reviewers succeeded (check boolean `.state.json` `ok` fields):
 
 First, build the synthesis prompt (both branches):
 ```
@@ -126,7 +126,7 @@ First, build the synthesis prompt (both branches):
     --duration-seconds <synth_duration> \
     --task-mode synthesize --model opus
   ```
-  This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`.
+  This produces `<SESSION_DIR>/synth.txt` (overwriting the captured-text scratch with itself) and `<SESSION_DIR>/synth.state.json`. `ok` is true only when the body has all three required consensus sections.
 - Else: build argv with `<SYNTH_MODEL_FLAG>` = `--model <resolved.models[resolved.synthesizer]>` if `resolved.models[resolved.synthesizer]` is set, else **nothing** (no token at all) — conditional token, same construction as Step 5's `<MODEL_FLAG>`:
   ```
   "$SKILL_DIR/scripts/py" -m multi_review.cli.spawn \
@@ -134,26 +134,33 @@ First, build the synthesis prompt (both branches):
     --prompt-file <SESSION_DIR>/synth-prompt.md \
     --task-mode synthesize \
     --input-nonce $(cat <SESSION_DIR>/synth-nonce.txt) \
-    --out-dir <SESSION_DIR>/synth/ <SYNTH_MODEL_FLAG>
+    --out-dir <SESSION_DIR>/synth/ <SYNTH_MODEL_FLAG> \
+    --task <resolved.task>
   ```
   Then extract the synthesis body to the canonical location Step 7 expects:
   ```
   cp <SESSION_DIR>/synth/synth.txt <SESSION_DIR>/synth.txt
+  cp <SESSION_DIR>/synth/synth.state.json <SESSION_DIR>/synth.state.json
   ```
   (`spawn --task-mode synthesize` writes `<out-dir>/synth.txt`; this copy normalises the path so both branches converge at `<SESSION_DIR>/synth.txt`.)
-- Read synthesis text from `<SESSION_DIR>/synth.txt` for Step 7's `--synthesis-text-file`.
+- A synthesis failure still produces its state file; continue to aggregation so it is reported. When synthesis was attempted, pass both canonical synthesis files to Step 7.
 
 ### Step 7 — Aggregate
 
-**Failure classifier — `## Summary` heading check.** Before aggregation, scan each `<REVIEWS_DIR>/<cli>.md` for a `Summary` or `Executive Summary` heading (case-insensitive; it may be preceded by narration). Any reviewer whose output fails this presence check is rendered as an effective failure; the raw state JSON remains unchanged. This catches long permission-refusal text, stalled subagents, and Task-subagent returns that lack an exit code. Applies to all reviewers (subprocess and Task-subagent alike).
+Each requested reviewer must be passed as a repeated `--reviewer <cli>` flag. State files must have the expected schema and a boolean `ok`; unreadable bodies and bodies without a `Summary` or `Executive Summary` heading are rendered as failed slots. A consensus body is embedded only when its state is successful and it has all three required consensus sections.
 
 Write to the cwd root:
 ```
 "$SKILL_DIR/scripts/py" -m multi_review.cli.aggregate \
   --reviews-dir <REVIEWS_DIR> --output <cwd>/REVIEW-<slug>.md \
   --task <task> \
-  --synthesis-text-file <synth_output> --prompt-file <yaml_path>
+  --reviewer <resolved.reviewers[0]> ... --reviewer <resolved.reviewers[n]> \
+  --synthesis-text-file <SESSION_DIR>/synth.txt \
+  --synthesis-state-file <SESSION_DIR>/synth.state.json \
+  --prompt-file <yaml_path>
 ```
+
+Omit the two synthesis-file flags when synthesis was not attempted.
 
 Report the actual output path to the user. Auto-suffix (`-2`, `-3`, …) applies to cwd-root paths.
 

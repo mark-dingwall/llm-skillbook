@@ -768,13 +768,17 @@ def test_review_write_failure_returns_1_without_raising(tmp_path, monkeypatch, c
 
 
 class _RecordingSynth:
-    def __init__(self, ok=True, text="## Consensus Summary\n\nAgreed.\n", err="", raises=None):
+    def __init__(self, ok=True, text=(
+        "### Agreed Strengths\n- Clear API.\n\n"
+        "### Agreed Concerns\n- Missing validation.\n\n"
+        "### Divergent Views\n- None.\n"
+    ), err="", raises=None):
         self.ok, self.text, self.err, self.raises = ok, text, err, raises
         self.calls = []
 
-    async def __call__(self, cli, body, nonce, model=None, timeout=None):
+    async def __call__(self, cli, body, nonce, model=None, timeout=None, task=None):
         self.calls.append({"cli": cli, "body": body, "nonce": nonce,
-                           "model": model, "timeout": timeout})
+                           "model": model, "timeout": timeout, "task": task})
         if self.raises is not None:
             raise self.raises
         return self.ok, self.text, self.err, None, ["<default>"]
@@ -813,7 +817,7 @@ def test_two_raw_successes_reach_the_synthesizer(tmp_path, monkeypatch):
     text = (out / "REVIEW.md").read_text()
     assert code == 0
     assert [c["cli"] for c in synth.calls] == ["claude"]
-    assert "Agreed." in text
+    assert "Missing validation." in text
 
 
 def test_synthesis_frontmatter_records_attribution(tmp_path, monkeypatch):
@@ -824,13 +828,13 @@ def test_synthesis_frontmatter_records_attribution(tmp_path, monkeypatch):
     assert "synthesized_at: " in text
 
 
-def test_successful_empty_synthesis_still_records_attribution(tmp_path, monkeypatch):
+def test_empty_synthesis_is_rejected_before_publication(tmp_path, monkeypatch):
     synth = _RecordingSynth(ok=True, text="")
     _, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML,
                              _RecordingFanout(), synth)
     text = (out / "REVIEW.md").read_text()
-    assert "synthesizer: claude" in text
-    assert "synthesized_at: " in text
+    assert "synthesizer: claude" not in text
+    assert "Consensus synthesis failed" in text
 
 
 def test_synthesis_receives_model_and_timeout(tmp_path, monkeypatch):
@@ -839,17 +843,18 @@ def test_synthesis_receives_model_and_timeout(tmp_path, monkeypatch):
                     _RecordingFanout(), synth, extra_argv=["--timeout", "600"])
     assert synth.calls[0]["model"] == "opus"
     assert synth.calls[0]["timeout"] == 600
+    assert synth.calls[0]["task"] == "code"
 
 
-def test_synthesis_gate_is_raw_while_exit_code_is_classified(tmp_path, monkeypatch):
-    # Both raw-ok (gate fires) but one lacks a "## Summary" heading (classified fail).
+def test_synthesis_uses_only_classified_reviews(tmp_path, monkeypatch):
+    # One raw-ok reviewer lacks a Summary heading, so only one qualified slot remains.
     rev = _RecordingFanout(results={
         "codex": _result("codex", ok=True, text="no heading anywhere in this body"),
     })
     synth = _RecordingSynth()
     code, out = _run_with_synth(tmp_path, monkeypatch, SYNTH_YAML, rev, synth)
     text = (out / "REVIEW.md").read_text()
-    assert len(synth.calls) == 1          # gate saw 2 raw successes
+    assert synth.calls == []
     assert code == 0                      # agy still classified-ok
     assert 'reviewers_succeeded: ["agy"]' in text
     assert 'reviewers_failed: ["codex"]' in text
