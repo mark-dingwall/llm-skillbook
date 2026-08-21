@@ -118,7 +118,7 @@ Confirm:
 - The named single-pass report path printed by the skill (normally
   `<cwd>/REVIEW-<slug>.md`) has a **Pykrete** section.
 - That section contains a `## Summary` heading (or the reviewer is rendered as
-  a failure even though `<REVIEWS_DIR>/pykrete.state.json` keeps raw `ok: true`).
+  a failure with `<REVIEWS_DIR>/pykrete.state.json` recording `ok: false`).
 - The raw pykrete state records `final_model: "family:glm"`, never a fabricated
   concrete model id.
 

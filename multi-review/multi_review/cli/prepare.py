@@ -34,13 +34,14 @@ def main(argv: list[str] | None = None) -> int:
             context_files=[_norm(f) for f in pf.context_files],
             custom_prompt=pf.custom_prompt,
             nonce=nonce,
+            verbatim=pf.verbatim_custom_prompt,
         )
     except SystemExit as e:
         print(json.dumps({"ok": False, "error": str(e)}))
         return 2
     args.out_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = args.out_dir / "prompt.txt"
-    prompt_path.write_text(body)
+    prompt_path.write_text(body, encoding="utf-8")
     print(json.dumps({"ok": True, "prompt_path": str(prompt_path), "nonce": nonce}))
     return 0
 

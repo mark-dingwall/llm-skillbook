@@ -30,6 +30,7 @@ FAILURE_MIN_BYTES = 50
 
 # Max stderr kept for failure diagnosis (chars, UTF-8 decoded).
 STDERR_TAIL_CHARS = 2000
+STDERR_TAIL_BYTES = STDERR_TAIL_CHARS * 4
 
 # Some reviewer CLIs emit individual stream records larger than asyncio's
 # 64 KiB StreamReader default.
@@ -38,6 +39,25 @@ STREAM_BUFFER_LIMIT = 64 * 1024 * 1024
 # SIGKILL normally reaps immediately. Bound the exceptional wait so a broken
 # subprocess watcher cannot turn a cancellation into an indefinite hang.
 PROCESS_REAP_TIMEOUT = 0.1
+
+
+class StderrTail:
+    """A fixed-memory stderr sink that retains only the final diagnostic tail."""
+
+    def __init__(self) -> None:
+        self.data = bytearray()
+
+    def append(self, chunk: bytes) -> None:
+        if len(chunk) >= STDERR_TAIL_BYTES:
+            self.data[:] = chunk[-STDERR_TAIL_BYTES:]
+            return
+        self.data.extend(chunk)
+        overflow = len(self.data) - STDERR_TAIL_BYTES
+        if overflow > 0:
+            del self.data[:overflow]
+
+    def text(self) -> str:
+        return bytes(self.data).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
 
 
 # -------- Data types --------
@@ -130,7 +150,7 @@ async def run_reviewer(
     if state_callback is not None:
         state_callback(cli, state)
 
-    stderr_chunks: list[bytes] = []
+    stderr_tail_buffer = StderrTail()
     deadline = time.monotonic() + timeout if timeout is not None else None
     try:
         create_process = asyncio.create_subprocess_exec(
@@ -191,7 +211,7 @@ async def run_reviewer(
                 chunk = await proc.stderr.read(4096)
                 if not chunk:
                     return
-                stderr_chunks.append(chunk)
+                stderr_tail_buffer.append(chunk)
 
         async def run_process() -> None:
             if proc.stdin is not None:
@@ -217,7 +237,7 @@ async def run_reviewer(
         state.finished_at = time.time()
         if state_callback is not None:
             state_callback(cli, state)
-        stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
+        stderr_tail = stderr_tail_buffer.text()
         return ReviewerResult(
             cli, False, adapter.get_response_text(), stderr_tail,
             adapter.usage, state.elapsed,
@@ -232,7 +252,7 @@ async def run_reviewer(
         state.finished_at = time.time()
         if state_callback is not None:
             state_callback(cli, state)
-        stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
+        stderr_tail = stderr_tail_buffer.text()
         return ReviewerResult(
             cli, False, adapter.get_response_text(), stderr_tail,
             adapter.usage, state.elapsed,
@@ -241,14 +261,12 @@ async def run_reviewer(
 
     state.finished_at = time.time()
     rc = proc.returncode
-    stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-STDERR_TAIL_CHARS:]
+    stderr_tail = stderr_tail_buffer.text()
     text = adapter.get_response_text()
     success_codes = CLI_SPEC[cli].get("success_exit_codes", (0,))
     base_ok = reviewer_ok(cli, rc, text)
-    # Demote on an adapter-reported terminal error (currently only GrokAdapter
-    # sets last_error, on a non-EndTurn stopReason or an {"type":"error"}
-    # event) — rc+bytes alone would record a refusal/abort as a successful
-    # review. No-op for every other reviewer, whose adapters never set it.
+    # Demote on an adapter-reported terminal error. rc+bytes alone would record
+    # a refusal or abort as a successful review.
     ok = base_ok and not adapter.last_error
     downgraded = ok and rc != 0            # rc is a non-zero success code
     state.status = "done" if ok else "failed"

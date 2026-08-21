@@ -49,6 +49,19 @@ def test_resolve_output_path_no_collision_returns_target(tmp_path):
     assert p == target
 
 
+def test_resolve_output_path_reserves_each_auto_suffixed_name(tmp_path):
+    """Break caught: concurrent callers could both select an uncreated REVIEW.md."""
+    target = tmp_path / "REVIEW.md"
+
+    first = resolve_output_path(target, force=False)
+    second = resolve_output_path(target, force=False)
+
+    assert first == target
+    assert first.exists()
+    assert second.name == "REVIEW-2.md"
+    assert second.exists()
+
+
 def test_write_review_md_frontmatter_has_no_mode_or_if_drift_keys(tmp_path):
     out = tmp_path / "REVIEW.md"
     write_review_md(

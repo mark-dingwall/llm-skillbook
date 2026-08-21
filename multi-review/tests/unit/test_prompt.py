@@ -195,6 +195,24 @@ def test_classify_review_ok_agrees_across_artifacts():
     assert ok3 is False
 
 
+def test_classify_synthesis_ok_requires_consensus_sections():
+    """Break caught: process success alone used to publish Task narration as consensus."""
+    from multi_review.core.prompt import classify_synthesis_ok
+
+    ok, note = classify_synthesis_ok(True, "I cannot complete this synthesis.")
+    assert ok is False
+    assert note
+
+    body = (
+        "### Agreed Strengths\n- Clear API.\n\n"
+        "### Agreed Concerns\n- Missing validation.\n\n"
+        "### Divergent Views\n- None.\n"
+    )
+    ok, note = classify_synthesis_ok(True, body)
+    assert ok is True
+    assert note is None
+
+
 # Real grok stdout shape, 2026-07-24 smoke: the `text` events glue a trailing
 # narration sentence directly onto the heading with no intervening newline.
 GLUED_HEADING_BODY = (
@@ -304,9 +322,7 @@ def test_build_prompt_verbatim_rejects_missing_input_file(tmp_path):
 
 
 def test_synthesis_prompt_instructs_ignoring_reviewer_narration():
-    """Narration reaches the synthesizer regardless of the aggregate-time
-    gate: build_synthesis_input filters on the raw state.json `ok`, and runs
-    at Step 6 — before classify_review_ok is ever called."""
+    """Synthesis instructions must tell every external model to ignore narration."""
     from multi_review.core.prompt import synthesis_prompt
 
     out = synthesis_prompt("abc123").lower()

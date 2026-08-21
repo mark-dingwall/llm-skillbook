@@ -9,7 +9,7 @@ from multi_review.cli.build_synth_input import main
 def _write_state(state_dir: Path, cli: str, ok: bool, body: str | None = None) -> None:
     state = {"cli": cli, "ok": ok, "duration_seconds": 1.0, "stderr_tail": "", "usage": None, "final_model": None}
     if body is not None:
-        state["body"] = body
+        state["body"] = f"## Summary\n\n{body}"
     (state_dir / f"{cli}.state.json").write_text(json.dumps(state))
 
 
@@ -40,9 +40,9 @@ def test_build_synth_input_reads_body_from_sibling_md_file(tmp_path):
     state_dir.mkdir()
     # spawn.py shape — no body field
     _write_state(state_dir, "codex", True)
-    (state_dir / "codex.md").write_text("codex body from file")
+    (state_dir / "codex.md").write_text("## Summary\n\ncodex body from file")
     _write_state(state_dir, "agy", True)
-    (state_dir / "agy.md").write_text("agy body from file")
+    (state_dir / "agy.md").write_text("## Summary\n\nagy body from file")
 
     out_prompt = tmp_path / "synth-prompt.md"
     out_nonce = tmp_path / "nonce.txt"
@@ -120,3 +120,41 @@ def test_build_synth_input_tuple_order_body_nonce(tmp_path):
     # body should contain the review content; nonce should be a short hex token
     assert "review text" in body
     assert len(nonce) == 8
+
+
+def test_build_synth_input_skips_parseable_invalid_state(tmp_path):
+    """Break caught: a truthy non-boolean `ok` admitted an invalid reviewer to synthesis."""
+    state_dir = tmp_path / "states"
+    state_dir.mkdir()
+    _write_state(state_dir, "claude", True, body="qualified review")
+    _write_state(state_dir, "codex", True, body="must not reach synthesis")
+    state = json.loads((state_dir / "codex.state.json").read_text())
+    state["ok"] = "false"
+    (state_dir / "codex.state.json").write_text(json.dumps(state))
+
+    out_prompt = tmp_path / "synth-prompt.md"
+    rc = main(["--state-dir", str(state_dir), "--out-prompt-file", str(out_prompt)])
+
+    assert rc == 0
+    prompt = out_prompt.read_text()
+    assert "qualified review" in prompt
+    assert "must not reach synthesis" not in prompt
+
+
+def test_build_synth_input_rechecks_legacy_raw_success(tmp_path):
+    """A stale raw-ok state must not reintroduce an unqualified review."""
+    state_dir = tmp_path / "states"
+    state_dir.mkdir()
+    _write_state(state_dir, "claude", True, body="qualified review")
+    _write_state(state_dir, "codex", True, body="legacy unstructured review")
+    state = json.loads((state_dir / "codex.state.json").read_text())
+    state["body"] = "A long response with no structural heading. " * 3
+    (state_dir / "codex.state.json").write_text(json.dumps(state))
+
+    out_prompt = tmp_path / "synth-prompt.md"
+    rc = main(["--state-dir", str(state_dir), "--out-prompt-file", str(out_prompt)])
+
+    assert rc == 0
+    prompt = out_prompt.read_text()
+    assert "qualified review" in prompt
+    assert "structural heading" not in prompt

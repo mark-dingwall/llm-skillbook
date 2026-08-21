@@ -38,6 +38,15 @@ prompt=$(cat "$prompt_file")
 
 if [ "${FAKE_GROK_SHORT:-0}" = "1" ]; then
   body='short'
+elif [ "$streaming" = "0" ]; then
+  body='### Agreed Strengths
+- Clear API.
+
+### Agreed Concerns
+- Missing validation.
+
+### Divergent Views
+- None.'
 else
   body='## Summary
 Fake grok review body, well over fifty bytes of content here.'

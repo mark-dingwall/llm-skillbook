@@ -1,10 +1,11 @@
 """tests/unit/test_synthesis.py — unit tests for core/synthesis.py"""
 import asyncio
+import sys
 import pytest
 from multi_review.core.synthesis import (
     build_synthesis_input, extract_filename_from_synthesis,
     strip_filename_prefix, sanitize_review_filename, run_synthesis,
-    _run_synthesis_attempt,
+    _run_synthesis_attempt, suggest_filename_haiku,
 )
 from multi_review.core.fanout import ReviewerResult
 
@@ -49,12 +50,42 @@ def test_run_synthesis_missing_config_is_failed_not_raised(monkeypatch):
     assert "PYKRETE_CONFIG" in err
 
 
+def test_external_synthesis_rejects_unstructured_success_output(tmp_path, monkeypatch):
+    """Break caught: a zero-exit external synthesizer could publish arbitrary prose."""
+    script = tmp_path / "synth.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stdout.write('I cannot produce a consensus today. ' * 3)\n"
+    )
+    monkeypatch.setattr(
+        "multi_review.core.synthesis.build_command",
+        lambda *args, **kwargs: [sys.executable, str(script)],
+    )
+
+    ok, text, error, suggested = asyncio.run(
+        _run_synthesis_attempt("codex", "review body", "nonce", None, None)
+    )
+
+    assert ok is False
+    assert text.startswith("I cannot produce")
+    assert "consensus sections" in error
+    assert suggested is None
+
+
 def test_cancelled_synthesis_kills_child(monkeypatch):
     killed = []
 
-    class Proc:
-        async def communicate(self, payload):
+    class Stream:
+        async def read(self, _size=-1):
             raise asyncio.CancelledError()
+
+    class Proc:
+        stdin = None
+        stdout = Stream()
+        stderr = Stream()
+
+        async def wait(self):
+            await asyncio.Event().wait()
 
     async def fake_exec(*args, **kwargs):
         return Proc()
@@ -97,3 +128,31 @@ def test_synthesis_timeout_covers_blocked_process_creation(monkeypatch):
     assert text == ""
     assert error == "synthesis timeout after 0.01s"
     assert suggested is None
+
+
+def test_filename_suggestion_uses_bounded_stderr_drain(monkeypatch):
+    """The auxiliary Claude call must not reintroduce unbounded communicate()."""
+    class Proc:
+        returncode = 0
+
+    proc = Proc()
+    calls = []
+
+    async def fake_exec(*args, **kwargs):
+        return proc
+
+    async def bounded_communicate(got_proc, stdin_payload):
+        calls.append((got_proc, stdin_payload))
+        return b"auth-review", ""
+
+    async def noop_kill(_proc):
+        pass
+
+    monkeypatch.setattr("multi_review.core.synthesis.shutil.which", lambda _: "claude")
+    monkeypatch.setattr("multi_review.core.synthesis.asyncio.create_subprocess_exec", fake_exec)
+    monkeypatch.setattr("multi_review.core.synthesis._communicate_with_stderr_tail", bounded_communicate)
+    monkeypatch.setattr("multi_review.core.synthesis.kill_proc", noop_kill)
+
+    assert asyncio.run(suggest_filename_haiku("review this", timeout=None)) == "REVIEW-auth-review.md"
+    assert calls[0][0] is proc
+    assert b"review this" in calls[0][1]

@@ -3,6 +3,7 @@
 **Date:** 2026-08-17
 **Task:** R0/Task 6 GREEN qualification of the amended specification against the remediated package.
 **Method:** two independent full campaigns of fresh-context subagents (one per repetition, `general-purpose`, model **Sonnet 5**), each reading the entire committed `feature-forge/` package and answering one verbatim model-facing prompt; responses scored against the frozen fixed binary predicates (predicate TRUE only if fully satisfied; a repetition PASSES only when all predicates are TRUE).
+**Status:** Historical evidence for fixture blob `9930bdf84882c18b4cdc7316d55270281975990f`; it does not qualify the behavior-based fixture revision committed later as `853a5f581989171fdd8d1809576a55c6cf623c2f` by `3345e55`, or any later fixture revision.
 
 ## Immutable lineage
 
@@ -67,23 +68,28 @@ PREMATURE went 5/5 fail → 0/5 fail and CANDIDATE-SEALS 5/5 → 0/5 across the 
 
 Seven independent adversarial judges (workflow `wf_03f12518`) re-read Campaign A's failing responses plus the owner files and classified each failed predicate. Result: **12 MODEL_VARIANCE, 2 SCENARIO_ARTIFACT, 1 PACKAGE_GAP**.
 
+The original version of this table was committed with every adjudication cell
+truncated. The concise entries below retain only conclusions supported by the
+surrounding result record; the missing response excerpts are not recoverable
+from this repository and are not reconstructed here.
+
 | Control | Predicate(s) | Adjudication |
 |---|---|---|
-| PIPELINE-SSO | PS-1 | MODEL_VARIANCE — rep1, rep2, rep3, and rep5 all render all four canonical paths correctly resolved (real date `2026-08-17`, consistent work-unit slug across all four p |
-| PIPELINE-SSO | PS-7 | MODEL_VARIANCE — rep1, rep2, rep3, and rep5 each explicitly state that native task lists are disposable/display-only (rep1: 'native task lists are display only'; rep2/ |
-| PIPELINE-SSO | PS-8 | MODEL_VARIANCE — rep1, rep2, and rep3 (majority) correctly keep the Stage-12 UAT pause intact under supervised mode and explicitly name the trap: rep1 says the SSO log |
-| UNATTENDED | UA-2 | MODEL_VARIANCE — 3/5 reps (rep1, rep2, rep4) correctly adopted the 5-second minimum-coherent value and recorded it under agent:unattended authority, citing authority.m |
-| UNATTENDED | UA-4 | MODEL_VARIANCE — Failures are perfectly correlated with UA-2's: rep3 and rep5 are the same two reps that failed to apply the minimum-coherence-repair carve-out, and bo |
-| FINISH-CRASH | FCr-2 | MODEL_VARIANCE — 4 of 5 reps (rep1, rep2, rep4, rep5) explicitly reconcile BOTH the feature-branch tip (f333) AND the base tip (main@b222) alongside Push-and-PR forge/ |
-| FINISH-CRASH | FCr-4 | PACKAGE_GAP — The scenario is deliberately non-conclusive ('push may have succeeded'), so the actual, applicable record every rep correctly produces is 'blocked' (t |
-| PREMATURE | PR-2 | SCENARIO_ARTIFACT — The prompt (campaign/prompts/PREMATURE.txt) says only 'two material behavior decisions unresolved' — it supplies zero concrete decision content (no op |
-| PREMATURE | PR-3 | SCENARIO_ARTIFACT — PR-3 requires that approval be 'obtained' — a completed event — but the prompt is a single turn ending with the director's acceleration phrase; there |
-| CANDIDATE-SEALS | CS-4 | MODEL_VARIANCE — workflow.md gives an explicit, unambiguous stage-entry gate for this exact ordering: Stage 7 Plan's entry predicate is 'the frozen specification ident |
-| UAT-TRUTH | UT-1 | MODEL_VARIANCE — 4/5 reps (rep1, rep2, rep3, rep4) correctly produce a supervised human-UAT record naming Sam, the exact CLI exercise (`acme import --file fixtures/mal |
-| UAT-TRUTH | UT-2 | MODEL_VARIANCE — 4/5 reps name the exact substitute `npm test -- import-cli-malformed-row-7` and evaluate it against the identical exit-status-2/stderr-`row 7 rejected |
-| UAT-TRUTH | UT-3 | MODEL_VARIANCE — 4/5 reps correctly record state `waived` with standing authority `agent:unattended` as the sole waiver authority, and explicitly disclaim Sam/human ap |
-| UAT-TRUTH | UT-4 | MODEL_VARIANCE — 4/5 reps record both branches from the supplied facts while explicitly avoiding unconditional/cross-mode assertion — e.g. rep1's 'Governing constraint |
-| ACTIVE-REVIEW | AR-3 | MODEL_VARIANCE — The package states the required two-step sequence explicitly and unambiguously (adapters-and-reviews.md:186-188: 'On return, first record both native |
+| PIPELINE-SSO | PS-1 | MODEL_VARIANCE — four repetitions resolved all four canonical paths consistently. |
+| PIPELINE-SSO | PS-7 | MODEL_VARIANCE — four repetitions treated native task lists as display-only. |
+| PIPELINE-SSO | PS-8 | MODEL_VARIANCE — a majority preserved the supervised Stage-12 UAT pause. |
+| UNATTENDED | UA-2 | MODEL_VARIANCE — three repetitions adopted and recorded the minimum-coherence value. |
+| UNATTENDED | UA-4 | MODEL_VARIANCE — its failures were the same two repetitions that failed UA-2. |
+| FINISH-CRASH | FCr-2 | MODEL_VARIANCE — four repetitions reconciled feature/base refs and Push-and-PR state. |
+| FINISH-CRASH | FCr-4 | PACKAGE_GAP — the owner omitted the conclusive-result terminal receipt later added by `2552769`. |
+| PREMATURE | PR-2 | SCENARIO_ARTIFACT — the prompt supplied no concrete unresolved decisions to enumerate. |
+| PREMATURE | PR-3 | SCENARIO_ARTIFACT — the single-turn prompt could not include a later completed approval event. |
+| CANDIDATE-SEALS | CS-4 | MODEL_VARIANCE — the owner defined the required ordering, but a response omitted it. |
+| UAT-TRUTH | UT-1 | MODEL_VARIANCE — four repetitions recorded the supplied supervised UAT facts. |
+| UAT-TRUTH | UT-2 | MODEL_VARIANCE — four repetitions evaluated the declared substitute against the same criterion. |
+| UAT-TRUTH | UT-3 | MODEL_VARIANCE — four repetitions recorded unattended waiver authority without claiming human approval. |
+| UAT-TRUTH | UT-4 | MODEL_VARIANCE — four repetitions kept the supervised and unattended branches conditional. |
+| ACTIVE-REVIEW | AR-3 | MODEL_VARIANCE — the owner defined record-then-map ordering, but a response omitted it. |
 
 - The single **PACKAGE_GAP** — FINISH-CRASH `FCr-4` (recovery under-specified the conclusive-branch terminal receipt) — was fixed at commit `2552769` (one sentence in `workflow.md` Stage-14 recovery).
 - **SCENARIO_ARTIFACT** — PREMATURE `PR-2`/`PR-3`: the scenario supplies no concrete decisions to name and no approval turn, so a single-shot response cannot satisfy them without fabricating; not package-fixable. (Campaign B scored PREMATURE 0/5 fail — the same responses read as passing under a different scorer instance, underscoring the scoring non-determinism.)

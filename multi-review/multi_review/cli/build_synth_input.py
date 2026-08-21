@@ -2,41 +2,28 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
+from multi_review.cli.review_state import (
+    read_review_body,
+    read_state_file,
+    result_from_state,
+)
 from multi_review.core.fanout import ReviewerResult
 from multi_review.core.synthesis import build_synthesis_input
 
 
-def _state_to_result(sf: Path, state: dict) -> ReviewerResult | None:
-    body = state.get("body")
-    if not body:
+def _state_to_result(sf: Path, state: object):
+    cli = sf.name.removesuffix(".state.json")
+    body = state.get("body") if isinstance(state, dict) else None
+    if body is None:
         # state file is <cli>.state.json; sibling review file is <cli>.md
         md = sf.with_name(sf.name.replace(".state.json", ".md"))
-        body = md.read_text() if md.exists() else ""
-    usage_raw = state.get("usage")
-    from multi_review.core.adapters import Usage
-    usage = (
-        Usage(
-            input_tokens=usage_raw.get("input_tokens", 0),
-            output_tokens=usage_raw.get("output_tokens", 0),
-            cached_tokens=usage_raw.get("cached_tokens", 0),
-            tool_calls=usage_raw.get("tool_calls", 0),
-        )
-        if usage_raw
-        else None
-    )
-    return ReviewerResult(
-        cli=state["cli"],
-        ok=state.get("ok", False),
-        text=body,
-        stderr_tail=state.get("stderr_tail", ""),
-        usage=usage,
-        elapsed=state.get("duration_seconds", 0.0),
-        model_used=state.get("final_model"),
-    )
+        body, body_error = read_review_body(md)
+        if body_error is not None:
+            return None, body_error
+    return result_from_state(cli, state, body), None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,24 +37,26 @@ def main(argv: list[str] | None = None) -> int:
 
     results: list[ReviewerResult] = []
     for sf in sorted(args.state_dir.glob("*.state.json")):
-        try:
-            state = json.loads(sf.read_text())
-        except Exception as e:
-            print(f"warning: skipping malformed {sf.name}: {e}", file=sys.stderr)
+        state, state_error = read_state_file(sf)
+        if state_error is not None:
+            print(f"warning: skipping {sf.name}: {state_error}", file=sys.stderr)
             continue
-        if "cli" not in state:
+        r, error = _state_to_result(sf, state)
+        if error is not None:
+            print(f"warning: skipping {sf.name}: {error}", file=sys.stderr)
             continue
-        r = _state_to_result(sf, state)
-        if r is not None:
+        if r.ok:
             results.append(r)
+        else:
+            print(f"warning: skipping {sf.name}: {r.error or 'failed reviewer'}", file=sys.stderr)
 
     body, nonce = build_synthesis_input(results)
     args.out_prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    args.out_prompt_file.write_text(body)
+    args.out_prompt_file.write_text(body, encoding="utf-8")
 
     if args.out_nonce_file:
         args.out_nonce_file.parent.mkdir(parents=True, exist_ok=True)
-        args.out_nonce_file.write_text(nonce)
+        args.out_nonce_file.write_text(nonce, encoding="utf-8")
     else:
         print(nonce)
     return 0
