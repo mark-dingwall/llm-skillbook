@@ -172,6 +172,17 @@ class SealTargetTests(unittest.TestCase):
 
         self.assertEqual({entry.path for entry in seal.entries}, {"keep.txt"})
 
+    def test_exclusions_are_normalized_to_target_relative_paths(self):
+        excluded = self.root / "private"
+        excluded.mkdir()
+        (excluded / "secret.txt").write_text("secret")
+
+        trailing_slash = seal_target(self.root, NO_GIT, exclusions=("private/",))
+        dot_prefix = seal_target(self.root, NO_GIT, exclusions=("./private",))
+
+        self.assertEqual(trailing_slash.entries, ())
+        self.assertEqual(dot_prefix.entries, ())
+
 
 class GitIndexIdentityTests(unittest.TestCase):
     def setUp(self):

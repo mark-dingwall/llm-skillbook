@@ -445,6 +445,21 @@ class ControllerHolisticFallbackTests(CleanTracerFixture, unittest.TestCase):
         self.assertEqual(len(holistic_reports), 1)
         self.assertEqual(holistic_reports[0].review.record.request_id, seen[0].request_id)
 
+    def test_fallback_rechecks_target_before_ordinary_dispatch(self):
+        stage0 = self._run_to_round1_ready_stage0()
+
+        def multi_review_dispatch(_expectation: DispatchExpectation) -> MultiReviewResult:
+            (self.target / "greet.py").write_text("drifted")
+            return MultiReviewResult(reports=None, fallback_reason="uv cache incomplete")
+
+        def dispatch_role(_expectation):
+            self.fail("ordinary fallback must not inspect drifted target bytes")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_round1(
+                stage0, dispatch_role=dispatch_role, multi_review_dispatch=multi_review_dispatch,
+            )
+
     def test_failed_fallback_raises_controllererror_never_dispatches_adversarial(self):
         stage0 = self._run_to_round1_ready_stage0()
 

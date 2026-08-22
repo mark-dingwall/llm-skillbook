@@ -86,6 +86,15 @@ def terminal_projection(lifecycle=LIFECYCLE, ledger=None, gates=GATES):
 
 
 class TerminalTests(unittest.TestCase):
+    def test_promoted_final_seal_can_differ_from_gate_baseline(self):
+        lifecycle = dict(LIFECYCLE, expected_final_seal="seal-2", actual_final_seal="seal-2")
+        projection = terminal_projection(lifecycle=lifecycle)
+        projection["final_challenge"] = dict(CHALLENGE, target_seal="seal-2")
+
+        result = apply_terminal(projection)
+
+        self.assertTrue(result["merge_ready"])
+
     def test_terminal_requires_all_lifecycle_and_seal_conjuncts(self):
         result = apply_terminal(
             terminal_projection(

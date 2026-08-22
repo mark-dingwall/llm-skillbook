@@ -97,6 +97,14 @@ class PreflightTests(unittest.TestCase):
         state = controller.create_run(self.intent())
         self.assertEqual(state.snapshot["governing_seal"], state.governing_seal)
 
+    def test_exclusions_are_persisted_in_canonical_form(self):
+        controller = Controller(xdg_config_home=self.xdg)
+
+        state = controller.create_run(self.intent(exclusions=("private/", "./private")))
+
+        preflight = state.snapshot["processor_state"]["preflight"]
+        self.assertEqual(preflight["resolved_exclusions"], ["private"])
+
     def test_max_time_seconds_sets_absolute_expiry(self):
         controller = Controller(xdg_config_home=self.xdg)
         state = controller.create_run(self.intent(max_time_seconds=60))

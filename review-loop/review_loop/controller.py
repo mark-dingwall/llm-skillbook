@@ -34,7 +34,16 @@ from .prompts import (
     validate_review_report,
     validate_role_json,
 )
-from .seals import GitPolicy, SealEntry, TargetSeal, check_run_root_disjoint, seal_inputs, seal_target
+from .seals import (
+    GitPolicy,
+    SealEntry,
+    SealError,
+    TargetSeal,
+    check_run_root_disjoint,
+    normalize_exclusions,
+    seal_inputs,
+    seal_target,
+)
 
 
 class PreflightError(Exception):
@@ -112,12 +121,6 @@ def _detect_git_policy(target: Path, intent: InvocationIntent) -> GitPolicy:
     )
 
 
-def _check_exclusions(exclusions: tuple[str, ...]) -> None:
-    for excl in exclusions:
-        if not isinstance(excl, str) or not excl or excl.startswith("/") or ".." in Path(excl).parts:
-            raise PreflightError(f"exclusion escapes the sealed target: {excl!r}")
-
-
 def _role_to_dict(pins: RolePins) -> dict[str, object]:
     return {
         "capability": pins.capability,
@@ -164,7 +167,12 @@ def _persisted_git_policy(preflight: dict[str, object]) -> GitPolicy:
     )
 
 
-def _assert_run_active(run_state: RunState, *, target: bool = False) -> None:
+def _assert_run_active(
+    run_state: RunState,
+    *,
+    target: bool = False,
+    expected_target_seal: str | None = None,
+) -> None:
     preflight = run_state.snapshot.get("processor_state", {}).get("preflight")
     if not isinstance(preflight, dict):
         return
@@ -180,8 +188,9 @@ def _assert_run_active(run_state: RunState, *, target: bool = False) -> None:
             Path(preflight["resolved_target"]), _persisted_git_policy(preflight),
             exclusions=tuple(preflight.get("resolved_exclusions", ())),
         )
-        if current.digest != run_state.governing_seal:
-            raise ControllerError("authoritative target drifted from the governing identity")
+        expected = expected_target_seal or run_state.governing_seal
+        if current.digest != expected:
+            raise ControllerError("authoritative target drifted from the expected identity")
 
 
 def _selected_model(run_state: RunState, role: str, *, fallback: bool = False) -> str | None:
@@ -247,10 +256,11 @@ def _dispatch_gates(
     gate_results: list[GateResult] = []
     gate_dicts: list[dict[str, object]] = []
     gate_evidence: list[EvidenceArtifact] = []
+    record_seal = result_seal or seal
     for gate in plan.gates:
         if gate.applicability == "not_applicable":
             gate_dicts.append({
-                "id": gate.id, "target_seal": seal, "applicability": "not_applicable",
+                "id": gate.id, "target_seal": record_seal, "applicability": "not_applicable",
                 "classification": gate.classification, "status": "NOT_RUN", "artifact_id": None,
             })
             continue
@@ -271,9 +281,10 @@ def _dispatch_gates(
             "gate_id": result.gate_id, "argv": list(result.argv), "exit_status": result.exit_status,
             "stdout_excerpt": result.stdout_excerpt, "stderr_excerpt": result.stderr_excerpt,
             "rationale": result.rationale, "provenance": result.provenance,
+            "target_seal": result.target_seal,
         }))
         gate_dicts.append({
-            "id": gate.id, "target_seal": seal, "applicability": "applicable",
+            "id": gate.id, "target_seal": record_seal, "applicability": "applicable",
             "classification": gate.classification, "status": result.status, "artifact_id": artifact_id,
         })
     return gate_results, gate_dicts, gate_evidence
@@ -414,10 +425,13 @@ class Controller:
 
         # Reject any run-root/target overlap before creating any artifact.
         check_run_root_disjoint(target, run_root)
-        _check_exclusions(intent.exclusions)
+        try:
+            resolved_exclusions = normalize_exclusions(intent.exclusions)
+        except SealError as exc:
+            raise PreflightError(str(exc)) from exc
 
         git_policy = _detect_git_policy(target, intent)
-        target_seal = seal_target(target, git_policy, exclusions=intent.exclusions)
+        target_seal = seal_target(target, git_policy, exclusions=resolved_exclusions)
 
         ground_truth_seal = seal_inputs(list(intent.ground_truth), target_seal.digest)
 
@@ -455,7 +469,7 @@ class Controller:
             "resolved_target": str(target),
             "resolved_base": target_seal.git_base_commit,
             "resolved_head": target_seal.git_head_commit,
-            "resolved_exclusions": list(intent.exclusions),
+            "resolved_exclusions": list(resolved_exclusions),
             "run_root": str(run_root),
             "ground_truth": [_seal_entry_to_dict(e) for e in ground_truth_seal.entries],
             "target_seal": _target_seal_to_dict(target_seal),
@@ -515,24 +529,44 @@ class Controller:
             captured: dict[str, ValidatedRoleArtifact] = {}
 
             def _tracking_scout() -> ValidatedRoleArtifact:
+                _assert_run_active(run_state, target=True)
                 result = scout()
+                _assert_run_active(run_state, target=True)
                 captured["scout"] = result
                 return result
 
             plan = _discover_evidence(operator_gates, repository_gates, _tracking_scout)
             scout_artifact = captured["scout"]
 
-            gate_results, gate_dicts, gates_only_evidence = _dispatch_gates(plan, seal, gate_dispatch, new_id)
+            def _checked_gate_dispatch(gate: Gate) -> GateResult:
+                _assert_run_active(run_state, target=True)
+                result = gate_dispatch(gate)
+                _assert_run_active(run_state, target=True)
+                return result
+
+            gate_results, gate_dicts, gates_only_evidence = _dispatch_gates(
+                plan, seal, _checked_gate_dispatch, new_id,
+            )
             gate_evidence: list[EvidenceArtifact] = [
                 _artifact(new_id(), "evidence-scout", seal, scout_artifact.artifact)
             ] + gates_only_evidence
+
+            def _checked_role(
+                dispatch: Callable[[RoleExpectation], ValidatedRoleArtifact],
+                expectation: RoleExpectation,
+            ) -> ValidatedRoleArtifact:
+                _assert_run_active(run_state, target=True)
+                result = dispatch(expectation)
+                _assert_run_active(run_state, target=True)
+                return result
 
             owner_expectation = RoleExpectation(
                 request_id=new_id(), role_id="inventory-owner", target_seal=seal,
                 round_input_seal=None, expected_ids=(),
             )
             owner_result = _dispatch_with_retry(
-                lambda: inventory_owner(owner_expectation), on_exhausted="inventory owner output was malformed twice"
+                lambda: _checked_role(inventory_owner, owner_expectation),
+                on_exhausted="inventory owner output was malformed twice",
             )
             inventory_evidence = [_artifact(new_id(), "inventory-owner", seal, owner_result.artifact)]
 
@@ -541,7 +575,7 @@ class Controller:
                 round_input_seal=None, expected_ids=(),
             )
             challenge_result = _dispatch_with_retry(
-                lambda: inventory_challenger(challenge_expectation),
+                lambda: _checked_role(inventory_challenger, challenge_expectation),
                 on_exhausted="inventory challenger output was malformed twice",
             )
             inventory_evidence.append(_artifact(new_id(), "inventory-challenge", seal, challenge_result.artifact))
@@ -556,7 +590,7 @@ class Controller:
                     round_input_seal=None, expected_ids=challenge_ids,
                 )
                 final_owner = _dispatch_with_retry(
-                    lambda: inventory_revision(revision_expectation),
+                    lambda: _checked_role(inventory_revision, revision_expectation),
                     on_exhausted="inventory revision output was malformed twice",
                 )
                 inventory_evidence.append(_artifact(new_id(), "inventory-revision", seal, final_owner.artifact))
@@ -567,7 +601,15 @@ class Controller:
                 if raters is None or len(raters) != 2:
                     raise ControllerError("automatic tier requires exactly two rating samples")
                 for rater in raters:
-                    rating_result = _dispatch_with_retry(rater, on_exhausted="rating output was malformed twice")
+                    def checked_rater() -> ValidatedRoleArtifact:
+                        _assert_run_active(run_state, target=True)
+                        result = rater()
+                        _assert_run_active(run_state, target=True)
+                        return result
+
+                    rating_result = _dispatch_with_retry(
+                        checked_rater, on_exhausted="rating output was malformed twice",
+                    )
                     ratings_projection.append(rating_result.projection)
                     rating_evidence.append(_artifact(new_id(), "rating", seal, rating_result.artifact))
         except (EvidenceDiscoveryIndeterminate, ControllerError) as exc:
@@ -606,6 +648,16 @@ class Controller:
                     run_state=RunState(
                         run_state.run_root, run_state.governing_seal, updated,
                         "CANCELLED_BEFORE_REVIEW", "operator declined automatic max-tier confirmation",
+                    ),
+                    gate_results=(), evidence_gaps=(), areas=(), priority_order=(), tier=tier,
+                )
+            try:
+                _assert_run_active(run_state, target=True)
+            except ControllerError as exc:
+                return Stage0Outcome(
+                    run_state=RunState(
+                        run_state.run_root, run_state.governing_seal, updated,
+                        "INDETERMINATE", str(exc),
                     ),
                     gate_results=(), evidence_gaps=(), areas=(), priority_order=(), tier=tier,
                 )
@@ -668,8 +720,8 @@ class Controller:
         caller's already-refreshed evidence plan (its own applicability
         refresh, e.g. via ``discover_evidence`` again, is that later task's
         job). Reissuing ``reconcile_gates`` is safe to call any number of
-        times -- each call simply replaces the compact gates record for the
-        current ``run_state.governing_seal``.
+        times -- each call replaces the compact gates record for the seal it
+        actually tested.
         """
         _assert_run_active(run_state)
         seal = run_state.governing_seal
@@ -677,7 +729,7 @@ class Controller:
         gate_results, gate_dicts, gate_evidence = _dispatch_gates(
             plan, seal, gate_dispatch, new_id, result_seal=target_seal,
         )
-        gates_projection = {"target_seal": seal, "gates": gate_dicts}
+        gates_projection = {"target_seal": target_seal or seal, "gates": gate_dicts}
         updated = _issue(store, operation="reconcile_gates", projection=gates_projection, evidence=gate_evidence)
         reconciled = updated["processor_state"]["reconcile_gates"]
         evidence_gaps = tuple(dict.fromkeys(list(plan.evidence_gaps) + list(reconciled["evidence_gaps"])))
@@ -830,6 +882,7 @@ class Controller:
                 # structured ordinary-fallback reason: dispatch exactly the
                 # same single-reviewer path every other role already uses,
                 # for this same expectation -- no multi-review retry.
+                _assert_run_active(run_state, target=True)
                 expectation = DispatchExpectation(
                     request_id=expectation.request_id, role=expectation.role,
                     charter_id=expectation.charter_id, target_seal=expectation.target_seal,
@@ -948,11 +1001,14 @@ class Controller:
         work = Path(run_state.run_root) / "fix" / new_id()
         copy_root = work / "copy"
         preflight = run_state.snapshot["processor_state"].get("preflight", {})
+        target_root = Path(target_root).resolve()
+        if target_root != Path(preflight["resolved_target"]).resolve():
+            raise ControllerError("FIX target_root differs from the preflight target")
         exclusions = tuple(preflight.get("resolved_exclusions", ())) if isinstance(preflight, dict) else ()
         make_disposable_copy(
-            seal_target(Path(target_root), GitPolicy(enabled=False), exclusions=exclusions), copy_root,
+            seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions), copy_root,
         )
-        before = seal_target(copy_root, GitPolicy(enabled=False))
+        before = seal_target(copy_root, GitPolicy(enabled=False), exclusions=exclusions)
 
         expectation = RoleExpectation(
             request_id=new_id(), role_id="fix", target_seal=seal, round_input_seal=None,
@@ -960,7 +1016,7 @@ class Controller:
         )
         manifest = fix_implementer(copy_root, expectation)
         _assert_run_active(run_state, target=True)
-        after = seal_target(copy_root, GitPolicy(enabled=False))
+        after = seal_target(copy_root, GitPolicy(enabled=False), exclusions=exclusions)
 
         fixctl = FixController(run_state, work, new_id=new_id)
         request = fixctl.prepare(open_rows, seal, evidence_plan)
@@ -986,6 +1042,8 @@ class Controller:
         adjudicator: Callable[[RoleExpectation], ValidatedRoleArtifact],
         authority_kinds: dict[str, str] | None = None,
         proof_evidence: Sequence[EvidenceArtifact] = (),
+        fix_outcome: FixOutcome | None = None,
+        post_fix_reviews: Sequence[ValidatedReview] = (),
         new_id: Callable[[], str] = _new_id,
     ) -> "AdjudicationOutcome":
         """Settle a batch of green (FIX_VERIFIED / REFUTED / INTENTIONAL) decisions.
@@ -996,7 +1054,10 @@ class Controller:
         any UNDECIDED retries the whole set once (attempt two consumes the
         canonical retry state); otherwise any BOUNCE atomically reverts every
         green decision; otherwise UPHOLD settles them with the positive
-        seal-bound adjudication proof. An empty settlement set makes no call.
+        seal-bound adjudication proof. FIX_VERIFIED proof is derived here from
+        the typed FIX outcome, passing gate rerun, and clean post-FIX reviews;
+        callers still supply proof for REFUTED and INTENTIONAL. An empty
+        settlement set makes no call.
         """
         _assert_run_active(run_state, target=True)
         seal = run_state.governing_seal
@@ -1021,15 +1082,80 @@ class Controller:
             if s["state"] not in green_states:
                 raise ControllerError(f"settlement {ident!r} proposes non-green state {s['state']!r}")
 
+        fix_ids = {ident for ident, settlement in by_id.items() if settlement["state"] == "FIX_VERIFIED"}
+        fix_proof: tuple[EvidenceArtifact, ...] = ()
+        fix_proof_ids: tuple[str, ...] = ()
+        if fix_ids:
+            if any(by_id[ident].get("proof_artifact_ids") for ident in fix_ids):
+                raise ControllerError("FIX_VERIFIED proof is controller-derived, not caller-supplied")
+            if not isinstance(fix_outcome, FixOutcome):
+                raise ControllerError("FIX_VERIFIED requires the typed FIX outcome")
+            if (
+                fix_outcome.run_state.run_root != run_state.run_root
+                or fix_outcome.run_state.governing_seal != seal
+                or fix_outcome.run_state.snapshot != run_state.snapshot
+            ):
+                raise ControllerError("FIX_VERIFIED outcome does not match the adjudicated run state")
+            validated = fix_outcome.transition.validated
+            if set(validated.bound_ids) != fix_ids:
+                raise ControllerError("FIX_VERIFIED rows do not match the validated FIX bindings")
+            if any(
+                by_id[ident].get("manifest_artifact_id")
+                != fix_outcome.transition.manifest_ids.get(ident)
+                for ident in fix_ids
+            ):
+                raise ControllerError("FIX_VERIFIED manifest does not match the validated FIX")
+            gate_results = fix_outcome.gate_rerun.gate_results
+            if (
+                not gate_results
+                or fix_outcome.gate_rerun.blocking_reasons
+                or any(
+                    result.status != "PASSED"
+                    or result.target_seal != validated.after_seal
+                    for result in gate_results
+                )
+            ):
+                raise ControllerError("FIX_VERIFIED requires passing gates on the verified post-FIX seal")
+            if not post_fix_reviews or any(
+                not isinstance(review, ValidatedReview)
+                or not review.usable
+                or review.terminal_status != "COMPLETE"
+                or review.record.target_seal != validated.after_seal
+                or review.record.source_findings
+                for review in post_fix_reviews
+            ):
+                raise ControllerError("FIX_VERIFIED requires a clean typed review of the post-FIX seal")
+
+            gate_proof_id = new_id()
+            gate_proof = _artifact(gate_proof_id, "post-fix-gates", seal, {
+                "target_seal": validated.after_seal,
+                "gates": [{
+                    "id": result.gate_id,
+                    "status": result.status,
+                    "target_seal": result.target_seal,
+                } for result in gate_results],
+            })
+            review_proof = tuple(
+                _artifact(new_id(), "post-fix-review", seal, review.body)
+                for review in post_fix_reviews
+            )
+            fix_proof = (gate_proof, *review_proof)
+            fix_proof_ids = tuple(artifact.artifact_id for artifact in fix_proof)
+
         registry = run_state.snapshot.get("artifact_registry", {}).get("artifacts", {})
-        pending = {artifact.artifact_id: artifact for artifact in proof_evidence}
-        if len(pending) != len(proof_evidence):
+        pending_evidence = tuple(proof_evidence) + fix_proof
+        pending = {artifact.artifact_id: artifact for artifact in pending_evidence}
+        if len(pending) != len(pending_evidence):
             raise ControllerError("settlement proof evidence IDs must be unique")
         if any(artifact.target_seal != seal for artifact in pending.values()):
             raise ControllerError("settlement proof evidence is bound to a stale seal")
         available_proof_ids = set(registry) | set(pending)
         referenced_proof_ids = {
-            proof_id for settlement in settlements for proof_id in settlement.get("proof_artifact_ids", ())
+            proof_id
+            for ident, settlement in by_id.items()
+            for proof_id in (
+                fix_proof_ids if ident in fix_ids else settlement.get("proof_artifact_ids", ())
+            )
         }
         if not referenced_proof_ids <= available_proof_ids:
             raise ControllerError(
@@ -1044,7 +1170,7 @@ class Controller:
             manifest = s.get("manifest_artifact_id")
             decisions.append({
                 "id": ident, "state": s["state"],
-                "proof_artifact_ids": list(s.get("proof_artifact_ids", [])),
+                "proof_artifact_ids": list(fix_proof_ids if ident in fix_ids else s.get("proof_artifact_ids", [])),
                 "manifest_artifact_id": manifest,
             })
             if manifest is not None:
@@ -1059,13 +1185,12 @@ class Controller:
         )
         status, decided_ids = _aggregate_adjudication(result.projection, green_ids)
 
-        # The green settlements' own proof (post-FIX re-review + gate reruns) is
-        # registered once, in the first settling transition; a retry reuses those
-        # already-canonical proof IDs by reference. "A passing gate or manifest
-        # alone is never fix verification" -- the caller supplies both.
+        # Green-settlement proof is registered once in the first transition; a
+        # retry reuses those canonical IDs. FIX proof was derived above from its
+        # typed outcome; other green states retain caller-supplied evidence.
         attempt = 1
         state = run_state
-        pending_proof = tuple(proof_evidence)
+        pending_proof = pending_evidence
         while True:
             proof_id = new_id()
             proof = None if status in {"UNDECIDED", "FAILED"} else proof_id
@@ -1131,8 +1256,10 @@ class Controller:
         from .seals import GitPolicy, seal_target
 
         _assert_run_active(run_state, target=True)
-        target_root = Path(target_root)
         preflight = run_state.snapshot["processor_state"]["preflight"]
+        target_root = Path(target_root).resolve()
+        if target_root != Path(preflight["resolved_target"]).resolve():
+            raise ControllerError("promotion target_root differs from the preflight target")
         exclusions = tuple(preflight.get("resolved_exclusions", ()))
         policy = _persisted_git_policy(preflight)
         pre_tree = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
@@ -1178,22 +1305,26 @@ class Controller:
         run_state: RunState,
         *,
         final_challenger: Callable[[RoleExpectation], ValidatedRoleArtifact],
+        promotion: "PromotionRecord | None" = None,
         new_id: Callable[[], str] = _new_id,
     ) -> RunState:
-        _assert_run_active(run_state)
-        seal = run_state.governing_seal
+        seal = promotion.after_seal if promotion is not None else run_state.governing_seal
         store = CanonicalStore(run_state.run_root)
         expectation = RoleExpectation(
             request_id=new_id(), role_id="final-readiness", target_seal=seal,
             round_input_seal=None, expected_ids=(),
         )
+
+        def dispatch_challenge() -> ValidatedRoleArtifact:
+            _assert_run_active(run_state, target=True, expected_target_seal=seal)
+            candidate = final_challenger(expectation)
+            _assert_run_active(run_state, target=True, expected_target_seal=seal)
+            return validate_role_json("final-readiness", candidate.body, expectation)
+
         result = _dispatch_with_retry(
-            lambda: validate_role_json(
-                "final-readiness", final_challenger(expectation).body, expectation,
-            ),
+            dispatch_challenge,
             on_exhausted="final-readiness challenge was malformed twice",
         )
-        _assert_run_active(run_state)
         if result.artifact["verdict"] == "BLOCK":
             raise ControllerError(
                 "final-readiness BLOCK handling (supplemental TRIAGE) is not implemented in this task's scope"
@@ -1201,35 +1332,17 @@ class Controller:
         artifact_id = new_id()
         attempt = {"status": "UPHOLD", "target_seal": seal, "source_finding_ids": [], "artifact_id": artifact_id}
         projection = {"current_seal": seal, "attempts": [attempt]}
-        evidence = [_artifact(artifact_id, "final-challenge", seal, result.artifact)]
+        evidence = [_artifact(artifact_id, "final-challenge", run_state.governing_seal, result.body)]
         updated = _issue(store, operation="record_final_challenge", projection=projection, evidence=evidence)
         return RunState(run_state.run_root, run_state.governing_seal, updated, "CLOSE", None)
 
     def close(
         self, run_state: RunState, *, promotion: "PromotionRecord | None" = None, new_id: Callable[[], str] = _new_id,
     ) -> RunState:
-        """Compute the terminal verdict, with a genuine (never vacuous) seal
-        comparison for both the promoted and no-FIX paths.
+        """Compute the terminal verdict against the current authoritative seal.
 
-        ``expected_final_seal`` is always ``governing_seal``: the compact
-        ``reconcile_gates`` records were logged against it (state.py's own
-        gates-recompute enforces this, unconditionally), so it cannot be
-        swapped for a post-FIX seal without corrupting that recompute. The
-        genuineness instead comes from what decides whether ``actual_final_seal``
-        is ALLOWED to echo it: a FRESH reseal of the real target, taken right
-        now, independently verified against the honest reference for this run
-        -- ``promotion.after_seal`` (what write-back actually proved it wrote)
-        for a genuinely-promoted run, or the anchor policy's own seal for an
-        untouched one. Only when that fresh reseal matches does
-        ``actual_final_seal`` get to equal ``expected_final_seal``; any drift
-        -- pre-existing, mid-run, or after promotion -- surfaces as a real
-        mismatch, so a false merge-ready is impossible.
-
-        A FIX_VERIFIED row not covered by ``promotion`` was verified only
-        against a disposable copy; the authoritative target was never written
-        for it, so it still forces NOT_CONVERGED via ``any_indeterminate``,
-        independent of the seal check above (a partially-promoted batch must
-        not slip through on the seal match alone).
+        A promoted run expects the verified post-FIX seal; an untouched run
+        expects the governing seal. Copy-only fixes remain indeterminate.
         """
         from .seals import GitPolicy, seal_target
 
@@ -1256,13 +1369,9 @@ class Controller:
         current_policy = _persisted_git_policy(preflight)
         exclusions = tuple(preflight.get("resolved_exclusions", ()))
 
-        if promotion is not None:
-            fresh = seal_target(target_root, current_policy, exclusions=exclusions)
-            seal_verified = fresh.digest == promotion.after_seal
-        else:
-            fresh = seal_target(target_root, current_policy, exclusions=exclusions)
-            seal_verified = fresh.digest == seal
-        actual_final_seal = seal if seal_verified else fresh.digest
+        expected_final_seal = promotion.after_seal if promotion is not None else seal
+        fresh = seal_target(target_root, current_policy, exclusions=exclusions)
+        seal_verified = fresh.digest == expected_final_seal
 
         reason = None
         if copy_only_fixes:
@@ -1280,8 +1389,8 @@ class Controller:
             "scheduled_reports_usable": True,
             "raw_reports_reconciled": True,
             "any_indeterminate": bool(copy_only_fixes),
-            "expected_final_seal": seal,
-            "actual_final_seal": actual_final_seal,
+            "expected_final_seal": expected_final_seal,
+            "actual_final_seal": fresh.digest,
         }
         projection = {
             "lifecycle": lifecycle, "ledger": ledger_rows, "gates": gates,

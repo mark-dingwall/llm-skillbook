@@ -115,6 +115,21 @@ class FixContainmentTests(unittest.TestCase):
         self.assertNotEqual(mapping.credentials, ())
 
 
+class TestPathClassificationTests(unittest.TestCase):
+    def test_common_cross_language_test_conventions_are_recognized(self):
+        for path in (
+            "src/__tests__/checkout.ts",
+            "spec/payment_spec.rb",
+            "src/checkout.spec.ts",
+            "src/payment_spec.rb",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(is_test_path(path))
+
+    def test_ordinary_source_path_is_not_a_test(self):
+        self.assertFalse(is_test_path("src/checkout.ts"))
+
+
 class FixCandidateTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

@@ -335,6 +335,167 @@ class DispatchPolicyTests(CleanTracerFixture, unittest.TestCase):
             self.controller.close(expired)
 
 
+class Stage0IdentityTests(CleanTracerFixture, unittest.TestCase):
+    def test_scout_drift_stops_before_gate_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        scout = self.scout()
+
+        def drifting_scout():
+            artifact = scout()
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_dispatch(_gate):
+            self.fail("gate dispatch must not inspect target bytes changed by the scout")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=drifting_scout,
+            gate_dispatch=must_not_dispatch,
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_gate_drift_stops_before_inventory_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        gate_dispatch = self.synthetic_gate_dispatch()
+
+        def drifting_gate(gate):
+            result = gate_dispatch(gate)
+            (self.target / "greet.py").write_text("drifted")
+            return result
+
+        def must_not_dispatch(_expectation):
+            self.fail("inventory must not inspect target bytes changed by a gate")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=drifting_gate,
+            inventory_owner=must_not_dispatch,
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_inventory_owner_drift_stops_before_challenge_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        inventory_owner = self.inventory_owner()
+
+        def drifting_owner(expectation):
+            artifact = inventory_owner(expectation)
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_dispatch(_expectation):
+            self.fail("inventory challenge must not inspect bytes changed by the owner")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=drifting_owner,
+            inventory_challenger=must_not_dispatch,
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_inventory_challenge_drift_stops_before_rating_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        challenger = self.inventory_challenger()
+
+        def drifting_challenger(expectation):
+            artifact = challenger(expectation)
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_rate():
+            self.fail("rating must not inspect bytes changed by inventory challenge")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=drifting_challenger,
+            explicit_tier=None,
+            raters=(must_not_rate, must_not_rate),
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_first_rater_drift_stops_before_second_rating_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        first_rater = self.rater(complexity="low", risk="low", name="rater-a")
+
+        def drifting_rater():
+            artifact = first_rater()
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_rate():
+            self.fail("second rating must not inspect bytes changed by first rating")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier=None,
+            no_confirm=True,
+            raters=(drifting_rater, must_not_rate),
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_inventory_revision_drift_makes_stage0_indeterminate(self):
+        run_state = self.controller.create_run(self.intent())
+
+        def challenger(expectation):
+            payload = {
+                "verdict": "CHALLENGE",
+                "challenges": [{
+                    "id": "c1", "category": "omission",
+                    "statement": "inventory needs revision",
+                    "evidence": "greet.py owns the reviewed behavior",
+                }],
+            }
+            return _role_artifact(
+                expectation.request_id, "inventory-challenge", expectation.target_seal,
+                expectation.round_input_seal, payload,
+            )
+
+        def drifting_revision(expectation):
+            payload = {
+                "areas": [ONE_MINOR_AREA], "priority_order": ["area-greet"],
+                "resolutions": [{"challenge_id": "c1", "resolution": "retained owning area"}],
+            }
+            artifact = _role_artifact(
+                expectation.request_id, "inventory-revision", expectation.target_seal,
+                expectation.round_input_seal, payload, expected_ids=expectation.expected_ids,
+            )
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=challenger,
+            inventory_revision=drifting_revision,
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+
 @unittest.skipUnless(BWRAP_AVAILABLE, "bwrap is not installed")
 class CleanTracerTests(CleanTracerFixture, unittest.TestCase):
     def test_full_lifecycle_converges_and_is_merge_ready(self):
@@ -626,6 +787,32 @@ class ConfirmationTests(CleanTracerFixture, unittest.TestCase):
             raise ConfirmationExpired("absolute deadline passed while awaiting confirmation")
 
         stage0 = self._automatic_max_stage0(confirm=confirm)
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_deadline_rechecked_after_confirmation_returns(self):
+        run_state = self.controller.create_run(self.intent(max_time_seconds=60))
+
+        def confirm(_reason):
+            run_state.snapshot["processor_state"]["preflight"]["absolute_expiry"] = (
+                "2000-01-01T00:00:00+00:00"
+            )
+            return True
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier=None,
+            no_confirm=False,
+            raters=(
+                self.rater(complexity="max", risk="max", name="rater-a"),
+                self.rater(complexity="max", risk="max", name="rater-b"),
+            ),
+            confirm=confirm,
+        )
+
         self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
 
     def test_missing_confirm_callable_cancels_rather_than_dispatching(self):

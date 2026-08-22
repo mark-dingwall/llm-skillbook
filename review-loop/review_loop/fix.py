@@ -165,14 +165,19 @@ def is_test_path(path: str) -> bool:
 
     A pure JSON validator cannot do this (it never sees the delta); FIX owns the
     canonical delta, so the "a changed test needs a spec trace" rule is enforced
-    here. Conservative and convention-based: a ``tests``/``test`` path component,
-    or a ``test_*``/``*_test`` Python basename.
+    here. Conservative and convention-based across supported gate ecosystems.
     """
     parts = Path(path).parts
-    if any(part in {"tests", "test"} for part in parts):
+    if any(part in {"tests", "test", "__tests__", "spec"} for part in parts):
         return True
     name = Path(path).name
-    return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
+    return (
+        name.startswith("test_")
+        or "_test." in name
+        or ".test." in name
+        or "_spec." in name
+        or ".spec." in name
+    )
 
 
 # Dependency manifests + lockfiles a FIX must never alter (design: "never alter

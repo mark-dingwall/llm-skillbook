@@ -12,7 +12,7 @@ import struct
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .artifacts import bytes_digest, canonical_bytes, digest
 
@@ -142,6 +142,20 @@ def _open_root(root: Path) -> int:
         raise SealError(f"cannot open target root: {root}") from exc
 
 
+def normalize_exclusions(exclusions: Sequence[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for excluded in exclusions:
+        if not isinstance(excluded, str) or not excluded:
+            raise SealError(f"unsafe target exclusion: {excluded!r}")
+        path = PurePosixPath(excluded)
+        canonical = path.as_posix()
+        if path.is_absolute() or ".." in path.parts or canonical == ".":
+            raise SealError(f"unsafe target exclusion: {excluded!r}")
+        if canonical not in normalized:
+            normalized.append(canonical)
+    return tuple(normalized)
+
+
 def _is_excluded(path: str, exclusions: frozenset[str]) -> bool:
     return any(path == excluded or path.startswith(f"{excluded}/") for excluded in exclusions)
 
@@ -245,10 +259,7 @@ def seal_target(root: Path, git_policy: GitPolicy, *, exclusions: Sequence[str] 
     root = Path(root)
     if not root.is_dir():
         raise SealError(f"target root is not a directory: {root}")
-    normalized_exclusions = frozenset(exclusions)
-    for excluded in normalized_exclusions:
-        if not excluded or excluded.startswith("/") or ".." in Path(excluded).parts:
-            raise SealError(f"unsafe target exclusion: {excluded!r}")
+    normalized_exclusions = frozenset(normalize_exclusions(exclusions))
     root_fd = _open_root(root)
     entries: list[SealEntry] = []
     try:
