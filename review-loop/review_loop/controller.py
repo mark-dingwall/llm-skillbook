@@ -6,6 +6,7 @@ scout, or FIX agent is dispatched here.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .artifacts import CanonicalStore, EvidenceArtifact, canonical_bytes
+from .artifacts import CanonicalStore, EvidenceArtifact, bytes_digest, canonical_bytes
 from .evidence import (
     EvidenceDiscoveryIndeterminate,
     EvidencePlan,
@@ -204,14 +205,68 @@ def _selected_model(run_state: RunState, role: str, *, fallback: bool = False) -
     return pins.get("fallback_model" if fallback else "model")
 
 
-def _reconciled_gate_target_seal(run_state: RunState) -> str:
-    gates = run_state.snapshot.get("processor_state", {}).get("reconcile_gates", {}).get("gates")
-    if not isinstance(gates, list) or not gates:
-        raise ControllerError("promotion requires canonical post-FIX gate evidence")
-    seals = {gate.get("target_seal") for gate in gates if isinstance(gate, dict)}
-    if len(seals) != 1 or not all(isinstance(seal, str) and seal for seal in seals):
-        raise ControllerError("canonical gate evidence has inconsistent target identity")
-    return seals.pop()
+def _verified_fix_proof_target_seal(run_state: RunState) -> str:
+    """Read the immutable post-FIX gate proof bound to every verified row."""
+    processor = run_state.snapshot.get("processor_state", {})
+    rows = processor.get("apply_ledger_decisions", {}).get("rows")
+    registry = run_state.snapshot.get("artifact_registry", {}).get("artifacts")
+    if not isinstance(rows, list) or not isinstance(registry, dict):
+        raise ControllerError("promotion requires canonical FIX_VERIFIED proof")
+
+    fix_rows = [row for row in rows if isinstance(row, dict) and row.get("state") == "FIX_VERIFIED"]
+    if not fix_rows:
+        raise ControllerError("promotion requires a FIX_VERIFIED row")
+
+    gate_proof_ids: set[str] | None = None
+    for row in fix_rows:
+        proof_ids = row.get("proof_artifact_ids")
+        if not isinstance(proof_ids, list):
+            raise ControllerError("FIX_VERIFIED row has malformed proof references")
+        row_gate_ids = {
+            proof_id for proof_id in proof_ids
+            if isinstance(proof_id, str)
+            and isinstance(registry.get(proof_id), dict)
+            and registry[proof_id].get("kind") == "post-fix-gates"
+        }
+        if len(row_gate_ids) != 1:
+            raise ControllerError("FIX_VERIFIED row requires one canonical post-FIX gate proof")
+        gate_proof_ids = row_gate_ids if gate_proof_ids is None else gate_proof_ids & row_gate_ids
+
+    if gate_proof_ids is None or len(gate_proof_ids) != 1:
+        raise ControllerError("FIX_VERIFIED rows do not share one canonical post-FIX gate proof")
+    proof_id = gate_proof_ids.pop()
+    proof_ref = registry[proof_id]
+    if (
+        proof_ref.get("schema_version") != 1
+        or proof_ref.get("target_seal") != run_state.governing_seal
+        or not isinstance(proof_ref.get("digest"), str)
+    ):
+        raise ControllerError("canonical post-FIX gate proof metadata is malformed")
+
+    try:
+        raw = (Path(run_state.run_root) / "evidence" / proof_id).read_bytes()
+        body = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ControllerError("canonical post-FIX gate proof is unreadable") from exc
+    if bytes_digest(raw) != proof_ref["digest"] or not isinstance(body, dict):
+        raise ControllerError("canonical post-FIX gate proof failed its digest")
+
+    target_seal = body.get("target_seal")
+    gates = body.get("gates")
+    if (
+        not isinstance(target_seal, str)
+        or not target_seal
+        or not isinstance(gates, list)
+        or not gates
+        or any(
+            not isinstance(gate, dict)
+            or gate.get("status") != "PASSED"
+            or gate.get("target_seal") != target_seal
+            for gate in gates
+        )
+    ):
+        raise ControllerError("canonical post-FIX gate proof is malformed")
+    return target_seal
 
 
 class ControllerError(Exception):
@@ -1288,7 +1343,12 @@ class Controller:
                 f"(expected pre-FIX seal {validated.before_seal!r}, found {pre_tree.digest!r})"
             )
         fixctl = FixController(run_state, Path(run_state.run_root) / "promote", new_id=new_id)
-        fixctl.write_back(validated, target_root)
+        try:
+            fixctl.write_back(validated, target_root)
+        except SealError as exc:
+            raise ControllerError(
+                "promotion aborted: verified source changed during write-back"
+            ) from exc
         post_tree = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
         if post_tree.digest != validated.after_seal:
             raise ControllerError(
@@ -1335,7 +1395,7 @@ class Controller:
                 Path(preflight["resolved_target"]), GitPolicy(enabled=False),
                 exclusions=tuple(preflight.get("resolved_exclusions", ())),
             )
-            if content.digest != _reconciled_gate_target_seal(run_state):
+            if content.digest != _verified_fix_proof_target_seal(run_state):
                 raise ControllerError(
                     "promotion target does not match the canonical post-FIX gate identity"
                 )
@@ -1404,7 +1464,7 @@ class Controller:
         promotion_identity_mismatch = False
         if promotion is not None:
             content = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
-            promotion_identity_mismatch = content.digest != _reconciled_gate_target_seal(run_state)
+            promotion_identity_mismatch = content.digest != _verified_fix_proof_target_seal(run_state)
         seal_verified = fresh.digest == expected_final_seal and not promotion_identity_mismatch
 
         reason = None

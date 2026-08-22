@@ -32,7 +32,7 @@ from typing import Callable, Mapping, Sequence
 from .artifacts import CanonicalStore, EvidenceArtifact, digest
 from .execution import CodexHostPaths, _CODEX_EXEC_FLAGS
 from .prompts import ValidatedRoleArtifact
-from .seals import DeltaArtifact, TargetSeal, apply_delta_to_target, materialize_delta
+from .seals import DeltaArtifact, SealEntry, TargetSeal, apply_delta_to_target, materialize_delta
 
 
 class FixError(Exception):
@@ -220,6 +220,7 @@ class ValidatedFix:
     delta: DeltaArtifact
     before_seal: str
     after_seal: str
+    after_entries: tuple[SealEntry, ...]
     strategy: str  # "disposable_copy" | "direct_write"
     copy_root: Path | None = None  # the disposable-copy root ``write_back`` replays from
 
@@ -342,6 +343,7 @@ class FixController:
             delta=delta,
             before_seal=before.digest,
             after_seal=after.digest,
+            after_entries=after.entries,
             strategy=strategy,
             copy_root=copy_root,
         )
@@ -368,7 +370,13 @@ class FixController:
                 "write_back delta does not match the validated changed_paths "
                 f"(delta: {sorted(actual_paths)}, changed_paths: {sorted(validated.changed_paths)})"
             )
-        apply_delta_to_target(validated.delta, source_root=validated.copy_root, dest_root=target_root)
+        apply_delta_to_target(
+            validated.delta,
+            source_root=validated.copy_root,
+            dest_root=target_root,
+            expected_entries=validated.after_entries,
+            expected_seal=validated.after_seal,
+        )
 
     # -- apply: record OPEN -> FIX_APPLIED for the bound IDs -----------------
 

@@ -202,6 +202,17 @@ def _encode_entries(entries: Sequence[SealEntry]) -> bytes:
     return b"".join(parts)
 
 
+def _content_seal_digest(entries: Sequence[SealEntry]) -> str:
+    tree_digest = bytes_digest(_encode_entries(tuple(sorted(entries, key=lambda entry: entry.path))))
+    return digest({
+        "schema_version": SCHEMA_VERSION,
+        "tree_digest": tree_digest,
+        "git_base_commit": None,
+        "git_head_commit": None,
+        "git_index_digest": None,
+    })
+
+
 def _resolve_ref(root: Path, ref: str | None) -> str:
     if not ref or not ref.strip():
         raise SealError("git delta contract has an absent ref")
@@ -521,7 +532,14 @@ def _remove_leaf(dest_parent_fd: int, name: str, before_type: str) -> None:
         raise SealError(f"unsupported removed entry type: {before_type!r}")
 
 
-def apply_delta_to_target(delta: DeltaArtifact, source_root: Path, dest_root: Path) -> None:
+def apply_delta_to_target(
+    delta: DeltaArtifact,
+    source_root: Path,
+    dest_root: Path,
+    *,
+    expected_entries: Sequence[SealEntry] | None = None,
+    expected_seal: str | None = None,
+) -> None:
     """Replay an already-verified delta from a disposable-copy source onto
     the real target. Sibling of ``materialize_delta`` at the opposite end:
     that function reads two sealed trees and proves what changed; this one
@@ -545,9 +563,19 @@ def apply_delta_to_target(delta: DeltaArtifact, source_root: Path, dest_root: Pa
         if not Path(root).is_dir():
             raise SealError(f"write-back {label} is not a directory: {root}")
 
+    if (expected_entries is None) != (expected_seal is None):
+        raise SealError("verified source entries and seal must be supplied together")
+    expected_by_path = None
+    if expected_entries is not None and expected_seal is not None:
+        expected_by_path = {entry.path: entry for entry in expected_entries}
+        if len(expected_by_path) != len(expected_entries):
+            raise SealError("verified source entries contain duplicate paths")
+        if _content_seal_digest(expected_entries) != expected_seal:
+            raise SealError("verified source entries do not match the post-FIX seal")
+
     src_fd = _open_root(Path(source_root))
-    dest_fd = _open_root(Path(dest_root))
     try:
+        captured: dict[str, tuple[str, int, bytes | None]] = {}
         for entry in sorted(delta.entries, key=lambda e: e.path):
             if entry.change not in ("added", "changed"):
                 continue
@@ -564,20 +592,43 @@ def apply_delta_to_target(delta: DeltaArtifact, source_root: Path, dest_root: Pa
                         f"source entry type does not match the delta for {entry.path!r}: "
                         f"expected {entry.after_type!r}, found {kind!r}"
                     )
-                dest_parent_fd = _walk_parent_dir(dest_fd, parts, create=True)
-                try:
-                    if kind == "file":
-                        # _admit already consumed sfd's content while hashing
-                        # it for the digest check above; rewind before re-reading.
-                        os.lseek(sfd, 0, os.SEEK_SET)
-                        data = _read_all(sfd)
-                        _write_back_file(dest_parent_fd, parts[-1], data, mode)
-                    else:
-                        _write_back_dir(dest_parent_fd, parts[-1], mode)
-                finally:
-                    os.close(dest_parent_fd)
+                data = None
+                if kind == "file":
+                    os.lseek(sfd, 0, os.SEEK_SET)
+                    data = _read_all(sfd)
+                if expected_by_path is not None:
+                    expected = expected_by_path.get(entry.path)
+                    captured_digest = bytes_digest(data) if data is not None else None
+                    if expected is None or (
+                        expected.kind != kind
+                        or expected.mode != mode
+                        or expected.content_digest != captured_digest
+                    ):
+                        raise SealError(
+                            f"source entry drifted from the verified post-FIX seal: {entry.path!r}"
+                        )
+                captured[entry.path] = (kind, mode, data)
             finally:
                 os.close(sfd)
+    finally:
+        os.close(src_fd)
+
+    dest_fd = _open_root(Path(dest_root))
+    try:
+        for entry in sorted(delta.entries, key=lambda e: e.path):
+            if entry.change not in ("added", "changed"):
+                continue
+            parts = _split_relpath(entry.path)
+            kind, mode, data = captured[entry.path]
+            dest_parent_fd = _walk_parent_dir(dest_fd, parts, create=True)
+            try:
+                if kind == "file":
+                    assert data is not None
+                    _write_back_file(dest_parent_fd, parts[-1], data, mode)
+                else:
+                    _write_back_dir(dest_parent_fd, parts[-1], mode)
+            finally:
+                os.close(dest_parent_fd)
 
         removed = sorted((e for e in delta.entries if e.change == "removed"), key=lambda e: e.path, reverse=True)
         for entry in removed:
@@ -588,7 +639,6 @@ def apply_delta_to_target(delta: DeltaArtifact, source_root: Path, dest_root: Pa
             finally:
                 os.close(dest_parent_fd)
     finally:
-        os.close(src_fd)
         os.close(dest_fd)
 
 

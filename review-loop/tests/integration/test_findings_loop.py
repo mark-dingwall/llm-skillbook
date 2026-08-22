@@ -624,6 +624,73 @@ class FindingsLoopTests(unittest.TestCase):
 
         self.assertEqual(self.target.joinpath("calc.py").read_text(), original)
 
+    def test_forged_promotion_cannot_replace_the_canonical_fix_proof(self):
+        from review_loop.controller import ControllerError, PromotionRecord
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        ledger_id, verified = self._verify_fix(fix)
+        pre_fix_content = seal_target(self.target, GitPolicy(enabled=False))
+
+        def passing_pre_fix_gate(gate):
+            from review_loop.evidence import GateResult
+            return GateResult(
+                gate.id, gate.argv, gate.classification, gate.applicability,
+                gate.provenance, gate.rationale, pre_fix_content.digest,
+                "PASSED", 0, "", "",
+            )
+
+        replaced = self.controller.rerun_gates(
+            verified, plan, gate_dispatch=passing_pre_fix_gate,
+            target_seal=pre_fix_content.digest,
+        ).run_state
+        forged = PromotionRecord(
+            covered_ids=(ledger_id,), after_seal=verified.governing_seal,
+        )
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(
+                replaced, final_challenger=self._final_challenger(), promotion=forged,
+            )
+
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())
+
+    def test_promotion_rejects_copy_race_before_writing_target(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+        from review_loop.fix import FixController
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        _ledger_id, verified = self._verify_fix(fix)
+        original_target = self.target.joinpath("calc.py").read_text()
+        real_write_back = FixController.write_back
+
+        def tampering_write_back(fix_controller, validated, target_root):
+            fix.disposable_copy.joinpath("calc.py").write_text("raced after source seal\n")
+            raced = seal_target(fix.disposable_copy, GitPolicy(enabled=False))
+            forged = replace(validated, after_entries=raced.entries)
+            return real_write_back(fix_controller, forged, target_root)
+
+        with patch.object(FixController, "write_back", tampering_write_back):
+            with self.assertRaises(ControllerError):
+                self.controller.promote_post_fix_baseline(
+                    verified, fix.transition.validated, self.target,
+                )
+
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), original_target)
+
 
 SEAL = "seal-adj"
 
