@@ -101,6 +101,14 @@ def test_codex_adapter_success_fixture():
     assert a.text != ""
 
 
+def test_codex_adapter_rejects_null_agent_message_text():
+    a = CodexAdapter()
+    a.feed_line('{"type":"item.completed","item":{"type":"agent_message","text":null}}')
+
+    assert a.text == ""
+    assert a.last_error == "malformed Codex agent_message text"
+
+
 def test_opencode_adapter_success_fixture():
     a = OpenCodeAdapter()
     _feed(a, FIX / "opencode" / "success.jsonl")

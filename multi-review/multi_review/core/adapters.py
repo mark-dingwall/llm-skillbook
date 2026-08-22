@@ -147,11 +147,18 @@ class CodexAdapter(ProgressAdapter):
         if t == "thread.started":
             self.phase = "running"
         elif t == "item.completed":
-            item = ev.get("item", {})
+            item = ev.get("item")
+            if not isinstance(item, dict):
+                self.last_error = "malformed Codex item"
+                return
             itype = item.get("type")
             if itype == "agent_message":
                 # last agent_message wins as the final response
-                self.text_parts = [item.get("text", "")]
+                text = item.get("text")
+                if not isinstance(text, str):
+                    self.last_error = "malformed Codex agent_message text"
+                    return
+                self.text_parts = [text]
             elif itype in ("tool_call", "function_call", "command_execution"):
                 self.usage.tool_calls += 1
                 self.phase = f"tool:{item.get('name') or itype}"

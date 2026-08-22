@@ -66,17 +66,20 @@ async def _communicate_with_stderr_tail(
         while chunk := await proc.stderr.read(4096):
             tail.append(chunk)
 
-    if proc.stdin is not None:
+    async def feed_stdin() -> None:
+        if proc.stdin is None:
+            return
         try:
             if stdin_payload is not None:
                 proc.stdin.write(stdin_payload)
                 await proc.stdin.drain()
-            proc.stdin.close()
         except (BrokenPipeError, ConnectionResetError):
             pass
+        finally:
+            proc.stdin.close()
 
-    stdout_b, _stderr, _exit = await asyncio.gather(
-        proc.stdout.read(), drain_stderr(), proc.wait(),
+    _stdin, stdout_b, _stderr, _exit = await asyncio.gather(
+        feed_stdin(), proc.stdout.read(), drain_stderr(), proc.wait(),
     )
     return stdout_b, tail.text()
 

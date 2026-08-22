@@ -158,6 +158,40 @@ def test_spawn_marks_no_summary_output_failed(tmp_path):
     assert "Summary" in state["error"]
 
 
+def test_spawn_persists_malformed_codex_event_as_failed_state(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_codex = fake_bin / "codex"
+    fake_codex.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' '{\"type\":\"thread.started\"}'\n"
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":null}}'\n"
+        "printf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{}}'\n"
+    )
+    fake_codex.chmod(fake_codex.stat().st_mode | stat.S_IEXEC)
+    prompt = tmp_path / "p.txt"
+    prompt.write_text("review me")
+    out_dir = tmp_path / "out"
+    project_root = Path(__file__).resolve().parents[2]
+
+    result = subprocess.run(
+        [sys.executable, "-m", "multi_review.cli.spawn",
+         "--cli", "codex", "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": str(project_root),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+    )
+
+    assert result.returncode == 1
+    assert (out_dir / "codex.md").read_text() == ""
+    state = json.loads((out_dir / "codex.state.json").read_text())
+    assert state["ok"] is False
+    assert state["error"] == "malformed Codex agent_message text"
+
+
 def test_spawn_reads_unicode_prompt_under_ascii_locale(tmp_path):
     fixture = Path(__file__).parent.parent / "fixtures" / "streams" / "claude" / "success.jsonl"
     fake_bin = tmp_path / "bin"

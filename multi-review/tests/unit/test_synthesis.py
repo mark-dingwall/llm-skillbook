@@ -5,7 +5,7 @@ import pytest
 from multi_review.core.synthesis import (
     build_synthesis_input, extract_filename_from_synthesis,
     strip_filename_prefix, sanitize_review_filename, run_synthesis,
-    _run_synthesis_attempt, suggest_filename_haiku,
+    _communicate_with_stderr_tail, _run_synthesis_attempt, suggest_filename_haiku,
 )
 from multi_review.core.fanout import ReviewerResult
 
@@ -70,6 +70,35 @@ def test_external_synthesis_rejects_unstructured_success_output(tmp_path, monkey
     assert text.startswith("I cannot produce")
     assert "consensus sections" in error
     assert suggested is None
+
+
+def test_synthesis_drains_stdout_while_writing_large_stdin():
+    """A child may fill stdout before it starts reading its prompt."""
+    async def scenario():
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "import sys; "
+            "sys.stdout.buffer.write(b'x' * 1048576); sys.stdout.buffer.flush(); "
+            "data = sys.stdin.buffer.read(); "
+            "sys.stdout.buffer.write(str(len(data)).encode())",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            return await asyncio.wait_for(
+                _communicate_with_stderr_tail(proc, b"y" * 1048576),
+                timeout=1,
+            )
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await asyncio.wait_for(proc.communicate(), timeout=1)
+
+    stdout, stderr = asyncio.run(scenario())
+    assert stdout.endswith(b"1048576")
+    assert stderr == ""
 
 
 def test_cancelled_synthesis_kills_child(monkeypatch):
