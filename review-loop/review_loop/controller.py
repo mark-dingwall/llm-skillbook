@@ -204,6 +204,16 @@ def _selected_model(run_state: RunState, role: str, *, fallback: bool = False) -
     return pins.get("fallback_model" if fallback else "model")
 
 
+def _reconciled_gate_target_seal(run_state: RunState) -> str:
+    gates = run_state.snapshot.get("processor_state", {}).get("reconcile_gates", {}).get("gates")
+    if not isinstance(gates, list) or not gates:
+        raise ControllerError("promotion requires canonical post-FIX gate evidence")
+    seals = {gate.get("target_seal") for gate in gates if isinstance(gate, dict)}
+    if len(seals) != 1 or not all(isinstance(seal, str) and seal for seal in seals):
+        raise ControllerError("canonical gate evidence has inconsistent target identity")
+    return seals.pop()
+
+
 class ControllerError(Exception):
     """Stage 0/round orchestration cannot proceed; callers fail closed."""
 
@@ -1262,6 +1272,15 @@ class Controller:
             raise ControllerError("promotion target_root differs from the preflight target")
         exclusions = tuple(preflight.get("resolved_exclusions", ()))
         policy = _persisted_git_policy(preflight)
+        if validated.copy_root is None:
+            raise ControllerError("promotion requires the validated disposable copy")
+        source_tree = seal_target(
+            Path(validated.copy_root), GitPolicy(enabled=False), exclusions=exclusions,
+        )
+        if source_tree.digest != validated.after_seal:
+            raise ControllerError(
+                "promotion aborted: disposable copy drifted from the verified post-FIX seal"
+            )
         pre_tree = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
         if pre_tree.digest != validated.before_seal:
             raise ControllerError(
@@ -1309,6 +1328,17 @@ class Controller:
         new_id: Callable[[], str] = _new_id,
     ) -> RunState:
         seal = promotion.after_seal if promotion is not None else run_state.governing_seal
+        if promotion is not None and "apply_ledger_decisions" in run_state.snapshot.get("processor_state", {}):
+            processor = run_state.snapshot["processor_state"]
+            preflight = processor["preflight"]
+            content = seal_target(
+                Path(preflight["resolved_target"]), GitPolicy(enabled=False),
+                exclusions=tuple(preflight.get("resolved_exclusions", ())),
+            )
+            if content.digest != _reconciled_gate_target_seal(run_state):
+                raise ControllerError(
+                    "promotion target does not match the canonical post-FIX gate identity"
+                )
         store = CanonicalStore(run_state.run_root)
         expectation = RoleExpectation(
             request_id=new_id(), role_id="final-readiness", target_seal=seal,
@@ -1371,7 +1401,11 @@ class Controller:
 
         expected_final_seal = promotion.after_seal if promotion is not None else seal
         fresh = seal_target(target_root, current_policy, exclusions=exclusions)
-        seal_verified = fresh.digest == expected_final_seal
+        promotion_identity_mismatch = False
+        if promotion is not None:
+            content = seal_target(target_root, GitPolicy(enabled=False), exclusions=exclusions)
+            promotion_identity_mismatch = content.digest != _reconciled_gate_target_seal(run_state)
+        seal_verified = fresh.digest == expected_final_seal and not promotion_identity_mismatch
 
         reason = None
         if copy_only_fixes:
@@ -1388,7 +1422,7 @@ class Controller:
             "round1_triage_complete": True,
             "scheduled_reports_usable": True,
             "raw_reports_reconciled": True,
-            "any_indeterminate": bool(copy_only_fixes),
+            "any_indeterminate": bool(copy_only_fixes) or promotion_identity_mismatch,
             "expected_final_seal": expected_final_seal,
             "actual_final_seal": fresh.digest,
         }
@@ -1401,5 +1435,5 @@ class Controller:
             "promoted_ids": sorted(promoted_ids),
         })]
         updated = _issue(store, operation="compute_terminal", projection=projection, evidence=evidence)
-        stage = "INDETERMINATE" if copy_only_fixes else "COMPLETE"
+        stage = "INDETERMINATE" if copy_only_fixes or promotion_identity_mismatch else "COMPLETE"
         return RunState(run_state.run_root, run_state.governing_seal, updated, stage, reason)

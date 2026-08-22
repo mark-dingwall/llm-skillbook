@@ -218,6 +218,19 @@ class FindingsLoopTests(unittest.TestCase):
         body, completion = self._dispatch_role(())(expectation)
         return validate_review_report(body, expectation, completion)
 
+    def _verify_fix(self, fix):
+        row = fix.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"][0]
+        settlement = [{
+            "id": row["id"], "state": "FIX_VERIFIED",
+            "manifest_artifact_id": fix.transition.manifest_ids[row["id"]],
+            "proof_artifact_ids": [],
+        }]
+        adjudicated = self.controller.run_adjudication(
+            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(),
+            fix_outcome=fix, post_fix_reviews=(self._clean_post_fix_review(fix),),
+        )
+        return row["id"], adjudicated.run_state
+
     # --- the loop ----------------------------------------------------
 
     def _to_triage(self):
@@ -376,17 +389,13 @@ class FindingsLoopTests(unittest.TestCase):
             triage, target_root=self.target, fix_implementer=self._fix_implementer(),
             evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
         )
-        # Tamper the recorded after_seal so the real post-write-back reseal
-        # cannot possibly match it: promotion must fail closed rather than
-        # silently accept a target that doesn't reseal to what was claimed.
+        # Tamper the recorded after_seal: promotion must reject the source
+        # identity before replaying any bytes onto the authoritative target.
         tampered = _dc_replace(fix.transition.validated, after_seal="0" * 64)
         with self.assertRaises(ControllerError) as ctx:
             self.controller.promote_post_fix_baseline(fix.run_state, tampered, self.target)
-        self.assertIn("did not reproduce the verified post-FIX seal", str(ctx.exception))
-        # write_back itself already ran (the delta replay was correct); only
-        # the claimed after_seal was wrong -- the real target now holds the fix.
-        self.assertIn("price - price * percent", self.target.joinpath("calc.py").read_text())
-        self.assertNotEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
+        self.assertIn("disposable copy drifted", str(ctx.exception))
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
 
     def test_promotion_rejects_index_only_drift(self):
         from review_loop.controller import ControllerError
@@ -568,6 +577,52 @@ class FindingsLoopTests(unittest.TestCase):
                 fix.run_state, settlement, adjudicator=self._uphold_adjudicator(),
                 proof_evidence=(proof,),
             )
+
+    def test_forged_promotion_record_cannot_cover_an_unpromoted_fix(self):
+        from review_loop.controller import ControllerError, PromotionRecord
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        ledger_id, verified = self._verify_fix(fix)
+        forged = PromotionRecord(
+            covered_ids=(ledger_id,), after_seal=verified.governing_seal,
+        )
+
+        def must_not_dispatch(_expectation):
+            self.fail("a forged promotion must stop before final challenge dispatch")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(
+                verified, final_challenger=must_not_dispatch, promotion=forged,
+            )
+
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())
+
+    def test_promotion_rejects_tampered_copy_before_writing_target(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        _ledger_id, verified = self._verify_fix(fix)
+        original = self.target.joinpath("calc.py").read_text()
+        fix.disposable_copy.joinpath("calc.py").write_text("tampered after verification\n")
+
+        with self.assertRaises(ControllerError):
+            self.controller.promote_post_fix_baseline(
+                verified, fix.transition.validated, self.target,
+            )
+
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), original)
 
 
 SEAL = "seal-adj"
