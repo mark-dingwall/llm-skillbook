@@ -72,14 +72,21 @@ Controller API. State the exact target, ground-truth, run-root/report, and
 stage-focus mapping for both reviews without inventing Controller inputs.
 ```
 
-- `RS-1`: specification review uses a fresh temporary Git repository whose sole
-  payload is the exact candidate at its canonical relative path.
-- `RS-2`: implementation review targets the complete isolated feature worktree.
-- `RS-3`: frozen authorities and repository constraints use
-  `InvocationIntent.ground_truth`; run roots and reports remain outside targets.
-- `RS-4`: stage focus and pass criterion are host-built role-prompt context, not
-  charter, deployment-context, subject-set, or completion-criterion Controller
-  fields.
+- `RS-1`: every temporary target has one disposable bootstrap commit whose exact
+  ID is passed as `InvocationIntent.base`; this transport commit is not a freeze
+  checkpoint. Specification review's sole payload is the exact candidate at
+  its canonical relative path.
+- `RS-2`: implementation review uses a temporary Git target containing every
+  regular subject file at its exact path and mode, excluding Git administrative
+  metadata, plus a regular manifest for unchanged symlinks; changed or
+  review-relevant symlinks and other unsupported entries block.
+- `RS-3`: the exact binary diff, staged-entry listing, symlink manifest, frozen
+  authorities, and repository constraints are sealed through
+  `InvocationIntent.ground_truth` and mounted for every contained call through
+  `CallRequest.input_paths`; run roots and reports remain outside targets.
+- `RS-4`: stage focus, pass criterion, and mounted input locations use
+  `render_prompt`'s declared `subject` value, not charter, deployment-context,
+  subject-set, completion-criterion, or undeclared context fields.
 
 ### UAT-USER-WAIVER — explicit user waiver
 

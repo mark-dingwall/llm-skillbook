@@ -119,14 +119,27 @@ document outside the canonical run artifacts named in `workflow.md`.
 
 `review-loop` self-derives its reviewer roster from a risk-surface inventory of
 the sealed target; it takes no caller-supplied *charter*, deployment-context,
-or completion-criterion field. For Specification and Plan review, materialize
-the exact candidate at its canonical relative path as the sole payload in a
-fresh temporary Git repository. For Implementation review, use the complete
-isolated feature worktree as the target. Keep each `run_root` and its reports
-outside that target, and pass frozen authorities and repository constraints as
-`InvocationIntent.ground_truth`. The host's contained role dispatch may add
-the applicable focus below to its prompt context, but that context is not a
-Controller input or a constraint `review-loop` enforces.
+or completion-criterion field. Materialize each review subject in a fresh
+temporary Git repository: the exact candidate at its canonical relative path
+as the sole payload for Specification and Plan review; for Implementation
+review, every regular subject file in the complete isolated worktree snapshot
+at its exact relative path and mode, excluding only Git administrative
+metadata, plus a regular manifest recording each unchanged symlink's exact
+path, mode, and link target. Also capture the source worktree's exact binary
+diff and staged-entry listing. A changed or review-relevant symlink, or any
+other unsupported entry, blocks because `review-loop` cannot admit it safely.
+Keep each `run_root` and its reports outside the target.
+
+Create one disposable bootstrap commit after materialization and pass its exact
+commit ID as `InvocationIntent.base` so preflight can resolve the target. This
+temporary transport commit is not a candidate freeze checkpoint.
+
+Pass frozen authorities, repository constraints, the symlink manifest, diff,
+and staged-entry listing in both `InvocationIntent.ground_truth` (identity) and
+every contained `CallRequest.input_paths` (readable delivery). Build the normal
+review prompt with `render_prompt`, placing the applicable focus, pass
+criterion, and `/inputs/...` locations in its declared `subject` value; do not
+invent extra context or Controller fields.
 
 ### Specification review
 
@@ -175,9 +188,10 @@ For every review round, the controller must:
 
 1. Persist `review_active` before dispatch. While it is active, obey the
    workflow rule that permits only await or recovery of that existing review.
-2. Select the exact target described above, pass frozen **ground truth** via
-   `InvocationIntent.ground_truth`, and include the applicable focus and pass
-   criterion only in the host-built role prompt.
+2. Select the exact target described above; seal frozen **ground truth** through
+   `InvocationIntent.ground_truth`, mount the same paths through
+   `CallRequest.input_paths`, and render the applicable focus, pass criterion,
+   and mounted locations through the prompt's declared `subject` value.
 3. Keep loop reports **outside the sealed tree**. During the round, mutate
    neither the target nor the ledger.
 4. On return, first record the TRIAGE outcome, open finding IDs, stable run
