@@ -68,7 +68,8 @@ one-shot skill and claim to interrupt that skill before its required handoff.
   authority for a material or out-of-scope decision is missing. The
   authority contract's other pause/block triggers remain blocking and are not
   gated by materiality. Non-material in-scope ambiguity alone does not block:
-  the wrapped skill rules on it and continues per its own design.
+  the controller records the decision under the authority contract and
+  continues.
 
 ### finish-authority
 
@@ -117,12 +118,15 @@ dispatch-completeness contract, not an invitation to create a new packet
 document outside the canonical run artifacts named in `workflow.md`.
 
 `review-loop` self-derives its reviewer roster from a risk-surface inventory of
-the sealed scope; it takes no caller-supplied *charter* parameter. The three
-charters below are Feature Forge's per-stage review focus. The controller
-conveys them through `review-loop`'s actual inputs — the subject set, the
-subject-versus-ground-truth split, the one-line deployment context, and the
-completion criterion — and uses them to frame the subject and interpret the
-TRIAGE return, not as a constraint `review-loop` enforces.
+the sealed target; it takes no caller-supplied *charter*, deployment-context,
+or completion-criterion field. For Specification and Plan review, materialize
+the exact candidate at its canonical relative path as the sole payload in a
+fresh temporary Git repository. For Implementation review, use the complete
+isolated feature worktree as the target. Keep each `run_root` and its reports
+outside that target, and pass frozen authorities and repository constraints as
+`InvocationIntent.ground_truth`. The host's contained role dispatch may add
+the applicable focus below to its prompt context, but that context is not a
+Controller input or a constraint `review-loop` enforces.
 
 ### Specification review
 
@@ -171,9 +175,9 @@ For every review round, the controller must:
 
 1. Persist `review_active` before dispatch. While it is active, obey the
    workflow rule that permits only await or recovery of that existing review.
-2. Pass the exact subject, frozen **ground truth**, and completion criterion to
-   `review-loop`, conveying the applicable charter's review focus through its
-   subject set and one-line deployment context.
+2. Select the exact target described above, pass frozen **ground truth** via
+   `InvocationIntent.ground_truth`, and include the applicable focus and pass
+   criterion only in the host-built role prompt.
 3. Keep loop reports **outside the sealed tree**. During the round, mutate
    neither the target nor the ledger.
 4. On return, first record the TRIAGE outcome, open finding IDs, stable run

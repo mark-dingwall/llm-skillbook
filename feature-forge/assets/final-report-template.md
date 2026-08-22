@@ -124,4 +124,4 @@ task, or review prose.
 - [ ] Status terms come from the owner references.
 - [ ] Exactly one next action exists, or the terminal outcome is recorded with no next action.
 - [ ] No requirement, task, or review prose is duplicated into the final report.
-- [ ] Exactly one of the Human UAT or Automated-substitute branches is filled in per UAT-classified requirement, and neither is asserted unconditionally or without evidence actually produced in this run.
+- [ ] Exactly one Human UAT, Automated-substitute, or User-waiver branch is filled in per UAT-classified requirement, and none is asserted unconditionally or without evidence actually produced in this run.
