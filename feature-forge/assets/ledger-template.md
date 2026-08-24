@@ -39,7 +39,7 @@ never receive their own frozen blob identity.
 
 ## Implementation progress
 
-- Execution mode: `subagent-driven | inline`
+- Execution mode: `delegated | inline`
 
 | plan task | status | commit | evidence |
 | --- | --- | --- | --- |
@@ -47,11 +47,9 @@ never receive their own frozen blob identity.
 
 ## Reviews
 
-| review | state | stage charter | completion criterion | native verdicts | stable report reference | content seal |
+| review | state | stage charter | completion criterion | TRIAGE outcome/open finding IDs | stable run reference | content seal |
 | --- | --- | --- | --- | --- | --- | --- |
 |  | `not_started \| review_active \| pass \| changes_required \| blocked` |  |  |  |  |  |
-
-- For `review_active`, only: `await or recover the existing review`.
 
 ## Verification and acceptance
 
@@ -59,7 +57,8 @@ never receive their own frozen blob identity.
 | --- | --- | --- | --- |
 |  |  |  |  |
 
-- Verification state: `pending \| passed \| blocked`.
+- Verification state: record in plain language whether deterministic
+  verification is pending, passed, or blocked, with its evidence above.
 
 | requirement/scenario | acceptance method | acceptance state | authority | evidence | fallback |
 | --- | --- | --- | --- | --- | --- |
@@ -72,7 +71,8 @@ never receive their own frozen blob identity.
 | blocker |  |  |  |  |
 | change request |  |  |  |  |
 
-- Blocker/change-request state: `open \| resolved`.
+- Blocker/change-request state: record in plain language whether the item
+  remains open or has been resolved.
 
 ## Finish journal
 
@@ -93,6 +93,7 @@ canonical artifact. It carries exactly these fields:
 | worktree |  |
 | environment/reconciliation evidence |  |
 | exact next side effect |  |
+| completed side-effect receipts |  |
 | durable receipts |  |
 
 ## Transition log

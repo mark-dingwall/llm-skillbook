@@ -33,8 +33,8 @@ sole next action, branch/worktree identity, canonical paths and frozen
 identities, review summaries, approvals/authority, execution mode, acceptance
 and verification state, blockers/change requests, the implementation table, and
 the Finish operation journal (`finish_id`, phase, selected choice and
-authority, base/feature tips, worktree, exact next side effect, and durable
-receipts):
+authority, base/feature tips, worktree, exact next side effect, completed
+side-effect receipts, and durable phase receipts):
 
 | plan task | status | commit | evidence |
 |---|---|---|---|
@@ -62,9 +62,9 @@ subject, not every review subject, begins clean, committed implementation
 review and final verification: each implementation-review round is read-only
 against its whole-tree content seal, fixes occur only between rounds, are
 committed, re-sealed, and independently re-reviewed, and `pass` means a final
-pass on the post-fix snapshot. Preserve both native verdicts, the stable report
-reference, the stage charter, completion criterion, and the content seal for
-every review.
+pass on the post-fix snapshot. Preserve the TRIAGE outcome and open finding
+IDs, stable run reference, stage charter, completion criterion, and content
+seal for every review.
 
 Persist a complete ledger update before each external dispatch and immediately
 after each return. A transition-log row has event ID, UTC time, from/to state,
@@ -135,21 +135,18 @@ Create these eight checkpoint categories only when the corresponding tree differ
 2. `docs: freeze reviewed <feature> specification` after Harden and Specification review.
 3. `docs: draft <feature> implementation plan` after Plan.
 4. `docs: freeze reviewed <feature> implementation plan` after Plan review.
-5. Implementation commits owned by each reviewed plan task and the selected execution skill.
+5. Implementation commits owned by each reviewed plan task and the selected execution method.
 6. `fix: address final <feature> review findings` when Implementation review changes implementation.
 7. `docs: record <feature> acceptance` for the final report, UAT/waiver, verification
    summary, traceability, branch-finishing readiness, the pending Finish outcome, and
    the active Stage 13 ledger.
-8. `docs: record <feature> finish` for Stage 14 Finish write-ahead/choice records and
-   terminal-or-blocked receipts, whenever the tracked state differs. Category 8 may
-   produce more than one explicit-path commit only when state differs: the `claimed`
-   commit before method execution, the `menu_pending` commit before menu delivery or
-   unattended resolution, the atomic `choice_recorded`-then-`executing` commit before
-   any side effect, and the atomic terminal-or-blocked commit after reconciliation. The
+8. `docs: record <feature> finish` whenever tracked Stage 14 state differs: the
+   `claimed` commit, the `menu_pending` commit before menu delivery or unattended
+   resolution, the atomic `choice_recorded`-then-`executing` commit before the first
+   effect, one `executing` write-ahead commit before each later effect, one reconciled
+   receipt commit after each effect, and the atomic terminal-or-blocked commit. The
    `blocked` overlay may also commit from any nonterminal phase — including the
-   `ready -> blocked` capability-gate outcome before `claimed`. No
-   category 8 record commit permits another external-skill invocation; the
-   finish-authority dispatch remains the sole and last external skill invocation.
+   `ready -> blocked` capability-gate outcome before `claimed`.
 
 Checkpoint 7 commits the final report and ledger after verification and acceptance
 while the run remains **active**, Finish phase `ready`, and outcome `pending` — it is
@@ -167,7 +164,7 @@ explicit change control rather than being marked complete.
 ### Stage 1: Preflight
 
 - **Entry:** a bounded work unit is invoked and no canonical run has yet been selected.
-- **Owned action/artifact:** confirm Git; select and record the automation mode (`supervised` when the invocation omits it); reject invalid slug/ref content; inspect same-date run collision and every all-date same-slug branch/worktree collision; compare intent, base, and identity; resolve the collision by mode — supervised/interactive asks resume-versus-new, unattended takes the lowest unused numeric suffix only when intents are clearly distinct and otherwise blocks; validate the user-authorized *runner* (the reviewer-CLI configuration `review-loop` requires to dispatch reviewers) and never substitute a generic subagent mechanism for it, asking at preflight when none is configured under supervised/interactive mode and blocking when none is pre-authorized under unattended mode; inventory and attribute dirty paths; create or verify reuse of an isolated non-primary worktree before the first tracked write; create/reuse the ledger and project stages to native tasks.
+- **Owned action/artifact:** confirm Git; select and record the automation mode (`supervised` when the invocation omits it); reject invalid slug/ref content; inspect same-date run collision and every all-date same-slug branch/worktree collision; compare intent, base, and identity; resolve the collision by mode — supervised/interactive asks resume-versus-new, unattended takes the lowest unused numeric suffix only when intents are clearly distinct and otherwise blocks; validate that the authorized review host can import `review_loop.controller.Controller`, construct the contained role dispatchers and strict validators required by `Controller.run_stage0`/`Controller.run_round1`/`Controller.run_triage`, and write a disjoint run root; a passing mechanical CLI probe is insufficient; ask at preflight when no host is configured under supervised/interactive mode and block when none is pre-authorized under unattended mode; inventory and attribute dirty paths; create or verify reuse of an isolated non-primary worktree before the first tracked write; create/reuse the ledger and project stages to native tasks.
 - **Exit evidence:** Git/worktree/branch identity, automation-mode selection, collision decision, runner validation, dirty-path reconciliation, and one ledger row with exactly one next action.
 - **Failure/blocked return:** unresolved collision, unauthorized/unavailable runner, non-attributable dirt, non-Git repository, or inability to isolate blocks here; identity match resumes instead of creating a duplicate.
 - **Next action:** Stage 2: Brainstorm.
@@ -177,7 +174,7 @@ explicit change control rather than being marked complete.
 - **Entry:** Preflight is complete and the ledger permits the brainstorm-return dispatch.
 - **Owned action/artifact:** use the approved brainstorming return boundary to create the initial canonical specification.
 - **Exit evidence:** written specification, required self-review/approval record, draft-specification checkpoint when changed, and returned result recorded in the ledger.
-- **Failure/blocked return:** unavailable or unenforceable adapter blocks; a rejected or incomplete return remains here for recovery.
+- **Failure/blocked return:** an incomplete method return remains here for recovery; missing authority blocks.
 - **Next action:** Stage 3: Harden.
 
 ### Stage 3: Harden
@@ -199,7 +196,7 @@ explicit change control rather than being marked complete.
 ### Stage 5: Specification review
 
 - **Entry:** candidate-gate evidence exists and the specification subject has its candidate seal captured.
-- **Owned action/artifact:** dispatch review-loop under the specification charter over the exact candidate-file content seal and record `review_active`, then its mapped result, native verdicts, report reference, and content seal.
+- **Owned action/artifact:** run the read-only review return under the specification charter over the exact candidate-file content seal and record `review_active`, then its mapped result, TRIAGE outcome/open finding IDs, run reference, and content seal.
 - **Exit evidence:** `pass` review outcome on the exact candidate content seal.
 - **Failure/blocked return:** only await/recover while `review_active`; `changes_required` returns to the minimum specification correction stage, corrected uncommitted, and re-sealed for the next round; `blocked` remains here.
 - **Next action:** Stage 6: Specification freeze.
@@ -216,14 +213,14 @@ explicit change control rather than being marked complete.
 
 - **Entry:** the frozen specification identity matches and Plan is sole next action.
 - **Owned action/artifact:** invoke the plan-return boundary against that frozen specification and add the execution note that plan checkboxes are frozen and progress lives in the ledger.
-- **Exit evidence:** self-reviewed canonical plan, draft-plan checkpoint when changed, and recorded adapter return.
-- **Failure/blocked return:** unavailable/unenforceable adapter blocks; specification drift follows change control.
+- **Exit evidence:** self-reviewed canonical plan, draft-plan checkpoint when changed, and recorded stage return.
+- **Failure/blocked return:** an incomplete method return remains here for recovery; specification drift follows change control.
 - **Next action:** Stage 8: Plan review.
 
 ### Stage 8: Plan review
 
 - **Entry:** a self-reviewed plan exists and frozen specification identity still matches.
-- **Owned action/artifact:** dispatch review-loop under the plan charter over the exact candidate-file content seal; after pass, commit and record the frozen plan identity.
+- **Owned action/artifact:** run the read-only review return under the plan charter over the exact candidate-file content seal; after pass, commit and record the frozen plan identity.
 - **Exit evidence:** pass on the plan candidate content seal, freeze-plan checkpoint, and matching `<path>@<git-blob-id>` baseline.
 - **Failure/blocked return:** only await/recover while `review_active`; changes required return to Plan, corrected uncommitted, and re-sealed for the next round; blocked remains here; specification defect follows the graph.
 - **Next action:** Stage 9: Implement.
@@ -231,7 +228,7 @@ explicit change control rather than being marked complete.
 ### Stage 9: Implement
 
 - **Entry:** frozen specification and plan identities match, and the ledger has the sole next implementation action.
-- **Owned action/artifact:** choose exactly one authorized execution mode, dispatch its execute-return boundary, and maintain the implementation table without changing plan checkboxes.
+- **Owned action/artifact:** choose exactly one authorized execution mode, run the controller-owned execute-return boundary, and maintain the implementation table without changing plan checkboxes.
 - **Exit evidence:** every plan-task row has status, owned commit, and evidence, with local verification recorded and committed implementation content.
 - **Failure/blocked return:** execution return is recovered before redispatch; plan/specification drift follows the graph; unavailable execution authority blocks.
 - **Next action:** Stage 10: Implementation review.
@@ -239,7 +236,7 @@ explicit change control rather than being marked complete.
 ### Stage 10: Implementation review
 
 - **Entry:** implementation is clean, committed, and traceable to frozen specification and plan identities.
-- **Owned action/artifact:** review-loop the whole implementation under its implementation charter; resolve findings only between read-only sealed rounds and commit accepted fixes.
+- **Owned action/artifact:** run the read-only review return over the whole implementation under its implementation charter; resolve findings only between sealed rounds and commit accepted fixes.
 - **Exit evidence:** final `pass` on the post-fix whole-tree content seal and reviewed implementation commit.
 - **Failure/blocked return:** only await/recover while `review_active`; implementation findings return here for a new sealed round; exposed plan/specification defects follow the graph.
 - **Next action:** Stage 11: Final verification.
@@ -271,9 +268,9 @@ explicit change control rather than being marked complete.
 ### Stage 14: Finish
 
 - **Entry:** Report is complete, Finish phase is `ready`, and the sole next action is `claim <finish_id>`.
-- **Owned action/artifact:** durably drive the one logical Finish operation for `finish_id` through `ready -> claimed -> menu_pending -> choice_recorded -> executing -> terminal`, with `blocked` as a resumable overlay reachable from any nonterminal phase, per the protocol below. Invoke `finish-authority` (`superpowers:finishing-a-development-branch`) exactly once as the sole and last external skill invocation; every category 8 record commit around it is Stage 14 bookkeeping, not a second invocation.
+- **Owned action/artifact:** durably drive the controller-owned Finish operation for `finish_id` through `ready -> claimed -> menu_pending -> choice_recorded -> executing -> terminal`, with `blocked` as a resumable overlay reachable from any nonterminal phase, per the protocol below. Do not invoke `superpowers:finishing-a-development-branch`; execute each authorized effect only after its own write-ahead receipt.
 - **Exit evidence:** a terminal category 8 commit recording durable outcome evidence, phase `terminal`, and overall run status `complete`; or, if blocked, a category 8 commit recording evidence, the prior phase it interrupted, `blocked` run state, and no executable next action.
-- **Failure/blocked return:** a failed capability check, a dirty/unreconcilable base checkout, an unresolved menu presentation, or ambiguous crash-recovery evidence records `blocked` under category 8 with a resolution-only next action; it never claims, presents a menu, resolves unattended, or invokes an external skill while blocked.
+- **Failure/blocked return:** a failed capability check, a dirty/unreconcilable base checkout, an unresolved menu presentation, or ambiguous crash-recovery evidence records `blocked` under category 8 with a resolution-only next action; it never claims, presents a menu, resolves unattended, or performs an external effect while blocked.
 - **Next action:** terminal; no further outer action once `terminal`/`complete` is recorded.
 
 ## Stage 14: durable Finish phase protocol and crash recovery
@@ -296,27 +293,26 @@ conclusive evidence is supplied, recovery returns to that prior phase under the 
 
 ### Capability gate at `ready`
 
-At `ready`, before the `claimed` category-8 commit and before any logical Finish
-invocation, the workflow performs a mandatory harness-capability check for durable
-journal interleaving (can the harness durably commit the journal between menu
-selection and side effects) and read-only Git/forge reconciliation (can it read Git
+At `ready`, before the `claimed` category-8 commit, the workflow performs a
+mandatory harness-capability check for durable journal interleaving (can the
+harness durably commit the journal between menu selection and each side effect)
+and read-only Git/forge reconciliation (can it read Git
 and, for Push-and-PR, forge state without mutating either). If either capability is
-unavailable, **workflow — not an adapter** — records `ready -> blocked` under category
+unavailable, the workflow records `ready -> blocked` under category
 8, with prior phase `ready`, evidence of the missing capability, and a
 resolution-only next action. It performs no claim, no menu presentation, no
-unattended resolution, and no external branch-finishing invocation. Only after that
-capability check passes may it commit `claimed` in category 8.
+unattended resolution, and no external effect. Only after that capability check
+passes may it commit `claimed` in category 8.
 
 ### `claimed` through `executing`
 
-Under the same `finish_id`, once `claimed` is committed, perform the installed
-finishing skill's test/environment/base determination steps (fresh full test suite,
-Git/common-directory and worktree detection, named-branch check, and base-branch
-determination). Commit `menu_pending` in category 8 before the interactive/supervised
+Under the same `finish_id`, once `claimed` is committed, run the fresh full test
+suite, detect the Git/common-directory and worktree state, check for a named branch,
+and determine the base branch. Commit `menu_pending` in category 8 before the interactive/supervised
 menu presentation or before unattended resolution:
 
 - Interactive/supervised: the `menu_pending` receipt records the exact three
-  installed choices and a stable presentation ID.
+  choices and a stable presentation ID.
 - Unattended: the `menu_pending` receipt instead records the named pre-authorization
   when present, or `agent:unattended default-keep` when none is pre-authorized,
   before resolution.
@@ -327,11 +323,13 @@ environment that cannot retain all three installed choices records `blocked`
 under category 8 with the missing-capability evidence and a resolution-only
 next action, rather than presenting a reduced menu.
 
-Before any side effect, commit a single complete category-8 update that records
+Before the first side effect, commit a complete category-8 update that records
 `choice_recorded` then current `executing` atomically: selected choice, authority,
-confirmed base, base/feature tips, worktree, environment evidence, and the exact next
-side effect. That commit must succeed and the feature worktree must be clean before
-any non-read-only operation begins.
+confirmed base, base/feature tips, worktree, environment evidence, and the exact
+next side effect. Thereafter, reconcile and receipt each completed effect before
+committing the next exact side effect. `push` and `create PR` are separate side
+effects; so are every pull, merge, cleanup, and branch deletion. Each write-ahead
+commit must succeed and the applicable worktree must be clean before its effect.
 
 ### Option 1 base-checkout safety
 
@@ -352,8 +350,8 @@ changes Finish phase to `terminal`, changes overall run status to `complete`, an
 removes the next action, updating ledger and report together. A blocked category 8
 commit likewise updates ledger and report together: it records evidence, the prior
 phase, `blocked` run state, and no executable next side effect. Stage 14 bookkeeping
-commits made after the installed skill returns are permitted and are not a second
-external invocation.
+commits record the controller-owned operation; they are not callbacks around another
+skill.
 
 ### Recovery
 
@@ -372,16 +370,18 @@ action.
 - Unattended `menu_pending` recovery consumes only the authority/choice already
   committed; it never resolves or chooses a new default after the crash window.
 - From `choice_recorded`/`executing`, recovery takes only the recorded next side
-  effect whose non-occurrence is provable.
+  effect whose non-occurrence is provable. A proven absent effect remains
+  `executing`: perform it, reconcile it, append its receipt, and either record the
+  next effect or terminalize only when the selected outcome is proven complete.
 - Recovery must never repeat a claim, menu presentation, merge, pull, push, PR
   creation, cleanup, or branch deletion.
 - If an external effect may have occurred but cannot be identified conclusively,
   atomically persist `blocked` under category 8 recording the ambiguity, evidence,
   **the prior phase it interrupted** (for example `executing`), and no executable
   next side effect — never guess or repeat it.
-- If instead the side effect's outcome is conclusively reconciled — proven to have
-  occurred or proven not to have occurred — recovery writes the conclusive terminal
-  receipt (phase `terminal`, overall run `complete`, no next action) in one atomic
-  category 8 ledger/report transaction, on the correct preserved location: the base
-  checkout for local merge, or the preserved feature branch/worktree for Push-and-PR
-  and Keep.
+- If the selected outcome is conclusively proven complete, recovery writes the
+  terminal receipt (phase `terminal`, overall run `complete`, no next action) in one
+  atomic category 8 ledger/report transaction, on the correct preserved location:
+  the base checkout for local merge, or the preserved feature branch/worktree for
+  Push-and-PR and Keep. Proof that the recorded effect is absent is never terminal
+  evidence.

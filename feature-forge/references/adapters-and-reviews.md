@@ -1,136 +1,107 @@
-# Feature Forge subskill adapters and review charters
+# Feature Forge stage methods and review charters
 
-This reference adapts installed skills to Feature Forge without replacing the
-workflow contract's paths, stages, states, transitions, seals, ledger, or
+This reference defines Feature Forge's bounded stage methods without replacing
+the workflow contract's paths, stages, states, transitions, seals, ledger, or
 checkpoint rules. `workflow.md` remains authoritative for those terms;
 `authority.md` remains authoritative for mode, materiality, scope, and
-acceptance. An adapter that cannot enforce its boundary returns `blocked` to
-the controller; it must not emulate, silently weaken, or bypass the boundary.
+acceptance. The controller owns each return boundary; it does not invoke a
+one-shot skill and claim to interrupt that skill before its required handoff.
 
-## Adapter returns
+## Stage returns
 
 ### brainstorm-return
 
-- **Installed skill:** `superpowers:brainstorming`.
-- **Retained method:** discover intent and constraints, explore the design
-  with the requester, and obtain approval before implementation-oriented
-  work.
-- **Return boundary:** performs the installed brainstorming method and
-  returns after the written specification and its self-review, before
-  Harden. It does not itself perform Harden's decision-tree hardening.
-- **Feature Forge replacements:** use the one canonical specification and its
+- **Controller-owned brainstorm method:** discover intent and constraints,
+  explore the design with the requester, obtain the applicable approval, and
+  return after writing and self-reviewing the specification. Do not invoke
+  `superpowers:brainstorming`, whose required handoff continues into planning.
+- **Required boundary:** use the one canonical specification and its
   required sections; apply the authority contract's decision-tree hardening
   in the workflow-owned Harden stage, not here; record material authority,
   assumptions, acceptance classifications, and UAT fallbacks; use the
   workflow's Brainstorm entry/exit evidence, draft checkpoint, and ledger
-  return instead of the skill's own state or artifacts.
+  return instead of separate method-local state or artifacts.
 - **Return artifact:** the initial canonical specification, its self-review,
   and a concise result for the ledger.
-- **Unattended substitution:** in unattended mode, the installed skill's
-  synchronous brainstorming approval gates are replaced only by recorded
+- **Unattended substitution:** in unattended mode, synchronous brainstorming
+  approval gates are replaced only by recorded
   standing authority under the durable intent brief plus the required
-  self-review — never by silently skipping approval. The adapter continues
+  self-review — never by silently skipping approval. The method continues
   only for recorded in-scope decisions and minimum coherence repairs; missing
   authority, a material/fundamental intent change, unsafe or irreversible
   action, unavailable dependency, or irresolvable contradiction blocks.
-- **Block rule:** return `blocked` when the installed skill is unavailable or
-  cannot retain the method while enforcing every replacement above.
+- **Block rule:** return `blocked` when the method cannot satisfy every
+  boundary above.
 
 ### plan-return
 
-- **Installed skill:** `superpowers:writing-plans`.
-- **Retained method:** turn a settled design into small, ordered
-  implementation steps with verification and review checkpoints.
-- **Return boundary:** performs writing-plans' required header and
-  self-review, then returns before its execution offer or start. It does not
-  begin or offer execution.
-- **Feature Forge replacements:** plan only against the exact frozen
-  specification; preserve the workflow's canonical plan, Plan stage evidence,
-  and checkpoint process; make task ownership and contracts explicit; state
-  that plan checkboxes remain frozen and progress is recorded only in the
-  workflow-owned implementation table and evidence.
+- **Controller-owned plan method:** without invoking
+  `superpowers:writing-plans`, turn the exact frozen specification into small,
+  ordered implementation tasks with explicit ownership, interfaces,
+  verification, and review checkpoints. Write the canonical plan, run its
+  coverage/placeholder/type-consistency self-review, record the return, and
+  stop. Do not offer or begin execution.
+- **Required boundary:** preserve the workflow's Plan evidence and checkpoint
+  process; state that plan checkboxes remain frozen and progress is recorded
+  only in the workflow-owned implementation table and evidence.
 - **Return artifact:** a self-reviewed canonical implementation plan with
   ordered plan tasks, owned contracts, dependency/verification notes, and the
-  recorded adapter result.
+  recorded stage result.
 - **Block rule:** return `blocked` if the frozen specification is unavailable
-  or mismatched, or if the installed skill cannot enforce these replacements.
+  or mismatched, or the plan cannot satisfy the required boundary.
 
 ### execute-return
 
-- **Installed skill:** exactly `superpowers:subagent-driven-development` when
-  two or more plan tasks are independently ownable under fixed contracts, or
-  exactly the installed skill `superpowers:executing-plans` for tightly
-  coupled or no-delegation work. No unnamed inline substitute is used.
-- **Retained method:** execute bounded, independently verifiable plan tasks
-  against their fixed interfaces; verify each owned change before its
-  handoff.
-- **Return boundary:** returns after local verification for the dispatched
-  scope, without invoking or offering branch finishing, nor deleting
-  caller-owned progress state. Both wrapped skills otherwise treat
-  `superpowers:finishing-a-development-branch` as an unconditional terminal
-  step; the adapter must stop the run before that step — Feature Forge owns
-  finishing at Stage 14 — and blocks if it cannot enforce that halt.
-- **Feature Forge replacements:** use exactly the execution mode selected
-  below; retain frozen specification/plan authority; never change plan
-  checkboxes; use the workflow-owned implementation table, commits, evidence,
-  recovery, review, and invalidation rules rather than skill-local progress
-  state.
+- **Controller-owned execution method:** execute each bounded plan task against
+  its fixed interfaces, either by dispatching an independently ownable worker
+  packet or working inline for tightly coupled tasks. Do not invoke
+  `superpowers:subagent-driven-development` or
+  `superpowers:executing-plans`; both require a branch-finishing handoff that
+  lies outside Stage 9.
+- **Required boundary:** verify each task before handoff, retain frozen
+  specification/plan authority, never change plan checkboxes, and return after
+  the implementation table records every task's commit and evidence. Do not
+  offer or begin branch finishing or delete caller-owned progress state.
 - **Return artifact:** for every plan task, its status, owned commit, local
   verification evidence, and a result suitable for the implementation table.
-- **Block rule:** return `blocked` when the selected skill is unavailable, a
-  fixed contract cannot be honored, authority for a material or out-of-scope
-  decision is missing, or the skill cannot enforce the replacements. The
-  wrapped skill still rules on in-scope ambiguity and continues per its own
-  design rather than stalling; only material or out-of-scope authority gaps
-  block.
+- **Block rule:** return `blocked` when a fixed contract cannot be honored or
+  authority for a material or out-of-scope decision is missing. The
+  authority contract's other pause/block triggers remain blocking and are not
+  gated by materiality. Non-material in-scope ambiguity alone does not block:
+  the controller records the decision under the authority contract and
+  continues.
 
 ### finish-authority
 
-- **Installed skill:** `superpowers:finishing-a-development-branch`.
-- **Retained method:** verify the finished branch, present safe integration
-  choices, and perform the authorized finishing action once.
-- **Boundary with the workflow-owned Finish journal:** this adapter consumes
-  and enforces, but does not define or write, `workflow.md`'s `finish_id`
-  journal, its `ready -> claimed -> menu_pending -> choice_recorded ->
-  executing -> terminal` phases, the `blocked` overlay, the pre-claim
-  capability check, the `ready -> blocked` transition, or the `claimed`
-  transition; it claims no runtime callback. It requires the workflow's
-  already-passing pre-claim capability receipt before it can invoke branch
-  finishing at all, then obeys the pre-menu, pre-side-effect, and
-  terminal/block receipt conditions that `workflow.md` owns. A missing or
-  pending workflow capability receipt means it may not claim, present a menu,
-  resolve an unattended choice, or invoke
-  `finishing-a-development-branch`.
-- **Feature Forge replacements:** invoke only at the workflow's Finish stage,
-  exactly once per `finish_id`; retain the workflow's prior verification,
-  clean-tree, and recorded-return requirements. In interactive/supervised
-  mode it otherwise preserves the exact installed menu once; in unattended
-  mode it otherwise uses named pre-authorization or default Keep, never
-  inferred integration authority.
-- **Return artifact:** the user-authorized integration outcome or safe Keep
-  outcome, finish verification evidence, and the exactly-once ledger result.
-- **Block rule:** return `blocked` if the required verification cannot run,
-  user authority is missing for any non-Keep action, or the boundary above
-  cannot be enforced. It never performs the capability check, `ready ->
-  blocked`, or `claimed` transition itself — those stay workflow-owned.
+- **Controller-owned Finish method:** verify the finished branch, present the
+  three choices in `workflow.md`, and execute the authorized choice one
+  journaled side effect at a time. It does not invoke
+  `superpowers:finishing-a-development-branch`; that one-shot skill exposes no
+  durable callback between choice and side effects.
+- **Required boundary:** consume the existing `finish_id`, prior verification,
+  clean-tree evidence, and journal phase. Persist the menu before presenting
+  or resolving it, persist the choice before any effect, and persist the exact
+  next effect before each external mutation. Interactive/supervised mode uses
+  the exact menu once; unattended mode uses named pre-authorization or default
+  Keep, never inferred integration authority.
+- **Return artifact:** the authorized integration or Keep outcome, finish
+  verification evidence, and the reconciled journal result.
+- **Block rule:** return `blocked` if required verification cannot run, user
+  authority is missing for a non-Keep action, or the journal boundary cannot
+  be enforced.
 
 ## Execution choice
 
-The controller selects exactly one execution branch and dispatches
-`execute-return` for it: `superpowers:subagent-driven-development` when two
-or more plan tasks are independently ownable under fixed contracts, or
-`superpowers:executing-plans` for tightly coupled shared state, or when
-delegation is missing or unavailable. The selected mode and its authority are
-recorded in the workflow-owned ledger. If the classification is uncertain,
-apply the authority contract's upward classification rule and block where the
-resulting authority is absent.
+The controller selects one execution mode: `delegated` when two or more tasks
+are independently ownable under fixed contracts and a worker runner is
+available, otherwise `inline`. Record the mode and authority in the ledger.
+If classification is uncertain, apply the authority contract's upward
+classification rule and block where the resulting authority is absent.
 
 ## Worker packet contract
 
-Every worker dispatch packet — under `superpowers:subagent-driven-development`
-or executed inline under `superpowers:executing-plans` — must be
-independently executable under frozen specification/plan authority. A packet
-contains exactly:
+Every delegated worker packet must be independently executable under frozen
+specification/plan authority. It contains exactly:
 
 ```text
 task ID and exact frozen plan task; applicable REQ-NNN and SCN-NNN IDs;
@@ -147,12 +118,28 @@ dispatch-completeness contract, not an invitation to create a new packet
 document outside the canonical run artifacts named in `workflow.md`.
 
 `review-loop` self-derives its reviewer roster from a risk-surface inventory of
-the sealed scope; it takes no caller-supplied *charter* parameter. The three
-charters below are Feature Forge's per-stage review focus. The controller
-conveys them through `review-loop`'s actual inputs — the subject set, the
-subject-versus-ground-truth split, the one-line deployment context, and the
-completion criterion — and uses them to frame the subject and interpret the
-returned verdicts, not as a constraint `review-loop` enforces.
+the sealed target; it takes no caller-supplied *charter*, deployment-context,
+or completion-criterion field. Materialize each review subject in a fresh
+temporary Git repository: the exact candidate at its canonical relative path
+as the sole payload for Specification and Plan review; for Implementation
+review, every regular subject file in the complete isolated worktree snapshot
+at its exact relative path and mode, excluding only Git administrative
+metadata, plus a regular manifest recording each unchanged symlink's exact
+path, mode, and link target. Also capture the source worktree's exact binary
+diff and staged-entry listing. A changed or review-relevant symlink, or any
+other unsupported entry, blocks because `review-loop` cannot admit it safely.
+Keep each `run_root` and its reports outside the target.
+
+Create one disposable bootstrap commit after materialization and pass its exact
+commit ID as `InvocationIntent.base` so preflight can resolve the target. This
+temporary transport commit is not a candidate freeze checkpoint.
+
+Pass frozen authorities, repository constraints, the symlink manifest, diff,
+and staged-entry listing in both `InvocationIntent.ground_truth` (identity) and
+every contained `CallRequest.input_paths` (readable delivery). Build the normal
+review prompt with `render_prompt`, placing the applicable focus, pass
+criterion, and `/inputs/...` locations in its declared `subject` value; do not
+invent extra context or Controller fields.
 
 ### Specification review
 
@@ -178,31 +165,39 @@ regressions, security/performance, and the absence of extra scope or machinery.
 Report any finding as a grounded discrepancy to the reviewed subject, and route
 root-cause classification through the workflow contract.
 
-## Native review result mapping and round invariants
+## Read-only review return and round invariants
 
-`review-loop` closes with two verdicts — convergence (`CONVERGED` /
-`NOT CONVERGED`) and merge-readiness. Map them exactly as follows:
+Use `review-loop` as a read-only host integration, not as its full FIX/CLOSE
+workflow. The controller calls its public library through
+`Controller.create_run`, `Controller.run_stage0`, `Controller.run_round1`, and
+`Controller.run_triage`, with the required contained role dispatchers and
+validators. It then returns without calling `run_fix`, adjudication,
+promotion, final challenge, or `close`. This boundary is executable because
+it stops only between public controller calls; Feature Forge owns corrections
+between rounds.
 
-| Native `review-loop` result | Workflow review result |
+Map the read-only return as follows:
+
+| Read-only return | Workflow review result |
 | --- | --- |
-| `CONVERGED` + merge-ready | `pass` |
-| `NOT CONVERGED` handed back with surviving actionable findings a correction can address | `changes_required` |
-| `NOT CONVERGED` from an `INDETERMINATE` round, oscillation, no viable fix, missing authority, or unavailable runner | `blocked` |
-| `CONVERGED` + not merge-ready (backlogged or unverifiable Important+ blockers) | `blocked` with the named blocker |
+| TRIAGE completed with no open findings and all required gates/reviewers complete | `pass` |
+| TRIAGE completed with only open Minor findings and all required gates/reviewers complete | `pass`, recording the residual Minor finding IDs in the review evidence |
+| TRIAGE completed with actionable open findings | `changes_required` |
+| `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, missing authority, or non-actionable Important+ blocker | `blocked` |
 
 For every review round, the controller must:
 
 1. Persist `review_active` before dispatch. While it is active, obey the
    workflow rule that permits only await or recovery of that existing review.
-2. Pass the exact subject, frozen **ground truth**, and completion criterion to
-   `review-loop`, conveying the applicable charter's review focus through its
-   subject set and one-line deployment context.
+2. Select the exact target described above; seal frozen **ground truth** through
+   `InvocationIntent.ground_truth`, mount the same paths through
+   `CallRequest.input_paths`, and render the applicable focus, pass criterion,
+   and mounted locations through the prompt's declared `subject` value.
 3. Keep loop reports **outside the sealed tree**. During the round, mutate
    neither the target nor the ledger.
-4. On return, first record both native verdicts, the stable report reference,
-   and the whole-subject **content seal** — never before the round actually
-   returns — and only then apply the fixed native-result mapping above to
-   produce the workflow review result.
+4. On return, first record the TRIAGE outcome, open finding IDs, stable run
+   reference, and whole-subject **content seal** — never before the round
+   actually returns — and only then apply the fixed mapping above.
 
 Fixes occur only between rounds, never during an active round. For
 Specification review and Plan review, a fix to the candidate need not be

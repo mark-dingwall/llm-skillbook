@@ -1,5 +1,13 @@
 # Feature Forge Implementation Plan
 
+**Status:** Historical frozen plan. It records the inputs and vocabulary used
+for the original implementation and is not current operational authority.
+Post-freeze changes replaced the caller-supplied review charter with
+review-loop's actual subject/ground-truth/deployment-context/completion inputs
+and rewrote fixture predicates `FC-2`, `FCr-3`, and `FCr-4` in behavior-based
+terms. Consult the live owner references and fixture for current behavior; do
+not execute the superseded instructions embedded below.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Feature Forge override:** this plan returns for independent plan review and freeze before execution; it does not offer, begin, or hand off execution. Once frozen, these checkboxes are authority and are never edited for progress; the run ledger owns progress.
 
 **Goal:** Remediate and requalify the repository-local `feature-forge` skill so it takes a bounded Git work unit from specification through one recoverable, durable logical Finish operation without expanding the MVP into a runtime.
