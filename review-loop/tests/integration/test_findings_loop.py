@@ -28,6 +28,7 @@ from review_loop.prompts import (
     ProcessCompletion,
     RoleExpectation,
     ValidatedRoleArtifact,
+    validate_review_report,
     validate_role_json,
 )
 from review_loop.profiles import InvocationIntent
@@ -105,16 +106,19 @@ class FindingsLoopTests(unittest.TestCase):
         self.target = root / "target"
         _init_git_target(self.target)
         self.run_root = root / "run"
-        self.seal = seal_target(self.target, GitPolicy(enabled=True, base="HEAD"))
+        self.seal = seal_target(
+            self.target, GitPolicy(enabled=True, base="HEAD", include_untracked=True),
+        )
         self.controller = Controller(xdg_config_home=root / "xdg")
         self.host = resolve_gate_host_paths()
         self._plan = {}
+        self.exclusions = ()
 
     # --- fakes -------------------------------------------------------
 
     def _intent(self):
         return InvocationIntent(
-            target=self.target, base="HEAD", head=None, exclusions=(), review_profile=None,
+            target=self.target, base="HEAD", head=None, exclusions=self.exclusions, review_profile=None,
             max_time_seconds=None, no_confirm=False, ground_truth=(), run_root=self.run_root,
         )
 
@@ -132,7 +136,7 @@ class FindingsLoopTests(unittest.TestCase):
         return _s
 
     def _gate_dispatch_on(self, root: Path):
-        seal = seal_target(root, GitPolicy(enabled=False))
+        seal = self.seal if root == self.target else seal_target(root, GitPolicy(enabled=False))
         return default_gate_dispatcher(self.run_root / f"gates-{root.name}", seal, self.host)
 
     def _inventory_owner(self):
@@ -197,9 +201,35 @@ class FindingsLoopTests(unittest.TestCase):
         return _a
 
     def _final_challenger(self):
-        def _c():
-            return _role_artifact("req-final", "final-readiness", self.seal.digest, None, {"verdict": "UPHOLD"})
+        def _c(exp):
+            return _role_artifact(
+                exp.request_id, "final-readiness", exp.target_seal, exp.round_input_seal,
+                {"verdict": "UPHOLD"},
+            )
         return _c
+
+    def _clean_post_fix_review(self, fix):
+        after_seal = fix.transition.validated.after_seal
+        expectation = DispatchExpectation(
+            request_id="rev2", role="holistic", charter_id="holistic",
+            target_seal=after_seal, round_input_seal=None,
+            scope_locator_ids=("calc.py",),
+        )
+        body, completion = self._dispatch_role(())(expectation)
+        return validate_review_report(body, expectation, completion)
+
+    def _verify_fix(self, fix):
+        row = fix.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"][0]
+        settlement = [{
+            "id": row["id"], "state": "FIX_VERIFIED",
+            "manifest_artifact_id": fix.transition.manifest_ids[row["id"]],
+            "proof_artifact_ids": [],
+        }]
+        adjudicated = self.controller.run_adjudication(
+            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(),
+            fix_outcome=fix, post_fix_reviews=(self._clean_post_fix_review(fix),),
+        )
+        return row["id"], adjudicated.run_state
 
     # --- the loop ----------------------------------------------------
 
@@ -237,34 +267,33 @@ class FindingsLoopTests(unittest.TestCase):
         # non-synthetic post-FIX gate rerun really executed on the changed copy
         self.assertTrue(fix.gate_rerun.review_may_start)
         self.assertEqual([g.status for g in fix.gate_rerun.gate_results], ["PASSED"])
+        self.assertEqual(
+            [g["target_seal"] for g in fix.run_state.snapshot["processor_state"]["reconcile_gates"]["gates"]],
+            [fix.transition.validated.after_seal],
+        )
         # the disposable copy holds the corrected code the gate re-ran against
         self.assertIn("price -", (fix.disposable_copy / "calc.py").read_text())
         manifest_id = fix.transition.manifest_ids[ledger_id]
-        gov = fix.run_state.governing_seal
-
-        # Positive proof: post-fix re-review (clean) + passing gate evidence.
-        rereview = self._dispatch_role(())(DispatchExpectation(
-            request_id="rev2", role="holistic", charter_id="holistic", target_seal=gov,
-            round_input_seal=None, scope_locator_ids=("calc.py",),
-        ))[0]
-        proof = (
-            EvidenceArtifact("proof-rereview", "post-fix-review", 1, gov, rereview),
-            EvidenceArtifact("proof-gate", "post-fix-gate", 1, gov,
-                             canonical_bytes({"gate": "tests", "status": "PASSED"})),
-        )
         settlement = [{
             "id": ledger_id, "state": "FIX_VERIFIED", "manifest_artifact_id": manifest_id,
-            "proof_artifact_ids": ["proof-rereview", "proof-gate"],
+            "proof_artifact_ids": [],
         }]
         adjudicated = self.controller.run_adjudication(
-            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(), proof_evidence=proof,
+            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(),
+            fix_outcome=fix, post_fix_reviews=(self._clean_post_fix_review(fix),),
         )
         self.assertEqual(adjudicated.status, "UPHOLD")
         self.assertEqual(adjudicated.attempts, 1)
         verified = {r["id"]: r for r in adjudicated.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]}
         self.assertEqual(verified[ledger_id]["state"], "FIX_VERIFIED")
         self.assertEqual(verified[ledger_id]["manifest_artifact_id"], manifest_id)
-        self.assertEqual(sorted(verified[ledger_id]["proof_artifact_ids"]), ["proof-gate", "proof-rereview"])
+        proof_refs = verified[ledger_id]["proof_artifact_ids"]
+        self.assertEqual(len(proof_refs), 2)
+        registry = adjudicated.run_state.snapshot["artifact_registry"]["artifacts"]
+        self.assertEqual(
+            {registry[proof_id]["kind"] for proof_id in proof_refs},
+            {"post-fix-gates", "post-fix-review"},
+        )
 
         challenge = self.controller.run_final_challenge(adjudicated.run_state, final_challenger=self._final_challenger())
         # No promotion is passed: the fix was verified only against the
@@ -300,23 +329,13 @@ class FindingsLoopTests(unittest.TestCase):
             evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
         )
         manifest_id = fix.transition.manifest_ids[ledger_id]
-        gov = fix.run_state.governing_seal
-
-        rereview = self._dispatch_role(())(DispatchExpectation(
-            request_id="rev2", role="holistic", charter_id="holistic", target_seal=gov,
-            round_input_seal=None, scope_locator_ids=("calc.py",),
-        ))[0]
-        proof = (
-            EvidenceArtifact("proof-rereview", "post-fix-review", 1, gov, rereview),
-            EvidenceArtifact("proof-gate", "post-fix-gate", 1, gov,
-                             canonical_bytes({"gate": "tests", "status": "PASSED"})),
-        )
         settlement = [{
             "id": ledger_id, "state": "FIX_VERIFIED", "manifest_artifact_id": manifest_id,
-            "proof_artifact_ids": ["proof-rereview", "proof-gate"],
+            "proof_artifact_ids": [],
         }]
         adjudicated = self.controller.run_adjudication(
-            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(), proof_evidence=proof,
+            fix.run_state, settlement, adjudicator=self._uphold_adjudicator(),
+            fix_outcome=fix, post_fix_reviews=(self._clean_post_fix_review(fix),),
         )
         self.assertEqual(adjudicated.status, "UPHOLD")
 
@@ -333,7 +352,20 @@ class FindingsLoopTests(unittest.TestCase):
         self.assertIn("price - price * percent", repaired_calc)
         self.assertNotEqual(repaired_calc, buggy_calc)
 
-        challenge = self.controller.run_final_challenge(adjudicated.run_state, final_challenger=self._final_challenger())
+        final_challenger = self._final_challenger()
+
+        def challenge_promoted_target(expectation):
+            self.assertEqual(expectation.target_seal, promotion.after_seal)
+            return final_challenger(expectation)
+
+        challenge = self.controller.run_final_challenge(
+            adjudicated.run_state, final_challenger=challenge_promoted_target,
+            promotion=promotion,
+        )
+        self.assertEqual(
+            challenge.snapshot["processor_state"]["record_final_challenge"]["target_seal"],
+            promotion.after_seal,
+        )
         final = self.controller.close(challenge, promotion=promotion)
 
         terminal = final.snapshot["processor_state"]["compute_terminal"]
@@ -357,17 +389,45 @@ class FindingsLoopTests(unittest.TestCase):
             triage, target_root=self.target, fix_implementer=self._fix_implementer(),
             evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
         )
-        # Tamper the recorded after_seal so the real post-write-back reseal
-        # cannot possibly match it: promotion must fail closed rather than
-        # silently accept a target that doesn't reseal to what was claimed.
+        # Tamper the recorded after_seal: promotion must reject the source
+        # identity before replaying any bytes onto the authoritative target.
         tampered = _dc_replace(fix.transition.validated, after_seal="0" * 64)
         with self.assertRaises(ControllerError) as ctx:
             self.controller.promote_post_fix_baseline(fix.run_state, tampered, self.target)
-        self.assertIn("did not reproduce the verified post-FIX seal", str(ctx.exception))
-        # write_back itself already ran (the delta replay was correct); only
-        # the claimed after_seal was wrong -- the real target now holds the fix.
-        self.assertIn("price - price * percent", self.target.joinpath("calc.py").read_text())
-        self.assertNotEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
+        self.assertIn("disposable copy drifted", str(ctx.exception))
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), buggy_calc)
+
+    def test_promotion_rejects_index_only_drift(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import GateResult, discover_evidence
+
+        def synthetic_gate_dispatch(root):
+            target_seal = self.seal.digest if root == self.target else seal_target(
+                root, GitPolicy(enabled=False),
+            ).digest
+
+            def dispatch(gate):
+                return GateResult(
+                    gate.id, gate.argv, gate.classification, gate.applicability,
+                    gate.provenance, gate.rationale, target_seal, "PASSED", 0, "", "",
+                )
+            return dispatch
+
+        self._gate_dispatch_on = synthetic_gate_dispatch
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        _run_git(self.target, "rm", "--cached", "-q", "calc.py")
+
+        with self.assertRaises(ControllerError):
+            self.controller.promote_post_fix_baseline(
+                fix.run_state, fix.transition.validated, self.target,
+            )
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())
 
     def test_undeclared_fix_change_fails_closed_before_fix_applied(self):
         from review_loop.evidence import discover_evidence
@@ -396,6 +456,240 @@ class FindingsLoopTests(unittest.TestCase):
         # no FIX_APPLIED was recorded: the ledger row is still OPEN
         rows = triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
         self.assertEqual(rows[0]["state"], "OPEN")
+
+    def test_excluded_fix_change_is_rejected_before_fix_applied(self):
+        from review_loop.evidence import discover_evidence
+        from review_loop.fix import FixError
+
+        private = self.target / "private"
+        private.mkdir()
+        secret = private / "secret.txt"
+        secret.write_text("original")
+        _run_git(self.target, "add", "private/secret.txt")
+        _run_git(self.target, "commit", "-q", "-m", "add private input")
+        self.exclusions = ("private",)
+        self.seal = seal_target(
+            self.target,
+            GitPolicy(enabled=True, base="HEAD", include_untracked=True),
+            exclusions=self.exclusions,
+        )
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+
+        def excluded_implementer(copy_root, exp):
+            copied_private = copy_root / "private"
+            copied_private.mkdir()
+            (copied_private / "secret.txt").write_text("overwritten")
+            payload = {
+                "changes": [
+                    {
+                        "path": "private", "description": "recreate excluded directory",
+                        "ledger_ids": list(exp.expected_ids), "twin_search_pattern": "private",
+                        "twin_search_count": 0,
+                    },
+                    {
+                        "path": "private/secret.txt", "description": "overwrite excluded input",
+                        "ledger_ids": list(exp.expected_ids), "twin_search_pattern": "original",
+                        "twin_search_count": 0,
+                    },
+                ],
+                "test_trace": [], "external_actions_attempted": False,
+                "external_actions_note": None,
+            }
+            return _role_artifact(
+                exp.request_id, "fix", exp.target_seal, exp.round_input_seal, payload,
+                expected_ids=exp.expected_ids,
+            )
+
+        with self.assertRaises(FixError):
+            self.controller.run_fix(
+                triage, target_root=self.target, fix_implementer=excluded_implementer,
+                evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+            )
+
+        self.assertEqual(secret.read_text(), "original")
+        rows = triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
+        self.assertEqual(rows[0]["state"], "OPEN")
+
+    def test_fix_rejects_a_target_other_than_the_preflight_target(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        other_target = Path(self._tmp.name) / "other-target"
+        _init_git_target(other_target)
+
+        def must_not_dispatch(_copy_root, _expectation):
+            self.fail("FIX must stop before dispatch when target_root differs from preflight")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_fix(
+                triage, target_root=other_target, fix_implementer=must_not_dispatch,
+                evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+            )
+
+    def test_promotion_rejects_a_target_other_than_the_preflight_target(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        other_target = Path(self._tmp.name) / "other-target"
+        _init_git_target(other_target)
+        original = other_target.joinpath("calc.py").read_text()
+
+        with self.assertRaises(ControllerError):
+            self.controller.promote_post_fix_baseline(
+                fix.run_state, fix.transition.validated, other_target,
+            )
+
+        self.assertEqual(other_target.joinpath("calc.py").read_text(), original)
+
+    def test_fix_verified_rejects_caller_supplied_untyped_proof(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        row = fix.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"][0]
+        proof = EvidenceArtifact(
+            "unrelated-proof", "unrelated", 1, fix.run_state.governing_seal,
+            canonical_bytes({"claim": "trust me"}),
+        )
+        settlement = [{
+            "id": row["id"], "state": "FIX_VERIFIED",
+            "manifest_artifact_id": fix.transition.manifest_ids[row["id"]],
+            "proof_artifact_ids": [proof.artifact_id],
+        }]
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_adjudication(
+                fix.run_state, settlement, adjudicator=self._uphold_adjudicator(),
+                proof_evidence=(proof,),
+            )
+
+    def test_forged_promotion_record_cannot_cover_an_unpromoted_fix(self):
+        from review_loop.controller import ControllerError, PromotionRecord
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        ledger_id, verified = self._verify_fix(fix)
+        forged = PromotionRecord(
+            covered_ids=(ledger_id,), after_seal=verified.governing_seal,
+        )
+
+        def must_not_dispatch(_expectation):
+            self.fail("a forged promotion must stop before final challenge dispatch")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(
+                verified, final_challenger=must_not_dispatch, promotion=forged,
+            )
+
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())
+
+    def test_promotion_rejects_tampered_copy_before_writing_target(self):
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        _ledger_id, verified = self._verify_fix(fix)
+        original = self.target.joinpath("calc.py").read_text()
+        fix.disposable_copy.joinpath("calc.py").write_text("tampered after verification\n")
+
+        with self.assertRaises(ControllerError):
+            self.controller.promote_post_fix_baseline(
+                verified, fix.transition.validated, self.target,
+            )
+
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), original)
+
+    def test_forged_promotion_cannot_replace_the_canonical_fix_proof(self):
+        from review_loop.controller import ControllerError, PromotionRecord
+        from review_loop.evidence import discover_evidence
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        ledger_id, verified = self._verify_fix(fix)
+        pre_fix_content = seal_target(self.target, GitPolicy(enabled=False))
+
+        def passing_pre_fix_gate(gate):
+            from review_loop.evidence import GateResult
+            return GateResult(
+                gate.id, gate.argv, gate.classification, gate.applicability,
+                gate.provenance, gate.rationale, pre_fix_content.digest,
+                "PASSED", 0, "", "",
+            )
+
+        replaced = self.controller.rerun_gates(
+            verified, plan, gate_dispatch=passing_pre_fix_gate,
+            target_seal=pre_fix_content.digest,
+        ).run_state
+        forged = PromotionRecord(
+            covered_ids=(ledger_id,), after_seal=verified.governing_seal,
+        )
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(
+                replaced, final_challenger=self._final_challenger(), promotion=forged,
+            )
+
+        self.assertIn("price + price * percent", self.target.joinpath("calc.py").read_text())
+
+    def test_promotion_rejects_copy_race_before_writing_target(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        from review_loop.controller import ControllerError
+        from review_loop.evidence import discover_evidence
+        from review_loop.fix import FixController
+
+        plan = discover_evidence((), (), self._scout())
+        triage, _ = self._to_triage()
+        fix = self.controller.run_fix(
+            triage, target_root=self.target, fix_implementer=self._fix_implementer(),
+            evidence_plan=plan, post_fix_gate_dispatch=self._gate_dispatch_on,
+        )
+        _ledger_id, verified = self._verify_fix(fix)
+        original_target = self.target.joinpath("calc.py").read_text()
+        real_write_back = FixController.write_back
+
+        def tampering_write_back(fix_controller, validated, target_root):
+            fix.disposable_copy.joinpath("calc.py").write_text("raced after source seal\n")
+            raced = seal_target(fix.disposable_copy, GitPolicy(enabled=False))
+            forged = replace(validated, after_entries=raced.entries)
+            return real_write_back(fix_controller, forged, target_root)
+
+        with patch.object(FixController, "write_back", tampering_write_back):
+            with self.assertRaises(ControllerError):
+                self.controller.promote_post_fix_baseline(
+                    verified, fix.transition.validated, self.target,
+                )
+
+        self.assertEqual(self.target.joinpath("calc.py").read_text(), original_target)
 
 
 SEAL = "seal-adj"
@@ -531,6 +825,21 @@ class AdjudicationTwoCallTests(unittest.TestCase):
         rows = out.run_state.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
         self.assertEqual(rows[0]["state"], "INTENTIONAL")
 
+    def test_invented_settlement_proof_id_is_rejected_before_adjudication(self):
+        from review_loop.controller import ControllerError
+
+        run_state = _open_ledger(self.run_root, ["F1"])
+        settlements = [{
+            "id": "F1", "state": "REFUTED", "proof_artifact_ids": ["invented"],
+            "manifest_artifact_id": None,
+        }]
+
+        def adjudicator(_exp):
+            self.fail("an invented proof ID must stop before adjudication")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_adjudication(run_state, settlements, adjudicator=adjudicator)
+
 
 class DeferredBoundaryTests(unittest.TestCase):
     """The Task-9 deferrals must fail closed LOUDLY -- never silently no-op --
@@ -542,6 +851,21 @@ class DeferredBoundaryTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.run_root = Path(self._tmp.name) / "run"
         self.controller = Controller()
+
+    def _promoted_state(self):
+        from review_loop.controller import PromotionRecord
+
+        target = Path(self._tmp.name) / "target"
+        _init_git_target(target)
+        state = self.controller.create_run(InvocationIntent(
+            target=target, base="HEAD", head=None, exclusions=(), review_profile=None,
+            max_time_seconds=None, no_confirm=False, ground_truth=(), run_root=self.run_root,
+        ))
+        target.joinpath("calc.py").write_text(FIXED_CALC)
+        promoted_seal = seal_target(
+            target, GitPolicy(enabled=True, base="HEAD", include_untracked=True),
+        ).digest
+        return target, state, PromotionRecord(covered_ids=(), after_seal=promoted_seal)
 
     def test_second_triage_reconcile_is_refused(self):
         from review_loop.controller import ControllerError, Round1Outcome
@@ -558,6 +882,56 @@ class DeferredBoundaryTests(unittest.TestCase):
         from review_loop.controller import ControllerError
         with self.assertRaises(ControllerError):
             self.controller.record_mutation_result()
+
+    def test_final_challenge_rejects_an_artifact_replayed_from_an_old_request(self):
+        from review_loop.artifacts import CanonicalStore
+        from review_loop.controller import ControllerError, RunState
+
+        store = CanonicalStore(self.run_root)
+        store.initialize(SEAL, {})
+        state = RunState(self.run_root, SEAL, store.load(), stage="TRIAGE")
+        stale = _role_artifact(
+            "old-request", "final-readiness", SEAL, None, {"verdict": "UPHOLD"},
+        )
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(state, final_challenger=lambda _exp: stale)
+
+    def test_final_challenge_is_bound_to_the_promoted_target_seal(self):
+        _target, state, promotion = self._promoted_state()
+
+        def challenger(expectation):
+            return _role_artifact(
+                expectation.request_id, "final-readiness", expectation.target_seal,
+                expectation.round_input_seal, {"verdict": "UPHOLD"},
+            )
+
+        challenge = self.controller.run_final_challenge(
+            state, final_challenger=challenger, promotion=promotion,
+        )
+
+        self.assertEqual(
+            challenge.snapshot["processor_state"]["record_final_challenge"]["target_seal"],
+            promotion.after_seal,
+        )
+
+    def test_final_challenge_rejects_drift_from_the_promoted_target_seal(self):
+        from review_loop.controller import ControllerError
+
+        target, state, promotion = self._promoted_state()
+
+        def challenger(expectation):
+            artifact = _role_artifact(
+                expectation.request_id, "final-readiness", expectation.target_seal,
+                expectation.round_input_seal, {"verdict": "UPHOLD"},
+            )
+            target.joinpath("calc.py").write_text("drifted again")
+            return artifact
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_final_challenge(
+                state, final_challenger=challenger, promotion=promotion,
+            )
 
 
 if __name__ == "__main__":

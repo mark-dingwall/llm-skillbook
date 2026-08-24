@@ -386,6 +386,11 @@ def make_disposable_copy(seal: TargetSeal, dest: Path) -> Path:
         else:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / entry.path, dst)
+    # Apply directory modes after populating descendants so a restrictive
+    # source mode cannot prevent construction of its own sealed children.
+    for entry in reversed(seal.entries):
+        if entry.kind == "dir":
+            (dest / entry.path).chmod(entry.mode)
     return dest
 
 

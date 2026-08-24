@@ -17,10 +17,13 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
-from review_loop.controller import ConfirmationExpired, Controller
+from review_loop.controller import ConfirmationExpired, Controller, ControllerError
+from review_loop.artifacts import CanonicalStore
 from review_loop.evidence import (
+    GateResult,
     GateProposal,
     build_gate_mapping,
     execute_gate,
@@ -115,7 +118,9 @@ class CleanTracerFixture:
         _init_git_target(self.target)
         self.run_root = root / "run"
         self.xdg = root / "xdg"
-        self.seal = seal_target(self.target, GitPolicy(enabled=True, base="HEAD"))
+        self.seal = seal_target(
+            self.target, GitPolicy(enabled=True, base="HEAD", include_untracked=True),
+        )
         self.controller = Controller(xdg_config_home=self.xdg)
         self.events: list[str] = []
 
@@ -187,6 +192,17 @@ class CleanTracerFixture:
 
         return _dispatch
 
+    def synthetic_gate_dispatch(self):
+        def _dispatch(gate):
+            self.events.append(f"gate:{gate.id}")
+            return GateResult(
+                gate_id=gate.id, argv=gate.argv, classification=gate.classification,
+                applicability=gate.applicability, provenance=gate.provenance,
+                rationale=gate.rationale, target_seal=self.seal.digest, status="PASSED",
+                exit_status=0, stdout_excerpt="", stderr_excerpt="",
+            )
+        return _dispatch
+
     def inventory_owner(self):
         def _owner(expectation: RoleExpectation) -> ValidatedRoleArtifact:
             self.events.append("inventory-owner")
@@ -254,11 +270,230 @@ class CleanTracerFixture:
         return _triage
 
     def final_challenger(self):
-        def _challenge() -> ValidatedRoleArtifact:
+        def _challenge(expectation: RoleExpectation) -> ValidatedRoleArtifact:
             self.events.append("final-challenge")
-            return _role_artifact("req-final", "final-readiness", self.seal.digest, None, {"verdict": "UPHOLD"})
+            return _role_artifact(
+                expectation.request_id, "final-readiness", expectation.target_seal,
+                expectation.round_input_seal, {"verdict": "UPHOLD"},
+            )
 
         return _challenge
+
+
+class DispatchPolicyTests(CleanTracerFixture, unittest.TestCase):
+    def _stage0(self, run_state, tier="low"):
+        return self.controller.run_stage0(
+            run_state, scout=self.scout(), gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(), inventory_challenger=self.inventory_challenger(),
+            explicit_tier=tier,
+        )
+
+    def test_normal_role_model_pins_reach_dispatch_expectations(self):
+        profile = self.xdg / "review-loop" / "profiles" / "pins.yaml"
+        profile.parent.mkdir(parents=True)
+        profile.write_text(
+            "version: 1\n"
+            "holistic:\n  model: holistic-pin\n"
+            "adversarial:\n  model: adversarial-pin\n"
+        )
+        stage0 = self._stage0(self.controller.create_run(self.intent(review_profile="pins")))
+        seen = {}
+
+        def dispatch(expectation):
+            seen[expectation.role] = expectation.model
+            return _review_report_body(expectation), ProcessCompletion(expectation.request_id, 0, True)
+
+        self.controller.run_round1(stage0, dispatch_role=dispatch)
+        self.assertEqual(seen, {"holistic": "holistic-pin", "adversarial": "adversarial-pin"})
+
+    def test_low_tier_rejects_multi_review_before_dispatch(self):
+        stage0 = self._stage0(self.controller.create_run(self.intent()), tier="low")
+
+        def dispatched(_expectation):
+            self.fail("low-tier multi-review must be rejected before dispatch")
+
+        with self.assertRaises(ControllerError):
+            self.controller.run_round1(
+                stage0, dispatch_role=dispatched, multi_review_dispatch=dispatched,
+            )
+
+    def test_close_refuses_an_expired_persisted_deadline(self):
+        stage0 = self._stage0(self.controller.create_run(self.intent(max_time_seconds=60)))
+        round1 = self.controller.run_round1(stage0, dispatch_role=self.dispatch_role())
+        triage = self.controller.run_triage(round1, triager=self.triager())
+        challenge = self.controller.run_final_challenge(
+            triage, final_challenger=self.final_challenger(),
+        )
+        snapshot = deepcopy(challenge.snapshot)
+        snapshot["processor_state"]["preflight"]["absolute_expiry"] = "2000-01-01T00:00:00+00:00"
+        CanonicalStore(self.run_root)._replace(snapshot)
+        expired = type(challenge)(
+            challenge.run_root, challenge.governing_seal, snapshot, challenge.stage, challenge.reason,
+        )
+
+        with self.assertRaises(ControllerError):
+            self.controller.close(expired)
+
+
+class Stage0IdentityTests(CleanTracerFixture, unittest.TestCase):
+    def test_scout_drift_stops_before_gate_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        scout = self.scout()
+
+        def drifting_scout():
+            artifact = scout()
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_dispatch(_gate):
+            self.fail("gate dispatch must not inspect target bytes changed by the scout")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=drifting_scout,
+            gate_dispatch=must_not_dispatch,
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_gate_drift_stops_before_inventory_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        gate_dispatch = self.synthetic_gate_dispatch()
+
+        def drifting_gate(gate):
+            result = gate_dispatch(gate)
+            (self.target / "greet.py").write_text("drifted")
+            return result
+
+        def must_not_dispatch(_expectation):
+            self.fail("inventory must not inspect target bytes changed by a gate")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=drifting_gate,
+            inventory_owner=must_not_dispatch,
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_inventory_owner_drift_stops_before_challenge_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        inventory_owner = self.inventory_owner()
+
+        def drifting_owner(expectation):
+            artifact = inventory_owner(expectation)
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_dispatch(_expectation):
+            self.fail("inventory challenge must not inspect bytes changed by the owner")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=drifting_owner,
+            inventory_challenger=must_not_dispatch,
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_inventory_challenge_drift_stops_before_rating_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        challenger = self.inventory_challenger()
+
+        def drifting_challenger(expectation):
+            artifact = challenger(expectation)
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_rate():
+            self.fail("rating must not inspect bytes changed by inventory challenge")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=drifting_challenger,
+            explicit_tier=None,
+            raters=(must_not_rate, must_not_rate),
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_first_rater_drift_stops_before_second_rating_dispatch(self):
+        run_state = self.controller.create_run(self.intent())
+        first_rater = self.rater(complexity="low", risk="low", name="rater-a")
+
+        def drifting_rater():
+            artifact = first_rater()
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        def must_not_rate():
+            self.fail("second rating must not inspect bytes changed by first rating")
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier=None,
+            no_confirm=True,
+            raters=(drifting_rater, must_not_rate),
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_inventory_revision_drift_makes_stage0_indeterminate(self):
+        run_state = self.controller.create_run(self.intent())
+
+        def challenger(expectation):
+            payload = {
+                "verdict": "CHALLENGE",
+                "challenges": [{
+                    "id": "c1", "category": "omission",
+                    "statement": "inventory needs revision",
+                    "evidence": "greet.py owns the reviewed behavior",
+                }],
+            }
+            return _role_artifact(
+                expectation.request_id, "inventory-challenge", expectation.target_seal,
+                expectation.round_input_seal, payload,
+            )
+
+        def drifting_revision(expectation):
+            payload = {
+                "areas": [ONE_MINOR_AREA], "priority_order": ["area-greet"],
+                "resolutions": [{"challenge_id": "c1", "resolution": "retained owning area"}],
+            }
+            artifact = _role_artifact(
+                expectation.request_id, "inventory-revision", expectation.target_seal,
+                expectation.round_input_seal, payload, expected_ids=expectation.expected_ids,
+            )
+            (self.target / "greet.py").write_text("drifted")
+            return artifact
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=challenger,
+            inventory_revision=drifting_revision,
+            explicit_tier="low",
+        )
+
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
 
 
 @unittest.skipUnless(BWRAP_AVAILABLE, "bwrap is not installed")
@@ -552,6 +787,32 @@ class ConfirmationTests(CleanTracerFixture, unittest.TestCase):
             raise ConfirmationExpired("absolute deadline passed while awaiting confirmation")
 
         stage0 = self._automatic_max_stage0(confirm=confirm)
+        self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
+
+    def test_deadline_rechecked_after_confirmation_returns(self):
+        run_state = self.controller.create_run(self.intent(max_time_seconds=60))
+
+        def confirm(_reason):
+            run_state.snapshot["processor_state"]["preflight"]["absolute_expiry"] = (
+                "2000-01-01T00:00:00+00:00"
+            )
+            return True
+
+        stage0 = self.controller.run_stage0(
+            run_state,
+            scout=self.scout(),
+            gate_dispatch=self.synthetic_gate_dispatch(),
+            inventory_owner=self.inventory_owner(),
+            inventory_challenger=self.inventory_challenger(),
+            explicit_tier=None,
+            no_confirm=False,
+            raters=(
+                self.rater(complexity="max", risk="max", name="rater-a"),
+                self.rater(complexity="max", risk="max", name="rater-b"),
+            ),
+            confirm=confirm,
+        )
+
         self.assertEqual(stage0.run_state.stage, "INDETERMINATE")
 
     def test_missing_confirm_callable_cancels_rather_than_dispatching(self):

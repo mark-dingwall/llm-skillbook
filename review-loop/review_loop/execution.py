@@ -90,6 +90,7 @@ class CallRequest:
     prompt: str
     model: str | None = None
     verify_target_unchanged: Callable[[], None] | None = None
+    exclusions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -257,6 +258,11 @@ def build_codex_call(
     target_ro: list[Path] = []
     for entry in request.target_entries:
         _check_relative(entry)
+        if any(
+            entry.path == excluded or entry.path.startswith(f"{excluded}/")
+            for excluded in request.exclusions
+        ):
+            raise ExecutionError(f"excluded target entry reached the execution mapping: {entry.path!r}")
         src = request.target_root / entry.path
         dst = f"/subject/{entry.path}"
         if entry.kind == "dir":

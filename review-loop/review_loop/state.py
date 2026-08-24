@@ -593,7 +593,9 @@ def _terminal(p: dict[str, object], required_gate_ids: list[str]) -> dict[str, o
     if lifecycle["expected_final_seal"] != lifecycle["actual_final_seal"]: failed.append("seal")
     if challenge["state"] != "UPHELD" or challenge["fresh"] is not True or challenge["target_seal"] != lifecycle["actual_final_seal"] or challenge["source_finding_ids"] or challenge["retry_required"] or not isinstance(challenge["artifact_id"],str) or not challenge["artifact_id"]: failed.append("final_challenge")
     # Gate rollup must match compact records rather than trusting a caller flag.
-    recomputed=_gates({"target_seal":lifecycle["expected_final_seal"],"gates":gate["gates"]},required_gate_ids)
+    first_gate = gate["gates"][0] if gate["gates"] else None
+    gate_target_seal = first_gate.get("target_seal") if isinstance(first_gate, dict) else lifecycle["expected_final_seal"]
+    recomputed=_gates({"target_seal":gate_target_seal,"gates":gate["gates"]},required_gate_ids)
     if any(gate[key] != recomputed[key] for key in ("blocking_reasons","evidence_gaps","review_may_start","merge_readiness_eligible")): failed.append("gates")
     if not gate["merge_readiness_eligible"] or gate["blocking_reasons"]: failed.append("gates_not_ready")
     for i,row in enumerate(data["ledger"]):

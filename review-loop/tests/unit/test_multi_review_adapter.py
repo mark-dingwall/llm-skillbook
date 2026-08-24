@@ -6,6 +6,7 @@ tests/integration/test_multi_review_containment.py for the real-bwrap proof).
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -128,6 +129,32 @@ class AdapterConstructionTests(unittest.TestCase):
             sorted(pf.files),
             sorted(str((self.target / e.path).resolve()) for e in self.request.target_entries if e.kind == "file"),
         )
+
+    def test_caller_cannot_replace_full_target_with_a_subset(self):
+        subset = tuple(e for e in self.request.target_entries if e.path == "foo.py")
+        bad = HolisticRequest(**{**self.request.__dict__, "target_entries": subset})
+        with self.assertRaises(MultiReviewError):
+            build_multi_review_call(
+                bad, MultiReviewPolicy(), self.host, self.root / "subset-call", timeout_seconds=60,
+            )
+
+    def test_git_backed_request_uses_its_governing_seal_policy(self):
+        subprocess.run(["git", "-C", str(self.target), "init", "-q"], check=True)
+        subprocess.run(["git", "-C", str(self.target), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(self.target), "config", "user.name", "Test"], check=True)
+        subprocess.run(["git", "-C", str(self.target), "add", "foo.py", "bar.py"], check=True)
+        subprocess.run(["git", "-C", str(self.target), "commit", "-q", "-m", "initial"], check=True)
+        policy = GitPolicy(enabled=True, base="HEAD", include_untracked=True)
+        seal = seal_target(self.target, policy)
+        request = HolisticRequest(**{
+            **self.request.__dict__, "target_seal": seal.digest,
+            "target_entries": seal.entries, "git_policy": policy,
+        })
+
+        _argv, _wrapper, paths = build_multi_review_call(
+            request, MultiReviewPolicy(), self.host, self.root / "git-call", timeout_seconds=60,
+        )
+        self.assertTrue(paths.request_yaml.is_file())
 
     # --- no generic CLI defaults for unpinned reviewers ---
 

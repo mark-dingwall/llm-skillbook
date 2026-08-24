@@ -32,7 +32,7 @@ from typing import Callable, Mapping, Sequence
 from .artifacts import CanonicalStore, EvidenceArtifact, digest
 from .execution import CodexHostPaths, _CODEX_EXEC_FLAGS
 from .prompts import ValidatedRoleArtifact
-from .seals import DeltaArtifact, TargetSeal, apply_delta_to_target, materialize_delta
+from .seals import DeltaArtifact, SealEntry, TargetSeal, apply_delta_to_target, materialize_delta
 
 
 class FixError(Exception):
@@ -165,14 +165,19 @@ def is_test_path(path: str) -> bool:
 
     A pure JSON validator cannot do this (it never sees the delta); FIX owns the
     canonical delta, so the "a changed test needs a spec trace" rule is enforced
-    here. Conservative and convention-based: a ``tests``/``test`` path component,
-    or a ``test_*``/``*_test`` Python basename.
+    here. Conservative and convention-based across supported gate ecosystems.
     """
     parts = Path(path).parts
-    if any(part in {"tests", "test"} for part in parts):
+    if any(part in {"tests", "test", "__tests__", "spec"} for part in parts):
         return True
     name = Path(path).name
-    return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
+    return (
+        name.startswith("test_")
+        or "_test." in name
+        or ".test." in name
+        or "_spec." in name
+        or ".spec." in name
+    )
 
 
 # Dependency manifests + lockfiles a FIX must never alter (design: "never alter
@@ -215,6 +220,7 @@ class ValidatedFix:
     delta: DeltaArtifact
     before_seal: str
     after_seal: str
+    after_entries: tuple[SealEntry, ...]
     strategy: str  # "disposable_copy" | "direct_write"
     copy_root: Path | None = None  # the disposable-copy root ``write_back`` replays from
 
@@ -286,9 +292,7 @@ class FixController:
         if delta.git_index_changed:
             raise FixError("FIX must not mutate the bound Git index")
 
-        # Only FILE changes are manifest-declarable; an implicit parent-directory
-        # entry (e.g. a new ``tests/`` dir) is not a change the implementer declares.
-        actual_paths = {e.path for e in delta.entries if "file" in (e.before_type, e.after_type)}
+        actual_paths = {e.path for e in delta.entries}
         # Reject a dependency/lockfile/tooling change even when declared+authorized:
         # net is ON and the copy is writable, so an install would land as an
         # accepted filesystem change otherwise (design: no dep/lockfile/tooling
@@ -320,8 +324,11 @@ class FixController:
         # spec trace binding it to spec IDs. The pure JSON validator cannot do
         # this; the delta classifies the path.
         traced = {t["test_path"]: t["spec_ids"] for t in art["test_trace"]}
+        entries = {entry.path: entry for entry in delta.entries}
         for path in sorted(actual_paths):
-            if is_test_path(path):
+            if is_test_path(path) and "file" in (entries[path].before_type, entries[path].after_type):
+                if entries[path].change != "added":
+                    raise FixError(f"FIX may add regression tests but must not modify or remove existing test {path!r}")
                 spec_ids = traced.get(path)
                 if not spec_ids:
                     raise FixError(
@@ -336,6 +343,7 @@ class FixController:
             delta=delta,
             before_seal=before.digest,
             after_seal=after.digest,
+            after_entries=after.entries,
             strategy=strategy,
             copy_root=copy_root,
         )
@@ -356,15 +364,19 @@ class FixController:
         """
         if validated.copy_root is None:
             raise FixError("write_back requires a validated candidate with a disposable-copy root")
-        actual_file_paths = {
-            e.path for e in validated.delta.entries if "file" in (e.before_type, e.after_type)
-        }
-        if actual_file_paths != set(validated.changed_paths):
+        actual_paths = {e.path for e in validated.delta.entries}
+        if actual_paths != set(validated.changed_paths):
             raise FixError(
                 "write_back delta does not match the validated changed_paths "
-                f"(delta: {sorted(actual_file_paths)}, changed_paths: {sorted(validated.changed_paths)})"
+                f"(delta: {sorted(actual_paths)}, changed_paths: {sorted(validated.changed_paths)})"
             )
-        apply_delta_to_target(validated.delta, source_root=validated.copy_root, dest_root=target_root)
+        apply_delta_to_target(
+            validated.delta,
+            source_root=validated.copy_root,
+            dest_root=target_root,
+            expected_entries=validated.after_entries,
+            expected_seal=validated.after_seal,
+        )
 
     # -- apply: record OPEN -> FIX_APPLIED for the bound IDs -----------------
 

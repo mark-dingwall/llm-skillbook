@@ -115,6 +115,21 @@ class FixContainmentTests(unittest.TestCase):
         self.assertNotEqual(mapping.credentials, ())
 
 
+class TestPathClassificationTests(unittest.TestCase):
+    def test_common_cross_language_test_conventions_are_recognized(self):
+        for path in (
+            "src/__tests__/checkout.ts",
+            "spec/payment_spec.rb",
+            "src/checkout.spec.ts",
+            "src/payment_spec.rb",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(is_test_path(path))
+
+    def test_ordinary_source_path_is_not_a_test(self):
+        self.assertFalse(is_test_path("src/checkout.ts"))
+
+
 class FixCandidateTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -182,14 +197,43 @@ class FixCandidateTests(unittest.TestCase):
         with self.assertRaises(FixError):
             self.fixctl.validate_candidate(self.request, self.before, after, manifest)
 
-    def test_changed_test_file_with_spec_trace_is_accepted(self):
-        after = self._reseal_after_editing("tests/test_calc.py", "assert True\n")
+    def test_existing_test_file_cannot_be_weakened_even_with_a_spec_trace(self):
+        tests = self.copy / "tests"
+        tests.mkdir()
+        test_file = tests / "test_calc.py"
+        test_file.write_text("assert 1 + 1 == 2\n")
+        before = seal_target(self.copy, GitPolicy(enabled=False))
+        test_file.write_text("assert True\n")
+        after = seal_target(self.copy, GitPolicy(enabled=False))
         manifest = _fix_artifact(
             SEAL, [("tests/test_calc.py", ["F1"])], expected_ids=("F1",),
             test_trace=[("tests/test_calc.py", ["SPEC-1"])],
         )
+        with self.assertRaises(FixError):
+            self.fixctl.validate_candidate(self.request, before, after, manifest)
+
+    def test_new_regression_test_with_spec_trace_is_accepted(self):
+        after = self._reseal_after_editing("tests/test_calc.py", "assert 1 + 1 == 2\n")
+        manifest = _fix_artifact(
+            SEAL, [("tests", ["F1"]), ("tests/test_calc.py", ["F1"])], expected_ids=("F1",),
+            test_trace=[("tests/test_calc.py", ["SPEC-1"])],
+        )
         validated = self.fixctl.validate_candidate(self.request, self.before, after, manifest)
-        self.assertEqual(validated.changed_paths, ("tests/test_calc.py",))
+        self.assertEqual(validated.changed_paths, ("tests", "tests/test_calc.py"))
+
+    def test_directory_mode_change_must_be_declared(self):
+        package = self.copy / "package"
+        package.mkdir(mode=0o755)
+        before = seal_target(self.copy, GitPolicy(enabled=False))
+        package.chmod(0o700)
+        after = seal_target(self.copy, GitPolicy(enabled=False))
+        manifest = _fix_artifact(SEAL, [], expected_ids=("F1",))
+        with self.assertRaises(FixError):
+            self.fixctl.validate_candidate(self.request, before, after, manifest)
+
+        manifest = _fix_artifact(SEAL, [("package", ["F1"])], expected_ids=("F1",))
+        validated = self.fixctl.validate_candidate(self.request, before, after, manifest)
+        self.assertEqual(validated.changed_paths, ("package",))
 
     def test_declared_lockfile_or_manifest_change_is_rejected(self):
         # Even declared + bound to an authorized ID, a dependency/lockfile change
