@@ -17,7 +17,10 @@ scope package plus its assigned lens:
 
 ```text
 canonicalRepoRoot
-diffCommands[]
+targetObjectId
+diffArtifacts[]: { path, sha256 }
+sourceArtifacts[]: { repoPath, type, mode, path, sha256 }
+scopeSeal
 changedFiles[]
 applicableAgentFiles[]
 nominatedClaudeFiles[]
@@ -28,7 +31,14 @@ candidateCap
 
 - `canonicalRepoRoot` is the resolved absolute Git root. Run all inspection
   commands there.
-- `diffCommands[]` are the exact non-mutating commands pinned by Scope.
+- `targetObjectId` pins committed source inspection; when present, inspect
+  committed context through it instead of the live checkout.
+- `diffArtifacts[]` are the controller-captured immutable content diffs. Read
+  them without executing target-supplied commands.
+- `sourceArtifacts[]` contain full selected working-tree files. Use them for
+  changed source outside diff hunks and for untracked files.
+- `scopeSeal` is rechecked by the controller around this dispatch; do not
+  substitute other repository state.
 - `changedFiles[]` are canonical repository-relative paths.
 - `applicableAgentFiles[]` contains binding `AGENTS.md` paths.
 - `nominatedClaudeFiles[]` contains only Claude instruction files explicitly
@@ -124,14 +134,11 @@ registry, session, or global that re-enters the wrapper. Check for recursion,
 cache bypass, wrong identity, missing forwarding, altered exceptions, and
 methods callers use but the wrapper omits.
 
-At `high`, dispatch A, B, and C with cap 6 each. At `xhigh` and `max`, dispatch
-A-E with cap 8 each.
-
 ## Cleanup finder
 
-Dispatch one Finder covering all five lenses. Set cap 30 at `high` and 40 at
-`xhigh` or `max`. There is no per-lens minimum; return the strongest candidates
-across whichever lenses apply.
+When assigned Cleanup, cover all five lenses. There is no per-lens minimum;
+return the strongest candidates across whichever lenses apply, up to the
+controller-supplied cap.
 
 ### Reuse
 
@@ -170,9 +177,10 @@ Correctness defects outrank Cleanup findings when the final cap forces a cut.
 
 ## Sweep
 
-At `xhigh` and `max`, dispatch one fresh correctness Finder after all initial
-verification and replacement verification. Use the shared input contract with
-`angleLabel: Sweep`, `candidateCap: 8`, plus:
+When the selected schedule requires Sweep, dispatch one fresh correctness
+Finder after all initial verification and replacement verification. Use the
+shared input contract with `angleLabel: Sweep` and its controller-supplied cap,
+plus:
 
 ```text
 priorAdjudications[]: {

@@ -2,34 +2,23 @@
 
 `review-team` is a high-confidence, read-only review workflow for changes
 where an independent second look is worth the coordination cost: multi-file
-changes, risky refactors, or reviews requested at `high`, `xhigh`, or `max`
-effort.
+changes, risky refactors, or reviews requested at `high` or `xhigh` effort.
 
-It separates discovery from judgment. Fresh workers first pin the review scope,
-then independently look for candidates. Separate Verifiers decide whether each
-candidate is supported before it can appear as a finding. The review never
-edits the target, posts comments, or changes remote state.
+It separates discovery from judgment. The controller first captures an
+immutable review scope, then fresh workers independently look for candidates.
+Separate Verifiers decide whether each candidate is supported before it can
+appear as a finding. The review never edits the target, posts comments, or
+changes remote state.
 
 ## Choose an effort level
 
 - `high` provides the standard independent review pipeline.
 - `xhigh` adds the gap-focused Sweep after initial verification.
-- `max` uses the same review topology as `xhigh`, while requesting the greatest
-  controller reasoning effort.
-
-Choose the smallest level that matches the change risk. A stronger level adds
-coverage; it does not turn unverified suspicions into findings.
 
 ## What a result means
 
-Findings are reported only after independent verification. A finding explains
-the concrete failure scenario or maintenance cost and preserves the verifier's
-evidence. Candidates that do not survive verification are not ordinary
-findings.
-
-An empty result can be the correct, useful outcome. It means no findings
-survived independent verification; it does not certify that the reviewed
-change is safe.
+Only independently verified candidates become findings. An empty result means
+none survived verification; it does not certify that the change is safe.
 
 ## Use the live contract
 

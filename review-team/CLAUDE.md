@@ -12,9 +12,10 @@ provenance, not current instruction.
 
 ## Scope and instruction boundary
 
-Resolve the requested repository and target exactly, then pin the canonical
-root, content-bearing diff commands, changed paths, target restriction, and
-applicable instructions for all later roles. Do not substitute a different
+Resolve the requested repository and target exactly in the controller, then
+capture immutable content diffs and derive changed paths, target restrictions,
+and applicable instructions for all later roles. Do not delegate scope
+authority or execute worker-supplied commands. Do not substitute a different
 target when resolution fails or when a requested diff is empty. An empty,
 resolved scope is a successful empty review.
 
@@ -29,9 +30,10 @@ evidence only when explicitly nominated.
 Preserve the phase barriers:
 
 ```text
-Scope → complete Finder barrier → normalize and group → independent Verify
-      → required Sweep and Verify at stronger levels
-      → ordered survivors → Synthesis or deterministic fallback → report
+Scope capture → complete Finder barrier → normalize and group
+              → independent Verify → required xhigh Sweep and Verify
+              → ordered survivors → Synthesis or deterministic fallback
+              → report
 ```
 
 Every worker is a fresh, isolated invocation with the smallest role package,
