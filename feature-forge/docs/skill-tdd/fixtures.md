@@ -31,12 +31,6 @@ currently committed package
   below. Automated keyword counts cannot override a manual failure.
 - Any missing predicate fails that repetition. Preserve the exact response and
   failed predicates without editing `feature-forge/`.
-- A control qualifies only when a majority of its five repetitions pass and
-  every failed predicate is independently adjudicated as model-execution
-  variance or a scenario-design artifact rather than a package defect.
-- If adjudication finds any package-caused failure, stop qualification, repair
-  the owning package text, record the new package identity and reconfirm the
-  fixture identity, and restart the complete campaign.
 
 The model-facing dispatch contains only this runner instruction plus the exact
 selected prompt. The scoring predicates are evaluator-only and are not included

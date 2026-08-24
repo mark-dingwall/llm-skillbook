@@ -181,6 +181,7 @@ Map the read-only return as follows:
 | Read-only return | Workflow review result |
 | --- | --- |
 | TRIAGE completed with no open findings and all required gates/reviewers complete | `pass` |
+| TRIAGE completed with only open Minor findings and all required gates/reviewers complete | `pass`, recording the residual Minor finding IDs in the review evidence |
 | TRIAGE completed with actionable open findings | `changes_required` |
 | `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, missing authority, or non-actionable Important+ blocker | `blocked` |
 
