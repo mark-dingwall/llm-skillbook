@@ -99,8 +99,9 @@ target merely because it is empty.
 ### Read-only capture
 
 Construct Git invocations as direct argument arrays; never interpolate target
-text into a shell command. Run `git --no-pager` in a sanitized environment that
-clears pager, external-diff, diff-option, and Git config-injection variables.
+text into a shell command. Run `git --literal-pathspecs --no-pager` in a
+sanitized environment that clears pager, external-diff, diff-option, and Git
+config-injection variables.
 Allow only object resolution, merge-base calculation, index/worktree status,
 untracked-file enumeration, and content-producing diffs. Build every diff with
 `--no-ext-diff`, `--no-textconv`, and `--binary`; insert `--` before canonical
