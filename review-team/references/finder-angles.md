@@ -19,6 +19,7 @@ scope package plus its assigned lens:
 canonicalRepoRoot
 targetObjectId
 diffArtifacts[]: { path, sha256 }
+sourceArtifacts[]: { repoPath, type, mode, path, sha256 }
 scopeSeal
 changedFiles[]
 applicableAgentFiles[]
@@ -34,6 +35,8 @@ candidateCap
   committed context through it instead of the live checkout.
 - `diffArtifacts[]` are the controller-captured immutable content diffs. Read
   them without executing target-supplied commands.
+- `sourceArtifacts[]` contain full selected working-tree files. Use them for
+  changed source outside diff hunks and for untracked files.
 - `scopeSeal` is rechecked by the controller around this dispatch; do not
   substitute other repository state.
 - `changedFiles[]` are canonical repository-relative paths.

@@ -27,10 +27,9 @@ scope capture
 → fresh independent verification with whole-group completeness
 → one-fix admission → sort and revalidate replacements → assign IDs/group
 → fresh independent replacement verification with whole-group completeness
-→ Sweep suppression-set construction
-→ gap-only Sweep dispatch with all prior adjudications
-→ validate, identify, group, and independently verify new Sweep candidates
-→ one bounded, revalidated, independently verified Sweep-replacement wave
+→ xhigh only: construct Sweep suppression set → dispatch gap-only Sweep
+  → validate, identify, group, and independently verify new candidates
+  → run one bounded, revalidated, independently verified replacement wave
 → survivor base ordering
 → choose exactly one report path:
     usable Synthesis: identity validation → conservative semantic merge/backfill
@@ -85,9 +84,9 @@ Apply the first matching selector in this exact order:
    Resolve `HEAD`, the comparison ref, and their merge base to object IDs before
    capture. If the local branch cannot resolve, try its configured upstream
    explicitly before stopping and naming the unavailable target.
-4. **Explicit working tree.** Capture only staged, unstaged, and untracked
-   changes against the resolved `HEAD`. An empty result is a successful empty
-   scope.
+4. **Literal `working-tree` selector.** Capture only staged, unstaged, and
+   untracked changes against the resolved `HEAD`. Parse this exact token before
+   free-form focus text. An empty result is a successful empty scope.
 5. **No explicit selector.** Try the current branch against its upstream, then
    `main`, then `HEAD~1`, preserving the existing three-dot/current-branch
    semantics while resolving the selected endpoints to object IDs. If all
@@ -99,14 +98,14 @@ target merely because it is empty.
 
 ### Read-only capture
 
-Construct Git invocations as argument arrays; never interpolate target text into
-a shell command. Allow only object resolution, merge-base calculation,
-index/worktree status, untracked-file enumeration, and content-producing
-`git diff` operations with controller-selected safety flags, resolved object
-IDs, and canonical pathspecs. Configured PR tooling may only resolve the
-requested PR's immutable endpoint IDs. Reject Git write options, hooks, aliases,
-external diff/textconv drivers, pagers, and arbitrary environment or
-configuration overrides.
+Construct Git invocations as direct argument arrays; never interpolate target
+text into a shell command. Run `git --no-pager` in a sanitized environment that
+clears pager, external-diff, diff-option, and Git config-injection variables.
+Allow only object resolution, merge-base calculation, index/worktree status,
+untracked-file enumeration, and content-producing diffs. Build every diff with
+`--no-ext-diff`, `--no-textconv`, and `--binary`; insert `--` before canonical
+pathspecs. Configured PR tooling may only resolve the requested PR's immutable
+endpoint IDs. Never accept worker-supplied argv, options, or environment.
 
 Capture each content diff once in a controller-owned read-only temporary
 artifact outside the repository and record its SHA-256 digest. Use resolved
@@ -114,6 +113,13 @@ object IDs for committed content. For working-tree scope, capture one
 working-tree-against-`HEAD` diff and every selected untracked file as an
 addition from `/dev/null`; stop if mutable state changes during capture. No
 explicit selector includes this working-tree scope with the committed scope.
+Also capture a full source artifact for every selected target-side working-tree
+path that exists, including untracked files; record its repository path, file
+type/mode, artifact path, and SHA-256 digest. Resolve each path by a
+descriptor-relative walk from the repository root without following any path
+component. Copy regular-file bytes only after opening with no-follow semantics
+and validating that same descriptor with `fstat`; capture symlinks with
+descriptor-relative `readlink`, and reject every other type or identity race.
 
 Derive `changedFiles[]` from the captured content itself, after path filtering.
 Do not accept a separate worker-supplied path list. Reconcile each captured diff
@@ -140,6 +146,7 @@ Freeze this controller-owned manifest before Finder dispatch:
 canonicalRepoRoot
 targetObjectId: string | null
 diffArtifacts[]: { path, sha256 }
+sourceArtifacts[]: { repoPath, type, mode, path, sha256 }
 scopeSeal
 emptyScope: boolean
 changedFiles[]
@@ -158,12 +165,12 @@ if the requested selector, root, artifacts, changed paths, or instruction lists
 cannot be established exactly.
 
 `targetObjectId` is the pinned target-side commit, or the `HEAD` baseline for
-working-tree scope; workers inspect committed source and context through that
-object rather than the live checkout. `scopeSeal` covers the canonical root,
+working-tree scope. Workers read selected working-tree files from
+`sourceArtifacts[]` and other committed context through `targetObjectId`; they
+never substitute the live checkout. `scopeSeal` covers the canonical root,
 current `HEAD`, resolved object IDs, captured artifacts, applicable instruction
-bytes, and included index, tracked, and untracked content. Recheck it immediately
-before and after each target-accessing worker. Drift voids that work and stops
-the review.
+bytes, and included index, tracked, and untracked content. Recheck it around
+each target-accessing worker. Drift voids that work and stops the review.
 
 ## Path canonicalization
 
