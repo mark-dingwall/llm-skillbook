@@ -113,6 +113,22 @@ object IDs for committed content. For working-tree scope, capture one
 working-tree-against-`HEAD` diff and every selected untracked file as an
 addition from `/dev/null`; stop if mutable state changes during capture. No
 explicit selector includes this working-tree scope with the committed scope.
+
+Before capturing working-tree content, inspect every selected tracked path's
+old and new Git modes from sanitized, no-ext-diff Git metadata; force dirty
+submodules to be visible rather than honoring an ignore setting. Canonicalize,
+deduplicate, and sort every path for which either mode is `160000` into
+`excludedGitlinks[]`. Submodules and gitlinks are unsupported and none of
+those paths enter the captured diff or `changedFiles[]`.
+
+When user interaction is available, stop before capture, show the excluded
+paths, explain that they will not be included in the review, and continue with
+the remaining paths only after explicit user approval. In an explicitly
+autonomous or unattended run, continue without approval. If no supported
+changed path remains, return that no supported paths were reviewed, list the
+excluded gitlinks, and dispatch no workers; this is not a successful empty
+review.
+
 Also capture a full source artifact for every selected target-side working-tree
 path that exists, including untracked files; record its repository path, file
 type/mode, artifact path, and SHA-256 digest. Resolve each path by a
@@ -147,6 +163,7 @@ canonicalRepoRoot
 targetObjectId: string | null
 diffArtifacts[]: { path, sha256 }
 sourceArtifacts[]: { repoPath, type, mode, path, sha256 }
+excludedGitlinks[]: { repoPath, oldMode, newMode }
 scopeSeal
 emptyScope: boolean
 changedFiles[]
@@ -159,18 +176,22 @@ summary
 Require `canonicalRepoRoot` to equal the controller-resolved requested root.
 Require every artifact path and instruction path to be controller-derived, and
 every `changedFiles[]` item to be one canonical repository-relative path from
-the captured content. `targetScope` records the resolved selector and all
-restrictions; `summary` is factual, not review judgment. Stop before dispatch
-if the requested selector, root, artifacts, changed paths, or instruction lists
-cannot be established exactly.
+the captured content. `excludedGitlinks[]` records only the sorted working-tree
+paths excluded by the mode check, with lowercase six-digit modes; it is empty
+for every other scope. `targetScope` records the resolved selector, all
+restrictions, and any approved or autonomous gitlink exclusion; `summary` is
+factual, not review judgment. Stop before dispatch if the requested selector,
+root, artifacts, changed paths, exclusions, or instruction lists cannot be
+established exactly.
 
 `targetObjectId` is the pinned target-side commit, or the `HEAD` baseline for
 working-tree scope. Workers read selected working-tree files from
 `sourceArtifacts[]` and other committed context through `targetObjectId`; they
 never substitute the live checkout. `scopeSeal` covers the canonical root,
 current `HEAD`, resolved object IDs, captured artifacts, applicable instruction
-bytes, and included index, tracked, and untracked content. Recheck it around
-each target-accessing worker. Drift voids that work and stops the review.
+bytes, included index, tracked, and untracked content, and the paths and modes
+in `excludedGitlinks[]`. Recheck it around each target-accessing worker. Drift
+voids that work and stops the review.
 
 ## Path canonicalization
 
@@ -403,7 +424,10 @@ skipped, failed, or unusable.
 
 ## Report output
 
-Present findings first. Each finding contains:
+When `excludedGitlinks[]` is non-empty, place a prominent coverage warning
+before the findings that says submodules/gitlinks were unsupported, lists the
+excluded paths, and states that they were not reviewed. Otherwise present
+findings first. Each finding contains:
 
 ```text
 imperative title
@@ -427,6 +451,7 @@ refuted
 refinements
 independentlyVerifiedReplacements
 reported
+excludedGitlinks[]
 ceilings: {
   initial
   sweep
@@ -459,6 +484,9 @@ post comments, push, open a PR, or change remote state.
 - All no-target committed-diff fallbacks fail: stop and list attempted
   selectors.
 - Requested diff resolves empty: return a successful empty review.
+- Working-tree gitlinks leave no supported changed paths: report that no
+  supported paths were reviewed, list the exclusions, and dispatch no workers;
+  do not call it an empty review.
 - Configured Finder, required Sweep, or Verifier group fails twice: stop and
   name the unmet independence/completeness contract.
 - Collaboration unavailable or advertised active-agent limit below two: stop
