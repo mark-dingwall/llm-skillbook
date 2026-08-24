@@ -55,7 +55,7 @@ def test_synthesize_forwards_model_as_family(tmp_path):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
-    env = _env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(argv_log)})
+    env = _env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(argv_log), "FAKE_PYKRETE_SYNTH": "1"})
     r = subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.spawn",
          "--cli", "pykrete", "--task-mode", "synthesize",
@@ -82,7 +82,7 @@ def test_synthesize_records_family_not_raw_model(tmp_path):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
-    env = _env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(argv_log)})
+    env = _env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(argv_log), "FAKE_PYKRETE_SYNTH": "1"})
     r = subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.spawn",
          "--cli", "pykrete", "--task-mode", "synthesize",
@@ -157,4 +157,24 @@ def test_task_flag_reaches_pykrete_argv(tmp_path):
         env=_env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(log)}),
     )
 
+    assert "--task code" in log.read_text()
+
+
+def test_synthesis_task_flag_reaches_pykrete_argv(tmp_path):
+    """Break caught: synthesis dropped the prompt task and used Pykrete's wrong preset."""
+    prompt = tmp_path / "review_body.txt"
+    prompt.write_text('<review-deadbeef reviewer="pykrete">\n## Summary\n\nFine.\n</review-deadbeef>\n')
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    log = tmp_path / "argv.log"
+
+    result = subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.spawn",
+         "--cli", "pykrete", "--task-mode", "synthesize", "--task", "code",
+         "--input-nonce", "deadbeef", "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True,
+        env=_env(tmp_path, extra={"PYKRETE_ARGV_LOG": str(log), "FAKE_PYKRETE_SYNTH": "1"}),
+    )
+
+    assert result.returncode == 0, result.stderr
     assert "--task code" in log.read_text()

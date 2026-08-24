@@ -17,7 +17,11 @@ import re
 import sys
 from pathlib import Path
 
-from multi_review.core.prompt import SUMMARY_HEADING_RE
+from multi_review.core.prompt import (
+    SUMMARY_HEADING_RE,
+    classify_review_ok,
+    classify_synthesis_ok,
+)
 
 FILENAME_TAG_RE = re.compile(r"<filename>(.+?)</filename>\s*$", re.DOTALL)
 
@@ -45,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="Model identifier from the agent frontmatter; defaults to '<default>'.")
     args = p.parse_args(argv)
 
-    text = args.text_file.read_text()
+    text = args.text_file.read_text(encoding="utf-8")
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.task_mode == "review":
@@ -53,39 +57,47 @@ def main(argv: list[str] | None = None) -> int:
         if m:
             text = text[m.start():].strip()
         review_path = args.out_dir / f"{args.cli}.md"
-        review_path.write_text(text)
-        state_path = args.out_dir / f"{args.cli}.state.json"
-        state_path.write_text(json.dumps({
+        review_path.write_text(text, encoding="utf-8")
+        ok, error = classify_review_ok(True, text)
+        state = {
             "cli": args.cli,
-            "ok": True,
+            "ok": ok,
             "duration_seconds": args.duration_seconds,
             "stderr_tail": "",
             "usage": None,
             "final_model": args.model,
-        }, indent=2))
+        }
+        if error is not None:
+            state["error"] = error
+        state_path = args.out_dir / f"{args.cli}.state.json"
+        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
         print(json.dumps({
-            "ok": True,
+            "ok": ok,
             "review_path": str(review_path),
             "state_path": str(state_path),
         }))
         return 0
 
     body, suggested_filename = _split_filename(text)
+    ok, error = classify_synthesis_ok(True, body)
     synth_path = args.out_dir / "synth.txt"
-    synth_path.write_text(body)
-    state_path = args.out_dir / "synth.state.json"
-    state_path.write_text(json.dumps({
+    synth_path.write_text(body if ok else "", encoding="utf-8")
+    state = {
         "cli": args.cli,
-        "ok": True,
+        "ok": ok,
         "duration_seconds": args.duration_seconds,
         "stderr_tail": "",
         "usage": None,
         "final_model": args.model,
         "body": body,
         "suggested_filename": suggested_filename,
-    }, indent=2))
+    }
+    if error is not None:
+        state["error"] = error
+    state_path = args.out_dir / "synth.state.json"
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     print(json.dumps({
-        "ok": True,
+        "ok": ok,
         "synth_path": str(synth_path),
         "state_path": str(state_path),
     }))

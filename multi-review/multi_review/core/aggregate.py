@@ -27,25 +27,28 @@ from multi_review.core.fanout import ReviewerResult
 # -------- Output path resolution --------
 
 def resolve_output_path(path: Path, *, force: bool = False) -> Path:
-    """Return a path that does not collide with an existing file.
+    """Atomically reserve a path that does not collide with an existing file.
 
-    If ``path`` does not exist, return it unchanged.
+    If ``path`` does not exist, create an empty reservation and return it.
     If ``path`` exists and ``force`` is False, auto-suffix: ``REVIEW.md`` →
     ``REVIEW-2.md`` → ``REVIEW-3.md`` …
     If ``force`` is True, return ``path`` as-is (caller handles overwrite).
 
-    Preserves the no-silent-overwrite invariant: default behaviour always
-    returns a path that is safe to write without clobbering existing work.
+    Preserves the no-silent-overwrite invariant even when multiple aggregators
+    choose output names concurrently.
     """
-    if not path.exists() or force:
+    if force:
         return path
     stem = path.stem
     suffix = path.suffix
     parent = path.parent
-    for n in range(2, 100):
-        candidate = parent / f"{stem}-{n}{suffix}"
-        if not candidate.exists():
+    for n in range(1, 100):
+        candidate = path if n == 1 else parent / f"{stem}-{n}{suffix}"
+        try:
+            candidate.touch(exist_ok=False)
             return candidate
+        except FileExistsError:
+            continue
     raise SystemExit(f"error: too many existing files matching {path}")
 
 

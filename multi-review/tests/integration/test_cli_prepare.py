@@ -111,3 +111,92 @@ def test_prepare_removed_key_returns_json_error(tmp_path):
     payload = json.loads(lines[0])
     assert payload["ok"] is False
     assert "mode" in payload["error"]
+
+
+def test_prepare_preserves_verbatim_custom_prompt(tmp_path):
+    source = tmp_path / "subject.py"
+    source.write_text("pass\n")
+    prompt = tmp_path / "prompt.yaml"
+    exact = "request_id: req-1\n\nReview this exact body.\n"
+    prompt.write_text(
+        "prompt_format_version: 2\n"
+        "task: custom\n"
+        f"files: [\"{source}\"]\n"
+        "verbatim_custom_prompt: true\n"
+        f"custom_prompt: {json.dumps(exact)}\n"
+    )
+    out_dir = tmp_path / "run"
+
+    result = subprocess.run(
+        ["uv", "run", "python", "-m", "multi_review.cli.prepare",
+         "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    prompt_path = Path(json.loads(result.stdout)["prompt_path"])
+    assert prompt_path.read_text() == exact
+
+
+def test_prepare_writes_unicode_prompt_under_ascii_locale(tmp_path):
+    source = tmp_path / "subject.py"
+    source.write_text("pass\n")
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        "prompt_format_version: 2\n"
+        "task: custom\n"
+        f"files: [\"{source}\"]\n"
+        "custom_prompt: \"Review café handling.\"\n"
+    )
+    out_dir = tmp_path / "run"
+    project_root = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(project_root),
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-m", "multi_review.cli.prepare",
+         "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    prompt_path = Path(json.loads(result.stdout)["prompt_path"])
+    assert "café" in prompt_path.read_bytes().decode("utf-8")
+
+
+def test_prepare_preserves_utf8_context_under_ascii_locale(tmp_path):
+    source = tmp_path / "subject.py"
+    source.write_text("pass\n")
+    context = tmp_path / "context.md"
+    context.write_bytes("Context: café handling.\n".encode("utf-8"))
+    prompt = tmp_path / "prompt.yaml"
+    prompt.write_text(
+        "prompt_format_version: 2\n"
+        "task: code\n"
+        f"files: [\"{source}\"]\n"
+        f"context_files: [\"{context}\"]\n"
+    )
+    out_dir = tmp_path / "run"
+    project_root = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(project_root),
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-m", "multi_review.cli.prepare",
+         "--prompt-file", str(prompt), "--out-dir", str(out_dir)],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    prompt_path = Path(json.loads(result.stdout)["prompt_path"])
+    assert "café" in prompt_path.read_bytes().decode("utf-8")

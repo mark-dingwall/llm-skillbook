@@ -50,15 +50,22 @@ class ProgressAdapter:
         return self.get_response_text()
 
 
+def _json_object(line: str) -> dict | None:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return event if isinstance(event, dict) else None
+
+
 class ClaudeAdapter(ProgressAdapter):
     def feed_line(self, line: str) -> None:
         super().feed_line(line)
         line = line.strip()
         if not line:
             return
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
+        ev = _json_object(line)
+        if ev is None:
             return
         t = ev.get("type")
         if t == "system":
@@ -133,19 +140,25 @@ class CodexAdapter(ProgressAdapter):
         line = line.strip()
         if not line:
             return
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
+        ev = _json_object(line)
+        if ev is None:
             return
         t = ev.get("type")
         if t == "thread.started":
             self.phase = "running"
         elif t == "item.completed":
-            item = ev.get("item", {})
+            item = ev.get("item")
+            if not isinstance(item, dict):
+                self.last_error = "malformed Codex item"
+                return
             itype = item.get("type")
             if itype == "agent_message":
                 # last agent_message wins as the final response
-                self.text_parts = [item.get("text", "")]
+                text = item.get("text")
+                if not isinstance(text, str):
+                    self.last_error = "malformed Codex agent_message text"
+                    return
+                self.text_parts = [text]
             elif itype in ("tool_call", "function_call", "command_execution"):
                 self.usage.tool_calls += 1
                 self.phase = f"tool:{item.get('name') or itype}"
@@ -168,9 +181,8 @@ class OpenCodeAdapter(ProgressAdapter):
         line = line.strip()
         if not line:
             return
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
+        ev = _json_object(line)
+        if ev is None:
             return
         t = ev.get("type")
         part = ev.get("part") or {}
@@ -210,7 +222,11 @@ class OpenCodeAdapter(ProgressAdapter):
                     )
         elif t == "error":
             err = ev.get("error") or {}
-            self.phase = f"error:{err.get('name', 'error')}"
+            if isinstance(err, dict):
+                self.last_error = str(err.get("message") or err.get("name") or "error")
+            else:
+                self.last_error = str(err)
+            self.phase = f"error:{self.last_error}"
 
 
 class PykreteAdapter(ProgressAdapter):
@@ -265,11 +281,8 @@ class GrokAdapter(ProgressAdapter):
         line = line.strip()
         if not line:
             return
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
-            return
-        if not isinstance(ev, dict):
+        ev = _json_object(line)
+        if ev is None:
             return
         if getattr(self, "_terminal", False):
             # Terminal latch: once `end`/`error` has been processed, ignore

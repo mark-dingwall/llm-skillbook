@@ -5,12 +5,17 @@ from pathlib import Path
 
 
 REVIEW_TEXT = "## Summary\nFoo bar\n## Concerns\n- bug\n"
+SYNTHESIS_TEXT = (
+    "### Agreed Strengths\n- Clear API.\n\n"
+    "### Agreed Concerns\n- Missing validation.\n\n"
+    "### Divergent Views\n- None.\n"
+)
 
 
-def _run(args: list[str]):
+def _run(args: list[str], *, env: dict[str, str] | None = None):
     return subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.write_task_result", *args],
-        capture_output=True, text=True, env=os.environ.copy(),
+        capture_output=True, text=True, env=env or os.environ.copy(),
     )
 
 
@@ -66,9 +71,33 @@ def test_write_task_result_review_mode_no_model_defaults_attempt(tmp_path):
     assert state["final_model"] is None
 
 
+def test_write_task_result_handles_unicode_under_ascii_locale(tmp_path):
+    """Task result artifacts must use UTF-8 rather than the process locale."""
+    text_file = tmp_path / "claude.txt"
+    text_file.write_bytes("## Summary\nCaf\u00e9 handling.\n".encode("utf-8"))
+    out_dir = tmp_path / "reviews"
+    env = {
+        **os.environ,
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+    }
+
+    result = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "1.0",
+        "--task-mode", "review",
+    ], env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert "caf\u00e9" in (out_dir / "claude.md").read_bytes().decode("utf-8").lower()
+
+
 def test_write_task_result_synthesize_mode(tmp_path):
     text_file = tmp_path / "synth.txt"
-    synth_text = "### Headline\nLooks fine.\n"
+    synth_text = SYNTHESIS_TEXT
     text_file.write_text(synth_text)
     out_dir = tmp_path / "session"
 
@@ -103,6 +132,26 @@ def test_write_task_result_synthesize_mode(tmp_path):
     }
 
 
+def test_write_task_result_rejects_unstructured_synthesis(tmp_path):
+    """Break caught: a Task return used to be marked successful without a consensus body."""
+    text_file = tmp_path / "synth.txt"
+    text_file.write_text("I cannot complete this synthesis.")
+    out_dir = tmp_path / "session"
+
+    r = _run([
+        "--cli", "claude",
+        "--out-dir", str(out_dir),
+        "--text-file", str(text_file),
+        "--duration-seconds", "8.1",
+        "--task-mode", "synthesize",
+    ])
+
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["ok"] is False
+    assert json.loads((out_dir / "synth.state.json").read_text())["ok"] is False
+    assert (out_dir / "synth.txt").read_text() == ""
+
+
 def test_write_task_result_parses_filename(tmp_path):
     text = "Some headline.\n\nBody text.\n\n<filename>auth-review.md</filename>\n"
     text_file = tmp_path / "raw.txt"
@@ -121,9 +170,10 @@ def test_write_task_result_parses_filename(tmp_path):
     state = json.loads((out_dir / "synth.state.json").read_text())
     assert state["body"] == "Some headline.\n\nBody text."
     assert state["suggested_filename"] == "auth-review.md"
+    assert state["ok"] is False
 
     synth_path = out_dir / "synth.txt"
-    assert synth_path.read_text() == "Some headline.\n\nBody text."
+    assert synth_path.read_text() == ""
 
 
 def test_write_task_result_no_filename_tag(tmp_path):
@@ -187,10 +237,16 @@ def test_review_without_summary_kept_raw(tmp_path):
     body = (out_dir / "claude.md").read_text()
     assert "No heading here" in body
 
+    state = json.loads((out_dir / "claude.state.json").read_text())
+    assert state["ok"] is False
+    assert json.loads(r.stdout)["ok"] is False
+
 
 def test_synthesize_output_not_trimmed(tmp_path):
     text = (
-        "## Headline\nBoth reviewers agree.\n\n## Agreed Concerns\n- x\n\n"
+        "### Agreed Strengths\n- API is clear.\n\n"
+        "### Agreed Concerns\n- x\n\n"
+        "### Divergent Views\n- None.\n\n"
         "<filename>foo.md</filename>\n"
     )
     text_file = tmp_path / "synth.txt"
@@ -207,7 +263,7 @@ def test_synthesize_output_not_trimmed(tmp_path):
     assert r.returncode == 0, r.stderr
 
     body = (out_dir / "synth.txt").read_text()
-    assert body.startswith("## Headline")
+    assert body.startswith("### Agreed Strengths")
 
     state = json.loads((out_dir / "synth.state.json").read_text())
     assert state["suggested_filename"] == "foo.md"

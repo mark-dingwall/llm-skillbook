@@ -169,7 +169,7 @@ def test_synthesize_uses_plain_output_not_jsonl(tmp_path):
     assert r.returncode == 0, r.stderr
     j = json.loads(r.stdout)
     synth = Path(j["synth_path"]).read_text()
-    assert synth.startswith("## Summary")
+    assert synth.startswith("### Agreed Strengths")
     assert '"type"' not in synth                    # NOT the JSONL envelope
     argv = argv_log.read_text().splitlines()
     assert "--output-format" not in argv            # non-streaming path

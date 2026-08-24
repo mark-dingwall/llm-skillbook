@@ -4,11 +4,14 @@ import subprocess
 from pathlib import Path
 
 
-def _run_aggregate(rdir, out):
+def _run_aggregate(rdir, out, reviewers=(), synthesis_text=None, synthesis_state=None):
     return subprocess.run(
         ["uv", "run", "python", "-m", "multi_review.cli.aggregate",
          "--reviews-dir", str(rdir), "--task", "code",
-         "--output", str(out)],
+         "--output", str(out),
+         *(["--synthesis-text-file", str(synthesis_text)] if synthesis_text else []),
+         *(["--synthesis-state-file", str(synthesis_state)] if synthesis_state else []),
+         *(arg for reviewer in reviewers for arg in ("--reviewer", reviewer))],
         capture_output=True, text=True,
     )
 
@@ -142,3 +145,107 @@ def test_aggregate_renders_with_null_duration(tmp_path):
     body = Path(json.loads(r.stdout)["output_path"]).read_text()
     assert "## Claude Review" in body
     assert "elapsed_s: 0.0" in body
+
+
+def test_aggregate_renders_missing_requested_reviewer_as_failed_slot(tmp_path):
+    """Break caught: a reviewer that never created state.json disappeared from REVIEW.md."""
+    rdir = tmp_path / "reviews"
+    rdir.mkdir()
+    (rdir / "claude.md").write_text("## Summary\n\nLooks fine.\n")
+    (rdir / "claude.state.json").write_text(json.dumps({
+        "cli": "claude", "ok": True, "duration_seconds": 1.0,
+        "stderr_tail": "", "usage": None, "final_model": None,
+    }))
+
+    out = tmp_path / "REVIEW.md"
+    result = _run_aggregate(rdir, out, reviewers=("claude", "codex"))
+
+    assert result.returncode == 0, result.stderr
+    body = Path(json.loads(result.stdout)["output_path"]).read_text()
+    assert 'reviewers_failed: ["codex"]' in body
+    assert "## Codex Review (FAILED)" in body
+    assert "no state file" in body
+
+
+def test_aggregate_rejects_non_boolean_success_flag(tmp_path):
+    """Break caught: JSON string `\"false\"` was truthy and promoted a failed review."""
+    rdir = tmp_path / "reviews"
+    rdir.mkdir()
+    (rdir / "claude.md").write_text("## Summary\n\nLooks fine.\n")
+    (rdir / "claude.state.json").write_text(json.dumps({
+        "cli": "claude", "ok": "false", "duration_seconds": 1.0,
+        "stderr_tail": "", "usage": None, "final_model": None,
+    }))
+
+    out = tmp_path / "REVIEW.md"
+    result = _run_aggregate(rdir, out)
+
+    assert result.returncode == 0, result.stderr
+    body = Path(json.loads(result.stdout)["output_path"]).read_text()
+    assert 'reviewers_succeeded: []' in body
+    assert "invalid reviewer state" in body
+
+
+def test_aggregate_contains_unreadable_review_body_as_failed_slot(tmp_path):
+    """Break caught: a directory named `<cli>.md` aborted report assembly."""
+    rdir = tmp_path / "reviews"
+    rdir.mkdir()
+    (rdir / "claude.md").mkdir()
+    (rdir / "claude.state.json").write_text(json.dumps({
+        "cli": "claude", "ok": True, "duration_seconds": 1.0,
+        "stderr_tail": "", "usage": None, "final_model": None,
+    }))
+
+    out = tmp_path / "REVIEW.md"
+    result = _run_aggregate(rdir, out)
+
+    assert result.returncode == 0, result.stderr
+    body = Path(json.loads(result.stdout)["output_path"]).read_text()
+    assert "## Claude Review (FAILED)" in body
+    assert "not a regular file" in body
+
+
+def test_aggregate_rejects_parseable_state_with_wrong_schema(tmp_path):
+    """Break caught: malformed `usage` crashed aggregation rather than failing its slot."""
+    rdir = tmp_path / "reviews"
+    rdir.mkdir()
+    (rdir / "claude.md").write_text("## Summary\n\nLooks fine.\n")
+    (rdir / "claude.state.json").write_text(json.dumps({
+        "cli": "claude", "ok": True, "duration_seconds": 1.0,
+        "stderr_tail": "", "usage": "not-an-object", "final_model": None,
+    }))
+
+    out = tmp_path / "REVIEW.md"
+    result = _run_aggregate(rdir, out)
+
+    assert result.returncode == 0, result.stderr
+    body = Path(json.loads(result.stdout)["output_path"]).read_text()
+    assert "## Claude Review (FAILED)" in body
+    assert "invalid reviewer state" in body
+
+
+def test_aggregate_rejects_failed_synthesis_body(tmp_path):
+    """Break caught: failed synthesis stdout was embedded as Consensus Summary."""
+    rdir = tmp_path / "reviews"
+    rdir.mkdir()
+    for cli in ("claude", "codex"):
+        (rdir / f"{cli}.md").write_text("## Summary\n\nLooks fine.\n")
+        (rdir / f"{cli}.state.json").write_text(json.dumps({
+            "cli": cli, "ok": True, "duration_seconds": 1.0,
+            "stderr_tail": "", "usage": None, "final_model": None,
+        }))
+    synthesis_text = tmp_path / "synth.txt"
+    synthesis_text.write_text("### Agreed Strengths\n- Do not publish me.\n")
+    synthesis_state = tmp_path / "synth.state.json"
+    synthesis_state.write_text(json.dumps({"ok": False, "error": "synthesizer refused"}))
+
+    out = tmp_path / "REVIEW.md"
+    result = _run_aggregate(
+        rdir, out, synthesis_text=synthesis_text, synthesis_state=synthesis_state,
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = Path(json.loads(result.stdout)["output_path"]).read_text()
+    assert "Do not publish me" not in body
+    assert "Consensus synthesis failed" in body
+    assert "synthesizer refused" in body
