@@ -48,6 +48,8 @@ pytest, Git, existing `review_loop` public library, Codex CLI, Claude Code CLI.
 ### Task 1: Establish the RED behavioral baseline and oracle
 
 **Files:**
+- Modify: `install.py`
+- Modify: `tests/test_install.py`
 - Create: `feature-forge/tests/behavior/identity_drift.py`
 - Create: `feature-forge/tests/behavior/identity-drift/prompt.md`
 - Create: `feature-forge/tests/behavior/identity-drift/ledger.md`
@@ -70,7 +72,20 @@ the result as end-to-end no-guidance behavior, not as an isolated measurement
 of the current skill's drift handling. Parser and identity RED tests later
 isolate those mechanical concerns; do not add a second ledger-format campaign.
 
-- [ ] **Step 1: Write the failing oracle tests**
+- [ ] **Step 1: Establish the reports-free payload boundary**
+
+Add one failing root installer test asserting `"reports" in
+install.EXCLUDE_TOP`, run it RED, add only that exclusion, and rerun GREEN:
+
+```bash
+python3 -m pytest tests/test_install.py -q
+```
+
+This installer-only prerequisite changes no Feature Forge instruction. It must
+land before the first host baseline so RED and GREEN both install the same
+research-free payload; do not move or modify the untracked reports.
+
+- [ ] **Step 2: Write the failing oracle tests**
 
 Add pytest cases that prepare a fixture and prove the oracle rejects each
 forbidden outcome independently:
@@ -91,7 +106,12 @@ drift; a generic blocker does not pass. `HEAD` must remain `baseline_head`, no
 review-dispatch path may appear, and no protected path may change beyond the
 pre-existing specification drift.
 
-- [ ] **Step 2: Run the oracle tests RED**
+This oracle establishes no observable advancement or durable dispatch
+evidence; it does not prove that no unobserved external process was invoked.
+Do not add host-specific process instrumentation for that stronger claim in the
+MVP.
+
+- [ ] **Step 3: Run the oracle tests RED**
 
 Run:
 
@@ -101,7 +121,7 @@ python3 -m pytest feature-forge/tests/test_behavior_oracle.py -q
 
 Expected: failure because the harness/oracle does not yet exist.
 
-- [ ] **Step 3: Implement only the fixture and oracle**
+- [ ] **Step 4: Implement only the fixture and oracle**
 
 Use `argparse`, `json`, `pathlib`, `subprocess`, and `tempfile`-compatible path
 handling. Initialize a local Git repository with test-only name/email and a
@@ -120,11 +140,11 @@ Forge skill and leave the repository in the correct durable state.
 Do not mention the fault in the prompt. Keep the ledger otherwise valid and do
 not include any missing return or ambiguous run.
 
-- [ ] **Step 4: Make the oracle unit suite GREEN**
+- [ ] **Step 5: Make the oracle unit suite GREEN**
 
 Run the same pytest command. Expected: all oracle tests pass.
 
-- [ ] **Step 5: Run five fresh current-skill baselines per host**
+- [ ] **Step 6: Run five fresh current-skill baselines per host**
 
 For each repetition, prepare a new directory under a temporary parent. Before
 invocation, use the repository installer's hidden test hook to copy the exact
@@ -160,7 +180,7 @@ model cannot run, record qualification as unavailable rather than a pass. If a
 future Claude Code CLI does not support an effort setting, omit only
 `--effort medium` and record that limitation.
 
-- [ ] **Step 6: Record the observed RED result before prose edits**
+- [ ] **Step 7: Record the observed RED result before prose edits**
 
 Write the dated results file with fixture version/hash, host versions, five
 individual oracle results per host, aggregate majority, and observed failure
@@ -169,10 +189,11 @@ already meet the acceptance bar, retain the evidence and do not invent extra
 identity-drift prose later; deterministic checker work still starts from its
 own failing tests.
 
-- [ ] **Step 7: Commit the baseline harness and evidence**
+- [ ] **Step 8: Commit the payload boundary, baseline harness, and evidence**
 
 ```bash
-git add feature-forge/tests/behavior/identity_drift.py \
+git add install.py tests/test_install.py \
+  feature-forge/tests/behavior/identity_drift.py \
   feature-forge/tests/behavior/identity-drift/prompt.md \
   feature-forge/tests/behavior/identity-drift/ledger.md \
   feature-forge/tests/test_behavior_oracle.py \
@@ -230,12 +251,15 @@ Expected: failures because the current template begins with free-form Markdown.
 
 Copy the approved version-one object into the template, using empty template
 values where a real run must fill identity fields. In `workflow.md`, document
-the exact keys, enum/nullability rules, head/table consistency rule, and
+the exact keys; the design's review kind/state matrix and field dependencies;
+the remaining enum/nullability rules; the head/table consistency rule; and
 pre-schema `unsupported → blocked` behavior. Add the identity-vocabulary table
 and state explicitly that only review-loop owns review target seals. Reconcile
 the existing “coarse orchestration state” description by identifying round and
 finding-ID fields as checker-consumed control state; IDs remain opaque and no
-finding prose moves into the head.
+finding prose moves into the head. Starting a new review kind initializes a
+fresh current review object, while prior review evidence remains in transition
+history; do not claim the current head proves that historical transition.
 
 Apply `writing-skills`: remove superseded prose where the new schema table says
 the same thing; do not duplicate the full JSON object throughout the skill.
@@ -267,7 +291,6 @@ git commit -m "feat: add Feature Forge ledger head"
 - Create: `feature-forge/tests/test_ff_check_runs.py`
 - Create: `feature-forge/tests/test_ff_check_identities.py`
 - Create: `feature-forge/tests/conftest.py`
-- Modify: `install.py`
 - Modify: `tests/test_install.py`
 
 **Interfaces:**
@@ -285,8 +308,9 @@ pre-schema, malformed, active, blocked, and complete ledgers. Cover:
 ```text
 valid/invalid slug and feature ref; no collision; one matching active or
 blocked ledger/worktree/branch; multiple nonterminal ledgers; unmatched branch
-or worktree; complete-only; missing head; unknown schema; unreadable/malformed
-head; noncanonical --run.
+or worktree; completed-run collision; missing head; unknown schema;
+unreadable/malformed head; exact canonical date-plus-run-ID directory and head
+match; suffix-only and noncanonical directory mismatches.
 ```
 
 Assert that the command never changes `git status --porcelain=v1` or any file.
@@ -294,11 +318,12 @@ Assert exact result-line shape and sorted diagnostic inventories. Exercise real
 `git check-ref-format --branch`, `git branch --list`, and
 `git worktree list --porcelain` observations in disposable repositories.
 
-In `tests/test_install.py`, add a parametrized production-payload assertion
+In `tests/test_install.py`, extend the Task 1 payload boundary with a
+parametrized production-payload assertion
 that `feature-forge/scripts/ff-check` exists after both Codex and Claude
-installs. Also assert `"reports" in install.EXCLUDE_TOP` and that copied
-payloads omit `tests` and `reports`. These assertions consolidate the complete
-Feature Forge payload contract before the script and exclusion are written.
+installs and that copied payloads omit `tests` and `reports`. The reports policy
+assertion already passed before the behavioral baseline; these assertions
+complete the Feature Forge payload contract before the script is written.
 
 ```python
 @pytest.mark.parametrize("host", ["codex", "claude"])
@@ -309,10 +334,6 @@ def test_feature_forge_payload_ships_checker(tmp_path, host):
     assert (skill_root / "scripts" / "ff-check").is_file()
     assert not (skill_root / "tests").exists()
     assert not (skill_root / "reports").exists()
-
-
-def test_feature_forge_reports_are_excluded_by_policy():
-    assert "reports" in install.EXCLUDE_TOP
 ```
 
 - [ ] **Step 2: Run `runs` tests RED**
@@ -322,9 +343,8 @@ python3 -m pytest feature-forge/tests/test_ff_check_runs.py -q
 python3 -m pytest tests/test_install.py -q
 ```
 
-Expected: checker assertions fail because the script is missing, and the
-non-vacuous reports policy assertion fails because `reports` is not yet
-excluded.
+Expected: checker assertions fail because the script is missing; the existing
+reports policy assertion remains green.
 
 - [ ] **Step 3: Implement the shared CLI shell and `runs`**
 
@@ -340,10 +360,13 @@ class Result:
 
 Sort paths and findings before diagnostics. Resolve the repository with
 `git rev-parse --show-toplevel`; never infer success from a directory existing
-alone. Validate `run_id` with the workflow slug grammar and Git ref check, then
+alone. Validate `run_id` with the workflow slug grammar and Git ref check. A
+ledger matches only when its parent has the exact valid-date-plus-requested-ID
+form and its parsed `run_id` equals the query; never use suffix matching. Then
 inventory canonical ledgers, matching branches, and worktrees without selecting
-among them. Add `reports` to `install.EXCLUDE_TOP`; do not move the untracked
-research files or add manifest/package-manager machinery.
+among them. A matching completed ledger is a fail-closed collision requiring a
+distinct ID. Do not move the untracked research files or add
+manifest/package-manager machinery.
 
 - [ ] **Step 4: Run `runs` tests GREEN**
 
@@ -353,8 +376,8 @@ Run the same focused suite. Expected: all cases pass with no state mutation.
 
 Cover matching identity, wrong worktree, wrong branch, unresolvable base,
 specification drift, plan drift, path escape, missing file, pre-schema ledger,
-and Git-command failure. Assert mismatches exit 1 and inability to establish a
-fact exits 2.
+noncanonical `--run`, and Git-command failure. Assert mismatches exit 1 and
+inability to establish a fact exits 2.
 
 Use Git itself to obtain expected blobs:
 
@@ -379,7 +402,7 @@ status-for-status unchanged.
 - [ ] **Step 7: Commit the first checker slice**
 
 ```bash
-git add feature-forge/scripts/ff-check feature-forge/tests/conftest.py install.py \
+git add feature-forge/scripts/ff-check feature-forge/tests/conftest.py \
   feature-forge/tests/test_ff_check_runs.py \
   feature-forge/tests/test_ff_check_identities.py tests/test_install.py
 git commit -m "feat: check Feature Forge runs and identities"
@@ -485,9 +508,12 @@ missing evidence, frozen drift, permitted ledger/final-report/evidence commits
 and dirt, unrelated tracked or untracked dirt, and a deceptive path sharing an
 allowed prefix. Establish ancestry with `git merge-base --is-ancestor`; form
 the allowlist input from exact paths in both
-`git diff --name-only -z reviewed_commit..HEAD` and
-`git status --porcelain=v1 -z`, including rename records. Document that this
-gate applies through Stage 14 entry before the first integration effect, not to
+`git diff --name-status -z reviewed_commit..HEAD` and
+`git status --porcelain=v1 -z`. Resolve the source root with
+`git rev-parse --show-toplevel`, normalize every compared path to that
+repository-relative base, and parse NUL-delimited rename/copy records by
+consuming and checking both old and new path fields. Document that this gate
+applies through Stage 14 entry before the first integration effect, not to
 post-effect Finish recovery on a changed base topology.
 
 Assert no case imports `review_loop.seals` or claims to validate
@@ -504,13 +530,15 @@ Implement only the approved predicates and rerun to green.
 - [ ] **Step 3: Add failing audit cases**
 
 Cover exact-key rejection, wrong types/enums, stage outside 1–14, terminal with
-a next action, nonterminal without one, malformed frozen objects, review field
-dependencies, round 3 with actionable findings, identical consecutive
-nonempty actionable finding sets, correctly blocked cap/oscillation states, and
-unsorted/duplicate IDs, and residual Minor evidence excluded from the
-actionable arrays. Require both ID arrays to be sorted and unique so array
-equality implements exact ID-set equality. Do not claim to audit whether a
-root-identity reset was semantically legitimate from the current head.
+a next action, nonterminal without one, malformed frozen objects, every row of
+the design's review kind/state matrix, all-null versus all-present blocked
+dispatch evidence, implementation-only `reviewed_commit`, round 3 with
+actionable findings, identical consecutive nonempty actionable finding sets,
+correctly blocked cap/oscillation states, unsorted/duplicate IDs, and residual
+Minor evidence excluded from the actionable arrays. Require both ID arrays to
+be sorted and unique so array equality implements exact ID-set equality. Test
+only current-head invariants; do not claim that `audit` can prove whether a
+kind/root reset was semantically legitimate from transition history.
 
 - [ ] **Step 4: Run RED, implement, run GREEN**
 
@@ -600,8 +628,12 @@ does not perform the commit/readback probe.
 
 Put the normative rule in `adapters-and-reviews.md` and only a short transition
 reference in `workflow.md`. Ensure `review.round` and finding-ID fields are
-updated after every completed return, never before it. Add no semantic
-similarity or prose-scoring algorithm.
+updated after every completed return, never before it. Starting a different
+review kind creates a fresh current review object with round zero and empty ID
+arrays while preserving prior evidence in transition history; an authorized
+same-kind root correction follows the existing reset rule. `audit` validates
+the resulting current state, not the semantic legitimacy of its history. Add
+no semantic similarity or prose-scoring algorithm.
 
 - [ ] **Step 5: Rerun the original identity-drift campaign GREEN**
 
@@ -667,7 +699,7 @@ owner, and document the focused verification commands. Do not add source-tree
 inventories, current test totals, CLI versions, or historical findings to
 maintainer entry points.
 
-State that the Task 3 exclusion governs copied production installs only.
+State that the Task 1 exclusion governs copied production installs only.
 Repository-local and plugin-development operation can physically read
 `feature-forge/reports/`, so active Feature Forge instructions neither link to
 nor load those non-authoritative files.

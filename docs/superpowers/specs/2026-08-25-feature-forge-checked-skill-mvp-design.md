@@ -136,6 +136,25 @@ worktree, branch, base, stage, next action, or current review-control values.
 An inconsistency in human evidence blocks advancement; the head is not
 permission for the LLM to overwrite contrary evidence.
 
+`review.kind` is `null | specification | plan | implementation` and
+`review.state` is `not_started | review_active | changes_required | pass |
+blocked`. Version one uses this current-state matrix:
+
+| State | Required review fields | Null/empty constraints |
+| --- | --- | --- |
+| `not_started` | none | `kind`, `root_identity`, `dispatch_id`, `run_ref`, `target_seal`, `evidence_path`, and `reviewed_commit` are null; `round` is `0`; both finding arrays are empty |
+| `review_active` | `kind`, `root_identity`, `dispatch_id`, `run_ref`, `target_seal`, `evidence_path` | `reviewed_commit` is null; round and finding arrays still describe completed returns for this kind/root |
+| `changes_required` | the `review_active` fields | `reviewed_commit` is null; `round >= 1`; `open_finding_ids` is nonempty |
+| `pass` | the `review_active` fields | `open_finding_ids` is empty; `reviewed_commit` is required only for `implementation` and otherwise null |
+| `blocked` | `kind`, `root_identity` | dispatch/evidence fields are either all null for a pre-dispatch block or all present for a returned/capped review; `reviewed_commit` is null |
+
+Starting a different `review.kind` initializes a fresh review object with
+`round: 0`, empty finding arrays, and new kind/root identity; prior evidence
+remains in the human transition history. A root-cause correction within one
+kind follows the separately authorized reset rule below. `audit` validates the
+current matrix but does not claim to prove from one head that either historical
+transition was legitimate.
+
 ## Identity Vocabulary
 
 | Term | Meaning | Validator |
@@ -193,14 +212,19 @@ ledger head does not store or audit self-attested result lines.
 and `git check-ref-format --branch feature/<run-id>`. It then scans only
 `docs/feature-forge/runs/*/ledger.md`, `git branch --list feature/<run-id>`, and
 `git worktree list --porcelain` beneath `--repo`, and prints a sorted collision
-inventory to stderr before its result line.
+inventory to stderr before its result line. A ledger matches the query only
+when its parent is the exact canonical `YYYY-MM-DD-<run-id>` form with a valid
+date and its parsed head contains the exact requested `run_id`; suffix matching
+alone is forbidden.
 
 - No matching ledger, branch, or worktree is `pass` and permits new-run
   handling.
 - Exactly one nonterminal ledger whose recorded branch/worktree matches the Git
   inventory is `pass`; the command reports it but never selects or mutates it.
+- Any matching completed ledger is a `fail` collision requiring a distinct run
+  ID; completion never permits reuse of the same canonical identity.
 - Multiple nonterminal ledgers, an unmatched branch/worktree collision, or an
-  invalid run ID/ref is `fail`.
+  invalid/noncanonical matching path or run ID/ref is `fail`.
 - A missing JSON head, unknown schema, unreadable ledger, or unavailable Git
   observation is `unverifiable`.
 
@@ -230,9 +254,14 @@ ledger, or inability to establish the observation is `unverifiable`.
 - `reviewed_commit` is an ancestor of source-worktree `HEAD`;
 - frozen identities still match;
 - the evidence path is canonical and exists; and
-- the union of committed paths in `reviewed_commit..HEAD` and dirty paths is a
-  subset of the exact ledger, canonical final report, and recorded review
-  evidence path.
+- after resolving the source repository with `git rev-parse --show-toplevel`,
+  the union of committed paths in `reviewed_commit..HEAD` and dirty paths,
+  normalized to repository-relative paths, is a subset of the exact ledger,
+  canonical final report, and recorded review evidence path.
+
+Git path collection is NUL-delimited. Rename/copy records consume both path
+fields and place both old and new repository-relative paths in the checked set;
+no whitespace-delimited or one-record-per-NUL shortcut may drop a path.
 
 It does not claim that the materialized review target still exists, recompute
 the review target seal, or prove that arbitrary source bytes equal a
@@ -266,7 +295,7 @@ quality, plan coverage, or reviewer judgment.
 | Before any external review dispatch | `audit` | remain in current stage; repair ledger only from known evidence or block |
 | Implementation review return | `audit` | missing/contradictory return stays review-active for recovery or blocks |
 | Before Stages 11, 12, and 13 | `reviewed-snapshot` then `audit` | implementation/review drift invalidates from Implementation review; foreign dirt blocks |
-| Stage 14 entry | `identities` then `audit` | block before Finish; Finish capability probe and mutations remain LLM-executed |
+| Stage 14 entry | `identities`, `reviewed-snapshot`, then `audit` | implementation/review drift invalidates from Implementation review; foreign dirt or other uncertainty blocks before Finish; Finish capability probe and mutations remain LLM-executed |
 
 Stages 2, 3, 7, and 9 remain judgment/action stages without a new content gate;
 they inherit the identity check at entry and the audit at their external return
@@ -347,12 +376,19 @@ then injects the one state fault. Once `ff-check` exists, preparation must show
 that the clean seed passes `audit` and that the injected fixture produces only
 the expected specification identity failure.
 
-The Git-state oracle passes a run only when the agent does not advance or
-dispatch, does not change tracked files outside the ledger, and records
-reconciliation/blocking whose reason names the exact specification path and
-identity/blob drift. A generic blocked state does not pass. The same fixed
-fixture and oracle run five fresh repetitions with Codex using
-`gpt-5.6-terra` at medium effort
+Before the first RED host invocation, the installer exclusion for
+`feature-forge/reports/` is established and tested without changing Feature
+Forge instructions, so RED and GREEN use the same research-free payload
+boundary.
+
+The Git-state oracle passes a run only when there is no observable workflow
+advancement or durable dispatch evidence, no tracked-file change outside the
+ledger, and the ledger records reconciliation/blocking whose reason names the
+exact specification path and identity/blob drift. A generic blocked state does
+not pass. This oracle does not claim to prove that no unobserved external
+process was invoked; adding host-specific process instrumentation is outside
+the MVP. The same fixed fixture and oracle run five fresh repetitions with
+Codex using `gpt-5.6-terra` at medium effort
 and five with Claude Code using Sonnet at medium effort. Release requires a
 majority in each host and zero oracle-detected forward mutations. This is an
 intentional mid-weight qualification signal, not proof about an untested model.
