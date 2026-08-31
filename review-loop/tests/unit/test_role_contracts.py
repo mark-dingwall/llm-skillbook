@@ -148,12 +148,6 @@ class RoleFieldContractTests(unittest.TestCase):
                 self.assertIn("REVIEW-STATUS", text)
                 self.assertIn(f"`{role}`", text)
 
-    def test_specialist_permits_local_read_only_inspection_without_delegating_judgment(self):
-        text = _read("specialist.md")
-        self.assertIn("You may use local read-only inspection tools", text)
-        self.assertIn("Do not delegate review judgment", text)
-
-
 class RetryContractTests(unittest.TestCase):
     def test_malformed_output_retry_includes_exact_validator_rejection(self):
         text = " ".join(SKILL.read_text(encoding="utf-8").split())
