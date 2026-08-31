@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from conftest import check, git, head, make_repo, run_dir, write_ledger
+from conftest import CHECKER, check, git, head, make_repo, run_dir, write_ledger
 
 
 HEAD_KEYS = {
@@ -243,7 +246,7 @@ def test_audit_accepts_implementation_nonpass_receipt_with_canonical_source_comm
     assert_result(invoke(repo, directory), "pass", 0)
 
 
-@pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
+@pytest.mark.parametrize("identity", ["HEAD", "abbreviated", "not-an-oid"])
 def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
     tmp_path: Path, identity: str,
 ) -> None:
@@ -259,6 +262,49 @@ def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
     receipt["source_identity"]["value"] = identity
     path.write_text(json.dumps(receipt))
     assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_audit_treats_missing_canonical_full_nonpass_receipt_commit_as_unverifiable(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    missing_oid = "0" * len(git(repo, "rev-parse", "HEAD"))
+    path = repo / review["evidence_path"]
+    receipt = json.loads(path.read_text())
+    receipt["source_identity"]["value"] = missing_oid
+    path.write_text(json.dumps(receipt))
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_audit_treats_unavailable_nonpass_receipt_commit_observation_as_unverifiable(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"rev-parse\" ] && [ \"$4\" = \"--verify\" ]; then exit 1; fi\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), "audit", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, check=False,
+        env={**os.environ, "PATH": str(binary)},
+    )
+    assert_result(observed, "unverifiable", 2)
 
 
 @pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
@@ -474,7 +520,6 @@ def test_audit_rejects_wrong_candidate_identity_kind_path_or_digest(
 
 @pytest.mark.parametrize("source", [
     {"kind": "reviewed_commit", "path": "src/app.py", "value": "COMMIT"},
-    {"kind": "reviewed_commit", "path": None, "value": "0" * 40},
 ])
 def test_audit_requires_implementation_receipt_commit_identity(
     tmp_path: Path, source: dict[str, object],
@@ -486,6 +531,21 @@ def test_audit_requires_implementation_receipt_commit_identity(
     if source["value"] == "COMMIT":
         source["value"] = review["reviewed_commit"]
     receipt["source_identity"] = source
+    path.write_text(json.dumps(receipt))
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_audit_requires_implementation_pass_receipt_to_equal_the_populated_head(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, kind="implementation", state="pass")
+    (repo / "README.md").write_text("different existing commit\n")
+    git(repo, "add", "README.md")
+    git(repo, "commit", "-qm", "another commit")
+    path = repo / review["evidence_path"]
+    receipt = json.loads(path.read_text())
+    receipt["source_identity"]["value"] = git(repo, "rev-parse", "HEAD")
     path.write_text(json.dumps(receipt))
     assert_result(invoke(repo, directory), "fail", 1)
 

@@ -74,12 +74,18 @@ def git_status(repo: Path, *args: str) -> int | None:
     return observed.returncode
 
 
-def canonical_commit(repo: Path, value: object) -> str | None:
-    """Accept only an existing commit written as its complete canonical OID."""
-    if not isinstance(value, str) or not value:
-        return None
+def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical", "unverifiable"]:
+    """Separate lexical full-OID validity from commit-object observation."""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]+", value) is None:
+        return "noncanonical"
+    object_format = git(repo, "rev-parse", "--show-object-format")
+    lengths = {"sha1": 40, "sha256": 64}
+    if object_format not in lengths:
+        return "unverifiable"
+    if len(value) != lengths[object_format]:
+        return "noncanonical"
     observed = git(repo, "rev-parse", "--verify", f"{value}^{{commit}}")
-    return observed if observed == value else None
+    return "valid" if observed == value else "unverifiable"
 
 
 def repository(path: str) -> Path | None:
@@ -514,7 +520,7 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     assert payload is not None
     if not receipt_matches_implementation_pass(payload, review):
         return result("fail", "receipt=mismatch")
-    if canonical_commit(repo, review["reviewed_commit"]) is None:
+    if commit_identity(repo, review["reviewed_commit"]) != "valid":
         return result("unverifiable", "reviewed-commit=unresolvable")
     ancestry = git_status(repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD")
     if ancestry is None or ancestry > 1:
@@ -705,8 +711,11 @@ def receipt_source_matches(
     if source.get("kind") != "reviewed_commit" or source.get("path") is not None:
         return result("fail", "receipt=source-mismatch")
     value = source.get("value")
-    if canonical_commit(repo, value) is None:
+    identity = commit_identity(repo, value)
+    if identity == "noncanonical":
         return result("fail", "receipt=source-mismatch")
+    if identity == "unverifiable":
+        return result("unverifiable", "receipt=source-unavailable")
     if review["reviewed_commit"] is not None:
         return result("pass") if value == review["reviewed_commit"] else result("fail", "receipt=source-mismatch")
     return result("pass")
@@ -761,7 +770,7 @@ def audit(repo_arg: str, run_arg: str) -> Result:
     if (
         review["kind"] == "implementation"
         and review["reviewed_commit"] is not None
-        and canonical_commit(repo, review["reviewed_commit"]) is None
+        and commit_identity(repo, review["reviewed_commit"]) != "valid"
     ):
         return result("unverifiable", "reviewed-commit=unresolvable")
     expected = expected_receipt_path(repo, run, review["dispatch_id"])
