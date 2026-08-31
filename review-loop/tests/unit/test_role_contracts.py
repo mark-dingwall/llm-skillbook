@@ -87,6 +87,10 @@ class RoleFieldContractTests(unittest.TestCase):
             '`resolutions` is an array of objects with exactly `challenge_id` and `resolution`',
             text,
         )
+        self.assertIn(
+            '`challenge_id` must be one of the controller-supplied challenge IDs; no other IDs are permitted',
+            text,
+        )
 
     def test_inventory_challenge_matches_validate_inventory_challenge(self):
         text = _read("inventory-challenge.md")
@@ -153,7 +157,7 @@ class RoleFieldContractTests(unittest.TestCase):
 class RetryContractTests(unittest.TestCase):
     def test_malformed_output_retry_includes_exact_validator_rejection(self):
         text = " ".join(SKILL.read_text(encoding="utf-8").split())
-        self.assertIn("include the exact validator rejection", text)
+        self.assertIn("The host performing that retry must include the exact validator rejection", text)
         self.assertIn("same identity, target, role, and semantic charter", text)
 
 
