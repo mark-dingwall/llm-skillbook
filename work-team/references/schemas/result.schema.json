@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "required": ["run", "outcome", "verification", "residual", "workers", "plan", "log"],
+  "properties": {
+    "run": {"type": "string"},
+    "outcome": {"type": "string", "enum": ["complete", "partial", "stopped"]},
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["command", "passed"],
+        "properties": {"command": {"type": "string"}, "passed": {"type": "boolean"}, "summary": {"type": "string"}}
+      }
+    },
+    "residual": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["kind", "detail"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["finding", "gap", "worker_failed", "loop_cap", "invalid_return", "skipped"]},
+          "detail": {"type": "string"},
+          "source": {"type": "string"}
+        }
+      }
+    },
+    "workers": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "role", "status"],
+        "properties": {
+          "id": {"type": "string"}, "role": {"type": "string"},
+          "status": {"type": "string", "enum": ["ok", "failed", "retried", "invalid"]},
+          "summary": {"type": "string"}
+        }
+      }
+    },
+    "plan": {"type": "string"},
+    "log": {"type": "string"}
+  }
+}

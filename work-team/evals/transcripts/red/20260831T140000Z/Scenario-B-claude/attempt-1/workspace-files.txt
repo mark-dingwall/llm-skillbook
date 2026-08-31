@@ -1,0 +1,6 @@
+./audit-target/inventory/__init__.py
+./audit-target/inventory/report.py
+./audit-target/inventory/stock.py
+./audit-target/SPEC.md
+./audit-target/test_stock.py
+./audit-target/workflow-log.jsonl

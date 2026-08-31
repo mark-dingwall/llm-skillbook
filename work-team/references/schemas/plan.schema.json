@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": ["run", "task", "phases"],
+  "properties": {
+    "run": {"type": "string"},
+    "task": {"type": "string"},
+    "phases": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "workers"],
+        "properties": {
+          "id": {"type": "string"},
+          "barrier": {"type": "boolean"},
+          "loop": {
+            "type": "object", "required": ["review", "fix", "max_rounds"],
+            "properties": {
+              "review": {"type": "string"}, "fix": {"type": "string"},
+              "max_rounds": {"type": "integer"}
+            }
+          },
+          "workers": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["id", "role", "goal", "owns", "returns"],
+              "properties": {
+                "id": {"type": "string"},
+                "role": {"type": "string"},
+                "goal": {"type": "string"},
+                "inputs": {"type": "array", "items": {"type": "string"}},
+                "owns": {"type": "array", "items": {"type": "string"}},
+                "verify": {"type": "string"},
+                "returns": {"type": "string"},
+                "group": {"type": "string"},
+                "model": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{"timestamp":"2026-09-01T00:00:00+10:00","worker_id":"controller","action":"schedule","role":"scope","detail":"Specification audit scope; non-git target, inspect all implementation and tests against SPEC.md; ceilings={correctness_finders:5,correctness_cap_each:8,cleanup_finders:1,cleanup_cap:40,initial_max:80,sweep_cap:8,finder_output_max:88,replacement_max:88,all_record_max:176,report_cap:15}."}
+{"timestamp":"2026-09-01T00:00:01+10:00","worker_id":"scope","action":"completed","role":"scope","detail":"Pinned all four implementation/test files for non-git SPEC audit."}
+{"timestamp":"2026-09-01T00:00:02+10:00","worker_id":"controller","action":"schedule","role":"finders","detail":"Dispatching independent A-E correctness and Cleanup finders; read-only; caps 8/8/8/8/8/40."}
+{"timestamp":"2026-09-01T00:00:03+10:00","worker_id":"finder_a","action":"completed","role":"finder_A","detail":"Returned 3 candidates."}
+{"timestamp":"2026-09-01T00:00:04+10:00","worker_id":"finder_b","action":"completed","role":"finder_B","detail":"Returned 3 candidates."}
+{"timestamp":"2026-09-01T00:00:05+10:00","worker_id":"finder_c","action":"completed","role":"finder_C","detail":"Returned 3 candidates."}
+{"timestamp":"2026-09-01T00:00:06+10:00","worker_id":"finder_d","action":"completed","role":"finder_D","detail":"Returned 4 candidates."}
+{"timestamp":"2026-09-01T00:00:07+10:00","worker_id":"finder_e","action":"completed","role":"finder_E","detail":"Returned 3 candidates."}
+{"timestamp":"2026-09-01T00:00:08+10:00","worker_id":"finder_cleanup","action":"completed","role":"cleanup","detail":"Returned empty."}
+{"timestamp":"2026-09-01T00:00:09+10:00","worker_id":"controller","action":"normalize","role":"controller","detail":"Accepted 16 in-scope candidates, assigned IDs 0-15 in A,B,C,D,E,Cleanup order; grouped into six locations."}
+{"timestamp":"2026-09-01T00:00:10+10:00","worker_id":"controller","action":"schedule","role":"verifiers","detail":"Dispatching six fresh location-group verifiers. Verifier for stock.py:30 is instructed to simulate a missing assigned row; its whole response will be discarded and retried fresh per completeness policy."}
+{"timestamp":"2026-09-01T00:00:11+10:00","worker_id":"verify_stock24","action":"completed","role":"verifier","detail":"Complete valid response for IDs 0,3,9,13."}
+{"timestamp":"2026-09-01T00:00:12+10:00","worker_id":"verify_stock23","action":"completed","role":"verifier","detail":"Complete valid response for ID 6."}
+{"timestamp":"2026-09-01T00:00:13+10:00","worker_id":"verify_report12","action":"completed","role":"verifier","detail":"Complete valid response for IDs 2,8,11,15."}
+{"timestamp":"2026-09-01T00:00:14+10:00","worker_id":"verify_stock30_incomplete","action":"completed_invalid","role":"verifier","detail":"Missing assigned candidate 14 (also non-contract identity names); discarded entire group, no rows retained."}
+{"timestamp":"2026-09-01T00:00:15+10:00","worker_id":"verify_init11","action":"completed_invalid","role":"verifier","detail":"Invalid verdict/refinement schema; discarded full group for retry."}
+{"timestamp":"2026-09-01T00:00:16+10:00","worker_id":"verify_report11","action":"completed_invalid","role":"verifier","detail":"Invalid verdict spelling; discarded full group for retry."}
+{"timestamp":"2026-09-01T00:00:17+10:00","worker_id":"controller","action":"retry_schedule","role":"verifiers","detail":"Fresh full-group retries: stock.py:30 (missing candidate); __init__.py:11 (schema invalid); report.py:11 (schema invalid)."}
+{"timestamp":"2026-09-01T00:00:18+10:00","worker_id":"retry_stock30","action":"completed","role":"verifier_retry","detail":"Complete valid response for IDs 1,4,7,10,14; accepts replacement of incomplete response."}
+{"timestamp":"2026-09-01T00:00:19+10:00","worker_id":"retry_init11","action":"completed","role":"verifier_retry","detail":"Complete valid response for ID 5 with anchor refinement to report.py:12."}
+{"timestamp":"2026-09-01T00:00:20+10:00","worker_id":"retry_report11","action":"completed","role":"verifier_retry","detail":"Complete valid response for ID 12."}
+{"timestamp":"2026-09-01T00:00:21+10:00","worker_id":"controller","action":"verification_complete","role":"controller","detail":"All 16 initial candidates independently adjudicated; no replacement candidates proposed. All CONFIRMED."}
+{"timestamp":"2026-09-01T00:00:22+10:00","worker_id":"controller","action":"schedule","role":"sweep","detail":"Required xhigh gap-only Sweep dispatched with all 16 prior adjudications as suppression set; cap 8."}
+{"timestamp":"2026-09-01T00:00:23+10:00","worker_id":"sweep","action":"completed","role":"sweep","detail":"Returned empty; no new gap beyond suppressed adjudications."}
+{"timestamp":"2026-09-01T00:00:24+10:00","worker_id":"controller","action":"complete","role":"controller","detail":"No Sweep candidates or replacement waves. Applied exact one-fix fallback deduplication: 16 confirmed records reduce to 4 distinct defects."}

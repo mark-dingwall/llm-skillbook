@@ -1,0 +1,4 @@
+Reading additional input from stdin...
+[2m2026-08-31T14:25:23.910771Z[0m [31mERROR[0m [2mcodex_core::tools::router[0m[2m:[0m [3merror[0m[2m=[0mapply_patch verification failed: Failed to find expected lines in /home/mark/.claude/jobs/1fc6d338/tmp/evals/red-20260831T140000Z-A-codex-attempt-1/workflow-log.jsonl:
+{"worker_id":"controller","phase":"coordination","action":"initialized workflow audit trail","status":"completed"}
+[2m2026-08-31T14:27:01.850311Z[0m [31mERROR[0m [2mcodex_core::tools::router[0m[2m:[0m [3merror[0m[2m=[0mapply_patch verification failed: invalid patch: multiple operations target /home/mark/.claude/jobs/1fc6d338/tmp/evals/red-20260831T140000Z-A-codex-attempt-1/test_todo.py

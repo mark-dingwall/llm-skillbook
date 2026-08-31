@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "required": ["ok", "note", "artefacts"],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "note": {"type": "string"},
+    "artefacts": {"type": "array", "items": {"type": "string"}},
+    "verify_output": {"type": "string"}
+  }
+}
