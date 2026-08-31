@@ -201,7 +201,7 @@ For every review round, the controller must:
    and mounted locations through the prompt's declared `subject` value. The
    containment mapping admits only the materialized target and declared ground
    truth, never the source worktree, ledger, or external run root.
-4. Conditionally call `run_stage0`, then `run_round1` only for a reviewable
+4. Call `run_stage0`, then `run_round1` only for a reviewable
    Stage 0, and `run_triage` only for a usable Round 1. Stop at the first
    terminal outcome. Keep loop reports **outside the sealed tree**; during the
    round mutate neither target nor ledger.
