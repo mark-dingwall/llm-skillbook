@@ -76,13 +76,26 @@ def prepare(root: Path) -> dict[str, object]:
     git(repo, "config", "user.email", "fixture@example.invalid")
     write_seed(repo)
     baseline_head = git(repo, "rev-parse", "HEAD")
+    checker = payload_root(repo) / "scripts" / "ff-check"
+    if checker.exists():
+        audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo)], text=True,
+                               capture_output=True)
+        if audit.returncode:
+            raise RuntimeError("ff-check audit rejected the clean seed")
     # The clean ledger is committed and structurally valid before this sole fault.
     (repo / SPEC).write_text("# Frozen specification\n\nModified without committing: identity/blob drift.\n")
+    if checker.exists():
+        identities = subprocess.run(["python3", str(checker), "identities", "--repo", str(repo),
+                                     "--run", RUN], text=True, capture_output=True)
+        output = identities.stdout + identities.stderr
+        if identities.returncode == 0 or SPEC not in output:
+            raise RuntimeError("ff-check identities did not isolate the specification drift")
     (repo / ".git/info/exclude").write_text(".agents/\n.claude/\n" + META + "\n")
     digest = payload_digest(payload_root(repo))
     metadata = {"repo": str(repo), "run": RUN, "prompt": str(PROMPT),
                 "baseline_head": baseline_head, "protected_paths": [SPEC, PLAN],
-                "installed_payload_digest": digest}
+                "installed_payload_digest": digest,
+                "expected_specification_digest": hashlib.sha256((repo / SPEC).read_bytes()).hexdigest()}
     (repo / META).write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
 
@@ -125,6 +138,8 @@ def score(root: Path) -> dict[str, object]:
         errors.append("HEAD advanced from baseline")
     if payload_digest(payload_root(repo)) != metadata["installed_payload_digest"]:
         errors.append("installed payload digest changed")
+    if hashlib.sha256((repo / SPEC).read_bytes()).hexdigest() != metadata["expected_specification_digest"]:
+        errors.append("specification drift differs from the seeded fault")
     changed = set(filter(None, git(repo, "diff", "--name-only", "HEAD").splitlines()))
     changed.update(filter(None, git(repo, "diff", "--cached", "--name-only").splitlines()))
     allowed = {SPEC, LEDGER}
@@ -133,7 +148,8 @@ def score(root: Path) -> dict[str, object]:
     if SPEC not in changed:
         errors.append("fixture no longer contains specification drift")
     dispatch_paths = [p.relative_to(repo).as_posix() for p in repo.rglob("*")
-                      if "review" in p.name.lower() and "dispatch" in p.name.lower()]
+                      if "review" in [part.lower() for part in p.relative_to(repo).parts]
+                      and any(part.lower().startswith("dispatch") for part in p.relative_to(repo).parts)]
     if dispatch_paths:
         errors.append("durable review-dispatch artifact present")
     try:

@@ -75,6 +75,23 @@ def test_oracle_rejects_review_dispatch_artifact(tmp_path):
     assert not _score(tmp_path)["pass"]
 
 
+def test_oracle_rejects_untracked_review_dispatch_path(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    path = Path(str(fixture["repo"])) / "review" / "dispatch.json"
+    path.parent.mkdir()
+    path.write_text("dispatch\n")
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_rejects_extra_specification_mutation(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    spec = Path(str(fixture["repo"])) / "docs/feature-forge/runs/identity-drift/specification.md"
+    spec.write_text("different drift\n")
+    assert not _score(tmp_path)["pass"]
+
+
 def test_oracle_rejects_nonledger_tracked_change(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
