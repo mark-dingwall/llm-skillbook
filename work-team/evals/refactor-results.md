@@ -55,3 +55,30 @@ edits are re-copied before each run.
 - **PASS B7** — 29 worker lines via `wt-log` from 7 workers plus 4 controller
   lines; `plan.json`, `candidates.json`, `result.json`, `report.md` in
   `run-artefacts/`.
+
+### Scenario A — Codex (attempt-1) — PASS 7/7 (clean re-run; GREEN attempt was discarded)
+
+- **A1** — spec-writer, test-writer, implementer, launcher-writer,
+  reviewer-round1, fixer-round1, reviewer-round2 all fresh; when the
+  implementer hit an ownership mismatch (tests expect a `todo` executable,
+  plan owned only `todo.py`), the controller re-planned a launcher worker
+  instead of doing the work: "I'm re-planning that as a separate launcher
+  artifact rather than asking the worker to exceed its owned paths."
+- **A2** — 50 log lines, every worker logging its own actions via `wt-log`
+  (implementer 5, reviewer-round1 11, fixer 7…), controller 9.
+- **A3** — sequential with the dependency reason stated; launcher added by
+  plan amendment, re-validated before dispatch.
+- **A4** — structured returns shown per worker, including the implementer's
+  honest `"ok":false` blocked state; schema-validated plan and result in
+  `run-artefacts/`.
+- **A5** — review→fix→re-review with fresh workers; findings classified
+  `spec` vs `adjacent`; reviewer-round2 `pass` with empty findings.
+- **A6** — full suite output shown ("27 passed"), rerun by the controller.
+- **A7** — `plan.json` (amended, validated) in the run dir.
+
+## Verdict
+
+All targeted loopholes closed; 3/3 clean re-runs pass every observable. The
+remaining known limitation: Scenario A on Claude was scored on the GREEN run
+only (7/7, clean) and not re-run after the refactors — the refactors do not
+touch any behaviour that run exercised.

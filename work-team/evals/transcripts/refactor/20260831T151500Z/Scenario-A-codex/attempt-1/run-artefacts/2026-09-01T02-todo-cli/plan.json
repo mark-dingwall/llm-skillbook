@@ -1,0 +1,67 @@
+{
+  "run": "2026-09-01T02-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (`add <text>`, `list`, `done <id>`; JSON-file persistence) by coordinating subagents through specification → tests → implementation → review. Keep a shared audit trail `workflow-log.jsonl` in this directory: one JSON line per substantive worker action, carrying the worker's id.",
+  "phases": [
+    {
+      "id": "specification",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md defining command syntax, JSON persistence format, exact success/error outputs, exit codes, and Given/When/Then behaviour for add, list, and done. Done when all requested commands are specified and the document is non-empty.",
+          "inputs": ["task text"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Create a black-box pytest suite derived solely from SPEC.md for the todo executable, including persistence and error behaviour. Done when tests collect successfully and fail against a missing implementation.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    },
+    {
+      "id": "implementation",
+      "barrier": true,
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement the tiny Python todo CLI so test_todo.py passes, touching only todo.py. Done when the assigned pytest command is green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    },
+    {
+      "id": "launcher",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "launcher-writer",
+          "role": "writer",
+          "goal": "Create the executable todo launcher required by the black-box tests, delegating to todo.py without changing its behaviour. Done when `test -x todo` succeeds.",
+          "inputs": ["todo.py", "SPEC.md", "test_todo.py"],
+          "owns": ["todo"],
+          "verify": "test -x todo",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    }
+  ]
+}

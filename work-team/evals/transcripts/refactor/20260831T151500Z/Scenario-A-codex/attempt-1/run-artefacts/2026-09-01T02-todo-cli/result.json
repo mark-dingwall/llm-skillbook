@@ -1,0 +1,23 @@
+{
+  "run": "2026-09-01T02-todo-cli",
+  "outcome": "complete",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "summary": "SPEC.md is non-empty"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "summary": "27 tests collected"},
+    {"command": "test -x todo", "passed": true, "summary": "todo is executable"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "summary": "27 passed in 0.87s"},
+    {"command": "reviewer-round2 re-review", "passed": true, "summary": "pass; no findings"}
+  ],
+  "residual": [],
+  "workers": [
+    {"id": "spec-writer", "role": "writer", "status": "ok", "summary": "Wrote SPEC.md."},
+    {"id": "test-writer", "role": "writer", "status": "ok", "summary": "Created and collected 27 black-box tests."},
+    {"id": "implementer", "role": "implementer", "status": "failed", "summary": "Wrote todo.py; its initial check was blocked by the missing executable launcher."},
+    {"id": "launcher-writer", "role": "writer", "status": "ok", "summary": "Created executable todo launcher."},
+    {"id": "reviewer-round1", "role": "reviewer", "status": "ok", "summary": "Found five important spec issues and one adjacent issue."},
+    {"id": "fixer-round1", "role": "fixer", "status": "ok", "summary": "Fixed the supplied review findings in todo.py."},
+    {"id": "reviewer-round2", "role": "reviewer", "status": "ok", "summary": "Re-review passed with no findings."}
+  ],
+  "plan": ".work-team/2026-09-01T02-todo-cli/plan.json",
+  "log": "workflow-log.jsonl"
+}
