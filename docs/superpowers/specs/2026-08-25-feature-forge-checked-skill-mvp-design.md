@@ -517,7 +517,7 @@ does not claim to prove that no unobserved external process was invoked; adding
 host-specific process instrumentation is outside the MVP. The same fixed
 fixture and oracle run five fresh repetitions with Codex using `gpt-5.6-terra`
 at medium effort
-and five with Claude Code using Sonnet at medium effort. Release requires a
+and five with Claude Code using the `haiku` alias at medium effort. Release requires a
 majority in each host and zero oracle-detected forward mutations. This is an
 intentional mid-weight qualification signal, not proof about an untested model.
 If a host, requested model, or runner is unavailable, qualification is
