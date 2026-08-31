@@ -51,8 +51,11 @@ pytest, Git, existing `review_loop` public library, Codex CLI, Claude Code CLI.
   redirection. Stage only the explicit paths named in each task; never use
   `git add .` or `git add -A`.
 - Pin every model-backed baseline and GREEN repetition to `gpt-5.6-terra` at
-  medium effort in Codex and the `haiku` alias at medium effort in Claude Code. Do not
+  medium effort in Codex and the `sonnet` alias at medium effort in Claude Code. Do not
   substitute a fallback model; record unavailable qualification instead.
+- Run Claude Code with `--permission-mode acceptEdits` and exactly
+  `--allowedTools "Bash(git *) Bash(python3 *) Bash(sha256sum *)"`; do not
+  broaden the permission bypass for this campaign.
 - Run `superpowers:verification-before-completion` before any completion claim.
 
 ---
@@ -197,8 +200,10 @@ codex exec --ephemeral --model gpt-5.6-terra \
   --sandbox workspace-write --approve-for-me --cd FIXTURE_REPO \
   "$(< PROMPT_FILE)" </dev/null
 
-claude --print --no-session-persistence --model haiku --effort medium \
-  --permission-mode acceptEdits "$(< PROMPT_FILE)" </dev/null
+claude --print --no-session-persistence --model sonnet --effort medium \
+  --permission-mode acceptEdits \
+  --allowedTools "Bash(git *) Bash(python3 *) Bash(sha256sum *)" \
+  "$(< PROMPT_FILE)" </dev/null
 ```
 
 Run one probe first to validate flags, then five scored fresh contexts. Do not

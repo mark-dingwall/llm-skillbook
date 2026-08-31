@@ -184,13 +184,13 @@ def test_oracle_requires_exact_identity_reconciliation_row(tmp_path):
     assert not _score(tmp_path)["pass"]
 
 
-def test_oracle_requires_reconciliation_in_transition_event_cell(tmp_path):
+def test_oracle_accepts_opaque_nonempty_transition_event_id(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     ledger = _ledger(fixture)
     data, markdown = _head(ledger)
-    _write_head(ledger, data, markdown.replace("| reconciliation-1 |", "| note-1 |"))
-    assert not _score(tmp_path)["pass"]
+    _write_head(ledger, data, markdown.replace("| reconciliation-1 |", "| EVT-0001 |"))
+    assert _score(tmp_path)["pass"]
 
 
 def test_oracle_rejects_wrong_frozen_blob_in_reconciliation_row(tmp_path):

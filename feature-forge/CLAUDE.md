@@ -75,6 +75,10 @@ return. Do not invoke a one-shot skill and claim to interrupt its required
 handoff. Planning stops before execution, execution stops before Finish, and
 Finish journals every effect.
 
+Use a capable model tier to execute or behaviorally qualify Feature Forge.
+Small-model tiers such as Claude Haiku and Codex Luna are unsuitable for
+either role.
+
 Choose one execution mode under the stage-method contract. Every delegated
 worker packet must be independently executable from the frozen
 specification and plan: exact task and applicable requirement/scenario IDs,

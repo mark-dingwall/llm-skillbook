@@ -145,7 +145,7 @@ def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
     observed = str(metadata["expected_specification_digest"])
     return any(
         len(cells := [cell.strip() for cell in row.strip("|").split("|")]) >= 9
-        and ("reconciliation" in cells[0].lower() or "correction" in cells[0].lower())
+        and bool(cells[0])
         and SPEC in row and frozen in row and observed in row
         and cells[6] not in {"", "unavailable?"}
         for row in rows

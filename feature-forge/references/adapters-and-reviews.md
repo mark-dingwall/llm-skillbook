@@ -184,6 +184,37 @@ Map the read-only return as follows:
 | TRIAGE completed with actionable open findings | `changes_required` |
 | `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, missing authority, or non-actionable Important+ blocker | `blocked` |
 
+## Bounded review return rule
+
+Starting a different review kind creates a fresh current review object with
+`review.round` zero, empty finding-ID arrays, and a new root identity; prior
+evidence stays in transition history. `root_identity` is an opaque controller
+label. Ordinary fixes retain it. Only an authority-governed root-cause
+invalidation may replace it, and the transition records the old and new root
+identities, reason, authority, and parent event.
+
+After each completed nonempty actionable TRIAGE return, make one bounded LLM
+judgment: reuse a prior opaque ID only for the materially same finding and
+allocate a new ID otherwise, recording the mapping and rationale. Then copy the
+preceding actionable set to `previous_open_finding_ids`, store the current
+sorted unique set in `open_finding_ids`, and increment `review.round` before
+applying:
+
+```text
+must_block =
+  (review.round >= 3 and open_finding_ids is nonempty)
+  or
+  (open_finding_ids is nonempty
+   and open_finding_ids == previous_open_finding_ids)
+```
+
+The third actionable return therefore blocks, as does the first identical
+consecutive nonempty finding-ID set. Write receipt/head result `blocked` when
+`must_block` is true and `changes_required` otherwise. A pass leaves the round
+unchanged and clears the current actionable set. `audit` validates only the
+resulting current state; it does not infer finding similarity or the legitimacy
+of a root reset from history.
+
 For every review round, the controller must:
 
 1. Capture source identity before materializing: SHA-256 plus canonical path

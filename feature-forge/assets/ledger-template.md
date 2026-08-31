@@ -90,6 +90,11 @@ canonical artifact. It carries exactly these fields:
 
 ## Transition log
 
+For every material dispatch, return, correction, authority decision,
+invalidation, or Finish transition, record the harness/session identity and
+any materially different root, parent, or subagent identity. Use `unavailable`
+when the harness exposes none.
+
 | event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |  |  |  |

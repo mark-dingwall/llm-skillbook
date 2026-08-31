@@ -7,6 +7,9 @@ from pathlib import Path
 
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "ledger-template.md"
+SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+WORKFLOW = Path(__file__).resolve().parents[1] / "references" / "workflow.md"
+REVIEWS = Path(__file__).resolve().parents[1] / "references" / "adapters-and-reviews.md"
 CURRENT_STATE_LABELS = frozenset({
     "schema", "run id", "run identity", "work unit run id", "status",
     "overall status", "worktree", "branch", "base identity", "stage",
@@ -19,6 +22,9 @@ CURRENT_STATE_LABELS = frozenset({
     "open finding ids",
 })
 REVIEW_CONTEXT_LABELS = frozenset({"kind", "state", "round"})
+STAGE_LABELS = (
+    "Goal", "Inputs", "Mechanical check", "Owned action", "Pass", "Failure", "Next",
+)
 
 
 def _head_and_markdown() -> tuple[dict[str, object], str]:
@@ -137,3 +143,109 @@ def test_markdown_keeps_human_evidence_without_current_head_mirrors() -> None:
     assert "| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |" in markdown
     assert "transcript" not in json.dumps(head).lower()
     assert "audit tip" not in json.dumps(head).lower()
+
+
+def _stage_contracts() -> dict[int, str]:
+    text = WORKFLOW.read_text()
+    matches = list(re.finditer(r"^### Stage (\d+): .+$", text, re.MULTILINE))
+    return {
+        int(match.group(1)): text[match.end():matches[index + 1].start()]
+        if index + 1 < len(matches) else text[match.end():]
+        for index, match in enumerate(matches)
+    }
+
+
+def _label_value(stage: str, label: str) -> str:
+    match = re.search(rf"^- \*\*{re.escape(label)}:\*\*\s*(.+)$", stage, re.MULTILINE)
+    assert match, f"missing stage label: {label}"
+    return match.group(1)
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_skill_exposes_the_checker_result_boundary() -> None:
+    text = SKILL.read_text()
+
+    assert 'python3 "$SKILL_DIR/scripts/ff-check"' in text
+    assert "missing/malformed result line" in text
+    assert "unverifiable" in text and "blocked" in text
+
+
+def test_all_fourteen_stages_use_the_compact_checked_contract() -> None:
+    stages = _stage_contracts()
+
+    assert set(stages) == set(range(1, 15))
+    for number, stage in stages.items():
+        for label in STAGE_LABELS:
+            assert stage.count(f"- **{label}:**") == 1, (number, label)
+        assert "fail" in _label_value(stage, "Failure")
+        assert "unverifiable" in _label_value(stage, "Failure")
+
+
+def test_stage_gate_sequences_match_the_approved_map() -> None:
+    stages = _stage_contracts()
+
+    assert "`runs`" in _label_value(stages[1], "Mechanical check")
+    for number in range(2, 15):
+        assert "`identities`" in _label_value(stages[number], "Mechanical check"), number
+
+    for number in (5, 8, 10):
+        check = _label_value(stages[number], "Mechanical check")
+        assert check.index("`identities`") < check.index("`audit`")
+
+    for number in (11, 12, 13, 14):
+        check = _label_value(stages[number], "Mechanical check")
+        assert check.index("`identities`") < check.index("`reviewed-snapshot`") < check.index("`audit`")
+
+
+def test_bounded_review_update_and_reset_rule_has_one_owner() -> None:
+    reviews = REVIEWS.read_text()
+    compact_reviews = _squash(reviews).lower()
+    workflow = WORKFLOW.read_text()
+
+    assert reviews.count("## Bounded review return rule") == 1
+    assert "increment `review.round`" in reviews
+    assert "previous_open_finding_ids" in reviews
+    assert "open_finding_ids" in reviews
+    assert "third actionable return" in reviews
+    assert "identical consecutive nonempty" in compact_reviews
+    assert "ordinary fixes retain" in compact_reviews
+    assert "old and new root identities" in compact_reviews
+    assert "## Bounded review return rule" not in workflow
+
+
+def test_session_provenance_and_transcripts_stay_forensic() -> None:
+    _, template_markdown = _head_and_markdown()
+    workflow = _squash(WORKFLOW.read_text())
+
+    assert "| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |" in template_markdown
+    assert "`unavailable`" in workflow
+    assert "mismatch" in workflow
+    assert "forensic evidence" in workflow
+    assert "never workflow authority" in workflow
+    assert "consistent resume" in workflow
+    assert "checker input" in workflow
+
+
+def test_verified_frozen_identity_failure_has_one_safe_return_recipe() -> None:
+    workflow = WORKFLOW.read_text()
+    matches = re.findall(
+        r"For a verified frozen-identity `fail`,(?P<recipe>.*?)(?:\n\n|\Z)",
+        workflow,
+        re.DOTALL,
+    )
+
+    assert len(matches) == 1
+    recipe = _squash(matches[0]).lower()
+    for required in (
+        "without resolution authority", "preserve `head`", "frozen artifact",
+        "no restore, commit, advance, or dispatch", "run status `blocked`",
+        "current stage `blocked`", "reconcile or correct",
+        "checker-reported canonical path", "reconciliation/correction",
+        "identity/blob drift", "ledger-recorded frozen blob", "sha-256",
+        "session provenance", "`unavailable`", "later correction/invalidation",
+        "applicable authority",
+    ):
+        assert required in recipe
