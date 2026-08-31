@@ -131,12 +131,26 @@ is proven complete.
 
 ## Verification
 
-Feature Forge is instruction-only and has no separate runtime suite in this
-repository. After changing its entry points or links, run its documentation
-parameters from the repository root:
+Feature Forge is a checked skill: instructions own semantic workflow decisions,
+and its installed standard-library checker owns deterministic repository,
+identity, reviewed-snapshot, and current-ledger predicates. The
+[workflow contract](references/workflow.md) owns the ledger schema and its
+semantics.
+
+The production-copy exclusion of `reports/` applies only to copied installs.
+Repository-local and plugin-development operation can physically read that
+directory, but active Feature Forge instructions neither link to nor load its
+non-authoritative files.
+
+Run Feature Forge behavior checks from the repository root:
 
 ```bash
-python3 -m pytest \
-  'tests/test_documentation.py::test_documentation_entrypoints[feature-forge]' \
-  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[feature-forge]' -q
+python3 -m pytest feature-forge/tests -q
+```
+
+Run the review-loop boundary fixture in its owning environment:
+
+```bash
+cd review-loop && uv run pytest \
+  ../feature-forge/tests/integration/test_review_loop_boundary.py -q
 ```
