@@ -379,7 +379,7 @@ class BoundaryFixture:
         if result == "pass":
             head.update(status="active", stage={"id": 5, "state": "complete"}, next_action="freeze the reviewed specification")
         elif result == "changes_required":
-            head.update(status="active", stage={"id": 5, "state": "active"}, next_action="correct the specification and start a fresh review")
+            head.update(status="active", stage={"id": 3, "state": "active"}, next_action="correct the specification")
         else:
             head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="resolve the review blocker")
         self._write_head(head)
@@ -523,10 +523,10 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
     failed_round_run = failed_round.controller.create_run(failed_round.intent())
     failed_round.persist_review_active("round-1", failed_round_run)
     reviewable = failed_round.stage0(failed_round_run)
-    with pytest.raises(ControllerError, match="synthetic reviewer unavailable"):
+    with pytest.raises(ControllerError, match="synthetic reviewer unavailable") as round1_failure:
         failed_round.controller.run_round1(reviewable, dispatch_role=failed_round.reviewer(fail=True))
     assert "triage" not in failed_round.events
-    failed_round_receipt = failed_round.record_controller_return("round-1", reviewable, round1_error=ControllerError("synthetic reviewer unavailable"))
+    failed_round_receipt = failed_round.record_controller_return("round-1", reviewable, round1_error=round1_failure.value)
     assert json.loads(failed_round_receipt.read_text())["result"] == failed_round._load_head()["review"]["state"] == "blocked"
 
     first.source.write_bytes(b"changed after return\n")
@@ -613,8 +613,18 @@ def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path):
     assert payload["result"] == fixture._load_head()["review"]["state"] == "changes_required"
     assert payload["actionable_finding_ids"] == actionable_ids
     assert fixture._load_head()["status"] == "active"
-    assert fixture._load_head()["stage"] == {"id": 5, "state": "active"}
-    assert fixture._load_head()["next_action"] == "correct the specification and start a fresh review"
+    assert fixture._load_head()["stage"] == {"id": 3, "state": "active"}
+    assert fixture._load_head()["next_action"] == "correct the specification"
+
+    recovery = BoundaryFixture(tmp_path, b"candidate\n", "actionable-recovery")
+    recovery_run = recovery.controller.create_run(recovery.intent())
+    recovery.persist_review_active("actionable-recovery-1", recovery_run)
+    recovery_receipt = recovery.write_receipt(
+        "actionable-recovery-1", recovery_run, "changes_required", ["actionable-a"], recovery.captured_identity,
+    )
+    _recover_receipt(recovery, recovery_receipt)
+    assert recovery._load_head()["stage"] == {"id": 3, "state": "active"}
+    assert recovery._load_head()["next_action"] == "correct the specification"
 
 
 def test_boundary_persists_review_active_before_stage0(tmp_path):
