@@ -78,6 +78,8 @@ def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical
     """Separate lexical full-OID validity from commit-object observation."""
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]+", value) is None:
         return "noncanonical"
+    if len(value) not in {40, 64}:
+        return "noncanonical"
     object_format = git(repo, "rev-parse", "--show-object-format")
     lengths = {"sha1": 40, "sha256": 64}
     if object_format not in lengths:

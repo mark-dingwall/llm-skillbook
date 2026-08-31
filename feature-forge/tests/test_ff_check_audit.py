@@ -264,6 +264,37 @@ def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
     assert_result(invoke(repo, directory), "fail", 1)
 
 
+def test_audit_rejects_abbreviated_hex_before_unavailable_object_format_observation(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    path = repo / review["evidence_path"]
+    receipt = json.loads(path.read_text())
+    receipt["source_identity"]["value"] = git(repo, "rev-parse", "HEAD")[:12]
+    path.write_text(json.dumps(receipt))
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"rev-parse\" ] && [ \"$4\" = \"--show-object-format\" ]; then exit 1; fi\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), "audit", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, check=False,
+        env={**os.environ, "PATH": str(binary)},
+    )
+    assert_result(observed, "fail", 1)
+
+
 def test_audit_treats_missing_canonical_full_nonpass_receipt_commit_as_unverifiable(
     tmp_path: Path,
 ) -> None:
