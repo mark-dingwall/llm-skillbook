@@ -16,10 +16,39 @@ under `/tmp/identity-drift-v1-codex.rjsC5d` and
 handling attempts, not template echoes. Both hosts miss the 3/5 gate; release
 remains blocked.
 
+Fixture `identity-drift-v1`: harness SHA-256
+`0f96c9a92011c812082e6a1986ecfec621d65c88921018f989ca4b1e57900eef`;
+prompt SHA-256 `3642b9d2d308425337a0e4b81bdf84f772591b62ea323f8e43b2c6d7c08d3e5d`;
+ledger-note SHA-256 `0d96093c04a3d6397793587c058037d2ef41903aec98483cf8a39a4ccb0c4445`.
+The canonical run is `docs/feature-forge/runs/2026-08-25-identity-drift/`;
+the canonical specification is `docs/superpowers/specs/2026-08-25-identity-drift-design.md`.
+
+Payload came from commit `06e874d`, installed with its `install.py`; every
+fixture recorded digest `0cbcd479d984e25c917abb26884f1fab00a9085eed6516b9ece74f45ab030d86`.
+Codex command: `codex exec --ephemeral --model gpt-5.6-terra --config
+'model_reasoning_effort="medium"' --approve-for-me --cd FIXTURE - < PROMPT`
+(CLI `0.151.0`; requested/resolved terra medium; incompatible `--sandbox` and
+`--approve-for-me` combination omitted). Claude command: `claude --print
+--no-session-persistence --model haiku --effort medium --permission-mode
+acceptEdits < PROMPT` (CLI `2.1.251`; requested/resolved Haiku 4.5 medium).
+
+| host/run | oracle errors |
+| --- | --- |
+| Codex 1 | next action; transition |
+| Codex 2 | transition |
+| Codex 3 | next action; transition |
+| Codex 4 | HEAD advanced; transition |
+| Codex 5 | HEAD advanced; transition |
+| Claude 1 | status, stage, next action, transition |
+| Claude 2 | status, stage, next action, transition |
+| Claude 3 | seeded drift removed; status, stage, next action, transition |
+| Claude 4 | status, stage, next action, transition |
+| Claude 5 | status, stage, next action, transition |
+
 > **Superseded campaign record:** the historical 0/5 host observations below
 > used a pre-schema, noncanonical fixture and are invalid for qualification.
-> Canonical-v1 replacement qualification is pending; no current pass rate,
-> payload hash, or release result is claimed by this document.
+> This historical record is non-authoritative; the canonical-v1 result above
+> replaces it.
 
 Fixture version: `identity-drift-v1`.
 
