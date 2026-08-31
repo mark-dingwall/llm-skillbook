@@ -12,6 +12,12 @@ never writes a deliverable, applies a fix, or issues a review verdict. A
 worker's failure becomes a retry with the same packet, a re-plan into smaller
 packets, or a residual — never controller work.
 
+## Run artefacts
+
+`.work-team/` run directories are gitignored by default; the controller adds
+the ignore entry during Frame. Committing run artefacts requires an explicit
+user override.
+
 ## Harness neutrality
 
 Prose must not depend on one harness. Name the subagent primitive generically

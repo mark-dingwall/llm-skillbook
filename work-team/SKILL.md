@@ -35,7 +35,9 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
 
 1. **Frame.** Read the task and scout the repository inline (list files, run
    existing tests) to discover the work list. Create the run directory
-   `.work-team/<run>/` at the repository root and log the frame with `wt-log`.
+   `.work-team/<run>/` at the repository root, ensure `.work-team/` is
+   gitignored (add it unless the user has said to commit run artefacts), and
+   log the frame with `wt-log`.
 2. **Plan.** Write `plan.json` per [run-plan.md](references/run-plan.md) and
    validate it with `wt-validate` against `schemas/plan.schema.json` before any
    dispatch. Phases are ordered; workers in one phase run concurrently only
