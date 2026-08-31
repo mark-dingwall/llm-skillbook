@@ -80,15 +80,18 @@ def prepare(root: Path) -> dict[str, object]:
     if checker.exists():
         audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo)], text=True,
                                capture_output=True)
-        if audit.returncode:
+        if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
             raise RuntimeError("ff-check audit rejected the clean seed")
     # The clean ledger is committed and structurally valid before this sole fault.
     (repo / SPEC).write_text("# Frozen specification\n\nModified without committing: identity/blob drift.\n")
     if checker.exists():
         identities = subprocess.run(["python3", str(checker), "identities", "--repo", str(repo),
                                      "--run", RUN], text=True, capture_output=True)
-        output = identities.stdout + identities.stderr
-        if identities.returncode == 0 or SPEC not in output:
+        paths = [line.removeprefix("path=") for line in identities.stderr.splitlines()
+                 if line.startswith("path=")]
+        if (identities.returncode != 1
+                or identities.stdout.strip() != "FF-CHECK v1 gate=identities status=fail"
+                or paths != [SPEC]):
             raise RuntimeError("ff-check identities did not isolate the specification drift")
     (repo / ".git/info/exclude").write_text(".agents/\n.claude/\n" + META + "\n")
     digest = payload_digest(payload_root(repo))

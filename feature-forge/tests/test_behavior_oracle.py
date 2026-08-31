@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parents[2]
 HARNESS = REPO / "feature-forge" / "tests" / "behavior" / "identity_drift.py"
@@ -55,6 +57,31 @@ def _passing_ledger(fixture: dict[str, object]) -> None:
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+
+def _checker(root: Path, identities_paths: str) -> None:
+    script = root / ".agents/skills/feature-forge/scripts/ff-check"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "import sys\n"
+        "if sys.argv[1] == 'audit': print('FF-CHECK v1 gate=audit status=pass')\n"
+        "else:\n"
+        " print('FF-CHECK v1 gate=identities status=fail')\n"
+        f" print({identities_paths!r}, file=sys.stderr)\n"
+        " sys.exit(1)\n"
+    )
+
+
+def test_prepare_checker_accepts_clean_audit_and_isolated_spec_failure(tmp_path):
+    _checker(tmp_path, "path=docs/feature-forge/runs/identity-drift/specification.md")
+    fixture = _prepare(tmp_path)
+    assert fixture["run"] == "identity-drift"
+
+
+def test_prepare_checker_rejects_additional_identity_path(tmp_path):
+    _checker(tmp_path, "path=docs/feature-forge/runs/identity-drift/specification.md\npath=README.md")
+    with pytest.raises(subprocess.CalledProcessError):
+        _prepare(tmp_path)
 
 
 def test_oracle_rejects_forward_commit(tmp_path):
