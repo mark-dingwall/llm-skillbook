@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import hashlib
 import json
 import re
 import subprocess
@@ -14,8 +15,24 @@ from typing import Literal
 
 
 SCHEMA = "feature-forge/ledger/v1"
+RECEIPT_SCHEMA = "feature-forge/review-receipt/v1"
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 DATED_DIRECTORY = re.compile(r"(\d{4})-(\d{2})-(\d{2})-(.+)\Z")
+DISPATCH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+REVIEW_KEYS = {
+    "kind", "state", "round", "root_identity", "dispatch_id", "run_ref",
+    "target_seal", "evidence_path", "reviewed_commit",
+    "previous_open_finding_ids", "open_finding_ids",
+}
+RECEIPT_KEYS = {
+    "schema", "kind", "dispatch_id", "run_ref", "target_seal",
+    "source_identity", "result", "actionable_finding_ids",
+}
+SOURCE_IDENTITY_KEYS = {"kind", "path", "value"}
+HEAD_KEYS = {
+    "schema", "run_id", "status", "worktree", "branch", "base_identity",
+    "stage", "next_action", "frozen", "review",
+}
 
 
 @dataclass(frozen=True)
@@ -32,6 +49,28 @@ def git(repo: Path, *args: str) -> str | None:
     except OSError:
         return None
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def git_bytes(repo: Path, *args: str) -> bytes | None:
+    """Return an exact byte-oriented Git observation for NUL-delimited paths."""
+    try:
+        observed = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, check=False,
+        )
+    except OSError:
+        return None
+    return observed.stdout if observed.returncode == 0 else None
+
+
+def git_status(repo: Path, *args: str) -> int | None:
+    """Return a Git predicate status without interpreting its output."""
+    try:
+        observed = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, check=False,
+        )
+    except OSError:
+        return None
+    return observed.returncode
 
 
 def repository(path: str) -> Path | None:
@@ -245,6 +284,455 @@ def safe_frozen_path(repo: Path, value: object) -> str | None:
     return value
 
 
+def frozen_snapshot(repo: Path, frozen: object) -> Result:
+    """Check the two frozen blobs without broadening identity semantics."""
+    if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
+        return result("unverifiable", "frozen=unsupported")
+    mismatches: list[str] = []
+    for name in ("specification", "plan"):
+        item = frozen[name]
+        if item is None:
+            continue
+        if not isinstance(item, dict) or set(item) != {"path", "blob"}:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        path, blob = safe_frozen_path(repo, item.get("path")), item.get("blob")
+        if path is None or not isinstance(blob, str) or not blob:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        observed = git(repo, "hash-object", "--", path)
+        if observed is None:
+            return result("unverifiable", f"frozen={name}:unavailable")
+        if observed != blob:
+            mismatches.append(f"path={path}")
+    return result("fail", *mismatches) if mismatches else result("pass")
+
+
+def sorted_unique_strings(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and all(isinstance(item, str) and item for item in value)
+        and value == sorted(set(value))
+    )
+
+
+def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None, "receipt=unreadable"
+    if not isinstance(payload, dict) or set(payload) != RECEIPT_KEYS:
+        return None, "receipt=unsupported"
+    if payload.get("schema") != RECEIPT_SCHEMA:
+        return None, "receipt=unsupported"
+    if payload.get("kind") not in {"specification", "plan", "implementation"}:
+        return None, "receipt=unsupported"
+    if payload.get("result") not in {"pass", "changes_required", "blocked"}:
+        return None, "receipt=unsupported"
+    if not all(
+        isinstance(payload.get(field), str) and payload.get(field)
+        for field in ("dispatch_id", "run_ref", "target_seal")
+    ):
+        return None, "receipt=unsupported"
+    if not sorted_unique_strings(payload.get("actionable_finding_ids")):
+        return None, "receipt=unsupported"
+    source = payload.get("source_identity")
+    if (
+        not isinstance(source, dict)
+        or set(source) != SOURCE_IDENTITY_KEYS
+        or not isinstance(source.get("kind"), str)
+        or not isinstance(source.get("value"), str)
+        or not source.get("value")
+        or (source.get("path") is not None and not isinstance(source.get("path"), str))
+    ):
+        return None, "receipt=unsupported"
+    return payload, None
+
+
+def review_shape(review: object) -> tuple[dict[str, object] | None, str | None]:
+    if not isinstance(review, dict) or set(review) != REVIEW_KEYS:
+        return None, "review=unsupported"
+    if review.get("kind") not in {None, "specification", "plan", "implementation"}:
+        return None, "review=unsupported"
+    if review.get("state") not in {
+        "not_started", "review_active", "changes_required", "pass", "blocked",
+    }:
+        return None, "review=unsupported"
+    nullable_strings = (
+        "root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit",
+    )
+    if any(
+        review.get(field) is not None
+        and (not isinstance(review.get(field), str) or not review.get(field))
+        for field in nullable_strings
+    ):
+        return None, "review=unsupported"
+    if (
+        not isinstance(review.get("round"), int)
+        or isinstance(review.get("round"), bool)
+        or review["round"] < 0
+        or not sorted_unique_strings(review.get("previous_open_finding_ids"))
+        or not sorted_unique_strings(review.get("open_finding_ids"))
+    ):
+        return None, "review=unsupported"
+    return review, None
+
+
+def expected_receipt_path(repo: Path, run: Path, dispatch_id: object) -> tuple[str, Path] | None:
+    if not isinstance(dispatch_id, str) or not DISPATCH_ID.fullmatch(dispatch_id):
+        return None
+    path = run / "reviews" / f"{dispatch_id}.json"
+    return path.relative_to(repo).as_posix(), path
+
+
+def receipt_matches_implementation_pass(payload: dict[str, object], review: dict[str, object]) -> bool:
+    source = payload["source_identity"]
+    assert isinstance(source, dict)
+    return (
+        payload["kind"] == review["kind"]
+        and payload["dispatch_id"] == review["dispatch_id"]
+        and payload["run_ref"] == review["run_ref"]
+        and payload["target_seal"] == review["target_seal"]
+        and payload["result"] == "pass"
+        and payload["actionable_finding_ids"] == review["open_finding_ids"] == []
+        and source == {
+            "kind": "reviewed_commit", "path": None, "value": review["reviewed_commit"],
+        }
+    )
+
+
+def parse_name_status_z(raw: bytes) -> set[str] | None:
+    fields = raw.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths: set[str] = set()
+    index = 0
+    try:
+        while index < len(fields):
+            status = fields[index].decode("ascii")
+            index += 1
+            count = 2 if status.startswith(("R", "C")) else 1
+            for _ in range(count):
+                paths.add(fields[index].decode("utf-8"))
+                index += 1
+    except (IndexError, UnicodeDecodeError):
+        return None
+    return paths
+
+
+def parse_porcelain_z(raw: bytes) -> set[str] | None:
+    fields = raw.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths: set[str] = set()
+    index = 0
+    try:
+        while index < len(fields):
+            record = fields[index]
+            index += 1
+            if len(record) < 4 or record[2:3] != b" ":
+                return None
+            status = record[:2]
+            paths.add(record[3:].decode("utf-8"))
+            if b"R" in status or b"C" in status:
+                paths.add(fields[index].decode("utf-8"))
+                index += 1
+    except (IndexError, UnicodeDecodeError):
+        return None
+    return paths
+
+
+def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
+    """Verify the pre-Finish reviewed tree plus exact workflow evidence."""
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run = canonical_run(repo, run_arg)
+    if run is None:
+        return result("unverifiable", "run=noncanonical")
+    data, error = parse_ledger(run / "ledger.md")
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    review, error = review_shape(data.get("review"))
+    if error:
+        return result("unverifiable", error)
+    assert review is not None
+    if review["kind"] != "implementation" or review["state"] != "pass":
+        return result("fail", "review=not-implementation-pass")
+    required = ("root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit")
+    if not all(isinstance(review[field], str) and review[field] for field in required):
+        return result("unverifiable", "review=unsupported")
+    if review["open_finding_ids"] != []:
+        return result("unverifiable", "review=unsupported")
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if expected is None:
+        return result("unverifiable", "review=unsupported")
+    expected_relative, receipt_path = expected
+    if review["evidence_path"] != expected_relative:
+        return result("fail", "receipt=wrong-path")
+    if not receipt_path.is_file():
+        return result("unverifiable", "receipt=missing")
+    payload, error = strict_receipt(receipt_path)
+    if error:
+        return result("unverifiable", error)
+    assert payload is not None
+    if not receipt_matches_implementation_pass(payload, review):
+        return result("fail", "receipt=mismatch")
+    if git(repo, "rev-parse", "--verify", f"{review['reviewed_commit']}^{{commit}}") is None:
+        return result("unverifiable", "reviewed-commit=unresolvable")
+    ancestry = git_status(repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD")
+    if ancestry is None or ancestry > 1:
+        return result("unverifiable", "ancestry=unavailable")
+    if ancestry == 1:
+        return result("fail", "ancestry=not-descendant")
+    frozen = frozen_snapshot(repo, data.get("frozen"))
+    if frozen.status != "pass":
+        return frozen
+    committed_raw = git_bytes(
+        repo, "diff", "--name-status", "-z", "--find-renames", "--find-copies-harder",
+        f"{review['reviewed_commit']}..HEAD", "--",
+    )
+    dirty_raw = git_bytes(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    if committed_raw is None or dirty_raw is None:
+        return result("unverifiable", "paths=unavailable")
+    committed = parse_name_status_z(committed_raw)
+    dirty = parse_porcelain_z(dirty_raw)
+    if committed is None or dirty is None:
+        return result("unverifiable", "paths=unsupported")
+    allowed = {
+        (run / "ledger.md").relative_to(repo).as_posix(),
+        (run / "final-report.md").relative_to(repo).as_posix(),
+        expected_relative,
+    }
+    foreign = sorted((committed | dirty) - allowed)
+    return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
+
+
+def canonical_path_shape(repo: Path, value: object) -> str | None:
+    """Validate a repository-relative path without observing its contents."""
+    if not isinstance(value, str) or not value:
+        return None
+    path = PurePosixPath(value)
+    if path.is_absolute() or path.as_posix() != value or ".." in path.parts or path.parts[0] == ".git":
+        return None
+    try:
+        (repo / path).resolve().relative_to(repo)
+    except ValueError:
+        return None
+    return value
+
+
+def audit_frozen_shape(repo: Path, frozen: object) -> bool:
+    if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
+        return False
+    for item in frozen.values():
+        if item is None:
+            continue
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"path", "blob"}
+            or canonical_path_shape(repo, item.get("path")) is None
+            or not isinstance(item.get("blob"), str)
+            or not item.get("blob")
+        ):
+            return False
+    return True
+
+
+def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | None:
+    if set(data) != HEAD_KEYS:
+        return "head=unsupported"
+    suffix = DATED_DIRECTORY.fullmatch(run.name)
+    if suffix is None:
+        return "run=unsupported"
+    run_id = data.get("run_id")
+    if not isinstance(run_id, str) or run_id != suffix.group(4) or not valid_run_id(repo, run_id):
+        return "run=unsupported"
+    if data.get("status") not in {"active", "blocked", "complete"}:
+        return "status=unsupported"
+    if not isinstance(data.get("worktree"), str) or not Path(str(data["worktree"])).is_absolute():
+        return "worktree=unsupported"
+    if not isinstance(data.get("branch"), str) or git(repo, "check-ref-format", "--branch", str(data["branch"])) is None:
+        return "branch=unsupported"
+    if not isinstance(data.get("base_identity"), str) or not data["base_identity"]:
+        return "base-identity=unsupported"
+    stage = data.get("stage")
+    if (
+        not isinstance(stage, dict)
+        or set(stage) != {"id", "state"}
+        or not isinstance(stage.get("id"), int)
+        or isinstance(stage.get("id"), bool)
+        or not 1 <= stage["id"] <= 14
+        or stage.get("state") not in {"pending", "active", "blocked", "complete", "invalidated"}
+    ):
+        return "stage=unsupported"
+    next_action = data.get("next_action")
+    if next_action is not None and (not isinstance(next_action, str) or not next_action):
+        return "next-action=unsupported"
+    if not audit_frozen_shape(repo, data.get("frozen")):
+        return "frozen=unsupported"
+    _, error = review_shape(data.get("review"))
+    return error
+
+
+def terminal_invariant(data: dict[str, object]) -> bool:
+    terminal = (
+        data["status"] == "complete"
+        and data["stage"] == {"id": 14, "state": "complete"}
+        and data["next_action"] is None
+    )
+    if data["status"] == "complete" or data["stage"] == {"id": 14, "state": "complete"} or data["next_action"] is None:
+        return terminal
+    return isinstance(data["next_action"], str) and bool(data["next_action"])
+
+
+def populated_review_tuple(review: dict[str, object]) -> bool:
+    return all(
+        isinstance(review[field], str) and bool(review[field])
+        for field in ("root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path")
+    )
+
+
+def review_state_invariant(review: dict[str, object]) -> tuple[bool, bool]:
+    """Return (valid, receipt_required) for the exact current-state matrix."""
+    state = review["state"]
+    scalars = (
+        "kind", "root_identity", "dispatch_id", "run_ref", "target_seal",
+        "evidence_path", "reviewed_commit",
+    )
+    if state == "not_started":
+        return (
+            all(review[field] is None for field in scalars)
+            and review["round"] == 0
+            and review["previous_open_finding_ids"] == []
+            and review["open_finding_ids"] == [],
+            False,
+        )
+    if review["kind"] not in {"specification", "plan", "implementation"}:
+        return False, False
+    if not isinstance(review["root_identity"], str) or not review["root_identity"]:
+        return False, False
+    if state == "blocked":
+        tuple_fields = ("dispatch_id", "run_ref", "target_seal", "evidence_path")
+        all_null = all(review[field] is None for field in tuple_fields)
+        all_present = populated_review_tuple(review)
+        return review["reviewed_commit"] is None and (all_null or all_present), all_present
+    if not populated_review_tuple(review) or review["reviewed_commit"] is not None:
+        if not (
+            state == "pass"
+            and review["kind"] == "implementation"
+            and populated_review_tuple(review)
+            and isinstance(review["reviewed_commit"], str)
+            and review["reviewed_commit"]
+        ):
+            return False, False
+    if state == "review_active":
+        return review["reviewed_commit"] is None, False
+    if state == "changes_required":
+        return review["reviewed_commit"] is None and review["round"] >= 1 and bool(review["open_finding_ids"]), True
+    if state == "pass":
+        commit_valid = (
+            isinstance(review["reviewed_commit"], str) and bool(review["reviewed_commit"])
+            if review["kind"] == "implementation" else review["reviewed_commit"] is None
+        )
+        return commit_valid and review["open_finding_ids"] == [], True
+    return False, False
+
+
+def canonical_candidate_path(run: Path, kind: str) -> str:
+    dated_id = run.name
+    if kind == "specification":
+        return f"docs/superpowers/specs/{dated_id}-design.md"
+    return f"docs/superpowers/plans/{dated_id}.md"
+
+
+def receipt_source_matches(
+    repo: Path, run: Path, review: dict[str, object], payload: dict[str, object],
+) -> Result:
+    source = payload["source_identity"]
+    assert isinstance(source, dict)
+    if review["kind"] in {"specification", "plan"}:
+        path = canonical_candidate_path(run, str(review["kind"]))
+        if source.get("kind") != "candidate_sha256" or source.get("path") != path:
+            return result("fail", "receipt=source-mismatch")
+        try:
+            digest = hashlib.sha256((repo / path).read_bytes()).hexdigest()
+        except OSError:
+            return result("unverifiable", "receipt=source-unavailable")
+        return result("pass") if source.get("value") == digest else result("fail", "receipt=source-mismatch")
+    if source.get("kind") != "reviewed_commit" or source.get("path") is not None:
+        return result("fail", "receipt=source-mismatch")
+    value = source.get("value")
+    if review["reviewed_commit"] is not None:
+        return result("pass") if value == review["reviewed_commit"] else result("fail", "receipt=source-mismatch")
+    if not isinstance(value, str) or git(repo, "rev-parse", "--verify", f"{value}^{{commit}}") is None:
+        return result("fail", "receipt=source-mismatch")
+    return result("pass")
+
+
+def audit_receipt(repo: Path, run: Path, review: dict[str, object]) -> Result:
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if expected is None:
+        return result("unverifiable", "review=unsupported")
+    relative, path = expected
+    if review["evidence_path"] != relative:
+        return result("fail", "receipt=wrong-path")
+    if not path.is_file():
+        return result("unverifiable", "receipt=missing")
+    payload, error = strict_receipt(path)
+    if error:
+        return result("unverifiable", error)
+    assert payload is not None
+    if (
+        payload["kind"] != review["kind"]
+        or payload["dispatch_id"] != review["dispatch_id"]
+        or payload["run_ref"] != review["run_ref"]
+        or payload["target_seal"] != review["target_seal"]
+        or payload["result"] != review["state"]
+        or payload["actionable_finding_ids"] != review["open_finding_ids"]
+    ):
+        return result("fail", "receipt=mismatch")
+    return receipt_source_matches(repo, run, review, payload)
+
+
+def audit(repo_arg: str, run_arg: str) -> Result:
+    """Audit only deterministic invariants of the current v1 ledger head."""
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run = canonical_run(repo, run_arg)
+    if run is None:
+        return result("unverifiable", "run=noncanonical")
+    data, error = parse_ledger(run / "ledger.md")
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    if error := audit_head_shape(repo, run, data):
+        return result("unverifiable", error)
+    if not terminal_invariant(data):
+        return result("fail", "terminal=inconsistent")
+    review = data["review"]
+    assert isinstance(review, dict)
+    valid, receipt_required = review_state_invariant(review)
+    if not valid:
+        return result("fail", "review=inconsistent")
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if review["state"] == "review_active":
+        if expected is None:
+            return result("unverifiable", "review=unsupported")
+        if review["evidence_path"] != expected[0]:
+            return result("fail", "receipt=wrong-path")
+    must_block = (
+        (review["round"] >= 3 and bool(review["open_finding_ids"]))
+        or (
+            bool(review["open_finding_ids"])
+            and review["open_finding_ids"] == review["previous_open_finding_ids"]
+        )
+    )
+    if must_block and review["state"] != "blocked":
+        return result("fail", "review=must-block")
+    return audit_receipt(repo, run, review) if receipt_required else result("pass")
+
+
 def identities(repo_arg: str, run_arg: str) -> Result:
     repo = repository(repo_arg)
     if repo is None:
@@ -300,12 +788,25 @@ def parser() -> argparse.ArgumentParser:
     command = subcommands.add_parser("identities")
     command.add_argument("--repo", required=True)
     command.add_argument("--run", required=True)
+    command = subcommands.add_parser("reviewed-snapshot")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run", required=True)
+    command = subcommands.add_parser("audit")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run", required=True)
     return parsed
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    checked = runs(args.repo, args.run_id) if args.command == "runs" else identities(args.repo, args.run)
+    if args.command == "runs":
+        checked = runs(args.repo, args.run_id)
+    elif args.command == "identities":
+        checked = identities(args.repo, args.run)
+    elif args.command == "reviewed-snapshot":
+        checked = reviewed_snapshot(args.repo, args.run)
+    else:
+        checked = audit(args.repo, args.run)
     print(f"FF-CHECK v1 gate={args.command} status={checked.status}")
     for finding in checked.findings:
         print(finding, file=sys.stderr)
