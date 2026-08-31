@@ -22,19 +22,86 @@ by single hyphens, begins and ends alphanumeric, and is rejected (not silently
 sanitized) if it contains consecutive hyphens or any non-hyphen separator, a
 traversal segment, whitespace, a leading dash, or invalid Git-ref content.
 
+## Ledger v1 head and human evidence
+
+The first nonblank ledger content is one fenced `json` object with no comments.
+It is checker-owned current state; Markdown tables retain human-owned evidence
+and must not mirror any current head value. A pre-schema ledger is unsupported
+and transitions `unsupported -> blocked`; never migrate it or silently treat it
+as absent.
+
+| head key | value and rule |
+| --- | --- |
+| `schema` | Exactly `feature-forge/ledger/v1`. |
+| `run_id` | Work-unit slug. |
+| `status` | `active`, `blocked`, or `complete`. |
+| `worktree`, `branch`, `base_identity` | Current absolute worktree, branch, and Git object identity. |
+| `stage` | `{id, state}`; IDs are 1..14 and state is `pending`, `active`, `blocked`, `complete`, or `invalidated`. |
+| `next_action` | Nonempty for nonterminal heads; null only when status is `complete`, which is valid only with Stage 14 complete. |
+| `frozen` | `specification` and `plan`, each null or exactly `{path, blob}` strings; paths are canonical repository-relative paths and Git resolves blobs/commits. |
+| `review` | Current review control object, defined below. |
+
+The exact top-level key set is `schema`, `run_id`, `status`, `worktree`,
+`branch`, `base_identity`, `stage`, `next_action`, `frozen`, and `review`.
+The head owns those current values. Tables retain intent/run evidence, authority,
+implementation evidence, verification/acceptance evidence, the Finish journal,
+and dated transitions. They never claim to hold a current review field; prior
+review evidence belongs in transition history, not the current head.
+
+`review` has exactly `kind`, `state`, `round`, `root_identity`, `dispatch_id`,
+`run_ref`, `target_seal`, `evidence_path`, `reviewed_commit`,
+`previous_open_finding_ids`, and `open_finding_ids`. `kind` is null,
+`specification`, `plan`, or `implementation`; `state` is `not_started`,
+`review_active`, `changes_required`, `pass`, or `blocked`. Round and finding-ID
+arrays are checker-consumed control state, not coarse prose: finding IDs are
+sorted, unique opaque actionable IDs and never finding text.
+
+| review state | required values |
+| --- | --- |
+| `not_started` | kind, root, dispatch, run reference, target, evidence, and reviewed commit null; round 0; both arrays empty. |
+| `review_active` | kind, root, dispatch, run reference, target, and evidence present; reviewed commit null; round and arrays describe completed returns for this kind/root. |
+| `changes_required` | `review_active` fields; reviewed commit null; round at least 1; open IDs nonempty. |
+| `pass` | `review_active` fields; open IDs empty; reviewed commit is required only for implementation and otherwise null. |
+| `blocked` | kind and root present; dispatch/evidence fields are either all null for a pre-dispatch block or all present for a returned/capped review; reviewed commit null. |
+
+Starting a different review kind creates a fresh current review object at round
+0 with empty arrays and a new kind/root. Earlier review evidence remains in the
+transition history; the current head does not prove that historical transition.
+Only review-loop owns review target seals.
+
+| Term | Meaning | Validator |
+| --- | --- | --- |
+| Candidate input identity | SHA-256 of exact uncommitted spec/plan candidate bytes | Feature Forge adapter |
+| Review target seal | Seal for review-loop materialized target | review-loop only |
+| Frozen identity | canonical path plus Git blob | ff-check identities |
+| Reviewed implementation commit | source HEAD on which implementation review passed | ff-check reviewed-snapshot |
+
+These identities are not interchangeable; Feature Forge cannot derive a review
+target seal from a source commit. A human transition row records `event`,
+`parent event`, UTC time, from/to, next action, session provenance,
+reason/authority, and evidence. Session provenance records the harness, current
+conversation/session ID, and root, parent, or subagent identity when materially
+different and exposed.
+
+Normal resume validates the ledger, Git identities, and audit tip without
+transcripts. Only a mismatch triggers reading referenced local transcripts since
+the last consistent checkpoint. Missing, inaccessible, or ambiguous transcript
+evidence does not invalidate an otherwise consistent run, but blocks when it is
+needed to resolve a mismatch. Transcripts are forensic evidence only.
+
 Stage states are `pending | active | blocked | complete | invalidated`. Review
 states are `not_started | review_active | pass | changes_required | blocked`.
 The ledger names exactly one next permitted action except at a terminal state.
 `review_active` permits only **await or recover the existing review**; it does
 not permit target, ledger, downstream-stage, or new-review mutation.
 
-The ledger records coarse orchestration state only: run/mode, current stage and
-sole next action, branch/worktree identity, canonical paths and frozen
-identities, review summaries, approvals/authority, execution mode, acceptance
-and verification state, blockers/change requests, the implementation table, and
-the Finish operation journal (`finish_id`, phase, selected choice and
-authority, base/feature tips, worktree, exact next side effect, completed
-side-effect receipts, and durable phase receipts):
+Outside the head, the ledger records only human evidence: intent, authority,
+execution mode, acceptance and verification evidence, blockers/change requests,
+the implementation table, and the Finish journal (`finish_id`, phase, selected
+choice and authority, base/feature tips, worktree, exact next side effect,
+completed side-effect receipts, and durable phase receipts). Review round and
+finding-ID fields are the exception: they are checker-consumed control state in
+the head, with opaque IDs only and no finding prose.
 
 | plan task | status | commit | evidence |
 |---|---|---|---|
@@ -67,9 +134,10 @@ IDs, stable run reference, stage charter, completion criterion, and content
 seal for every review.
 
 Persist a complete ledger update before each external dispatch and immediately
-after each return. A transition-log row has event ID, UTC time, from/to state,
-sole next permitted action, reason/authority, and evidence reference. A missing
-recorded return is recovered from its referenced dispatch before re-dispatch.
+after each return. A transition-log row has event ID, parent event, UTC time,
+from/to state, sole next permitted action, session provenance,
+reason/authority, and evidence reference. A missing recorded return is
+recovered from its referenced dispatch before re-dispatch.
 
 On resume, read the ledger plus every exact canonical artifact it names; verify
 frozen blob identities, worktree/branch, commits, evidence references, and
