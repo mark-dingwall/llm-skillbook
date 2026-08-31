@@ -3,6 +3,8 @@
 Run: python3 -m pytest tests/test_install.py
 """
 import importlib.util
+import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,6 +43,25 @@ def test_feature_forge_payload_ships_checker(tmp_path, host):
     assert (skill_root / "scripts" / "ff-check").is_file()
     assert not (skill_root / "tests").exists()
     assert not (skill_root / "reports").exists()
+
+
+@pytest.mark.parametrize(
+    ("host", "namespace"), [("codex", ".agents"), ("claude", ".claude")],
+)
+def test_feature_forge_production_checker_is_user_executable(tmp_path, host, namespace):
+    source = REPO / "feature-forge" / "scripts" / "ff-check"
+    assert source.stat().st_mode & stat.S_IXUSR
+
+    install.install("feature-forge", host, tmp_path, dev=False, force=False)
+    checker = tmp_path / namespace / "skills" / "feature-forge" / "scripts" / "ff-check"
+    assert checker.stat().st_mode & stat.S_IXUSR
+
+    result = subprocess.run(
+        [sys.executable, str(checker), "--help"], text=True, capture_output=True,
+    )
+    assert result.returncode == 0
+    assert "{runs,identities,reviewed-snapshot,audit}" in result.stdout
+    assert "FF-CHECK" not in result.stdout
 
 
 def test_claude_splits_subagents(tmp_path):
