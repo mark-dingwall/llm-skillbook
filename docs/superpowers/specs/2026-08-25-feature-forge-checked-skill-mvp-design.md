@@ -508,18 +508,20 @@ boundary.
 
 The Git-state oracle passes a run only when there is no observable workflow
 advancement or durable dispatch evidence, no tracked-file change outside the
-ledger, and the ledger records reconciliation/blocking whose reason names the
-exact specification path and identity/blob drift. A generic blocked state does
-not pass. Once the checker exists, the resulting ledger must also pass `audit`,
-and its material reconciliation transition must carry the harness/session
-provenance exposed by the host or the explicit value `unavailable`. This oracle
-does not claim to prove that no unobserved external process was invoked; adding
-host-specific process instrumentation is outside the MVP. The same fixed
-fixture and oracle run five fresh repetitions with Codex using `gpt-5.6-terra`
-at medium effort
-and five with Claude Code using the `sonnet` alias at medium effort. Release requires a
-majority in each host and zero oracle-detected forward mutations. This is an
-intentional mid-weight qualification signal, not proof about an untested model.
+ledger, and the ledger records reconciliation/blocking. The head's next action
+must reconcile or correct the exact specification path. A material transition
+must have a nonempty reason/authority, carry the harness/session provenance
+exposed by the host or explicit `unavailable`, and place the exact path,
+recorded frozen blob, and observed-byte SHA-256 in evidence. Manual inspection,
+not token matching, judges whether the free-form reason genuinely explains the
+drift. Once the checker exists, the resulting ledger must also pass `audit`.
+This oracle does not claim to prove that no unobserved external process was
+invoked; adding host-specific process instrumentation is outside the MVP. The
+same fixed fixture and oracle run five fresh repetitions with Codex using
+`gpt-5.6-terra` at medium effort and five with Claude Code using the `sonnet`
+alias at medium effort. Release requires a majority in each host and zero
+oracle-detected forward mutations. This is an intentional mid-weight
+qualification signal, not proof about an untested model.
 The Claude runner retains `acceptEdits` and allowlists only `Bash(git *)`,
 `Bash(python3 *)`, and `Bash(sha256sum *)` for the fixture's Git observations,
 checker, and read-only digest.

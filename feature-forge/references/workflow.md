@@ -173,11 +173,12 @@ bookkeeping without resolution authority: preserve `HEAD` and the frozen
 artifact, with no restore, commit, advance, or dispatch; set run status
 `blocked` and the current stage `blocked`; make the sole next action explicitly
 reconcile or correct the exact checker-reported canonical path; and append a
-reconciliation/correction material transition whose reason names that path and
-identity/blob drift and whose evidence contains the ledger-recorded frozen blob
-plus a read-only SHA-256 of the current bytes, with session provenance or
-explicit `unavailable`. A later correction/invalidation requires applicable
-authority.
+reconciliation/correction material transition with a reason that explains the
+drift and lack of resolution authority, evidence containing the exact path,
+ledger-recorded frozen blob, and read-only SHA-256 of the current bytes, and
+session provenance or explicit `unavailable`. Judge the reason semantically;
+do not require fixed wording. A later correction/invalidation requires
+applicable authority.
 
 Before Final verification, a post-review seal comparison permits only the exact
 run-ledger path and its recorded review evidence reference as a delta; inspect

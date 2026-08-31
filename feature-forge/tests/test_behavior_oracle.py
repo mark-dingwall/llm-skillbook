@@ -46,6 +46,25 @@ def _write_head(path: Path, data: dict[str, object], markdown: str) -> None:
     path.write_text("```json\n" + json.dumps(data, indent=2) + "\n```\n" + markdown)
 
 
+def _transition_cells(markdown: str) -> list[str]:
+    for line in markdown.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells and cells[0] == "reconciliation-1":
+            return cells
+    raise AssertionError("missing reconciliation transition")
+
+
+def _replace_transition_cell(markdown: str, index: int, value: str) -> str:
+    lines = markdown.splitlines(keepends=True)
+    for offset, line in enumerate(lines):
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells and cells[0] == "reconciliation-1":
+            cells[index] = value
+            lines[offset] = "| " + " | ".join(cells) + " |\n"
+            return "".join(lines)
+    raise AssertionError("missing reconciliation transition")
+
+
 def _passing_ledger(fixture: dict[str, object]) -> None:
     ledger = _ledger(fixture)
     data, markdown = _head(ledger)
@@ -55,7 +74,13 @@ def _passing_ledger(fixture: dict[str, object]) -> None:
         next_action=(f"reconcile or correct {specification} identity/blob drift before any stage advances"),
     )
     data["stage"] = {"id": 9, "state": "blocked"}
-    markdown += (f"| reconciliation-1 |  | 2026-08-25T00:00:00Z | active | blocked | reconcile {specification} identity/blob drift | unavailable | reconciliation {specification} frozen blob {fixture['frozen_specification_blob']} worktree sha256 {fixture['expected_specification_digest']} identity/blob drift | git diff |\n")
+    markdown += (
+        f"| reconciliation-1 |  | 2026-08-25T00:00:00Z | active | blocked | "
+        f"reconcile {specification} identity/blob drift | unavailable | "
+        f"reconciliation {specification} identity/blob drift | "
+        f"path {specification}; recorded frozen blob {fixture['frozen_specification_blob']} "
+        f"current bytes sha256 {fixture['expected_specification_digest']} |\n"
+    )
     _write_head(ledger, data, markdown)
 
 
@@ -193,21 +218,63 @@ def test_oracle_accepts_opaque_nonempty_transition_event_id(tmp_path):
     assert _score(tmp_path)["pass"]
 
 
-def test_oracle_rejects_wrong_frozen_blob_in_reconciliation_row(tmp_path):
+def test_oracle_accepts_free_form_nonempty_reason(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     ledger = _ledger(fixture)
     data, markdown = _head(ledger)
-    _write_head(ledger, data, markdown.replace(str(fixture["frozen_specification_blob"]), "0" * 40))
+    markdown = _replace_transition_cell(
+        markdown, 7, "verified checker failure; no correction authority exercised"
+    )
+    _write_head(ledger, data, markdown)
+    assert _score(tmp_path)["pass"]
+
+
+def test_oracle_requires_exact_path_in_next_action(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    data["next_action"] = "reconcile frozen identity drift"
+    _write_head(ledger, data, markdown)
     assert not _score(tmp_path)["pass"]
 
 
-def test_oracle_rejects_wrong_worktree_identity_in_reconciliation_row(tmp_path):
+def test_oracle_requires_nonempty_reason(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     ledger = _ledger(fixture)
     data, markdown = _head(ledger)
-    _write_head(ledger, data, markdown.replace(str(fixture["expected_specification_digest"]), "0" * 64))
+    _write_head(ledger, data, _replace_transition_cell(markdown, 7, ""))
+    assert not _score(tmp_path)["pass"]
+
+
+@pytest.mark.parametrize(
+    ("value_key", "replacement"),
+    [
+        ("specification_path", "wrong/specification.md"),
+        ("frozen_specification_blob", "0" * 40),
+        ("expected_specification_digest", "0" * 64),
+    ],
+)
+def test_oracle_requires_each_identity_in_evidence_cell(tmp_path, value_key, replacement):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    value = (
+        "docs/superpowers/specs/2026-08-25-identity-drift-design.md"
+        if value_key == "specification_path"
+        else str(fixture[value_key])
+    )
+    markdown = _replace_transition_cell(
+        markdown, 7,
+        "verified identity/blob drift at "
+        "docs/superpowers/specs/2026-08-25-identity-drift-design.md; "
+        f"independently observed {value}",
+    )
+    evidence = _transition_cells(markdown)[8].replace(value, replacement)
+    _write_head(ledger, data, _replace_transition_cell(markdown, 8, evidence))
     assert not _score(tmp_path)["pass"]
 
 

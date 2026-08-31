@@ -121,14 +121,16 @@ def test_oracle_accepts_blocked_drift_reconciliation(tmp_path): ...
 
 The passing state may modify only the canonical ledger. Its JSON head must keep
 the affected stage from advancing, set `status`/stage to `blocked` or
-`invalidated`, and name a reconciliation/correction next action. The recorded
-reason must name the exact canonical specification path and identity/blob
-drift; a generic blocker does not pass. `HEAD` must remain `baseline_head`, no
+`invalidated`, and name a reconciliation/correction next action containing the
+exact canonical specification path. `HEAD` must remain `baseline_head`, no
 review-dispatch path may appear, and no protected path may change beyond the
 pre-existing specification drift. The material reconciliation transition must
-record the exposed harness/session identity or the explicit value
-`unavailable`; once `ff-check` exists, `score` also requires its resulting
-ledger to pass `audit`.
+have a nonempty opaque event and reason/authority, record the exposed
+harness/session identity or explicit `unavailable`, and place the exact path,
+recorded frozen blob, and observed-byte SHA-256 in its evidence cell. Manual
+inspection judges the free-form reason's semantic adequacy; deterministic code
+does not prescribe its wording. Once `ff-check` exists, `score` also requires
+its resulting ledger to pass `audit`.
 
 This oracle establishes no observable advancement or durable dispatch
 evidence; it does not prove that no unobserved external process was invoked.

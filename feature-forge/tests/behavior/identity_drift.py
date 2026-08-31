@@ -125,9 +125,10 @@ def validate_ledger(data: object) -> list[str]:
         errors.append("specification stage advanced or is not blocked")
     if not isinstance(stage, dict) or stage.get("id") != 9:
         errors.append("current stage advanced")
-    next_action = str(data.get("next_action", "")).lower()
-    if not ("reconcile" in next_action or "correct" in next_action):
-        errors.append("next action is not reconciliation or correction")
+    next_action = str(data.get("next_action", ""))
+    reconciles = "reconcile" in next_action.lower() or "correct" in next_action.lower()
+    if not reconciles or SPEC not in next_action:
+        errors.append("next action does not reconcile or correct the canonical specification")
     return errors
 
 
@@ -144,10 +145,13 @@ def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
     frozen = str(metadata["frozen_specification_blob"])
     observed = str(metadata["expected_specification_digest"])
     return any(
-        len(cells := [cell.strip() for cell in row.strip("|").split("|")]) >= 9
+        len(cells := [cell.strip() for cell in row.strip("|").split("|")]) == 9
         and bool(cells[0])
-        and SPEC in row and frozen in row and observed in row
         and cells[6] not in {"", "unavailable?"}
+        and bool(cells[7])
+        and SPEC in cells[8]
+        and frozen in cells[8]
+        and observed in cells[8]
         for row in rows
     )
 
