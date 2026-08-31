@@ -33,6 +33,16 @@ def test_reports_are_excluded_from_production_payloads():
     assert "reports" in install.EXCLUDE_TOP
 
 
+@pytest.mark.parametrize("host", ["codex", "claude"])
+def test_feature_forge_payload_ships_checker(tmp_path, host):
+    install.install("feature-forge", host, tmp_path, dev=False, force=False)
+    namespace = ".agents" if host == "codex" else ".claude"
+    skill_root = tmp_path / namespace / "skills" / "feature-forge"
+    assert (skill_root / "scripts" / "ff-check").is_file()
+    assert not (skill_root / "tests").exists()
+    assert not (skill_root / "reports").exists()
+
+
 def test_claude_splits_subagents(tmp_path):
     install.install("multi-review", "claude", tmp_path, dev=False, force=False)
     agents = tmp_path / ".claude" / "agents"

@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Deterministic, read-only checks for Feature Forge ledger facts."""
+from __future__ import annotations
+
+import argparse
+import calendar
+import json
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Literal
+
+
+SCHEMA = "feature-forge/ledger/v1"
+SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+DATED_DIRECTORY = re.compile(r"(\d{4})-(\d{2})-(\d{2})-(.+)\Z")
+
+
+@dataclass(frozen=True)
+class Result:
+    status: Literal["pass", "fail", "unverifiable"]
+    findings: tuple[str, ...] = ()
+
+
+def git(repo: Path, *args: str) -> str | None:
+    """Return a Git observation, or None when Git cannot establish it."""
+    try:
+        result = subprocess.run(["git", "-C", str(repo), *args], text=True,
+                                capture_output=True, check=False)
+    except OSError:
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def repository(path: str) -> Path | None:
+    root = git(Path(path), "rev-parse", "--show-toplevel")
+    return Path(root).resolve() if root else None
+
+
+def result(status: Literal["pass", "fail", "unverifiable"], *findings: str) -> Result:
+    return Result(status, tuple(sorted(set(findings))))
+
+
+def parse_ledger(path: Path) -> tuple[dict[str, object] | None, str | None]:
+    """Read only the v1 JSON head; unsupported input is never absence."""
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeError):
+        return None, "unreadable-ledger"
+    match = re.match(r"\s*```json\n(.*?)\n```", text, re.DOTALL)
+    if not match:
+        return None, "missing-head"
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None, "malformed-head"
+    if not isinstance(data, dict) or data.get("schema") != SCHEMA:
+        return None, "unsupported-head"
+    required = {"run_id", "status", "worktree", "branch", "base_identity", "frozen"}
+    if not required <= set(data):
+        return None, "unsupported-head"
+    return data, None
+
+
+def valid_date(name: str, run_id: str) -> bool:
+    match = DATED_DIRECTORY.fullmatch(name)
+    if not match or match.group(4) != run_id:
+        return False
+    year, month, day = (int(match.group(index)) for index in range(1, 4))
+    try:
+        calendar.monthrange(year, month)[1]
+    except ValueError:
+        return False
+    return 1 <= day <= calendar.monthrange(year, month)[1]
+
+
+def valid_run_id(repo: Path, run_id: str) -> bool:
+    if not SLUG.fullmatch(run_id):
+        return False
+    return git(repo, "check-ref-format", "--branch", f"feature/{run_id}") is not None
+
+
+def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
+    text = git(repo, "worktree", "list", "--porcelain")
+    if text is None:
+        return None
+    found: list[tuple[str, str | None]] = []
+    path: str | None = None
+    branch: str | None = None
+    for line in [*text.splitlines(), ""]:
+        if not line:
+            if path is not None:
+                found.append((str(Path(path).resolve()), branch))
+            path, branch = None, None
+        elif line.startswith("worktree "):
+            path = line.removeprefix("worktree ")
+        elif line.startswith("branch refs/heads/"):
+            branch = line.removeprefix("branch refs/heads/")
+    return found
+
+
+def runs(repo_arg: str, run_id: str) -> Result:
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    if not valid_run_id(repo, run_id):
+        return result("fail", f"run-id={run_id}")
+    branches_text = git(repo, "branch", "--list", "--format=%(refname:short)")
+    observed_worktrees = worktrees(repo)
+    if branches_text is None or observed_worktrees is None:
+        return result("unverifiable", "git-inventory=unavailable")
+    expected_branch = f"feature/{run_id}"
+    branches = set(filter(None, branches_text.splitlines()))
+    branch_matches = [f"branch={expected_branch}"] if expected_branch in branches else []
+    worktree_matches = [(path, branch) for path, branch in observed_worktrees if branch == expected_branch]
+    worktree_findings = [f"worktree={path}" for path, _ in worktree_matches]
+
+    runs_root = repo / "docs" / "feature-forge" / "runs"
+    ledgers: list[tuple[Path, dict[str, object]]] = []
+    diagnostics: list[str] = []
+    unverifiable: list[str] = []
+    if runs_root.exists() and not runs_root.is_dir():
+        return result("unverifiable", "runs-directory=unavailable")
+    if runs_root.is_dir():
+        try:
+            children = sorted((child for child in runs_root.iterdir() if child.is_dir()), key=lambda item: item.name)
+        except OSError:
+            return result("unverifiable", "runs-directory=unavailable")
+        for directory in children:
+            canonical_requested = valid_date(directory.name, run_id)
+            ledger_path = directory / "ledger.md"
+            relative = ledger_path.relative_to(repo).as_posix()
+            if canonical_requested and (not ledger_path.is_file()):
+                unverifiable.append(f"ledger={relative}:missing")
+                continue
+            if not ledger_path.exists():
+                continue
+            if not ledger_path.is_file():
+                if canonical_requested:
+                    unverifiable.append(f"ledger={relative}:unreadable")
+                continue
+            data, error = parse_ledger(ledger_path)
+            if error:
+                if canonical_requested or ledger_path.exists():
+                    unverifiable.append(f"ledger={relative}:{error}")
+                continue
+            assert data is not None
+            recorded_id = data.get("run_id")
+            if canonical_requested and recorded_id != run_id:
+                diagnostics.append(f"ledger={relative}:run-id-mismatch")
+            if recorded_id == run_id:
+                if not valid_date(directory.name, run_id):
+                    diagnostics.append(f"ledger={relative}:noncanonical")
+                else:
+                    ledgers.append((ledger_path, data))
+    if unverifiable:
+        return result("unverifiable", *unverifiable, *branch_matches, *worktree_findings)
+    if diagnostics:
+        return result("fail", *diagnostics, *branch_matches, *worktree_findings)
+    ledger_findings = [f"ledger={path.relative_to(repo).as_posix()}" for path, _ in ledgers]
+    if not ledgers:
+        if branch_matches or worktree_findings:
+            return result("fail", *branch_matches, *worktree_findings)
+        return result("pass")
+    if len(ledgers) != 1:
+        return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    ledger_path, data = ledgers[0]
+    status = data.get("status")
+    if status == "complete":
+        return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    if status not in {"active", "blocked"}:
+        return result("unverifiable", *ledger_findings, "ledger-status=unsupported")
+    recorded_branch = data.get("branch")
+    recorded_worktree = data.get("worktree")
+    if not isinstance(recorded_branch, str) or not isinstance(recorded_worktree, str):
+        return result("unverifiable", *ledger_findings, "ledger-identity=unsupported")
+    matching_worktree = any(path == str(Path(recorded_worktree).resolve()) and branch == recorded_branch
+                             for path, branch in observed_worktrees)
+    if recorded_branch != expected_branch or recorded_branch not in branches or not matching_worktree:
+        return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    return result("pass", *ledger_findings, *branch_matches, *worktree_findings)
+
+
+def canonical_run(repo: Path, argument: str) -> Path | None:
+    candidate = Path(argument)
+    candidate = (repo / candidate if not candidate.is_absolute() else candidate).resolve()
+    root = (repo / "docs" / "feature-forge" / "runs").resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    if candidate.parent != root or not candidate.is_dir():
+        return None
+    match = DATED_DIRECTORY.fullmatch(candidate.name)
+    if not match or not valid_date(candidate.name, match.group(4)):
+        return None
+    return candidate
+
+
+def safe_frozen_path(repo: Path, value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts or path.as_posix() != value:
+        return None
+    try:
+        (repo / path).resolve().relative_to(repo)
+    except ValueError:
+        return None
+    return value
+
+
+def identities(repo_arg: str, run_arg: str) -> Result:
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run = canonical_run(repo, run_arg)
+    if run is None:
+        return result("unverifiable", "run=noncanonical")
+    data, error = parse_ledger(run / "ledger.md")
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    observed_branch = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if observed_branch is None:
+        return result("unverifiable", "branch=unavailable")
+    worktree, branch, base = data.get("worktree"), data.get("branch"), data.get("base_identity")
+    if not all(isinstance(value, str) for value in (worktree, branch, base)):
+        return result("unverifiable", "ledger-identity=unsupported")
+    if worktree != str(repo) or branch != observed_branch:
+        return result("fail", "identity=worktree-or-branch-mismatch")
+    if git(repo, "rev-parse", "--verify", f"{base}^{{commit}}") is None:
+        return result("unverifiable", "base-identity=unresolvable")
+    frozen = data.get("frozen")
+    if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
+        return result("unverifiable", "frozen=unsupported")
+    mismatches: list[str] = []
+    for name in ("specification", "plan"):
+        item = frozen[name]
+        if item is None:
+            continue
+        if not isinstance(item, dict) or set(item) != {"path", "blob"}:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        path, blob = safe_frozen_path(repo, item.get("path")), item.get("blob")
+        if path is None or not isinstance(blob, str):
+            return result("unverifiable", f"frozen={name}:unsafe")
+        observed_blob = git(repo, "hash-object", "--", path)
+        if observed_blob is None:
+            return result("unverifiable", f"frozen={name}:path-unavailable")
+        if observed_blob != blob:
+            mismatches.append(f"path={path}")
+    return result("fail", *mismatches) if mismatches else result("pass")
+
+
+def parser() -> argparse.ArgumentParser:
+    parsed = argparse.ArgumentParser(prog="ff-check")
+    subcommands = parsed.add_subparsers(dest="command", required=True)
+    command = subcommands.add_parser("runs")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run-id", required=True)
+    command = subcommands.add_parser("identities")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run", required=True)
+    return parsed
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    checked = runs(args.repo, args.run_id) if args.command == "runs" else identities(args.repo, args.run)
+    print(f"FF-CHECK v1 gate={args.command} status={checked.status}")
+    for finding in checked.findings:
+        print(finding, file=sys.stderr)
+    return {"pass": 0, "fail": 1, "unverifiable": 2}[checked.status]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
