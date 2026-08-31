@@ -184,6 +184,7 @@ def test_audit_accepts_only_complete_stage_14_as_terminal(tmp_path: Path) -> Non
     None,
     {"specification": None},
     {"specification": {"path": "../escape", "blob": "abc"}, "plan": None},
+    {"specification": {"path": ".", "blob": "abc"}, "plan": None},
     {"specification": {"path": "docs/spec.md", "blob": 1}, "plan": None},
     {"specification": {"path": "docs/spec.md", "blob": "abc", "extra": True}, "plan": None},
 ])
@@ -220,6 +221,61 @@ def test_audit_accepts_each_returned_review_shape(
     repo, directory, data = audit_fixture(tmp_path)
     returned_review(repo, directory, data, kind=kind, state=state, round_number=round_number, opened=opened)
     assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize(("state", "round_number", "opened"), [
+    ("changes_required", 1, ["F-1"]),
+    ("blocked", 0, []),
+])
+def test_audit_accepts_implementation_nonpass_receipt_with_canonical_source_commit(
+    tmp_path: Path, state: str, round_number: int, opened: list[str],
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(
+        repo, directory, data, kind="implementation", state=state,
+        round_number=round_number, opened=opened,
+    )
+    assert review["reviewed_commit"] is None
+    receipt = json.loads((repo / review["evidence_path"]).read_text())
+    assert receipt["source_identity"] == {
+        "kind": "reviewed_commit", "path": None, "value": git(repo, "rev-parse", "HEAD"),
+    }
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
+def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
+    tmp_path: Path, identity: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    if identity == "abbreviated":
+        identity = git(repo, "rev-parse", "HEAD")[:12]
+    path = repo / review["evidence_path"]
+    receipt = json.loads(path.read_text())
+    receipt["source_identity"]["value"] = identity
+    path.write_text(json.dumps(receipt))
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
+def test_audit_requires_canonical_full_populated_reviewed_commit(
+    tmp_path: Path, identity: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, kind="implementation", state="pass")
+    if identity == "abbreviated":
+        identity = str(review["reviewed_commit"])[:12]
+    review["reviewed_commit"] = identity
+    path = repo / review["evidence_path"]
+    receipt = json.loads(path.read_text())
+    receipt["source_identity"]["value"] = identity
+    path.write_text(json.dumps(receipt))
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
 def test_audit_accepts_both_blocked_dispatch_cardinalities(tmp_path: Path) -> None:
@@ -438,6 +494,23 @@ def test_audit_treats_missing_return_receipt_as_unverifiable(tmp_path: Path) -> 
     repo, directory, data = audit_fixture(tmp_path)
     review = returned_review(repo, directory, data, state="pass")
     (repo / review["evidence_path"]).unlink()
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("link", ["receipt", "reviews-directory"])
+def test_audit_rejects_symlinked_receipt_path_components(tmp_path: Path, link: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, state="pass")
+    receipt = repo / review["evidence_path"]
+    if link == "receipt":
+        target = receipt.with_name("real-receipt.json")
+        receipt.rename(target)
+        receipt.symlink_to(target.name)
+    else:
+        reviews = receipt.parent
+        target = reviews.with_name("real-reviews")
+        reviews.rename(target)
+        reviews.symlink_to(target.name, target_is_directory=True)
     assert_result(invoke(repo, directory), "unverifiable", 2)
 
 

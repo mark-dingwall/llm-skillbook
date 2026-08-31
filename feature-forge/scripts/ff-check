@@ -7,6 +7,7 @@ import calendar
 import hashlib
 import json
 import re
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -71,6 +72,14 @@ def git_status(repo: Path, *args: str) -> int | None:
     except OSError:
         return None
     return observed.returncode
+
+
+def canonical_commit(repo: Path, value: object) -> str | None:
+    """Accept only an existing commit written as its complete canonical OID."""
+    if not isinstance(value, str) or not value:
+        return None
+    observed = git(repo, "rev-parse", "--verify", f"{value}^{{commit}}")
+    return observed if observed == value else None
 
 
 def repository(path: str) -> Path | None:
@@ -260,7 +269,13 @@ def safe_frozen_path(repo: Path, value: object) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     path = PurePosixPath(value)
-    if path.is_absolute() or path.parts[0] == ".git" or ".." in path.parts or path.as_posix() != value:
+    if (
+        not path.parts
+        or path.is_absolute()
+        or path.parts[0] == ".git"
+        or ".." in path.parts
+        or path.as_posix() != value
+    ):
         return None
     try:
         resolved = (repo / path).resolve()
@@ -383,6 +398,28 @@ def expected_receipt_path(repo: Path, run: Path, dispatch_id: object) -> tuple[s
     return path.relative_to(repo).as_posix(), path
 
 
+def exact_regular_file(root: Path, path: Path) -> bool:
+    """Require a regular file reached without following any symlink component."""
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    try:
+        for index, part in enumerate(relative.parts):
+            current /= part
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index == len(relative.parts) - 1:
+                return stat.S_ISREG(mode)
+            if not stat.S_ISDIR(mode):
+                return False
+    except OSError:
+        return False
+    return False
+
+
 def receipt_matches_implementation_pass(payload: dict[str, object], review: dict[str, object]) -> bool:
     source = payload["source_identity"]
     assert isinstance(source, dict)
@@ -469,7 +506,7 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     expected_relative, receipt_path = expected
     if review["evidence_path"] != expected_relative:
         return result("fail", "receipt=wrong-path")
-    if not receipt_path.is_file():
+    if not exact_regular_file(repo, receipt_path):
         return result("unverifiable", "receipt=missing")
     payload, error = strict_receipt(receipt_path)
     if error:
@@ -477,7 +514,7 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     assert payload is not None
     if not receipt_matches_implementation_pass(payload, review):
         return result("fail", "receipt=mismatch")
-    if git(repo, "rev-parse", "--verify", f"{review['reviewed_commit']}^{{commit}}") is None:
+    if canonical_commit(repo, review["reviewed_commit"]) is None:
         return result("unverifiable", "reviewed-commit=unresolvable")
     ancestry = git_status(repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD")
     if ancestry is None or ancestry > 1:
@@ -512,7 +549,13 @@ def canonical_path_shape(repo: Path, value: object) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     path = PurePosixPath(value)
-    if path.is_absolute() or path.as_posix() != value or ".." in path.parts or path.parts[0] == ".git":
+    if (
+        not path.parts
+        or path.is_absolute()
+        or path.as_posix() != value
+        or ".." in path.parts
+        or path.parts[0] == ".git"
+    ):
         return None
     try:
         (repo / path).resolve().relative_to(repo)
@@ -662,10 +705,10 @@ def receipt_source_matches(
     if source.get("kind") != "reviewed_commit" or source.get("path") is not None:
         return result("fail", "receipt=source-mismatch")
     value = source.get("value")
+    if canonical_commit(repo, value) is None:
+        return result("fail", "receipt=source-mismatch")
     if review["reviewed_commit"] is not None:
         return result("pass") if value == review["reviewed_commit"] else result("fail", "receipt=source-mismatch")
-    if not isinstance(value, str) or git(repo, "rev-parse", "--verify", f"{value}^{{commit}}") is None:
-        return result("fail", "receipt=source-mismatch")
     return result("pass")
 
 
@@ -676,7 +719,7 @@ def audit_receipt(repo: Path, run: Path, review: dict[str, object]) -> Result:
     relative, path = expected
     if review["evidence_path"] != relative:
         return result("fail", "receipt=wrong-path")
-    if not path.is_file():
+    if not exact_regular_file(repo, path):
         return result("unverifiable", "receipt=missing")
     payload, error = strict_receipt(path)
     if error:
@@ -715,6 +758,12 @@ def audit(repo_arg: str, run_arg: str) -> Result:
     valid, receipt_required = review_state_invariant(review)
     if not valid:
         return result("fail", "review=inconsistent")
+    if (
+        review["kind"] == "implementation"
+        and review["reviewed_commit"] is not None
+        and canonical_commit(repo, review["reviewed_commit"]) is None
+    ):
+        return result("unverifiable", "reviewed-commit=unresolvable")
     expected = expected_receipt_path(repo, run, review["dispatch_id"])
     if review["state"] == "review_active":
         if expected is None:

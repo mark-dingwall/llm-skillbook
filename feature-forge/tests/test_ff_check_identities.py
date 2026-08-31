@@ -65,7 +65,7 @@ def test_identities_reports_each_frozen_blob_drift_as_a_path_failure(tmp_path: P
     assert result.stderr.splitlines() == [f"path={path}"]
 
 
-@pytest.mark.parametrize("path", ["../README.md", "/tmp/escape", "docs/../README.md"])
+@pytest.mark.parametrize("path", ["../README.md", "/tmp/escape", "docs/../README.md", "."])
 def test_identities_treats_path_escape_as_unverifiable(tmp_path: Path, path: str) -> None:
     repo, directory, data = identity_fixture(tmp_path)
     data["frozen"]["specification"]["path"] = path

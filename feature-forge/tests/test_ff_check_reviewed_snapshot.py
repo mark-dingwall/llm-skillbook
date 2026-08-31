@@ -131,6 +131,19 @@ def test_reviewed_snapshot_rejects_non_descendant_head(tmp_path: Path) -> None:
     assert_result(invoke(repo, directory), "fail", 1)
 
 
+@pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
+def test_reviewed_snapshot_requires_a_canonical_full_reviewed_commit(
+    tmp_path: Path, identity: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    if identity == "abbreviated":
+        identity = str(data["review"]["reviewed_commit"])[:12]
+    data["review"]["reviewed_commit"] = identity
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
 @pytest.mark.parametrize("dirty", [False, True])
 def test_reviewed_snapshot_rejects_unreviewed_tracked_content(tmp_path: Path, dirty: bool) -> None:
     repo, directory, _ = reviewed_fixture(tmp_path)
@@ -211,6 +224,24 @@ def test_reviewed_snapshot_treats_missing_required_review_fields_as_unverifiable
 def test_reviewed_snapshot_treats_missing_receipt_as_unverifiable(tmp_path: Path) -> None:
     repo, directory, data = reviewed_fixture(tmp_path)
     (repo / data["review"]["evidence_path"]).unlink()
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("link", ["receipt", "reviews-directory"])
+def test_reviewed_snapshot_rejects_symlinked_receipt_path_components(
+    tmp_path: Path, link: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    receipt = repo / data["review"]["evidence_path"]
+    if link == "receipt":
+        target = receipt.with_name("real-receipt.json")
+        receipt.rename(target)
+        receipt.symlink_to(target.name)
+    else:
+        reviews = receipt.parent
+        target = reviews.with_name("real-reviews")
+        reviews.rename(target)
+        reviews.symlink_to(target.name, target_is_directory=True)
     assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
