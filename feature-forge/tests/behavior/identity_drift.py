@@ -143,11 +143,13 @@ def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
     rows = [line for line in markdown.splitlines() if line.startswith("|")][2:]
     frozen = str(metadata["frozen_specification_blob"])
     observed = str(metadata["expected_specification_digest"])
-    return any(("reconciliation" in row.lower() or "correction" in row.lower())
-               and SPEC in row and frozen in row and observed in row
-               and len(row.strip("|").split("|")) >= 9
-               and row.strip("|").split("|")[6].strip() not in {"", "unavailable?"}
-               for row in rows)
+    return any(
+        len(cells := [cell.strip() for cell in row.strip("|").split("|")]) >= 9
+        and ("reconciliation" in cells[0].lower() or "correction" in cells[0].lower())
+        and SPEC in row and frozen in row and observed in row
+        and cells[6] not in {"", "unavailable?"}
+        for row in rows
+    )
 
 
 def score(root: Path) -> dict[str, object]:
