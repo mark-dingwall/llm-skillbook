@@ -17,6 +17,12 @@ PLAN = "docs/superpowers/plans/2026-08-25-identity-drift.md"
 LEDGER = f"{RUN_DIR}/ledger.md"
 META = ".identity-drift-oracle.json"
 PROMPT = Path(__file__).with_name("identity-drift") / "prompt.md"
+TRANSITION_HEADING = "## Transition log"
+TRANSITION_HEADER = (
+    "| event | parent event | UTC time | from | to | next action | "
+    "session provenance | reason/authority | evidence |"
+)
+TRANSITION_SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -140,8 +146,25 @@ def ledger_parts(path: Path) -> tuple[dict[str, object], str]:
     return json.loads(match.group(1)), match.group(2)
 
 
+def transition_rows(markdown: str) -> list[str]:
+    lines = markdown.splitlines()
+    try:
+        offset = lines.index(TRANSITION_HEADING) + 1
+    except ValueError:
+        return []
+    while offset < len(lines) and not lines[offset].strip():
+        offset += 1
+    if lines[offset:offset + 2] != [TRANSITION_HEADER, TRANSITION_SEPARATOR]:
+        return []
+    rows: list[str] = []
+    for line in lines[offset + 2:]:
+        if not line.startswith("|"):
+            break
+        rows.append(line)
+    return rows
+
+
 def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
-    rows = [line for line in markdown.splitlines() if line.startswith("|")][2:]
     frozen = str(metadata["frozen_specification_blob"])
     observed = str(metadata["expected_specification_digest"])
     return any(
@@ -152,7 +175,7 @@ def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
         and SPEC in cells[8]
         and frozen in cells[8]
         and observed in cells[8]
-        for row in rows
+        for row in transition_rows(markdown)
     )
 
 

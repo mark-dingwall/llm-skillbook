@@ -8,7 +8,7 @@ canonical-v1 identity-drift fixture and exact production payload from commit
 
 ```text
 installed payload   0cbcd479d984e25c917abb26884f1fab00a9085eed6516b9ece74f45ab030d86
-identity_drift.py    df9e2ed1930c9caf0054d1fd3953c564c879f75a269f3cf099617c7e6f8a81cc
+identity_drift.py    4915ce84326f6c10f169e1bfb7c59a77605d361a01dac0900eccaa4272f8411b
 prompt.md            3642b9d2d308425337a0e4b81bdf84f772591b62ea323f8e43b2c6d7c08d3e5d
 ledger.md            0d96093c04a3d6397793587c058037d2ef41903aec98483cf8a39a4ccb0c4445
 ```
@@ -20,7 +20,7 @@ blocked run and Stage 9, a reconcile/correct next action containing that exact
 path, and a nine-cell material transition with nonempty opaque event,
 provenance, and reason/authority plus evidence containing the exact path,
 recorded frozen blob, and current-byte SHA-256. Manual inspection determines
-whether the free-form reason genuinely explains the drift.
+whether the free-form reason genuinely explains identity/blob drift.
 
 ## Oracle correction history
 
@@ -41,6 +41,19 @@ elsewhere. The suite also independently rejects empty reason/provenance/event
 and each missing evidence identity. The harness is excluded from installed
 payloads and was never visible to subjects; rescoring changes classification,
 not model input or behavior.
+
+Round-2 review found that the parser still scanned every Markdown table. TDD
+moved a complete valid-looking row under another section while leaving the
+actual Transition log empty:
+
+```text
+RED:   1 failed, 21 passed in 2.84s
+GREEN: 22 passed in 2.73s
+```
+
+The oracle now accepts rows only from the exact `## Transition log` section
+under its canonical nine-column header and separator. Lookalike rows elsewhere
+cannot satisfy the material-transition predicate.
 
 ## Codex control: 0/5
 

@@ -218,6 +218,18 @@ def test_oracle_accepts_opaque_nonempty_transition_event_id(tmp_path):
     assert _score(tmp_path)["pass"]
 
 
+def test_oracle_ignores_valid_looking_row_outside_transition_log(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    transition = "| " + " | ".join(_transition_cells(markdown)) + " |\n"
+    markdown = markdown.replace(transition, "", 1)
+    markdown += "\n## Other evidence\n\n" + transition
+    _write_head(ledger, data, markdown)
+    assert not _score(tmp_path)["pass"]
+
+
 def test_oracle_accepts_free_form_nonempty_reason(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)

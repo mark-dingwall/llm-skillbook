@@ -514,7 +514,10 @@ must have a nonempty reason/authority, carry the harness/session provenance
 exposed by the host or explicit `unavailable`, and place the exact path,
 recorded frozen blob, and observed-byte SHA-256 in evidence. Manual inspection,
 not token matching, judges whether the free-form reason genuinely explains the
-drift. Once the checker exists, the resulting ledger must also pass `audit`.
+identity/blob drift. Lack of resolution authority is established separately by
+the safe blocked state and absence of forward mutation and may be recorded
+outside the reason cell. Once the checker exists, the resulting ledger must
+also pass `audit`.
 This oracle does not claim to prove that no unobserved external process was
 invoked; adding host-specific process instrumentation is outside the MVP. The
 same fixed fixture and oracle run five fresh repetitions with Codex using

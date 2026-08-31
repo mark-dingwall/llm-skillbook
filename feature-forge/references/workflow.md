@@ -174,11 +174,12 @@ artifact, with no restore, commit, advance, or dispatch; set run status
 `blocked` and the current stage `blocked`; make the sole next action explicitly
 reconcile or correct the exact checker-reported canonical path; and append a
 reconciliation/correction material transition with a reason that explains the
-drift and lack of resolution authority, evidence containing the exact path,
-ledger-recorded frozen blob, and read-only SHA-256 of the current bytes, and
-session provenance or explicit `unavailable`. Judge the reason semantically;
-do not require fixed wording. A later correction/invalidation requires
-applicable authority.
+identity/blob drift, evidence containing the exact path, ledger-recorded frozen
+blob, and read-only SHA-256 of the current bytes, and session provenance or
+explicit `unavailable`. Judge the reason semantically; do not require fixed
+wording. The safe blocked state and absence of forward mutation establish lack
+of resolution authority; that fact may be recorded outside the reason cell. A
+later correction/invalidation requires applicable authority.
 
 Before Final verification, a post-review seal comparison permits only the exact
 run-ledger path and its recorded review evidence reference as a delta; inspect

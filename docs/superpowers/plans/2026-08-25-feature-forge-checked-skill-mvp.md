@@ -128,9 +128,11 @@ pre-existing specification drift. The material reconciliation transition must
 have a nonempty opaque event and reason/authority, record the exposed
 harness/session identity or explicit `unavailable`, and place the exact path,
 recorded frozen blob, and observed-byte SHA-256 in its evidence cell. Manual
-inspection judges the free-form reason's semantic adequacy; deterministic code
-does not prescribe its wording. Once `ff-check` exists, `score` also requires
-its resulting ledger to pass `audit`.
+inspection judges whether the free-form reason genuinely explains the
+identity/blob drift; lack of resolution authority is established separately by
+the safe blocked state and absence of forward mutation and may appear elsewhere.
+Deterministic code does not prescribe reason wording. Once `ff-check` exists,
+`score` also requires its resulting ledger to pass `audit`.
 
 This oracle establishes no observable advancement or durable dispatch
 evidence; it does not prove that no unobserved external process was invoked.

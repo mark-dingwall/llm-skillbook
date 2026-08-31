@@ -244,8 +244,9 @@ def test_verified_frozen_identity_failure_has_one_safe_return_recipe() -> None:
         "no restore, commit, advance, or dispatch", "run status `blocked`",
         "current stage `blocked`", "reconcile or correct",
         "checker-reported canonical path", "reconciliation/correction",
-        "reason that explains the drift", "evidence containing the exact path",
+        "reason that explains the identity/blob drift", "evidence containing the exact path",
         "ledger-recorded frozen blob", "sha-256", "do not require fixed wording",
+        "safe blocked state", "absence of forward mutation", "outside the reason cell",
         "session provenance", "`unavailable`", "later correction/invalidation",
         "applicable authority",
     ):
