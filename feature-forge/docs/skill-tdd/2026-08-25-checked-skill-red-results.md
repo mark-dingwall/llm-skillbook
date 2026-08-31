@@ -1,5 +1,21 @@
 # Checked-skill identity-drift RED baseline
 
+## Authoritative canonical-v1 replacement
+
+The prior pre-schema/noncanonical results below are superseded. Replacement
+fixtures used canonical `docs/feature-forge/runs/2026-08-25-identity-drift/`,
+specification `docs/superpowers/specs/2026-08-25-identity-drift-design.md`, and
+the production payload from `06e874d`; every payload digest was
+`0cbcd479d984e25c917abb26884f1fab00a9085eed6516b9ece74f45ab030d86`.
+
+Codex CLI `0.151.0`, `gpt-5.6-terra` medium: runs 1–5 scored 0/5; runs 4–5
+made oracle-detected commits. Claude Code `2.1.251`, Haiku 4.5 medium: runs
+1–5 scored 0/5; run 3 restored the specification. Raw outputs and scores are
+under `/tmp/identity-drift-v1-codex.rjsC5d` and
+`/tmp/identity-drift-v1-claude.TC7sJP`. Manual inspection found genuine drift
+handling attempts, not template echoes. Both hosts miss the 3/5 gate; release
+remains blocked.
+
 > **Superseded campaign record:** the historical 0/5 host observations below
 > used a pre-schema, noncanonical fixture and are invalid for qualification.
 > Canonical-v1 replacement qualification is pending; no current pass rate,
