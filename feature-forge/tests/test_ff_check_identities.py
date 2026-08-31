@@ -122,6 +122,24 @@ def test_identities_rejects_git_metadata_paths_and_links(tmp_path: Path, path: s
     assert not any(line.startswith("path=") for line in result.stderr.splitlines())
 
 
+def test_identities_rejects_a_link_to_a_linked_worktree_git_marker(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path, branch="feature/primary")
+    worktree = tmp_path / "linked-worktree"
+    git(primary, "worktree", "add", "-qb", "feature/alpha", str(worktree), "HEAD")
+    link = worktree / "docs" / "git-marker-link"
+    link.parent.mkdir(parents=True)
+    link.symlink_to("../.git")
+    frozen = {
+        "specification": {"path": "docs/git-marker-link", "blob": "0" * 40},
+        "plan": None,
+    }
+    directory = run_dir(worktree)
+    write_ledger(directory, head(worktree, frozen=frozen))
+    result = check("identities", "--repo", str(worktree), "--run", str(directory))
+    assert_result(result, "unverifiable", 2)
+    assert not any(line.startswith("path=") for line in result.stderr.splitlines())
+
+
 def test_identities_reports_git_observation_failure_as_unverifiable(tmp_path: Path) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     failed = subprocess.run(

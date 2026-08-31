@@ -228,6 +228,8 @@ def safe_frozen_path(repo: Path, value: object) -> str | None:
         resolved.relative_to(repo)
     except ValueError:
         return None
+    if resolved == (repo / ".git").resolve():
+        return None
     git_dir = git(repo, "rev-parse", "--git-dir")
     if git_dir is None:
         return None
