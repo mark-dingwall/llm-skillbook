@@ -29,6 +29,10 @@ def test_maintainer_guidance_is_excluded_by_name():
     assert {"README.md", "CLAUDE.md", "AGENTS.md"} <= install.EXCLUDE_TOP
 
 
+def test_reports_are_excluded_from_production_payloads():
+    assert "reports" in install.EXCLUDE_TOP
+
+
 def test_claude_splits_subagents(tmp_path):
     install.install("multi-review", "claude", tmp_path, dev=False, force=False)
     agents = tmp_path / ".claude" / "agents"

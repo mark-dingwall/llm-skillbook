@@ -26,7 +26,7 @@ MARKER = ".installed-by-llm-skillbook"
 # Top-level entries never shipped to an install target (dev-only).
 EXCLUDE_TOP = {
     "tests", "docs", "evals", "README.md", "BACKLOG.md", "CLAUDE.md", "AGENTS.md",
-    "PLAN.md", ".gitignore", ".sdd-history",
+    "PLAN.md", ".gitignore", ".sdd-history", "reports",
 }
 # Directory names pruned anywhere in the tree (build/cache artifacts).
 EXCLUDE_ANY = {
