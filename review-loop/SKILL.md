@@ -122,8 +122,10 @@ report. Adjudication returns per-row `UPHOLD`, `BOUNCE`, or `UNDECIDED`.
   that retry; `Controller.run_round1` validates only the returned attempt and
   raises on an unusable result, which the host must convert to the
   indeterminate outcome. Controller-owned semantic roles use the controller's
-  retry boundary. Adjudication gets at most two calls total (a clean first
-  pass's `UNDECIDED` subset retries once; anything else is final).
+  retry boundary. The retrying dispatcher must include the exact validator
+  rejection while preserving the same identity, target, role, and semantic
+  charter. Adjudication gets at most two calls total (a clean first pass's
+  `UNDECIDED` subset retries once; anything else is final).
 - **Tier changes effort, never completion semantics.** What counts as
   settled, what "converged" and "merge-ready" mean, and whether adjudication
   runs do not weaken at a lower tier. `CLOSE` derives both verdicts
