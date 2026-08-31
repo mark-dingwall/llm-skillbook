@@ -193,6 +193,24 @@ def test_oracle_requires_reconciliation_in_transition_event_cell(tmp_path):
     assert not _score(tmp_path)["pass"]
 
 
+def test_oracle_rejects_wrong_frozen_blob_in_reconciliation_row(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    _write_head(ledger, data, markdown.replace(str(fixture["frozen_specification_blob"]), "0" * 40))
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_rejects_wrong_worktree_identity_in_reconciliation_row(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    _write_head(ledger, data, markdown.replace(str(fixture["expected_specification_digest"]), "0" * 64))
+    assert not _score(tmp_path)["pass"]
+
+
 def test_oracle_accepts_blocked_drift_reconciliation(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
