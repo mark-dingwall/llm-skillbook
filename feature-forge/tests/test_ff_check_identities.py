@@ -93,6 +93,35 @@ def test_identities_requires_a_canonical_run_directory(tmp_path: Path) -> None:
     assert_result(check("identities", "--repo", str(repo), "--run", str(noncanonical)), "unverifiable", 2)
 
 
+@pytest.mark.parametrize("run_id", ["Alpha", "alpha--beta"])
+def test_identities_rejects_non_slug_dated_directory_suffix(tmp_path: Path, run_id: str) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo, run_id=run_id)
+    write_ledger(directory, head(repo, run_id=run_id, branch=f"feature/{run_id}"))
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
+
+
+def test_identities_requires_supported_head_id_to_match_dated_suffix(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data["run_id"] = "other"
+    write_ledger(directory, data)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("path, link_target", [(".git/config", None), ("docs/git-metadata-link", ".git/config")])
+def test_identities_rejects_git_metadata_paths_and_links(tmp_path: Path, path: str, link_target: str | None) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    if link_target is not None:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(repo / link_target)
+    data["frozen"]["specification"]["path"] = path
+    write_ledger(directory, data)
+    result = check("identities", "--repo", str(repo), "--run", str(directory))
+    assert_result(result, "unverifiable", 2)
+    assert not any(line.startswith("path=") for line in result.stderr.splitlines())
+
+
 def test_identities_reports_git_observation_failure_as_unverifiable(tmp_path: Path) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     failed = subprocess.run(

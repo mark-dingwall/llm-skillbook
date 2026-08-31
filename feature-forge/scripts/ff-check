@@ -82,6 +82,21 @@ def valid_run_id(repo: Path, run_id: str) -> bool:
     return git(repo, "check-ref-format", "--branch", f"feature/{run_id}") is not None
 
 
+def run_head_error(repo: Path, data: dict[str, object]) -> str | None:
+    """Validate the values that `runs` must classify, never coerce them."""
+    run_id, worktree, branch, status = (data.get("run_id"), data.get("worktree"),
+                                        data.get("branch"), data.get("status"))
+    if not isinstance(run_id, str) or not valid_run_id(repo, run_id):
+        return "run-id=unsupported"
+    if not isinstance(worktree, str) or not Path(worktree).is_absolute():
+        return "worktree=unsupported"
+    if not isinstance(branch, str) or git(repo, "check-ref-format", "--branch", branch) is None:
+        return "branch=unsupported"
+    if status not in {"active", "blocked", "complete"}:
+        return "ledger-status=unsupported"
+    return None
+
+
 def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
     text = git(repo, "worktree", "list", "--porcelain")
     if text is None:
@@ -132,7 +147,7 @@ def runs(repo_arg: str, run_id: str) -> Result:
             canonical_requested = valid_date(directory.name, run_id)
             ledger_path = directory / "ledger.md"
             relative = ledger_path.relative_to(repo).as_posix()
-            if canonical_requested and (not ledger_path.is_file()):
+            if canonical_requested and not ledger_path.exists():
                 unverifiable.append(f"ledger={relative}:missing")
                 continue
             if not ledger_path.exists():
@@ -147,6 +162,9 @@ def runs(repo_arg: str, run_id: str) -> Result:
                     unverifiable.append(f"ledger={relative}:{error}")
                 continue
             assert data is not None
+            if error := run_head_error(repo, data):
+                unverifiable.append(f"ledger={relative}:{error}")
+                continue
             recorded_id = data.get("run_id")
             if canonical_requested and recorded_id != run_id:
                 diagnostics.append(f"ledger={relative}:run-id-mismatch")
@@ -194,7 +212,7 @@ def canonical_run(repo: Path, argument: str) -> Path | None:
     if candidate.parent != root or not candidate.is_dir():
         return None
     match = DATED_DIRECTORY.fullmatch(candidate.name)
-    if not match or not valid_date(candidate.name, match.group(4)):
+    if not match or not SLUG.fullmatch(match.group(4)) or not valid_date(candidate.name, match.group(4)):
         return None
     return candidate
 
@@ -203,11 +221,24 @@ def safe_frozen_path(repo: Path, value: object) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or path.as_posix() != value:
+    if path.is_absolute() or path.parts[0] == ".git" or ".." in path.parts or path.as_posix() != value:
         return None
     try:
-        (repo / path).resolve().relative_to(repo)
+        resolved = (repo / path).resolve()
+        resolved.relative_to(repo)
     except ValueError:
+        return None
+    git_dir = git(repo, "rev-parse", "--git-dir")
+    if git_dir is None:
+        return None
+    metadata = (repo / git_dir if not Path(git_dir).is_absolute() else Path(git_dir)).resolve()
+    try:
+        resolved.relative_to(metadata)
+    except ValueError:
+        pass
+    else:
+        return None
+    if not resolved.is_file():
         return None
     return value
 
@@ -223,6 +254,10 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     if error:
         return result("unverifiable", f"ledger={error}")
     assert data is not None
+    suffix = DATED_DIRECTORY.fullmatch(run.name)
+    assert suffix is not None
+    if data.get("run_id") != suffix.group(4) or not valid_run_id(repo, suffix.group(4)):
+        return result("unverifiable", "run=unsupported")
     observed_branch = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
     if observed_branch is None:
         return result("unverifiable", "branch=unavailable")

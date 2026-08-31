@@ -83,6 +83,41 @@ def test_runs_treats_missing_or_unsupported_canonical_ledger_as_unverifiable(tmp
     assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
 
 
+def test_runs_treats_missing_json_head_as_unverifiable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write_ledger(run_dir(repo), "old Markdown ledger", fenced=False)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_treats_malformed_json_head_as_unverifiable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    (run_dir(repo) / "ledger.md").write_text("```json\n{not json}\n```\n")
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_treats_pre_schema_head_as_unverifiable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write_ledger(run_dir(repo), {"run_id": "alpha"})
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_treats_nonregular_ledger_as_unreadable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    (run_dir(repo) / "ledger.md").mkdir()
+    result = check("runs", "--repo", str(repo), "--run-id", "alpha")
+    assert_result(result, "runs", "unverifiable", 2)
+    assert any(line.endswith(":unreadable") for line in result.stderr.splitlines())
+
+
+@pytest.mark.parametrize("field, value", [("run_id", 42), ("worktree", "relative/worktree")])
+def test_runs_treats_malformed_identity_fields_as_unverifiable(tmp_path: Path, field: str, value: object) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    data[field] = value
+    write_ledger(run_dir(repo), data)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
 def test_runs_rejects_canonical_directory_with_a_different_supported_head(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     write_ledger(run_dir(repo), head(repo, run_id="other", branch="feature/other"))
