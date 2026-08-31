@@ -1,0 +1,24 @@
+{
+  "run": "inventory-spec-audit-20260901",
+  "outcome": "partial",
+  "verification": [
+    {"command":"cd audit-target && python3 -m pytest -q","passed":true,"summary":"1 passed in 0.13s"},
+    {"command":"read-only executable counterexamples for C1-C3","passed":false,"summary":"remove qty: -1; low_stock(2): []; parse_csv_line('C,1,12') -> ('C', 1, 12); decimal price raises ValueError"}
+  ],
+  "residual": [
+    {"kind":"finding","detail":"C1: excessive remove does not raise ValueError","source":"verifier-batch-a; verifier-batch-b"},
+    {"kind":"finding","detail":"C2: low_stock excludes quantity equal to threshold","source":"verifier-batch-a; verifier-batch-b"},
+    {"kind":"finding","detail":"C3: CSV price_dollars is not converted to cents","source":"verifier-batch-a; verifier-batch-b"}
+  ],
+  "workers": [
+    {"id":"finder-contracts","role":"reviewer","status":"ok","summary":"two overlapping spec candidates"},
+    {"id":"finder-csv","role":"reviewer","status":"ok","summary":"C3 candidate"},
+    {"id":"finder-state","role":"reviewer","status":"ok","summary":"C1 and C2 candidates"},
+    {"id":"finder-boundaries","role":"reviewer","status":"ok","summary":"C1-C3 candidates"},
+    {"id":"finder-traceability","role":"reviewer","status":"ok","summary":"C1-C3 candidates"},
+    {"id":"verifier-batch-a","role":"verifier","status":"ok","summary":"confirmed C1-C3"},
+    {"id":"verifier-batch-b","role":"verifier","status":"ok","summary":"independently confirmed C1-C3"}
+  ],
+  "plan": ".work-team/inventory-spec-audit-20260901/plan.json",
+  "log": "audit-target/workflow-log.jsonl"
+}

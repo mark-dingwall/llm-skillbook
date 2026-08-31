@@ -1,0 +1,5 @@
+[
+  {"id":"C1","severity":"important","scope":"spec","where":"audit-target/inventory/stock.py:22-24","issue":"Ledger.remove does not raise ValueError when qty exceeds current stock; it silently leaves negative inventory.","fix":"Check qty > item.qty and raise ValueError before decrementing.","evidence":"SPEC.md requires ValueError for an excessive removal; remove executes only item.qty -= qty."},
+  {"id":"C2","severity":"important","scope":"spec","where":"audit-target/inventory/stock.py:29-30","issue":"Ledger.low_stock omits an SKU when its qty equals threshold.","fix":"Use qty <= threshold.","evidence":"SPEC.md defines low-stock as qty <= threshold, while the implementation uses i.qty < threshold."},
+  {"id":"C3","severity":"important","scope":"spec","where":"audit-target/inventory/report.py:10-12","issue":"parse_csv_line treats price_dollars as an integer cents amount: decimal dollar values fail and whole dollars are not converted to cents.","fix":"Parse price_dollars exactly and convert it to integer cents.","evidence":"SPEC.md defines CSV price_dollars while the ledger stores cents; the code returns int(price) directly."}
+]
