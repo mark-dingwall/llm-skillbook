@@ -32,3 +32,7 @@ python3 -m pytest \
 
 Behavioral changes to SKILL.md or references require a scenario run per
 `evals/run-eval.sh` on both harnesses before merge; record results in `evals/`.
+Install the skill under test as a filtered copy (`install.py` without `--dev`,
+mirrored to `~/.codex/skills`); a symlink exposes `evals/oracle.md` to the
+evaluated agent and invalidates the run. Audit each transcript for reads of
+`evals/` before scoring.

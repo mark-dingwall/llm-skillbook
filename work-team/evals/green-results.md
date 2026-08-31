@@ -25,6 +25,12 @@ skill and the resolved `SKILL.md` path before dispatching.
   and a manual smoke in an isolated dir; output shown.
 - **PASS A7** — `.work-team/2026-09-01-todo-cli/plan.json` present and valid.
 
+### Codex (attempt-1) — DISCARDED (contaminated)
+
+The `--dev` symlink install exposed `evals/`; this run's transcript shows it
+reading `evals/oracle.md`. Stopped mid-run; not scored. Clean re-run recorded
+in `refactor-results.md`.
+
 ## Scenario B — Audit under quota
 
 ### Claude (attempt-1) — PASS 7/7
