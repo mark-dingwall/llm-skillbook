@@ -1,0 +1,8 @@
+command=claude --model sonnet --output-format stream-json --verbose --allowedTools Agent,Read,Write,Edit,Bash,Glob,Grep -p <prompt>
+workspace=/home/mark/.claude/jobs/1fc6d338/tmp/evals/red-20260831T140000Z-C-claude-attempt-1
+harness=claude
+phase=red
+scenario=C
+start=2026-08-31T14:23:38Z
+end=2026-08-31T14:25:37Z
+exit=0
