@@ -131,9 +131,11 @@ The version-one shape is:
 `status` is `active | blocked | complete`. Stage IDs are 1 through 14 and
 stage states remain `pending | active | blocked | complete | invalidated`.
 Every nonterminal ledger has a nonempty `next_action`; a complete ledger has
-`next_action: null`. Frozen values are either `null` or objects with exactly
-`path` and `blob` string fields. Paths are repository-relative canonical paths;
-blobs and commits are object IDs resolved by Git, not regex-only claims.
+`next_action: null`. `status: complete` is valid exactly when Stage 14 is also
+`complete`; no earlier stage can form a terminal head. Frozen values are either
+`null` or objects with exactly `path` and `blob` string fields. Paths are
+repository-relative canonical paths; blobs and commits are object IDs resolved
+by Git, not regex-only claims.
 
 The head owns coarse orchestration and checker-consumed control state. Finding
 ID arrays are sorted, unique, and contain only opaque actionable-finding
@@ -141,9 +143,11 @@ identifiers needed for the round predicates, never finding prose. Finish journal
 implementation progress, acceptance, transition history, review summaries,
 and the bounded intent statement remain human-readable evidence governed by
 the existing workflow. Markdown does not mirror the head's run ID, status,
-worktree, branch, base, stage, next action, or current review-control values.
-An inconsistency in human evidence blocks advancement; the head is not
-permission for the LLM to overwrite contrary evidence.
+worktree, branch, base, stage, next action, or any current value owned by the
+`review` object. Historical review rows may repeat those values only as dated
+evidence; they do not define current state. An inconsistency in human evidence
+blocks advancement; the head is not permission for the LLM to overwrite
+contrary evidence.
 
 The human transition table records `event · parent event · UTC time · from ·
 to · next action · session provenance · reason/authority · evidence`. Session
@@ -171,6 +175,54 @@ kind follows the separately authorized reset rule below. `audit` validates the
 current matrix but does not claim to prove from one head that either historical
 transition was legitimate.
 
+Every Feature Forge review round uses a fresh disjoint `review-loop` run root.
+Before any semantic role dispatch, Feature Forge captures the candidate input
+identity or implementation source commit, materializes that exact subject,
+calls `create_run`, and obtains the run reference and target seal. It allocates
+a filename-safe `dispatch_id` matching `[A-Za-z0-9][A-Za-z0-9._-]*` that has
+not previously been used in the current Feature Forge run, derives
+`evidence_path` exactly as
+`docs/feature-forge/runs/YYYY-MM-DD-<run-id>/reviews/<dispatch-id>.json`, persists
+the fully populated `review_active` head only if that receipt path does not
+already exist, and only then calls `run_stage0`.
+The external review-loop run root remains `run_ref` and is never placed in the
+source-diff allowlist.
+
+Later public calls are conditional: `run_round1` occurs only after a reviewable
+Stage 0 return, and `run_triage` only after a usable Round 1 return. At the first
+terminal public outcome, Feature Forge makes no later public call, verifies
+that the source identity captured before materialization is unchanged, writes
+the receipt without overwriting any existing path, and then records the mapped
+state. A Stage 0 stop, failed gate, cancelled review, or dispatch failure maps
+to `blocked`; a usable TRIAGE return follows the bounded mapping below. Return
+data is never paired with later source bytes.
+
+The receipt is a strict JSON object with exactly `schema`, `kind`,
+`dispatch_id`, `run_ref`, `target_seal`, `source_identity`, `result`, and
+`actionable_finding_ids`. `schema` is `feature-forge/review-receipt/v1`;
+`source_identity` has exactly `kind`, `path`, and `value`, using
+`candidate_sha256` plus the canonical candidate path for specification/plan or
+`reviewed_commit` plus null path for implementation. `result` is
+`changes_required | pass | blocked`, and the finding array is sorted and
+unique. Receipt `result` maps exactly to the same-named returned
+`review.state`. `audit` requires the receipt path to equal the path derived
+from the head's `dispatch_id`, and for a returned state requires the shared
+`kind`, `dispatch_id`, `run_ref`, `target_seal`, mapped state/result, and
+`open_finding_ids`/`actionable_finding_ids` fields to agree. `root_identity`,
+`round`, and `previous_open_finding_ids` are head-only. For a
+specification/plan return it verifies the candidate source-identity kind/path
+and rehashes that path to compare its value; for an implementation return the
+source-identity kind has null path and its value equals `reviewed_commit`.
+
+On resume from `review_active`, Feature Forge does not reconstruct controller
+return objects from review-loop status or transcripts. It may record a return
+only when the already-written Feature Forge receipt validates and the captured
+source identity is unchanged. Otherwise the review remains `review_active`
+while the workflow stage/status blocks; it is never passed to a later method or
+silently redispatched. Explicit user authority may abandon that run and start
+a fresh linked round, recording the old run reference and reason in transition
+history.
+
 ## Transcript-Assisted Recovery
 
 Session transcripts are forensic evidence for recovery, never workflow
@@ -195,7 +247,7 @@ judgment legitimate.
 
 | Term | Meaning | Validator |
 | --- | --- | --- |
-| Candidate input identity | SHA-256 of exact uncommitted spec/plan candidate bytes sent for review | Feature Forge adapter records it |
+| Candidate input identity | SHA-256 of exact uncommitted spec/plan candidate bytes sent for review and rechecked before freeze | Feature Forge adapter records and compares it |
 | Review target seal | Seal returned and checked by `review-loop` for its materialized target | `review-loop` only |
 | Frozen identity | Canonical `<path>@<git-blob-id>` equivalent represented by `path` and `blob` fields | `ff-check identities` |
 | Reviewed implementation commit | Source-worktree `HEAD` on which implementation review passed | `ff-check reviewed-snapshot` |
@@ -245,13 +297,16 @@ ledger head does not store or audit self-attested result lines.
 ### `runs`
 
 `runs` requires `--run-id`. It first applies the workflow's exact slug grammar
-and `git check-ref-format --branch feature/<run-id>`. It then scans only
-`docs/feature-forge/runs/*/ledger.md`, `git branch --list feature/<run-id>`, and
-`git worktree list --porcelain` beneath `--repo`, and prints a sorted collision
-inventory to stderr before its result line. A ledger matches the query only
-when its parent is the exact canonical `YYYY-MM-DD-<run-id>` form with a valid
-date and its parsed head contains the exact requested `run_id`; suffix matching
-alone is forbidden.
+and `git check-ref-format --branch feature/<run-id>`. It then scans canonical
+entries and readable direct-child ledgers beneath `docs/feature-forge/runs/`, `git branch --list
+feature/<run-id>`, and `git worktree list --porcelain` beneath `--repo`, and
+prints a sorted collision inventory to stderr before its result line. A run
+directory matches the query only when its name is the exact canonical
+`YYYY-MM-DD-<run-id>` form with a calendar-valid Gregorian date; regex shape
+alone is insufficient and suffix matching is forbidden. Its ledger head must
+then contain the exact requested `run_id`. Independently, any readable ledger
+whose supported head contains the requested `run_id` is part of the inventory;
+if its directory is noncanonical, the result is `fail` rather than absence.
 
 - No matching ledger, branch, or worktree is `pass` and permits new-run
   handling.
@@ -261,6 +316,10 @@ alone is forbidden.
   ID; completion never permits reuse of the same canonical identity.
 - Multiple nonterminal ledgers, an unmatched branch/worktree collision, or an
   invalid/noncanonical matching path or run ID/ref is `fail`.
+- A matching canonical run directory without a regular readable `ledger.md` is
+  `unverifiable`, never absence.
+- A ledger at the requested canonical directory whose supported, parseable head
+  records a different `run_id` is a `fail` identity collision, not absence.
 - A missing JSON head, unknown schema, unreadable ledger, or unavailable Git
   observation is `unverifiable`.
 
@@ -273,7 +332,10 @@ decision after the mechanical inventory; code does not compare intent meaning.
 `identities` requires `--run`. It verifies that:
 
 - the run path is beneath the repository's canonical runs directory;
-- the ledger's resolved worktree and branch match the observed Git worktree;
+- `git -C REPOSITORY rev-parse --show-toplevel` resolves the observation root,
+  and the ledger worktree equals that canonical root;
+- `git -C RESOLVED_ROOT symbolic-ref --quiet --short HEAD` observes the branch,
+  which equals the ledger branch;
 - `base_identity` resolves to a commit;
 - each non-null frozen path is canonical, remains inside the worktree, and its
   current Git blob equals the recorded blob.
@@ -289,19 +351,29 @@ ledger, or inability to establish the observation is `unverifiable`.
 - `reviewed_commit`, `target_seal`, `run_ref`, and `evidence_path` are present;
 - `reviewed_commit` is an ancestor of source-worktree `HEAD`;
 - frozen identities still match;
-- the evidence path is canonical and exists; and
+- the evidence path equals the exact path derived from the current
+  `dispatch_id`, is a regular receipt, and its fields agree with the head; and
 - after resolving the source repository with `git rev-parse --show-toplevel`,
   the union of committed paths in `reviewed_commit..HEAD` and dirty paths,
   normalized to repository-relative paths, is a subset of the exact ledger,
-  canonical final report, and recorded review evidence path.
+  its sibling `final-report.md`, and the recorded review evidence path.
 
-Git path collection is NUL-delimited. Rename/copy records consume both path
-fields and place both old and new repository-relative paths in the checked set;
-no whitespace-delimited or one-record-per-NUL shortcut may drop a path.
+Committed-path comparison is deliberately the net tree delta from
+`reviewed_commit` to `HEAD`, not an audit of paths touched and fully reverted in
+intermediate commits. Dirty paths are collected with
+`git status --porcelain=v1 -z --untracked-files=all` so exact files inside new
+directories are visible. Git path collection is NUL-delimited. Rename/copy
+records consume both path fields and place both old and new
+repository-relative paths in the checked set; no whitespace-delimited or
+one-record-per-NUL shortcut may drop a path.
 
 It does not claim that the materialized review target still exists, recompute
 the review target seal, or prove that arbitrary source bytes equal a
 review-loop seal.
+
+A supported, parseable ledger whose `review.kind` is not `implementation` or
+whose `review.state` is not `pass` is `fail`: the reviewed-snapshot predicate
+is false. Malformed or unsupported ledger state remains `unverifiable`.
 
 This is the deliberately narrower implementation name for the previously
 proposed `post-review-verify` gate: the reviewed implementation remains an
@@ -313,9 +385,10 @@ and does not reinterpret a changed base-branch topology through this gate.
 
 ### `audit`
 
-`audit` validates exact keys, types, enums, stage range, terminal/next-action
-consistency, frozen-identity shapes, review-field dependencies, and bounded
-review rules.
+`audit` validates exact keys, types, enums, stage range, the exact
+complete-status/Stage-14/next-action invariant, frozen-identity shapes,
+review-field dependencies, review-receipt agreement for returned states, and
+bounded review rules.
 
 Unknown keys are rejected in version one so misspellings cannot silently become
 state. Nullability is stage-aware: review evidence is required only once the
@@ -328,9 +401,9 @@ quality, plan coverage, or reviewer judgment.
 | --- | --- | --- |
 | Stage 1 new/resume selection | `runs` | ambiguity → Preflight blocked; unsupported/unreadable → blocked, never create new |
 | Resume and before any downstream stage | `identities` | branch/worktree uncertainty → blocked; ledger/Git/evidence disagreement or frozen drift → read-only reconciliation, consulting transition-linked transcripts when needed, then fixed invalidation or blocking if the combined evidence is not unambiguous |
-| Before any external review dispatch | `audit` | remain in current stage; repair ledger only from known evidence or block |
+| Before any external review dispatch | `identities` then `audit` | identity drift follows read-only reconciliation/invalidation; ledger inconsistency remains in the current stage or blocks |
 | Implementation review return | `audit` | missing/contradictory return stays review-active for recovery or blocks |
-| Before Stages 11, 12, and 13 | `reviewed-snapshot` then `audit` | implementation/review drift invalidates from Implementation review; foreign dirt blocks |
+| Before Stages 11, 12, and 13 | `identities`, `reviewed-snapshot`, then `audit` | identity or implementation/review drift invalidates from its root; foreign dirt blocks |
 | Stage 14 entry | `identities`, `reviewed-snapshot`, then `audit` | implementation/review drift invalidates from Implementation review; foreign dirt or other uncertainty blocks before Finish; Finish capability probe and mutations remain LLM-executed |
 
 Stages 2, 3, 7, and 9 remain judgment/action stages without a new content gate;
@@ -362,6 +435,22 @@ root-cause invalidation may reset the counter only when the human transition
 history records the new root identity, reason, and authority; the checker does
 not claim to validate that semantic reset from the current head. This rule does
 not compare finding prose or include residual Minor findings allowed on pass.
+
+`root_identity` is an opaque controller-owned label for the currently diagnosed
+root cause. Ordinary fixes retain it. Only an authority-governed root-cause
+invalidation may replace it, recording old and new labels, reason, authority,
+and parent transition. Because each corrected subject uses a fresh review-loop
+run, Feature Forge performs one bounded semantic reconciliation on a TRIAGE
+return:
+reuse the prior actionable ID only when the new finding is materially the same
+issue, otherwise allocate a new opaque ID, and record the mapping and rationale
+in human evidence. It then assigns `previous_open_finding_ids` from the
+preceding completed return and assigns the current sorted actionable set to
+`open_finding_ids`. A nonempty actionable TRIAGE result counts as a completed
+`changes_required` return: increment `round` first, then apply `must_block`.
+Record receipt/head result `blocked` when the predicate is true and
+`changes_required` otherwise. A pass does not increment the counter. `audit`
+checks the resulting deterministic predicate, not the semantic mapping.
 
 ## Skill Prose Contract
 
@@ -421,10 +510,13 @@ The Git-state oracle passes a run only when there is no observable workflow
 advancement or durable dispatch evidence, no tracked-file change outside the
 ledger, and the ledger records reconciliation/blocking whose reason names the
 exact specification path and identity/blob drift. A generic blocked state does
-not pass. This oracle does not claim to prove that no unobserved external
-process was invoked; adding host-specific process instrumentation is outside
-the MVP. The same fixed fixture and oracle run five fresh repetitions with
-Codex using `gpt-5.6-terra` at medium effort
+not pass. Once the checker exists, the resulting ledger must also pass `audit`,
+and its material reconciliation transition must carry the harness/session
+provenance exposed by the host or the explicit value `unavailable`. This oracle
+does not claim to prove that no unobserved external process was invoked; adding
+host-specific process instrumentation is outside the MVP. The same fixed
+fixture and oracle run five fresh repetitions with Codex using `gpt-5.6-terra`
+at medium effort
 and five with Claude Code using Sonnet at medium effort. Release requires a
 majority in each host and zero oracle-detected forward mutations. This is an
 intentional mid-weight qualification signal, not proof about an untested model.
@@ -471,7 +563,8 @@ The MVP is complete when:
 3. The checker never chooses workflow actions or implements a competing review
    seal.
 4. The review-loop boundary fixture exercises the exact public calls Feature
-   Forge documents.
+   Forge documents across two fresh rounds and proves the source/candidate
+   identity and contained input mapping used at that boundary.
 5. The one-fault behavioral trap meets the majority-of-five bar on both hosts
    with no forward-mutation oracle failure.
 6. Feature Forge's live prose uses the compact stage contract and preserves its
