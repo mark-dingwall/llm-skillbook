@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work Team"
+  short_description: "Run a task as a planned team of fresh subagents"
+  default_prompt: "Use $work-team to deliver the following task with a planned team, audit trail, and verified result:"

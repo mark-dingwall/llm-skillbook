@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-SKILLS = ["feature-forge", "multi-review", "review-loop", "review-team"]
+SKILLS = ["feature-forge", "multi-review", "review-loop", "review-team", "work-team"]
 MARKER = ".installed-by-llm-skillbook"
 
 # Top-level entries never shipped to an install target (dev-only).
