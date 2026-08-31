@@ -1,7 +1,7 @@
 # llm-skillbook
 
-llm-skillbook packages code-review and feature-delivery workflows for Claude
-Code and OpenAI Codex. Choose the smallest workflow that matches the job:
+llm-skillbook packages code-review, feature-delivery, and team-orchestration
+workflows for Claude Code and OpenAI Codex. Choose the smallest workflow that matches the job:
 
 | Workflow | Use it for |
 |---|---|

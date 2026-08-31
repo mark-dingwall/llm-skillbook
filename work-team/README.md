@@ -22,9 +22,16 @@ Artefacts land in `.work-team/<run>/`: `plan.json`, `workflow-log.jsonl`,
 blocker/important residual is open. `residual` lists everything dropped,
 capped, retried, or unverified; an empty list is a claim, not a default.
 
-## Live contract
+## Use the live contract
 
-Start with [SKILL.md](SKILL.md). Owning references: [run plan](references/run-plan.md),
-[packets](references/packets.md), [report and diagnosis](references/report.md).
-Scripts: `scripts/wt-log`, `scripts/wt-validate`, `scripts/wt-telemetry`.
-[Design](docs/) and [evals](evals/) are provenance, not authority.
+Start with [the skill contract](SKILL.md). It defines invocation, the required
+workflow, the controller boundary, and failure policy. Consult the live
+[run-plan contract](references/run-plan.md),
+[packet contract](references/packets.md), and
+[report and diagnosis contract](references/report.md) when running or changing
+the workflow. Scripts: `scripts/wt-log`, `scripts/wt-validate`,
+`scripts/wt-telemetry`.
+
+The [design records](docs/) and [evaluation evidence](evals/) are retained as
+historical provenance. They document earlier decisions and validation, but are
+not the operational authority.
