@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 RESOURCES = Path(__file__).parents[2] / "review_loop" / "resources"
+SKILL = Path(__file__).parents[2] / "SKILL.md"
 
 NON_FIX_ROLE_FILES = [
     "evidence-discovery.md",
@@ -80,6 +81,17 @@ class RoleFieldContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
+    def test_inventory_revision_declares_resolutions_as_an_array_of_exact_objects(self):
+        text = " ".join(_read("inventory.md").split())
+        self.assertIn(
+            '`resolutions` is an array of objects with exactly `challenge_id` and `resolution`',
+            text,
+        )
+        self.assertIn(
+            '`challenge_id` must be one of the controller-supplied challenge IDs; no other IDs are permitted',
+            text,
+        )
+
     def test_inventory_challenge_matches_validate_inventory_challenge(self):
         text = _read("inventory-challenge.md")
         for token in ("inventory-challenge", "UPHOLD", "CHALLENGE", "challenges", "category",
@@ -135,6 +147,12 @@ class RoleFieldContractTests(unittest.TestCase):
                 self.assertIn("review-record", text)
                 self.assertIn("REVIEW-STATUS", text)
                 self.assertIn(f"`{role}`", text)
+
+class RetryContractTests(unittest.TestCase):
+    def test_malformed_output_retry_includes_exact_validator_rejection(self):
+        text = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("The host performing that retry must include the exact validator rejection", text)
+        self.assertIn("same identity, target, role, and semantic charter", text)
 
 
 class FixRoleContractTests(unittest.TestCase):
