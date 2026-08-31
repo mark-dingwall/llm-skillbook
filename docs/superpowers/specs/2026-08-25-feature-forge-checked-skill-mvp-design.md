@@ -62,6 +62,8 @@ reviewed implementation commit and the permitted ledger/review-evidence delta.
 - One literal checker result line for each operational gate.
 - A maximum review-round rule and an earlier identical-findings oscillation
   rule.
+- Session provenance on material transition-log entries and LLM-assisted
+  transcript inspection during read-only mismatch reconciliation.
 - Unit, CLI, packaging, integration-boundary, and behavioral qualification.
 - Updated maintainer and user documentation reflecting that Feature Forge is a
   checked skill rather than instruction-only.
@@ -76,6 +78,13 @@ reviewed implementation commit and the permitted ledger/review-evidence delta.
 - A second seal or manifest format.
 - Broad adapter capability negotiation.
 - Multiple simultaneous behavioral traps.
+- Transcript parsers, schemas, normalization, or stable-cursor contracts.
+- Transcript copying, archiving, retention guarantees, or portability
+  machinery.
+- A separate provenance registry or audit-log artifact.
+- Atomic transition writers, compare-and-swap coordination, or code-owned
+  transition execution.
+- Mechanical validation of historical or semantic transition legitimacy.
 
 ## Ledger Head
 
@@ -136,6 +145,13 @@ worktree, branch, base, stage, next action, or current review-control values.
 An inconsistency in human evidence blocks advancement; the head is not
 permission for the LLM to overwrite contrary evidence.
 
+The human transition table records `event · parent event · UTC time · from ·
+to · next action · session provenance · reason/authority · evidence`. Session
+provenance records the harness, current conversation or session identity, and
+root, parent, or subagent identity when materially different and exposed by
+the harness. It does not require a transcript path or transcript content, and
+it does not add fields to the version-one JSON head.
+
 `review.kind` is `null | specification | plan | implementation` and
 `review.state` is `not_started | review_active | changes_required | pass |
 blocked`. Version one uses this current-state matrix:
@@ -154,6 +170,26 @@ remains in the human transition history. A root-cause correction within one
 kind follows the separately authorized reset rule below. `audit` validates the
 current matrix but does not claim to prove from one head that either historical
 transition was legitimate.
+
+## Transcript-Assisted Recovery
+
+Session transcripts are forensic evidence for recovery, never workflow
+authority. A normal resume whose ledger, Git identities, review evidence, and
+transition evidence agree does not read transcripts. When those sources
+disagree, the LLM identifies the transition entries and sessions since the
+last consistent event and inspects as much of the linked transcript evidence
+as needed to reconstruct intent, causality, attempted actions, and incomplete
+work.
+
+Git observations, checker results, the ledger, review seals, and recorded
+authority establish what took effect and what may happen next; transcripts
+help explain those facts. The LLM reconciles only when the combined evidence
+is unambiguous. Otherwise it blocks for user authority. A missing, expired,
+inaccessible, or ambiguous transcript does not invalidate an otherwise
+consistent run, but recovery blocks when that unavailable evidence is needed
+to resolve a mismatch. Transcript evidence may inform the semantic judgment
+that a new root cause warrants a reset, but cannot mechanically prove that
+judgment legitimate.
 
 ## Identity Vocabulary
 
@@ -291,7 +327,7 @@ quality, plan coverage, or reviewer judgment.
 | Boundary | Mechanical command | Failure route |
 | --- | --- | --- |
 | Stage 1 new/resume selection | `runs` | ambiguity → Preflight blocked; unsupported/unreadable → blocked, never create new |
-| Resume and before any downstream stage | `identities` | branch/worktree uncertainty → blocked; frozen drift → read-only reconciliation and fixed invalidation graph |
+| Resume and before any downstream stage | `identities` | branch/worktree uncertainty → blocked; ledger/Git/evidence disagreement or frozen drift → read-only reconciliation, consulting transition-linked transcripts when needed, then fixed invalidation or blocking if the combined evidence is not unambiguous |
 | Before any external review dispatch | `audit` | remain in current stage; repair ledger only from known evidence or block |
 | Implementation review return | `audit` | missing/contradictory return stays review-active for recovery or blocks |
 | Before Stages 11, 12, and 13 | `reviewed-snapshot` then `audit` | implementation/review drift invalidates from Implementation review; foreign dirt blocks |
@@ -446,3 +482,7 @@ The MVP is complete when:
 8. Focused Feature Forge tests, root packaging/documentation tests, plugin
    validation where applicable, `git diff --check`, and explicit status review
    pass.
+9. Material transition entries carry available harness/session provenance, and
+   the live workflow defines transcript-assisted mismatch recovery without
+   making transcript availability, format, or interpretation part of
+   `ff-check`.

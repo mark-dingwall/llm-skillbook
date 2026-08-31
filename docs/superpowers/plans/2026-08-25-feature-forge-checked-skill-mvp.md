@@ -19,7 +19,9 @@ control state. One read-only Python standard-library script validates run
 discovery, Git/frozen identities, the reviewed source snapshot, and ledger
 consistency, emitting one literal result line. Feature Forge remains the sole
 controller; review-loop remains the sole owner of review-target seals; users
-remain the authority for material decisions and effects.
+remain the authority for material decisions and effects. Human-readable
+transition evidence carries available session provenance for LLM-assisted
+recovery without becoming a new source of workflow authority.
 
 **Tech Stack:** Markdown skill/reference files, Python 3 standard library,
 pytest, Git, existing `review_loop` public library, Codex CLI, Claude Code CLI.
@@ -238,6 +240,9 @@ journal, transition, authority, implementation, verification, and acceptance
 sections so moving checker state does not erase human-owned workflow evidence.
 Assert that Markdown no longer mirrors run ID, overall status, worktree,
 branch, base identity, current stage, or next action fields owned by the head.
+Assert that the transition table contains `parent event` and `session
+provenance`, that the exact JSON head keys above remain unchanged, and that no
+transcript path, transcript data, or audit tip enters checker-owned state.
 
 - [ ] **Step 2: Run RED**
 
@@ -260,6 +265,9 @@ finding-ID fields as checker-consumed control state; IDs remain opaque and no
 finding prose moves into the head. Starting a new review kind initializes a
 fresh current review object, while prior review evidence remains in transition
 history; do not claim the current head proves that historical transition.
+Define the human transition row and its session-provenance semantics, and put
+transcript-assisted recovery in the workflow without duplicating that guidance
+throughout the skill.
 
 Apply `writing-skills`: remove superseded prose where the new schema table says
 the same thing; do not duplicate the full JSON object throughout the skill.
@@ -538,7 +546,9 @@ correctly blocked cap/oscillation states, unsorted/duplicate IDs, and residual
 Minor evidence excluded from the actionable arrays. Require both ID arrays to
 be sorted and unique so array equality implements exact ID-set equality. Test
 only current-head invariants; do not claim that `audit` can prove whether a
-kind/root reset was semantically legitimate from transition history.
+kind/root reset was semantically legitimate from transition history. Do not
+parse transition history, validate parent-event chains, locate or read
+transcripts, or judge historical legitimacy.
 
 - [ ] **Step 4: Run RED, implement, run GREEN**
 
@@ -599,6 +609,9 @@ git commit -m "feat: audit Feature Forge review state"
   `python3 "$SKILL_DIR/scripts/ff-check" ...`.
 - Review cap: third actionable return blocks; identical consecutive nonempty ID
   sets block earlier; a recorded new root identity is the only reset.
+- Material transition entries record available harness/session provenance;
+  transcript-assisted reconciliation remains a read-only LLM workflow action,
+  not a checker responsibility or a new authority source.
 
 - [ ] **Step 1: Inventory duplicate instructions before editing**
 
@@ -635,7 +648,27 @@ same-kind root correction follows the existing reset rule. `audit` validates
 the resulting current state, not the semantic legitimacy of its history. Add
 no semantic similarity or prose-scoring algorithm.
 
-- [ ] **Step 5: Rerun the original identity-drift campaign GREEN**
+- [ ] **Step 5: Add session provenance and transcript-assisted reconciliation once**
+
+Update `workflow.md` and the ledger template so material dispatches, returns,
+corrections, authority decisions, invalidations, and Finish transitions record
+the harness and available conversation/session identity, plus materially
+different root, parent, or subagent identity. Permit an explicit `unavailable`
+value when the harness does not expose identity; that alone does not block an
+otherwise consistent run.
+
+Define one read-only mismatch-reconciliation procedure in `workflow.md`:
+identify transition entries and sessions since the last consistent event,
+inspect only as much transcript evidence as needed, reconcile when ledger,
+Git, checker, review, authority, and transcript evidence are unambiguous, and
+otherwise block for user authority. State that transcripts are forensic
+evidence, never workflow authority, and that a consistent resume does not
+depend on their availability. Keep `SKILL.md` short. Do not specify
+harness-specific environment variables, storage paths, transcript formats, or
+parsing rules. Add deterministic documentation/schema assertions only; do not
+add another behavioral campaign.
+
+- [ ] **Step 6: Rerun the original identity-drift campaign GREEN**
 
 Use exactly the Task 1 fixture, prompt, oracle, host count, and runner commands.
 Require at least 3/5 oracle passes in Codex and 3/5 in Claude Code, and no run
@@ -649,7 +682,7 @@ outcomes and workflow routes are deterministic test cases. Add another
 behavioral campaign only if this campaign or later observed use exposes a
 distinct agent-control failure that those tests cannot exercise.
 
-- [ ] **Step 6: Run deterministic Feature Forge tests**
+- [ ] **Step 7: Run deterministic Feature Forge tests**
 
 ```bash
 python3 -m pytest feature-forge/tests -q
@@ -662,7 +695,7 @@ skips only the review-loop boundary when `review_loop` is unavailable; the
 owning `uv` command executes that boundary and passes. A root skip is not
 acceptance evidence for the boundary.
 
-- [ ] **Step 7: Commit the concise skill contract and GREEN evidence**
+- [ ] **Step 8: Commit the concise skill contract and GREEN evidence**
 
 ```bash
 git add feature-forge/SKILL.md feature-forge/references/workflow.md \
@@ -788,7 +821,7 @@ is still untracked/untouched and absent from every commit.
 
 - [ ] **Step 4: Recheck design acceptance one criterion at a time**
 
-Produce a short evidence table mapping all eight design acceptance criteria to
+Produce a short evidence table mapping all nine design acceptance criteria to
 fresh command output or behavioral result files. Do not use plan completion or
 an earlier transcript as evidence.
 
