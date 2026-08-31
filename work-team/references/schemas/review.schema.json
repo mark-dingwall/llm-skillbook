@@ -7,9 +7,10 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["severity", "where", "issue", "fix"],
+        "required": ["severity", "scope", "where", "issue", "fix"],
         "properties": {
           "severity": {"type": "string", "enum": ["blocker", "important", "minor"]},
+          "scope": {"type": "string", "enum": ["spec", "adjacent"]},
           "where": {"type": "string"},
           "issue": {"type": "string"},
           "fix": {"type": "string"},

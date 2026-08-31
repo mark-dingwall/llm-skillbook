@@ -1,0 +1,55 @@
+{
+  "run": "2026-09-01-prior-run-diagnosis",
+  "task": "from a real previous run). IMPORTANT: Use only the evidence in the directory; cite files and lines. A previous multi-agent run at /home/mark/.claude/jobs/1fc6d338/tmp/evals/green-20260831T144500Z-C-codex-attempt-1/run-dir reported success (result.json): all 132 tests pass and the build is clean. The user reports the delivered app has essentially no visual styling even though SPEC.md §5 specifies a themed UI with animations. From workflow-log.jsonl, agents.csv, SPEC.md, result.json, and css-inventory.txt, determine: (1) what the pipeline missed and the mechanism that let it through; (2) where wall-clock time and cost were concentrated, with numbers; (3) what was silently dropped or never surfaced in the reported result; (4) how you would reshape the next run. Do not speculate beyond the evidence.",
+  "phases": [
+    {
+      "id": "independent-evidence-audit",
+      "workers": [
+        {
+          "id": "coverage-auditor",
+          "role": "verifier",
+          "goal": "Compare SPEC.md §5 and css-inventory.txt against result.json verification and workflow-log.jsonl. Identify only evidence-backed unverified visual requirements and the documented mechanism that allowed them through. Done when every finding cites exact file-and-line evidence.",
+          "inputs": ["run-dir/SPEC.md", "run-dir/css-inventory.txt", "run-dir/result.json", "run-dir/workflow-log.jsonl"],
+          "owns": [],
+          "verify": "test -s run-dir/SPEC.md && test -s run-dir/css-inventory.txt && test -s run-dir/result.json && test -s run-dir/workflow-log.jsonl",
+          "returns": "schemas/review.schema.json",
+          "group": "evidence"
+        },
+        {
+          "id": "telemetry-auditor",
+          "role": "verifier",
+          "goal": "Use workflow-log.jsonl and agents.csv only to quantify wall-clock and cost concentration. Report exact evidence-backed numbers, including telemetry output where available, with file-and-line citations. Done when the calculation and cited sources support every number.",
+          "inputs": ["run-dir/workflow-log.jsonl", "run-dir/agents.csv"],
+          "owns": [],
+          "verify": "/home/mark/.codex/skills/work-team/scripts/wt-telemetry run-dir/workflow-log.jsonl",
+          "returns": "schemas/review.schema.json",
+          "group": "evidence"
+        },
+        {
+          "id": "reporting-auditor",
+          "role": "verifier",
+          "goal": "Compare workflow-log.jsonl and agents.csv with result.json using the diagnostic checklist. Identify items silently dropped, missing residuals, failed/partial outcomes, or omitted verifier findings, with exact file-and-line citations. Done when every assigned comparison is explicitly covered.",
+          "inputs": ["run-dir/workflow-log.jsonl", "run-dir/agents.csv", "run-dir/result.json"],
+          "owns": [],
+          "verify": "test -s run-dir/workflow-log.jsonl && test -s run-dir/agents.csv && test -s run-dir/result.json",
+          "returns": "schemas/review.schema.json",
+          "group": "evidence"
+        }
+      ]
+    },
+    {
+      "id": "next-run-plan-review",
+      "workers": [
+        {
+          "id": "reshaping-auditor",
+          "role": "verifier",
+          "goal": "Based solely on the supplied evidence files, propose an evidence-tethered next-run reshaping: verification boundaries, visual-oracle handling, ordering, and any needed final re-review. Cite the observed failure or concentration motivating each recommendation. Done when every recommendation has exact file-and-line evidence.",
+          "inputs": ["run-dir/workflow-log.jsonl", "run-dir/agents.csv", "run-dir/SPEC.md", "run-dir/result.json", "run-dir/css-inventory.txt"],
+          "owns": [],
+          "verify": "test -s run-dir/workflow-log.jsonl && test -s run-dir/agents.csv && test -s run-dir/SPEC.md && test -s run-dir/result.json && test -s run-dir/css-inventory.txt",
+          "returns": "schemas/review.schema.json"
+        }
+      ]
+    }
+  ]
+}

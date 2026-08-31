@@ -1,0 +1,49 @@
+{
+  "run": "2026-09-01-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` (add <text>, list, done <id>; JSON-file persistence) via spec -> tests -> implementation -> review.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md fully specifying the `todo` CLI: `add <text>`, `list`, `done <id>` subcommands; JSON-file persistence format (field names, types, id assignment rule, file location); exact stdout for each command and for edge cases (empty list, unknown id, missing args); exit codes for success and each error case. Done when every command has at least one Given/When/Then and the JSON schema is written out explicitly.",
+          "inputs": ["<task text verbatim, provided in packet>"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite in test_todo.py derived only from SPEC.md. Tests must invoke the CLI as a subprocess (`sys.executable, 'todo.py', ...`) in an isolated tmp_path working directory so no test touches the real repo's JSON file. Cover: add creates an entry and persists it; list shows added entries in the documented format; list on empty store; done marks an entry complete and it reflects in list; done on an unknown id; JSON file schema matches SPEC.md after operations. Done when the suite collects successfully and every test currently fails or errors only because todo.py does not exist yet (no implementation exists).",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Write todo.py implementing the CLI exactly as specified in SPEC.md so that test_todo.py passes. Minimum code that satisfies the spec and tests; no speculative options, no config beyond what SPEC.md requires. Done when `python3 -m pytest -q test_todo.py` is fully green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py",
+          "returns": "schemas/status.schema.json"
+        }
+      ]
+    }
+  ]
+}

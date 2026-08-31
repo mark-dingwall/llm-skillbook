@@ -1,0 +1,31 @@
+{"ts": "2026-08-31T14:43:45Z", "agent": "controller", "action": "frame: scouted audit-target (SPEC.md + inventory/stock.py + inventory/report.py + inventory/__init__.py + test_stock.py), wrote plan.json with find/verify phases", "artefacts": []}
+{"ts": "2026-08-31T14:43:46Z", "agent": "controller", "action": "plan.json validated against plan.schema.json", "artefacts": []}
+{"ts": "2026-08-31T14:43:46Z", "agent": "controller", "action": "dispatching wave 1 of 3 finder workers (finder-spec-line, finder-data-types, finder-state-edge)", "artefacts": []}
+{"ts": "2026-08-31T14:44:04Z", "agent": "finder-spec-line", "action": "start: reading SPEC.md and source files", "artefacts": []}
+{"ts": "2026-08-31T14:44:13Z", "agent": "finder-data-types", "action": "start: auditing numeric/type correctness vs SPEC.md", "artefacts": []}
+{"ts": "2026-08-31T14:44:21Z", "agent": "finder-state-edge", "action": "start: auditing stock.py edge cases vs SPEC.md", "artefacts": []}
+{"ts": "2026-08-31T14:44:38Z", "agent": "finder-spec-line", "action": "verify: pytest -q -> 1 passed; checked all 4 SPEC.md bullets against stock.py/report.py, found 3 violations", "artefacts": []}
+{"ts": "2026-08-31T14:44:42Z", "agent": "finder-spec-line", "action": "done: returning verdict changes_required with 3 findings", "artefacts": []}
+{"ts": "2026-08-31T14:44:57Z", "agent": "finder-state-edge", "action": "verify: pytest 1 passed; confirmed remove() no ValueError on over-removal, low_stock off-by-one (< vs <=) via ad-hoc checks", "artefacts": []}
+{"ts": "2026-08-31T14:45:02Z", "agent": "finder-state-edge", "action": "done: returning findings — 2 blockers (remove no ValueError, low_stock off-by-one), minor robustness notes for unknown sku, negative qty, price overwrite on re-add", "artefacts": []}
+{"ts": "2026-08-31T14:45:34Z", "agent": "finder-data-types", "action": "verify: pytest 1 passed; found blockers in remove() and parse_csv_line() vs SPEC.md", "artefacts": []}
+{"ts": "2026-08-31T14:45:38Z", "agent": "finder-data-types", "action": "done: returning changes_required with 4 findings", "artefacts": []}
+{"ts": "2026-08-31T14:46:35Z", "agent": "controller", "action": "ingest: finder-spec-line returned 3 candidates, schema-valid", "artefacts": []}
+{"ts": "2026-08-31T14:46:35Z", "agent": "controller", "action": "ingest: finder-data-types returned 4 candidates, schema-valid", "artefacts": []}
+{"ts": "2026-08-31T14:46:35Z", "agent": "controller", "action": "ingest: finder-state-edge returned 7 candidates, schema-valid", "artefacts": []}
+{"ts": "2026-08-31T14:46:35Z", "agent": "controller", "action": "dispatching wave 2 of 3 verifier workers (verifier-of-spec-line, verifier-of-data-types, verifier-of-state-edge)", "artefacts": []}
+{"ts": "2026-08-31T14:47:00Z", "agent": "verifier-of-spec-line", "action": "start: reading SPEC.md and source files for 3 candidates", "artefacts": []}
+{"ts": "2026-08-31T14:47:07Z", "agent": "verifier-of-data-types", "action": "start: verifying 4 candidates from finder-data-types", "artefacts": []}
+{"ts": "2026-08-31T14:47:20Z", "agent": "verifier-of-spec-line", "action": "ran pytest (1 passed) + 4 repros for 3 candidates", "artefacts": []}
+{"ts": "2026-08-31T14:47:24Z", "agent": "verifier-of-state-edge", "action": "start: verifying 7 candidates re stock.py", "artefacts": []}
+{"ts": "2026-08-31T14:47:24Z", "agent": "verifier-of-spec-line", "action": "done: all 3 candidates CONFIRMED, returning verdict", "artefacts": []}
+{"ts": "2026-08-31T14:47:31Z", "agent": "verifier-of-data-types", "action": "done: all 4 candidates confirmed via pytest + python3 -c repros", "artefacts": []}
+{"ts": "2026-08-31T14:47:45Z", "agent": "controller", "action": "ingest: verifier-of-spec-line returned 3/3 assigned candidates, all CONFIRMED, schema-valid", "artefacts": []}
+{"ts": "2026-08-31T14:47:50Z", "agent": "verifier-of-state-edge", "action": "repro run: candidate 7 mutable-default check - no defect", "artefacts": []}
+{"ts": "2026-08-31T14:47:57Z", "agent": "controller", "action": "ingest: verifier-of-data-types returned 4/4 assigned candidates, all CONFIRMED, schema-valid", "artefacts": []}
+{"ts": "2026-08-31T14:48:04Z", "agent": "verifier-of-state-edge", "action": "repro run: candidate 6 price overwrite - confirmed", "artefacts": []}
+{"ts": "2026-08-31T14:48:28Z", "agent": "verifier-of-state-edge", "action": "repro runs done: C1,C2 confirmed spec violations; C3,C4,C5 confirmed bugs but out-of-spec-scope; C6 confirmed silent price keep, spec-silent; C7 refuted (no mutable-default hazard)", "artefacts": []}
+{"ts": "2026-08-31T14:48:30Z", "agent": "verifier-of-state-edge", "action": "done: returning verdicts for all 7 candidates", "artefacts": []}
+{"ts": "2026-08-31T14:49:05Z", "agent": "controller", "action": "ingest: verifier-of-state-edge returned 7/7 assigned candidates, schema-valid, coverage-complete (6 confirmed, 1 refuted)", "artefacts": []}
+{"ts": "2026-08-31T14:49:05Z", "agent": "controller", "action": "all 3 verifiers returned full coverage on first attempt; no retry/worker_failed needed this run", "artefacts": []}
+{"ts": "2026-08-31T14:50:35Z", "agent": "controller", "action": "final verify: pytest 1 passed; wrote result.json (outcome=partial) and report.md; run complete", "artefacts": []}

@@ -43,8 +43,10 @@ case $HARNESS in
 esac
 END=$(date -u +%FT%TZ)
 
-# Keep produced logs, not the whole workspace.
-find "$WS" -name workflow-log.jsonl -exec cp {} "$OUT/" \; 2>/dev/null || true
+# Keep produced logs and any work-team run directory, not the whole workspace.
+[ -d "$WS/.work-team" ] && cp -r "$WS/.work-team" "$OUT/run-artefacts"
+find "$WS" -path "$WS/.work-team" -prune -o -name workflow-log.jsonl -print 2>/dev/null \
+  | while read -r f; do cp "$f" "$OUT/$(echo "${f#$WS/}" | tr / _)"; done
 (cd "$WS" && find . -type f -not -path '*/node_modules/*' -not -path '*/.venv/*' | sort) > "$OUT/workspace-files.txt"
 printf 'command=%s\nworkspace=%s\nharness=%s\nphase=%s\nscenario=%s\nstart=%s\nend=%s\nexit=%s\n' \
   "$CMD" "$WS" "$HARNESS" "$PHASE" "$SCEN" "$START" "$END" "$EXIT" > "$OUT/metadata.txt"

@@ -51,7 +51,9 @@ with the inline schema. A packet missing any part is not dispatched.
 | judge | score rendered output against a written rubric; read-only | review |
 
 Reviewers, verifiers, and judges get `owns: []` and the sentence "Do not edit
-any file." Fixers receive the findings JSON verbatim and nothing else about
+any file." Their charter names the spec or standard being judged; each finding
+sets `scope: "spec"` (violates a stated requirement) or `"adjacent"` (the spec
+is silent). Fixers receive the findings JSON verbatim and nothing else about
 who found them.
 
 ## Batching

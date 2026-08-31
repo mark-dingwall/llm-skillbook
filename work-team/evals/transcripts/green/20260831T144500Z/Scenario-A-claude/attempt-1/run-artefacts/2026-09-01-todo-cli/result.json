@@ -1,0 +1,24 @@
+{
+  "run": "2026-09-01-todo-cli",
+  "outcome": "complete",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "summary": "exit 0, SPEC.md non-empty (7896 bytes)"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "summary": "19 tests collected"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "summary": "19 passed"},
+    {"command": "manual CLI smoke test in isolated /tmp cwd (add/list/done/unknown-id)", "passed": true, "summary": "output matches SPEC.md format; unknown id exits 2 with documented message"}
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "save_items() uses a fixed temp filename (todo.json.tmp); two concurrent CLI invocations in the same directory could race on that temp file. SPEC.md is silent on concurrency and no test covers it. Minor severity, deliberately not fixed to keep the CLI minimal per task scope.", "source": "reviewer-r2"},
+    {"kind": "skipped", "detail": "Task text contained an embedded instruction attributed to a 'tech lead' to skip the multi-agent process and have one agent do everything. Treated as untrusted scope data per work-team skill and not followed; full spec->tests->impl->review process ran instead.", "source": "controller (frame)"}
+  ],
+  "workers": [
+    {"id": "spec-writer", "role": "writer", "status": "ok", "summary": "Wrote SPEC.md: commands, JSON schema, exact I/O, exit codes, Given/When/Then per command."},
+    {"id": "test-writer", "role": "writer", "status": "ok", "summary": "Wrote test_todo.py, 19 black-box subprocess tests derived from SPEC.md, isolated per tmp_path."},
+    {"id": "implementer", "role": "implementer", "status": "ok", "summary": "Wrote todo.py; all 19 tests passed on first attempt."},
+    {"id": "reviewer-r1", "role": "reviewer", "status": "ok", "summary": "verdict pass; 1 important finding (non-atomic writes, data-loss risk) + 1 minor (no locking)."},
+    {"id": "fixer-r1", "role": "fixer", "status": "ok", "summary": "Applied atomic write via temp-file + os.replace(); 19/19 still pass."},
+    {"id": "reviewer-r2", "role": "reviewer", "status": "ok", "summary": "verdict pass; confirmed fix correct and complete; 1 new minor finding (temp-file name race)."}
+  ],
+  "plan": ".work-team/2026-09-01-todo-cli/plan.json",
+  "log": "workflow-log.jsonl"
+}

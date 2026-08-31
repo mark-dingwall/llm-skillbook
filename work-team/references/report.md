@@ -33,6 +33,10 @@ verification passed.
 
 ## report.md
 
+Findings are counted and listed by `scope`: `spec` findings are the result;
+`adjacent` observations follow in their own short section and never count
+toward any requested number.
+
 Order: outcome line → verification table → residuals → workers table
 (id, role, status, one-line summary) → run structure (phases, groups, loops,
 copied from plan.json) → telemetry (`wt-telemetry` output). No prose claims
@@ -50,5 +54,11 @@ When asked why a finished run missed something or cost too much:
    entry was never checked — that is the mechanism, not a worker's fault.
 4. Propose the next `plan.json`: split dominating workers along verification
    boundaries; add a verification worker for each unchecked requirement;
-   re-run any critic after the final fix. Cite log lines and CSV rows for
-   every claim; do not introduce numeric caps as rules.
+   re-run any critic after the final fix. For a requirement no unit test can
+   observe (styling, animation, layout), the verification worker is the
+   rendering assertion or rubric judge from
+   [run-plan.md](run-plan.md#requirements-no-test-can-observe). A count or
+   grep over source files (CSS lines, class names) checks that something was
+   written, not that the requirement holds; it is not a verification entry.
+   Cite log lines and CSV rows for every claim; do not introduce numeric caps
+   as rules.

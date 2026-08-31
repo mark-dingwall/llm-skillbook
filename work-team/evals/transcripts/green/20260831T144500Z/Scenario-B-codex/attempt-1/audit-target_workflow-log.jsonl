@@ -1,0 +1,50 @@
+{"ts": "2026-08-31T14:42:40Z", "agent": "finder-spec-contract", "action": "start specification contract audit", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:42:55Z", "agent": "finder-state-invariants", "action": "started state-transition audit", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:42:59Z", "agent": "finder-csv-money", "action": "started CSV and money audit", "artefacts": []}
+{"ts": "2026-08-31T14:43:00Z", "agent": "finder-spec-contract", "action": "verified: python3 -m pytest -q: 1 passed in 0.13s", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:43:10Z", "agent": "finder-api-misuse", "action": "started API edge-case audit", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:43:13Z", "agent": "finder-state-invariants", "action": "ran required pytest verification: 1 passed", "artefacts": ["audit-target/test_stock.py", "audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:43:19Z", "agent": "finder-adversarial", "action": "started adversarial audit", "artefacts": ["audit-target/SPEC.md", "audit-target/test_stock.py", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:43:23Z", "agent": "finder-state-invariants", "action": "reproduced over-removal; retrying low-stock boundary from correct directory", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:43:34Z", "agent": "finder-spec-contract", "action": "verification probe failed: quoting SyntaxError", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:43:36Z", "agent": "finder-state-invariants", "action": "completed state-invariant audit with two reproducible findings", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:43:41Z", "agent": "finder-csv-money", "action": "ran prescribed pytest: 1 passed", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:43:41Z", "agent": "finder-api-misuse", "action": "ran mandated pytest verification (exit 0)", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:43:50Z", "agent": "finder-spec-contract", "action": "verification probe incomplete: second redundant cd failed", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:43:51Z", "agent": "finder-adversarial", "action": "ran black-box boundary and CSV probes", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:43:52Z", "agent": "finder-api-misuse", "action": "returning three reproduced spec defects; pytest passed", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:43:55Z", "agent": "finder-csv-money", "action": "returning three evidence-backed findings", "artefacts": ["audit-target/inventory/report.py", "audit-target/SPEC.md"]}
+{"ts": "2026-08-31T14:43:59Z", "agent": "finder-spec-contract", "action": "verified direct reproductions: remove underflows; threshold equality omitted; decimal dollars rejected", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:44:05Z", "agent": "finder-adversarial", "action": "pytest verification completed: 1 passed", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:44:05Z", "agent": "finder-adversarial", "action": "returning three evidence-backed findings", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:44:06Z", "agent": "finder-spec-contract", "action": "returning three evidence-backed specification deviations", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:45:17Z", "agent": "finder-numeric-types", "action": "started numeric invariant audit", "artefacts": []}
+{"ts": "2026-08-31T14:45:31Z", "agent": "finder-duplicate-pricing", "action": "started duplicate and pricing audit", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:45:38Z", "agent": "finder-csv-structure", "action": "started CSV syntax audit", "artefacts": []}
+{"ts": "2026-08-31T14:46:06Z", "agent": "finder-duplicate-pricing", "action": "ran pytest: 1 passed in 0.14s", "artefacts": ["audit-target/test_stock.py", "audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:46:09Z", "agent": "finder-numeric-types", "action": "verified pytest: 1 passed in 0.12s", "artefacts": ["audit-target"]}
+{"ts": "2026-08-31T14:46:19Z", "agent": "finder-duplicate-pricing", "action": "returning duplicate-price finding; pytest passed", "artefacts": ["audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:46:36Z", "agent": "finder-numeric-types", "action": "returning 5 evidence-backed numeric findings", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:46:38Z", "agent": "finder-csv-structure", "action": "ran required pytest: 1 passed in 0.13s", "artefacts": []}
+{"ts": "2026-08-31T14:46:46Z", "agent": "finder-csv-structure", "action": "returning three CSV findings", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:48:01Z", "agent": "verifier-core", "action": "started independent verification", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:48:06Z", "agent": "verifier-csv-value", "action": "started independent V5-V8 audit", "artefacts": []}
+{"ts": "2026-08-31T14:48:14Z", "agent": "verifier-core", "action": "pytest verification completed: 1 passed in 0.13s", "artefacts": ["audit-target"]}
+{"ts": "2026-08-31T14:48:18Z", "agent": "verifier-input-integrity", "action": "started V9-V12 input-integrity verification", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:48:19Z", "agent": "verifier-csv-value", "action": "ran required pytest: 1 passed", "artefacts": ["audit-target"]}
+{"ts": "2026-08-31T14:48:30Z", "agent": "verifier-core", "action": "behavioral verification attempt failed due to command syntax", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:48:35Z", "agent": "verifier-input-integrity", "action": "required pytest completed: 1 passed in 0.12s", "artefacts": ["audit-target/test_stock.py", "audit-target/inventory/stock.py"]}
+{"ts": "2026-08-31T14:48:46Z", "agent": "verifier-core", "action": "behavioral verification completed: all four candidates reproduced", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/SPEC.md"]}
+{"ts": "2026-08-31T14:48:52Z", "agent": "verifier-core", "action": "returning four confirmed findings", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:48:53Z", "agent": "verifier-input-integrity", "action": "direct add behavior checked: fractional and negative inputs accepted", "artefacts": ["audit-target/inventory/stock.py", "audit-target/SPEC.md"]}
+{"ts": "2026-08-31T14:48:57Z", "agent": "verifier-csv-value", "action": "ran V5-V8 reproduction checks", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/SPEC.md"]}
+{"ts": "2026-08-31T14:49:00Z", "agent": "verifier-input-integrity", "action": "returning four confirmed input-integrity findings", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-08-31T14:49:15Z", "agent": "verifier-csv-value", "action": "verified malformed quote rejected by strict CSV parser", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:49:21Z", "agent": "verifier-csv-value", "action": "returning V5-V8 findings", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:50:13Z", "agent": "verifier-csv-value-missing-sim", "action": "started verification", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:50:45Z", "agent": "verifier-csv-value-missing-sim", "action": "pytest passed", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:50:58Z", "agent": "verifier-csv-value-missing-sim", "action": "returning controlled partial verdicts", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:51:26Z", "agent": "verifier-csv-value-retry", "action": "start audit", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-08-31T14:51:51Z", "agent": "verifier-csv-value-retry", "action": "pytest passed", "artefacts": ["audit-target"]}
+{"ts": "2026-08-31T14:52:10Z", "agent": "verifier-csv-value-retry", "action": "edge-case probes completed", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/SPEC.md"]}
+{"ts": "2026-08-31T14:52:17Z", "agent": "verifier-csv-value-retry", "action": "returning four candidate verdicts", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}

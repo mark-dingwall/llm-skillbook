@@ -89,7 +89,12 @@ time. Wave the rest. Never drop a planned worker to fit capacity.
 - Two workers touched the same path in one phase → stop the phase, record the
   conflict, and re-plan ownership before continuing.
 - Cap, count, or quota in the task text ("at least ten findings") is a maximum,
-  never a target. Evidence-backed empty results are complete.
+  never a target. Evidence-backed empty results are complete. Do not add
+  finder angles, widen the charter, or promote behaviour the spec is silent on
+  to approach a count; every finding carries `scope: spec | adjacent`, and the
+  report counts only `spec` findings against the task. "More angles would make
+  the audit more thorough" after the planned angles have converged is the
+  quota talking.
 - Numbers (rounds, retries, sizes) live in `plan.json` as failure detectors.
   Do not present a number as a rule in prose or in the report.
 

@@ -1,0 +1,35 @@
+{
+  "run": "inventory-spec-audit",
+  "task": "Thoroughly audit audit-target against SPEC.md for correctness defects, using independent finders followed by fresh independent verifiers for every candidate. Do not modify audit-target except workflow-log.jsonl.",
+  "phases": [
+    {
+      "id": "finder-wave",
+      "barrier": true,
+      "workers": [
+        {"id":"finder-spec-contract","role":"reviewer","goal":"Derive every explicit SPEC.md requirement and find implementation deviations. Done when every candidate has reproducible evidence or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-state-invariants","role":"reviewer","goal":"Audit Ledger state transitions, invariants, and boundary/error cases for correctness defects. Done when every candidate has a minimal reproduction or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-csv-money","role":"reviewer","goal":"Audit CSV ingestion, dollar-to-cent conversion, money arithmetic, and report behavior for correctness defects. Done when every candidate has a minimal reproduction or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-api-misuse","role":"reviewer","goal":"Audit public API behavior under malformed, zero, negative, duplicate, and missing-key inputs for correctness defects consistent with the spec. Done when every candidate has a minimal reproduction or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-adversarial","role":"reviewer","goal":"Independently design adversarial black-box probes from SPEC.md and identify overlooked correctness defects. Done when every candidate has command-level evidence or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/test_stock.py","audit-target/inventory/stock.py","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"}
+      ]
+    },
+    {
+      "id": "finder-deep-wave",
+      "barrier": true,
+      "workers": [
+        {"id":"finder-numeric-types","role":"reviewer","goal":"Audit numeric type, sign, and whole-cent invariants across public operations. Done when every candidate has a minimal reproduction or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-duplicate-pricing","role":"reviewer","goal":"Audit repeated SKU additions and price/value consistency for defects. Done when every candidate has a minimal reproduction or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-csv-structure","role":"reviewer","goal":"Audit CSV row syntax, whitespace, quoting, decimal values, and malformed structures against ordinary CSV and stated dollar semantics. Done when every candidate has a minimal reproduction or you return an evidence-backed empty list.","inputs":["audit-target/SPEC.md","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"}
+      ]
+    },
+    {
+      "id": "verification-wave",
+      "barrier": true,
+      "workers": [
+        {"id":"verifier-core","role":"verifier","goal":"Independently confirm or refute assigned candidates V1-V4. Done when every assigned candidate has an explicit verdict and reproduction evidence.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py","candidates V1-V4 supplied in packet"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"verifier-csv-value","role":"verifier","goal":"Independently confirm or refute assigned candidates V5-V8. Done when every assigned candidate has an explicit verdict and reproduction evidence.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py","candidates V5-V8 supplied in packet"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"verifier-input-integrity","role":"verifier","goal":"Independently confirm or refute assigned candidates V9-V12. Done when every assigned candidate has an explicit verdict and reproduction evidence.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","candidates V9-V12 supplied in packet"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"}
+      ]
+    }
+  ]
+}
