@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import re
 from pathlib import Path
 
 import pytest
@@ -32,27 +33,30 @@ def _score(tmp_path: Path) -> dict[str, object]:
 
 
 def _ledger(fixture: dict[str, object]) -> Path:
-    return Path(str(fixture["repo"])) / "docs/feature-forge/runs/identity-drift/ledger.md"
+    return Path(str(fixture["repo"])) / "docs/feature-forge/runs/2026-08-25-identity-drift/ledger.md"
+
+
+def _head(path: Path) -> tuple[dict[str, object], str]:
+    match = re.match(r"\s*```json\n(.*?)\n```\n?(.*)\Z", path.read_text(), re.DOTALL)
+    assert match
+    return json.loads(match.group(1)), match.group(2)
+
+
+def _write_head(path: Path, data: dict[str, object], markdown: str) -> None:
+    path.write_text("```json\n" + json.dumps(data, indent=2) + "\n```\n" + markdown)
 
 
 def _passing_ledger(fixture: dict[str, object]) -> None:
     ledger = _ledger(fixture)
-    data = json.loads(ledger.read_text())
-    specification = "docs/feature-forge/runs/identity-drift/specification.md"
+    data, markdown = _head(ledger)
+    specification = "docs/superpowers/specs/2026-08-25-identity-drift-design.md"
     data.update(
         status="blocked",
-        current_stage="specification",
         next_action=(f"reconcile or correct {specification} identity/blob drift before any stage advances"),
     )
-    data["stages"]["specification"] = "blocked"
-    data["transitions"] = [{
-        "kind": "reconciliation",
-        "stage": "specification",
-        "status": "blocked",
-        "reason": f"{specification} has identity/blob drift from its frozen blob",
-        "session": "unavailable",
-    }]
-    ledger.write_text(json.dumps(data, indent=2) + "\n")
+    data["stage"] = {"id": 9, "state": "blocked"}
+    markdown += f"| drift-1 |  | 2026-08-25T00:00:00Z | active | blocked | reconcile {specification} identity/blob drift | unavailable | {specification} identity/blob drift | git diff |\n"
+    _write_head(ledger, data, markdown)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -73,22 +77,28 @@ def _checker(root: Path, identities_paths: str) -> None:
 
 
 def test_prepare_checker_accepts_clean_audit_and_isolated_spec_failure(tmp_path):
-    _checker(tmp_path, "path=docs/feature-forge/runs/identity-drift/specification.md")
+    _checker(tmp_path, "path=docs/superpowers/specs/2026-08-25-identity-drift-design.md")
     fixture = _prepare(tmp_path)
     assert fixture["run"] == "identity-drift"
 
 
 def test_prepare_checker_rejects_additional_identity_path(tmp_path):
-    _checker(tmp_path, "path=docs/feature-forge/runs/identity-drift/specification.md\npath=README.md")
+    _checker(tmp_path, "path=docs/superpowers/specs/2026-08-25-identity-drift-design.md\npath=README.md")
     with pytest.raises(subprocess.CalledProcessError):
         _prepare(tmp_path)
+
+
+def test_prepare_with_current_checker_accepts_seed_and_isolates_drift(tmp_path):
+    subprocess.run([sys.executable, str(REPO / "install.py"), "feature-forge", "--target", "codex",
+                    "--home", str(tmp_path)], check=True, capture_output=True, text=True)
+    assert _prepare(tmp_path)["run"] == "identity-drift"
 
 
 def test_oracle_rejects_forward_commit(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     repo = Path(str(fixture["repo"]))
-    _git(repo, "add", "docs/feature-forge/runs/identity-drift/ledger.md")
+    _git(repo, "add", "docs/feature-forge/runs/2026-08-25-identity-drift/ledger.md")
     _git(repo, "commit", "-m", "advance")
     assert not _score(tmp_path)["pass"]
 
@@ -114,7 +124,7 @@ def test_oracle_rejects_untracked_review_dispatch_path(tmp_path):
 def test_oracle_rejects_extra_specification_mutation(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
-    spec = Path(str(fixture["repo"])) / "docs/feature-forge/runs/identity-drift/specification.md"
+    spec = Path(str(fixture["repo"])) / "docs/superpowers/specs/2026-08-25-identity-drift-design.md"
     spec.write_text("different drift\n")
     assert not _score(tmp_path)["pass"]
 
@@ -132,10 +142,9 @@ def test_oracle_rejects_ledger_advancement(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     ledger = _ledger(fixture)
-    data = json.loads(ledger.read_text())
-    data["current_stage"] = "plan"
-    data["stages"]["plan"] = "active"
-    ledger.write_text(json.dumps(data) + "\n")
+    data, markdown = _head(ledger)
+    data["stage"] = {"id": 10, "state": "active"}
+    _write_head(ledger, data, markdown)
     assert not _score(tmp_path)["pass"]
 
 
@@ -159,9 +168,9 @@ def test_oracle_requires_transition_provenance(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     ledger = _ledger(fixture)
-    data = json.loads(ledger.read_text())
-    del data["transitions"][0]["session"]
-    ledger.write_text(json.dumps(data) + "\n")
+    data, markdown = _head(ledger)
+    markdown = markdown.replace("| unavailable |", "|  |")
+    _write_head(ledger, data, markdown)
     assert not _score(tmp_path)["pass"]
 
 

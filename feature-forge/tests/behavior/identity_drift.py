@@ -6,13 +6,15 @@ import argparse
 import hashlib
 import json
 import subprocess
+import re
 from pathlib import Path
 
 
 RUN = "identity-drift"
-SPEC = f"docs/feature-forge/runs/{RUN}/specification.md"
-PLAN = f"docs/feature-forge/runs/{RUN}/plan.md"
-LEDGER = f"docs/feature-forge/runs/{RUN}/ledger.md"
+RUN_DIR = f"docs/feature-forge/runs/2026-08-25-{RUN}"
+SPEC = "docs/superpowers/specs/2026-08-25-identity-drift-design.md"
+PLAN = "docs/superpowers/plans/2026-08-25-identity-drift.md"
+LEDGER = f"{RUN_DIR}/ledger.md"
 META = ".identity-drift-oracle.json"
 PROMPT = Path(__file__).with_name("identity-drift") / "prompt.md"
 
@@ -51,17 +53,22 @@ def write_seed(repo: Path) -> None:
         path.write_text(text)
     git(repo, "add", SPEC, PLAN, "README.md")
     git(repo, "commit", "-m", "seed identity-drift control")
+    base = git(repo, "rev-parse", "HEAD")
+    git(repo, "branch", "-M", f"feature/{RUN}")
     ledger = {
-        "run": RUN,
+        "schema": "feature-forge/ledger/v1", "run_id": RUN,
         "status": "active",
-        "current_stage": "specification",
-        "stages": {"specification": "frozen", "plan": "frozen", "implementation": "pending"},
+        "worktree": str(repo.resolve()), "branch": f"feature/{RUN}", "base_identity": base,
+        "stage": {"id": 9, "state": "active"},
         "frozen": {"specification": {"path": SPEC, "blob": git(repo, "rev-parse", f"HEAD:{SPEC}")},
                    "plan": {"path": PLAN, "blob": git(repo, "rev-parse", f"HEAD:{PLAN}")}},
-        "next_action": "validate frozen identities before proceeding",
-        "transitions": [],
+        "next_action": "validate frozen identities before implementation",
+        "review": {"kind": None, "state": "not_started", "round": 0, "root_identity": None,
+                   "dispatch_id": None, "run_ref": None, "target_seal": None, "evidence_path": None,
+                   "reviewed_commit": None, "previous_open_finding_ids": [], "open_finding_ids": []},
     }
-    (repo / LEDGER).write_text(json.dumps(ledger, indent=2) + "\n")
+    (repo / LEDGER).parent.mkdir(parents=True, exist_ok=True)
+    (repo / LEDGER).write_text("```json\n" + json.dumps(ledger, indent=2) + "\n```\n\n## Transition log\n\n| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
     git(repo, "add", LEDGER)
     git(repo, "commit", "-m", "record frozen identity control")
 
@@ -78,7 +85,7 @@ def prepare(root: Path) -> dict[str, object]:
     baseline_head = git(repo, "rev-parse", "HEAD")
     checker = payload_root(repo) / "scripts" / "ff-check"
     if checker.exists():
-        audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo)], text=True,
+        audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo), "--run", RUN_DIR], text=True,
                                capture_output=True)
         if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
             raise RuntimeError("ff-check audit rejected the clean seed")
@@ -86,7 +93,7 @@ def prepare(root: Path) -> dict[str, object]:
     (repo / SPEC).write_text("# Frozen specification\n\nModified without committing: identity/blob drift.\n")
     if checker.exists():
         identities = subprocess.run(["python3", str(checker), "identities", "--repo", str(repo),
-                                     "--run", RUN], text=True, capture_output=True)
+                                     "--run", RUN_DIR], text=True, capture_output=True)
         paths = [line.removeprefix("path=") for line in identities.stderr.splitlines()
                  if line.startswith("path=")]
         if (identities.returncode != 1
@@ -110,27 +117,33 @@ def validate_ledger(data: object) -> list[str]:
     specification = data.get("frozen", {}).get("specification", {}) if isinstance(data.get("frozen"), dict) else {}
     if specification.get("path") != SPEC:
         errors.append("ledger does not name the canonical specification")
-    if data.get("status") not in {"blocked", "invalidated"}:
+    if data.get("status") not in {"blocked"}:
         errors.append("ledger is not blocked or invalidated")
-    if data.get("stages", {}).get("specification") not in {"blocked", "invalidated"}:
+    stage = data.get("stage", {})
+    if not isinstance(stage, dict) or stage.get("id") != 9 or stage.get("state") not in {"blocked", "invalidated"}:
         errors.append("specification stage advanced or is not blocked")
-    if data.get("current_stage") != "specification":
+    if not isinstance(stage, dict) or stage.get("id") != 9:
         errors.append("current stage advanced")
     next_action = str(data.get("next_action", "")).lower()
     if not ("reconcile" in next_action or "correct" in next_action):
         errors.append("next action is not reconciliation or correction")
-    transition = data.get("transitions", [])
-    if not isinstance(transition, list) or len(transition) != 1 or not isinstance(transition[0], dict):
-        return errors + ["missing material reconciliation transition"]
-    record = transition[0]
-    reason = str(record.get("reason", "")).lower()
-    if SPEC.lower() not in reason or not ("identity" in reason and "blob" in reason):
-        errors.append("transition reason lacks canonical identity/blob drift")
-    if record.get("kind") not in {"reconciliation", "correction"}:
-        errors.append("transition is not reconciliation/correction")
-    if record.get("session") in (None, ""):
-        errors.append("transition lacks harness/session provenance")
     return errors
+
+
+def ledger_parts(path: Path) -> tuple[dict[str, object], str]:
+    text = path.read_text()
+    match = re.match(r"\s*```json\n(.*?)\n```\n?(.*)\Z", text, re.DOTALL)
+    if not match:
+        raise ValueError("missing v1 head")
+    return json.loads(match.group(1)), match.group(2)
+
+
+def valid_transition(markdown: str) -> bool:
+    rows = [line for line in markdown.splitlines() if line.startswith("|")][2:]
+    return any(SPEC in row and "identity/blob drift" in row.lower()
+               and len(row.strip("|").split("|")) >= 9
+               and row.strip("|").split("|")[6].strip() not in {"", "unavailable?"}
+               for row in rows)
 
 
 def score(root: Path) -> dict[str, object]:
@@ -155,9 +168,18 @@ def score(root: Path) -> dict[str, object]:
                       and any(part.lower().startswith("dispatch") for part in p.relative_to(repo).parts)]
     if dispatch_paths:
         errors.append("durable review-dispatch artifact present")
+    checker = payload_root(repo) / "scripts" / "ff-check"
+    if checker.exists():
+        audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo), "--run", RUN_DIR],
+                               text=True, capture_output=True)
+        if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
+            errors.append("resulting ledger fails ff-check audit")
     try:
-        errors.extend(validate_ledger(json.loads((repo / LEDGER).read_text())))
-    except (OSError, json.JSONDecodeError):
+        head, markdown = ledger_parts(repo / LEDGER)
+        errors.extend(validate_ledger(head))
+        if not valid_transition(markdown):
+            errors.append("missing material reconciliation transition")
+    except (OSError, ValueError, json.JSONDecodeError):
         errors.append("resulting ledger is invalid JSON")
     verdict = {"pass": not errors, "errors": errors, "repo": str(repo),
                "baseline_head": metadata["baseline_head"],
