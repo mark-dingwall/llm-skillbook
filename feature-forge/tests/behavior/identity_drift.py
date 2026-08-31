@@ -105,7 +105,8 @@ def prepare(root: Path) -> dict[str, object]:
     metadata = {"repo": str(repo), "run": RUN, "prompt": str(PROMPT),
                 "baseline_head": baseline_head, "protected_paths": [SPEC, PLAN],
                 "installed_payload_digest": digest,
-                "expected_specification_digest": hashlib.sha256((repo / SPEC).read_bytes()).hexdigest()}
+                "expected_specification_digest": hashlib.sha256((repo / SPEC).read_bytes()).hexdigest(),
+                "frozen_specification_blob": git(repo, "rev-parse", f"HEAD:{SPEC}")}
     (repo / META).write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
 
@@ -138,9 +139,12 @@ def ledger_parts(path: Path) -> tuple[dict[str, object], str]:
     return json.loads(match.group(1)), match.group(2)
 
 
-def valid_transition(markdown: str) -> bool:
+def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
     rows = [line for line in markdown.splitlines() if line.startswith("|")][2:]
-    return any(SPEC in row and "identity/blob drift" in row.lower()
+    frozen = str(metadata["frozen_specification_blob"])
+    observed = str(metadata["expected_specification_digest"])
+    return any(("reconciliation" in row.lower() or "correction" in row.lower())
+               and SPEC in row and frozen in row and observed in row
                and len(row.strip("|").split("|")) >= 9
                and row.strip("|").split("|")[6].strip() not in {"", "unavailable?"}
                for row in rows)
@@ -177,7 +181,7 @@ def score(root: Path) -> dict[str, object]:
     try:
         head, markdown = ledger_parts(repo / LEDGER)
         errors.extend(validate_ledger(head))
-        if not valid_transition(markdown):
+        if not valid_transition(markdown, metadata):
             errors.append("missing material reconciliation transition")
     except (OSError, ValueError, json.JSONDecodeError):
         errors.append("resulting ledger is invalid JSON")

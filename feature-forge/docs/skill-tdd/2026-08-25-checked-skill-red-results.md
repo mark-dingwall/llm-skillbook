@@ -1,5 +1,10 @@
 # Checked-skill identity-drift RED baseline
 
+> **Superseded campaign record:** the historical 0/5 host observations below
+> used a pre-schema, noncanonical fixture and are invalid for qualification.
+> Canonical-v1 replacement qualification is pending; no current pass rate,
+> payload hash, or release result is claimed by this document.
+
 Fixture version: `identity-drift-v1`.
 
 - Harness SHA-256: `4a6a1196543fae4fb131b7a205f4fe23be122d11b95d6b2dfe59b4dcc4fbfab5`

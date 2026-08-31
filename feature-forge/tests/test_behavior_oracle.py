@@ -55,7 +55,7 @@ def _passing_ledger(fixture: dict[str, object]) -> None:
         next_action=(f"reconcile or correct {specification} identity/blob drift before any stage advances"),
     )
     data["stage"] = {"id": 9, "state": "blocked"}
-    markdown += f"| drift-1 |  | 2026-08-25T00:00:00Z | active | blocked | reconcile {specification} identity/blob drift | unavailable | {specification} identity/blob drift | git diff |\n"
+    markdown += (f"| reconciliation-1 |  | 2026-08-25T00:00:00Z | active | blocked | reconcile {specification} identity/blob drift | unavailable | reconciliation {specification} frozen blob {fixture['frozen_specification_blob']} worktree sha256 {fixture['expected_specification_digest']} identity/blob drift | git diff |\n")
     _write_head(ledger, data, markdown)
 
 
@@ -171,6 +171,16 @@ def test_oracle_requires_transition_provenance(tmp_path):
     data, markdown = _head(ledger)
     markdown = markdown.replace("| unavailable |", "|  |")
     _write_head(ledger, data, markdown)
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_requires_exact_identity_reconciliation_row(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    _write_head(ledger, data, markdown.replace("reconciliation-1", "note-1").replace(
+        str(fixture["frozen_specification_blob"]), "placeholder"))
     assert not _score(tmp_path)["pass"]
 
 
