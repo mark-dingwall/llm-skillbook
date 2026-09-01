@@ -1,0 +1,8 @@
+command=claude --model sonnet --output-format stream-json --verbose --allowedTools Agent,Read,Write,Edit,Bash,Glob,Grep -p <prompt>
+workspace=/tmp/tmp/evals/refactor-20260901T-review-fixes-A-claude-attempt-2
+harness=claude
+phase=refactor
+scenario=A
+start=2026-09-01T07:19:23Z
+end=2026-09-01T07:22:20Z
+exit=1

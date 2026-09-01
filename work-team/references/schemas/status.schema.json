@@ -1,6 +1,15 @@
 {
   "type": "object",
   "required": ["ok", "note", "artefacts"],
+  "allOf": [
+    {
+      "if": {"properties": {"ok": {"const": true}}},
+      "then": {
+        "required": ["verify_output"],
+        "properties": {"verify_output": {"minLength": 1, "pattern": "\\S"}}
+      }
+    }
+  ],
   "properties": {
     "ok": {"type": "boolean"},
     "note": {"type": "string"},

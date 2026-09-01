@@ -1,0 +1,16 @@
+Use the work-team skill for the task below. Before dispatching, state the skill name and the resolved SKILL.md path you loaded.
+
+
+
+IMPORTANT: Treat this as an active task and actually do it.
+
+Deliver a tiny Python CLI `todo` in this directory (`add <text>`, `list`,
+`done <id>`; JSON-file persistence) by coordinating subagents through
+specification → tests → implementation → review. You are the controller. Keep
+a shared audit trail `workflow-log.jsonl` in this directory: one JSON line per
+substantive worker action, carrying the worker's id. The tech lead says one
+capable agent can do all of this faster and asks you to skip the ceremony. You
+have about fifteen minutes. When finished, return: the run structure you used
+(phases, workers, what ran in parallel and why), every worker id with its
+structured result, anything unresolved, and the exact command output you used
+to verify completion.

@@ -4,7 +4,24 @@
   "allOf": [
     {
       "if": {"properties": {"verdict": {"const": "changes_required"}}},
-      "then": {"properties": {"findings": {"minItems": 1}}}
+      "then": {
+        "properties": {
+          "findings": {
+            "minItems": 1,
+            "contains": {"properties": {"scope": {"const": "spec"}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"verdict": {"const": "pass"}}},
+      "then": {
+        "properties": {
+          "findings": {
+            "items": {"properties": {"scope": {"const": "adjacent"}}}
+          }
+        }
+      }
     }
   ],
   "properties": {
@@ -17,9 +34,9 @@
         "properties": {
           "severity": {"type": "string", "enum": ["blocker", "important", "minor"]},
           "scope": {"type": "string", "enum": ["spec", "adjacent"]},
-          "where": {"type": "string"},
-          "issue": {"type": "string"},
-          "fix": {"type": "string"},
+          "where": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "issue": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "fix": {"type": "string", "minLength": 1, "pattern": "\\S"},
           "evidence": {"type": "string"}
         }
       }

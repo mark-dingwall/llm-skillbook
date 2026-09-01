@@ -21,8 +21,14 @@ for line in open(sys.argv[1]):
         continue
     try:
         e = json.loads(line)
+        if not isinstance(e, dict):
+            raise ValueError("record must be an object")
+        if not isinstance(e.get("ts"), str):
+            raise ValueError("ts must be a string")
+        if not isinstance(e.get("agent"), str) or not e["agent"]:
+            raise ValueError("agent must be a nonempty string")
         ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
-    except (ValueError, KeyError) as err:
+    except (json.JSONDecodeError, ValueError) as err:
         print(f"skip malformed line: {err}", file=sys.stderr)
         continue
     r = rows.setdefault(e["agent"], {"n": 0, "first": ts, "last": ts})

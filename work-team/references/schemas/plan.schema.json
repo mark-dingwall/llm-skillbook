@@ -15,15 +15,23 @@
           "loop": {
             "type": "object", "required": ["review", "fix", "max_rounds"],
             "properties": {
-              "review": {"type": "string"}, "fix": {"type": "string"},
+              "review": {"type": "string", "enum": ["reviewer", "judge"]},
+              "fix": {"type": "string", "const": "fixer"},
               "max_rounds": {"type": "integer", "minimum": 1}
             }
           },
           "workers": {
             "type": "array", "minItems": 1, "uniqueBy": "id",
+            "disjointNormalizedPathsBy": "owns",
             "items": {
               "type": "object",
               "required": ["id", "role", "goal", "inputs", "owns", "verify"],
+              "allOf": [
+                {
+                  "if": {"properties": {"role": {"enum": ["reviewer", "verifier", "judge"]}}},
+                  "then": {"properties": {"owns": {"const": []}}}
+                }
+              ],
               "properties": {
                 "id": {"type": "string", "minLength": 1},
                 "role": {
@@ -32,7 +40,7 @@
                 },
                 "goal": {"type": "string"},
                 "inputs": {"type": "array", "items": {"type": "string"}},
-                "owns": {"type": "array", "items": {"type": "string"}},
+                "owns": {"type": "array", "items": {"type": "string", "repoRelativePath": true}},
                 "verify": {"type": "string", "minLength": 1},
                 "group": {"type": "string"},
                 "model": {"type": "string"}

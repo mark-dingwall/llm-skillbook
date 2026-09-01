@@ -46,6 +46,8 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
 3. **Dispatch.** Build each packet from [packets.md](references/packets.md) and
    send it to a fresh subagent invocation — Claude Code's Agent tool, or Codex
    `spawn_agent` with `fork_turns: "none"`. Never pass conversation history.
+   The primitive must return a worker id before waiting; without one, record
+   `worker_failed` and never simulate the packet inline.
 4. **Ingest.** Pipe each worker's final message through `wt-validate` with the
    packet's return schema. Invalid or empty → retry once with the same work
    packet and a fresh attempt id (`<phase>:<id>:r2`). The shared checkout may contain
@@ -101,8 +103,10 @@ time. Wave the rest. Never drop a planned worker to fit capacity.
   report counts only `spec` findings against the task. "More angles would make
   the audit more thorough" after the planned angles have converged is the
   quota talking.
-- Numbers (rounds, retries, sizes) live in `plan.json` as failure detectors.
-  Do not present a number as a rule in prose or in the report.
+- Review-loop rounds live in `plan.json` as a tunable failure detector. The
+  single invalid-return retry and the fallback wave limit are fixed controller
+  safeguards, not task-sizing rules; do not quote them as design guidance in a
+  report.
 
 ## References
 

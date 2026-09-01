@@ -21,8 +21,9 @@ case $SCEN in
 esac
 
 # Extract the scenario body (after the heading, up to the next "## ").
+FIX_ESCAPED=$(printf '%s' "$FIX" | sed -e 's/[\\&|]/\\&/g')
 BODY=$(awk -v s="## Scenario $SCEN" '$0 ~ "^"s {p=1; next} /^## /{p=0} p' "$HERE/scenarios.md" \
-  | sed -e "s|<FIXTURE>|$FIX|g" -e '/^Fixture:/d' -e '/^Fresh empty directory/d')
+  | sed -e "s|<FIXTURE>|$FIX_ESCAPED|g" -e '/^Fixture:/d' -e '/^Fresh empty directory/d')
 PREFIX=""
 [ "$PHASE" != red ] && PREFIX=$'Use the work-team skill for the task below. Before dispatching, state the skill name and the resolved SKILL.md path you loaded.\n\n'
 PROMPT="$PREFIX$BODY"
@@ -35,17 +36,25 @@ case $HARNESS in
     (cd "$WS" && claude --model sonnet --output-format stream-json --verbose \
       --allowedTools "Agent,Read,Write,Edit,Bash,Glob,Grep" -p "$PROMPT" \
       > "$OUT/stdout.jsonl" 2> "$OUT/stderr.txt") && EXIT=0 || EXIT=$?
-    jq -r 'select(.type=="result") | .result' "$OUT/stdout.jsonl" > "$OUT/final-response.md" || true
     ;;
   codex)
     CMD="codex exec --json --enable multi_agent --skip-git-repo-check -C $WS -m gpt-5.6-terra -c model_reasoning_effort=\"medium\" -s workspace-write - </dev/null"
     (codex exec --json --enable multi_agent --skip-git-repo-check -C "$WS" \
       -m gpt-5.6-terra -c model_reasoning_effort='"medium"' -s workspace-write "$PROMPT" \
       < /dev/null > "$OUT/stdout.jsonl" 2> "$OUT/stderr.txt") && EXIT=0 || EXIT=$?
-    jq -rs 'map(select(.type=="item.completed" and .item.type=="agent_message")) | last.item.text // empty' \
-      "$OUT/stdout.jsonl" > "$OUT/final-response.md" || true
     ;;
 esac
+EXTRACT=0
+python3 "$HERE/extract-response.py" "$HARNESS" "$OUT/stdout.jsonl" \
+  > "$OUT/final-response.md" || EXTRACT=$?
+if [ "$EXIT" -eq 0 ] && [ "$EXTRACT" -ne 0 ]; then
+  case $EXTRACT in
+    1) echo "evaluation produced no final agent response" >&2 ;;
+    2) echo "evaluation produced no worker dispatch" >&2 ;;
+    *) echo "evaluation produced an invalid harness transcript" >&2 ;;
+  esac
+  EXIT=$EXTRACT
+fi
 END=$(date -u +%FT%TZ)
 
 # Keep produced logs and any work-team run directory, not the whole workspace.
@@ -57,3 +66,4 @@ printf 'command=%s\nworkspace=%s\nharness=%s\nphase=%s\nscenario=%s\nstart=%s\ne
   "$CMD" "$WS" "$HARNESS" "$PHASE" "$SCEN" "$START" "$END" "$EXIT" > "$OUT/metadata.txt"
 (cd "$OUT" && sha256sum prompt.txt stdout.jsonl metadata.txt > attempt.sha256)
 echo "$OUT exit=$EXIT"
+exit "$EXIT"

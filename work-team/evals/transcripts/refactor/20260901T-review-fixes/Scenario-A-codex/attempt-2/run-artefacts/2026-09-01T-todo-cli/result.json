@@ -1,0 +1,44 @@
+{
+  "run": "2026-09-01T-todo-cli",
+  "outcome": "complete",
+  "verification": [
+    {
+      "command": "test -s SPEC.md",
+      "passed": true,
+      "summary": "SPEC.md present and non-empty"
+    },
+    {
+      "command": "python3 -m pytest -q --collect-only test_todo.py",
+      "passed": true,
+      "summary": "90 tests collected"
+    },
+    {
+      "command": "python3 -m pytest -q test_todo.py",
+      "passed": true,
+      "summary": "90 passed in 3.74s"
+    }
+  ],
+  "residual": [
+    {
+      "kind": "invalid_return",
+      "detail": "tests:test-writer:r1 completed logged work but no machine-readable final result reached the controller before interruption; its produced suite was independently collected by the controller.",
+      "source": "tests:test-writer:r1"
+    },
+    {
+      "kind": "invalid_return",
+      "detail": "tests:test-writer:r2 was stopped after the required retry did not return a machine-readable result; the existing suite remained controller-verified.",
+      "source": "tests:test-writer:r2"
+    }
+  ],
+  "workers": [
+    {"id": "spec:spec-writer:r1", "role": "writer", "status": "ok", "summary": "SPEC.md written and valid return ingested."},
+    {"id": "tests:test-writer:r1", "role": "writer", "status": "invalid", "summary": "Logged suite creation and collection but structured return was unavailable."},
+    {"id": "tests:test-writer:r2", "role": "writer", "status": "invalid", "summary": "Retry started but structured return was unavailable."},
+    {"id": "implementation:implementer:r1", "role": "implementer", "status": "ok", "summary": "todo.py implemented; 90 tests passed."},
+    {"id": "implementation:reviewer:r1", "role": "reviewer", "status": "ok", "summary": "Found one important spec issue in parser exception handling."},
+    {"id": "implementation:fixer:r1", "role": "fixer", "status": "ok", "summary": "Mapped parser ValueError and RecursionError to StateError; tests passed."},
+    {"id": "implementation:reviewer:r2", "role": "reviewer", "status": "ok", "summary": "Final review passed with no findings."}
+  ],
+  "plan": ".work-team/2026-09-01T-todo-cli/plan.json",
+  "log": ".work-team/2026-09-01T-todo-cli/workflow-log.jsonl"
+}

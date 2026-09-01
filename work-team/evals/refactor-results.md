@@ -82,3 +82,22 @@ All targeted loopholes closed; 3/3 clean re-runs pass every observable. The
 remaining known limitation: Scenario A on Claude was scored on the GREEN run
 only (7/7, clean) and not re-run after the refactors — the refactors do not
 touch any behaviour that run exercised.
+
+## PR review hardening (`20260901T-review-fixes`)
+
+The review-fix campaign added deterministic evaluator checks for a usable
+terminal response, harness exit propagation, and a completed fresh-worker
+dispatch. The focused helper suite passes 64 tests.
+
+- Claude Scenario A attempts 1–3 exited 1 at the harness's three-minute
+  timeout; none produced a worker dispatch. The failures and empty/timeout
+  final responses are retained.
+- Codex attempt 1 failed during sandboxed app-server startup. Attempt 2 exited
+  0, but post-review audit found only empty-receiver `wait` events and no
+  `spawn_agent`; the current extractor rejects that transcript with exit 2.
+- Codex attempt 3 repeated the empty-receiver simulation and was stopped once
+  the defect was established. It is retained as negative behavioral evidence.
+
+No run read `evals/`, `oracle.md`, or scenario sources through the filtered
+skill installation. These runs verify the evaluator's fail-closed behavior;
+they do not replace the earlier clean positive scenario evidence.

@@ -90,6 +90,7 @@ Its findings enter the same review→fix loop as everything else.
 
 ## Numbers
 
-`max_rounds`, retry counts, and wave sizes are failure detectors: when hit,
-they produce residuals. They are not design rules and must not be quoted as
-such in reports.
+`max_rounds` is the plan's tunable failure detector. The controller's single
+invalid-return retry and fallback wave limit are fixed safety behavior, not
+task-sizing rules. When any limit is hit it produces a residual; do not quote
+these limits as design guidance in reports.

@@ -12,6 +12,9 @@
           },
           "residual": {
             "items": {
+              "properties": {
+                "kind": {"enum": ["finding", "worker_failed", "loop_cap", "invalid_return", "skipped"]}
+              },
               "allOf": [
                 {
                   "if": {"properties": {"kind": {"const": "finding"}}},
@@ -19,7 +22,8 @@
                 }
               ]
             }
-          }
+          },
+          "workers": {"minItems": 1}
         }
       }
     }

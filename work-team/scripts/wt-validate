@@ -3,10 +3,13 @@
 usage: wt-validate <schema.json> [result.json]   (reads stdin if omitted)
 
 Supports: type, required, properties, items, enum, const, minimum, minLength,
-minItems, uniqueBy, allOf, and if/then. Exit 0 = valid; exit 1 = invalid.
+pattern, minItems, contains, uniqueBy, repoRelativePath,
+disjointNormalizedPathsBy, allOf, and if/then.
+Exit 0 = valid; exit 1 = invalid.
 A worker's final message may wrap JSON in ```json fences; they are stripped.
 """
 import json
+import posixpath
 import re
 import sys
 
@@ -29,6 +32,17 @@ def check(v, s, path="$"):
         errs.append(f"{path}: {v!r} is less than minimum {s['minimum']!r}")
     if isinstance(v, str) and len(v) < s.get("minLength", 0):
         errs.append(f"{path}: shorter than {s['minLength']} characters")
+    if isinstance(v, str) and "pattern" in s and not re.search(s["pattern"], v):
+        errs.append(f"{path}: does not match pattern {s['pattern']!r}")
+    if isinstance(v, str) and s.get("repoRelativePath"):
+        normalized = posixpath.normpath(v)
+        if (
+            not v
+            or posixpath.isabs(v)
+            or normalized in (".", "..")
+            or normalized.startswith("../")
+        ):
+            errs.append(f"{path}: expected a path within the repository")
     for sub in s.get("allOf", []):
         errs += check(v, sub, path)
     if "if" in s and "then" in s and not check(v, s["if"], path):
@@ -51,6 +65,25 @@ def check(v, s, path="$"):
             ]
             if len(values) != len(set(values)):
                 errs.append(f"{path}: duplicate {key!r} values")
+        if "contains" in s and not any(not check(x, s["contains"]) for x in v):
+            errs.append(f"{path}: no item matches the required schema")
+        if "disjointNormalizedPathsBy" in s:
+            key = s["disjointNormalizedPathsBy"]
+            owners = {}
+            for i, item in enumerate(v):
+                if not isinstance(item, dict) or not isinstance(item.get(key), list):
+                    continue
+                for raw in item[key]:
+                    if not isinstance(raw, str):
+                        continue
+                    normalized = posixpath.normpath(raw)
+                    if normalized in owners and owners[normalized] != i:
+                        errs.append(
+                            f"{path}: normalized path {normalized!r} is owned by "
+                            f"workers at indexes {owners[normalized]} and {i}"
+                        )
+                    else:
+                        owners[normalized] = i
         if "items" in s:
             for i, x in enumerate(v):
                 errs += check(x, s["items"], f"{path}[{i}]")

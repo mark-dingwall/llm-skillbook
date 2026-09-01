@@ -1,0 +1,14 @@
+./.pytest_cache/.gitignore
+./.pytest_cache/CACHEDIR.TAG
+./.pytest_cache/README.md
+./.pytest_cache/v/cache/lastfailed
+./.pytest_cache/v/cache/nodeids
+./.work-team/2026-09-01T-todo-cli/plan.json
+./.work-team/2026-09-01T-todo-cli/report.md
+./.work-team/2026-09-01T-todo-cli/result.json
+./.work-team/2026-09-01T-todo-cli/workflow-log.jsonl
+./SPEC.md
+./__pycache__/test_todo.cpython-310-pytest-9.0.3.pyc
+./__pycache__/todo.cpython-310.pyc
+./test_todo.py
+./todo.py
