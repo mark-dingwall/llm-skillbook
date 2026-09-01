@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,8 @@ from review_loop.profiles import InvocationIntent
 from review_loop.seals import GitPolicy, seal_target
 
 
-RELATIVE_CANDIDATE = Path("docs/feature-forge/runs/2026-08-25-alpha/specification.md")
+RELATIVE_CANDIDATE = Path("docs/superpowers/specs/2026-08-25-alpha-design.md")
+FF_CHECK = Path(__file__).resolve().parents[2] / "scripts" / "ff-check"
 RECEIPT_KEYS = {
     "schema", "kind", "dispatch_id", "run_ref", "target_seal",
     "source_identity", "result", "actionable_finding_ids",
@@ -113,6 +115,16 @@ def _assert_v1_head(head: dict[str, object]) -> None:
     assert isinstance(head["next_action"], str) and head["next_action"]
     assert set(head["frozen"]) == {"specification", "plan"}
     assert set(head["review"]) == REVIEW_KEYS
+
+
+def _assert_production_audit_passes(fixture: "BoundaryFixture") -> None:
+    checked = subprocess.run(
+        [sys.executable, str(FF_CHECK), "audit", "--repo", str(fixture.repository),
+         "--run", str(fixture.ledger_path.parent)],
+        text=True, capture_output=True, check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    assert checked.stdout == "FF-CHECK v1 gate=audit status=pass\n"
 
 
 class BoundaryFixture:
@@ -374,11 +386,11 @@ class BoundaryFixture:
     def apply_result(self, result: str, actionable_ids: list[str]) -> None:
         head = self._load_head()
         head["review"]["state"] = result
-        head["review"]["round"] = 1
         head["review"]["open_finding_ids"] = sorted(set(actionable_ids))
         if result == "pass":
             head.update(status="active", stage={"id": 5, "state": "complete"}, next_action="freeze the reviewed specification")
         elif result == "changes_required":
+            head["review"]["round"] += 1
             head.update(status="active", stage={"id": 3, "state": "active"}, next_action="correct the specification")
         else:
             head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="resolve the review blocker")
@@ -488,6 +500,8 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
     assert first._load_head()["status"] == "active"
     assert first._load_head()["stage"] == {"id": 5, "state": "complete"}
     assert first._load_head()["next_action"] == "freeze the reviewed specification"
+    assert first._load_head()["review"]["round"] == 0
+    _assert_production_audit_passes(first)
 
     second = BoundaryFixture(
         tmp_path, b"candidate version two\n", "second", repository=first.repository,

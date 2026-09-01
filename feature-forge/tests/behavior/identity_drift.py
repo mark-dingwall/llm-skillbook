@@ -15,6 +15,8 @@ RUN_DIR = f"docs/feature-forge/runs/2026-08-25-{RUN}"
 SPEC = "docs/superpowers/specs/2026-08-25-identity-drift-design.md"
 PLAN = "docs/superpowers/plans/2026-08-25-identity-drift.md"
 LEDGER = f"{RUN_DIR}/ledger.md"
+REVIEWS = f"{RUN_DIR}/reviews"
+FINAL_REPORT = f"{RUN_DIR}/final-report.md"
 META = ".identity-drift-oracle.json"
 PROMPT = Path(__file__).with_name("identity-drift") / "prompt.md"
 TRANSITION_HEADING = "## Transition log"
@@ -121,7 +123,9 @@ def validate_ledger(data: object) -> list[str]:
     if not isinstance(data, dict):
         return ["ledger is not an object"]
     errors: list[str] = []
-    specification = data.get("frozen", {}).get("specification", {}) if isinstance(data.get("frozen"), dict) else {}
+    frozen = data.get("frozen")
+    specification = frozen.get("specification") if isinstance(frozen, dict) else None
+    specification = specification if isinstance(specification, dict) else {}
     if specification.get("path") != SPEC:
         errors.append("ledger does not name the canonical specification")
     if data.get("status") not in {"blocked"}:
@@ -196,11 +200,12 @@ def score(root: Path) -> dict[str, object]:
         errors.append("tracked change outside canonical ledger/specification drift")
     if SPEC not in changed:
         errors.append("fixture no longer contains specification drift")
-    dispatch_paths = [p.relative_to(repo).as_posix() for p in repo.rglob("*")
-                      if "review" in [part.lower() for part in p.relative_to(repo).parts]
-                      and any(part.lower().startswith("dispatch") for part in p.relative_to(repo).parts)]
-    if dispatch_paths:
-        errors.append("durable review-dispatch artifact present")
+    reviews = repo / REVIEWS
+    if reviews.exists() and any(path.is_file() or path.is_symlink() for path in reviews.rglob("*")):
+        errors.append("durable review receipt present")
+    final_report = repo / FINAL_REPORT
+    if final_report.exists() or final_report.is_symlink():
+        errors.append("premature final report present")
     checker = payload_root(repo) / "scripts" / "ff-check"
     if checker.exists():
         audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo), "--run", RUN_DIR],

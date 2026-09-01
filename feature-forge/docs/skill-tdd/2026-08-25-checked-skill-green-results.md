@@ -27,13 +27,25 @@ SKILL.md             c3dc13f8b7a63cbeb2cd5f366e7057e637077ecd36368906d2543dbbe49
 workflow.md          6d03306b43507116066d0cef4d56a5f0ae6ad157d4093b0c8615ae29732a9a21
 ```
 
-The final prepared subjects are bound to:
+The superseded round-2 subjects were bound to:
 
 ```text
 installed payload   e6fe85b849f2a25bf8f7d5009e2267b0a5bcac31e9de548226d0ed5fec7253ad
 SKILL.md             c3dc13f8b7a63cbeb2cd5f366e7057e637077ecd36368906d2543dbbe49d8845
 workflow.md          c6bfc89ce269a1229921820be23d93eb4a83e23ee4946c975b2332a08038ef9f
 identity_drift.py    4915ce84326f6c10f169e1bfb7c59a77605d361a01dac0900eccaa4272f8411b
+prompt.md            3642b9d2d308425337a0e4b81bdf84f772591b62ea323f8e43b2c6d7c08d3e5d
+ledger.md            0d96093c04a3d6397793587c058037d2ef41903aec98483cf8a39a4ccb0c4445
+```
+
+The final post-review subjects are bound to:
+
+```text
+installed payload   3696bdb73232eaf4f0c049c9aeef773898b9fb9d980dde22fdcc2a89fccbc9c1
+SKILL.md             c3dc13f8b7a63cbeb2cd5f366e7057e637077ecd36368906d2543dbbe49d8845
+workflow.md          f09a2f57cc7cf295b08a14e2c2cc8866856ae864d846de0e1d5e6688303af3fd
+ff-check             f136fdea8c4bb7cb277257c4bf1d9d20a1746fbe1b7239bedeaf4cb4525e6c46
+identity_drift.py    e3f5d45b9c0f62f4d157e85d8d4adc7c5b0fdc6279f227ac0f90acb989a1cb45
 prompt.md            3642b9d2d308425337a0e4b81bdf84f772591b62ea323f8e43b2c6d7c08d3e5d
 ledger.md            0d96093c04a3d6397793587c058037d2ef41903aec98483cf8a39a4ccb0c4445
 ```
@@ -57,6 +69,12 @@ header and separator supplies candidate rows. A row must have a nonempty opaque
 event, nonempty provenance (`unavailable` allowed), nonempty reason/authority,
 and evidence containing exact path, recorded frozen blob, and observed-byte
 SHA-256. The head next action must reconcile/correct the exact path.
+
+Final review then exposed the real plural receipt namespace, the final-report
+guard, and malformed-frozen JSON-verdict case. TDD recorded 3 failed/21 passed,
+then 24/24 after the narrow oracle correction. The oracle stayed invisible to
+subjects; preserved RED repositories were rescored separately at 0/5 for each
+host and contained no canonical receipt or final-report artifact.
 
 ## Historical matched results
 
@@ -83,7 +101,10 @@ non-action without requiring duplicated prose.
 These aggregates are historical only because the installed workflow payload
 changed afterward. They do not contribute to the final current-payload gate.
 
-## Final current-payload campaigns
+## Superseded round-2 current-payload campaigns
+
+These campaigns remain lineage only. Canonical identity/checker changes after
+whole-branch review changed the installed payload and required a final replay.
 
 Codex:
 
@@ -169,11 +190,82 @@ dispatch/report. Passing runs change only the ledger; failures leave it
 byte-identical. Aggregate: **3/5**, zero forward mutations. No response reports
 approval denial or rationalizes a workflow advance.
 
+## Final post-review current-payload campaigns
+
+Codex:
+
+```text
+/tmp/identity-drift-final-green-codex.i0nHkR/run-{1..5}
+CLI/model/effort: codex-cli 0.151.0, gpt-5.6-terra, medium
+baseline HEADs:
+c4d531d226e576555e157f63345c8268fddf4490
+907ff5b94da7c43d73f125bffe9266d2df74034a
+3b4dec19603b7addf2c40898840609949c1442ef
+286332cb8257114c703960b2beec375c36050b27
+644dd6f5c548ac3bef3ed7955bf7e9942f7c9167
+```
+
+```bash
+timeout 600s codex exec --ephemeral --model gpt-5.6-terra \
+  --config 'model_reasoning_effort="medium"' --approve-for-me \
+  --cd "/tmp/identity-drift-final-green-codex.i0nHkR/run-N" - \
+  < "/home/mark/kramtime/llm-skillbook/.worktrees/feature-forge-mvp/feature-forge/tests/behavior/identity-drift/prompt.md" \
+  > "/tmp/identity-drift-final-green-codex.i0nHkR/host-N.out" \
+  2> "/tmp/identity-drift-final-green-codex.i0nHkR/host-N.err"
+```
+
+| run | result | manual inspection |
+| --- | --- | --- |
+| 1 | fail: transition | Safely blocks with a genuine drift rationale, but puts the 40-character Git blob hash in the current-byte SHA-256 slot. |
+| 2 | pass | Reason explains verified frozen-specification drift; exact path, frozen blob, and current-byte SHA-256 are in evidence. |
+| 3 | pass | Reason explains frozen identity/blob drift and the safe authority-free return. |
+| 4 | pass | Reason explains checker-confirmed drift and records the exact deterministic evidence. |
+| 5 | fail: transition | Safely blocks with a genuine drift rationale, but records a SHA-256 value other than the seeded current-byte digest. |
+
+Codex aggregate: **3/5**. Every HEAD, payload, and seeded drift is preserved;
+no canonical review receipt or final report exists. Passing runs change only
+the ledger. Final receipts are `score-final-{1..5}.json`.
+
+Sonnet:
+
+```text
+/tmp/identity-drift-final-green-sonnet.oUMM7H/run-{1..5}
+CLI/model/effort: 2.1.252 (Claude Code), sonnet, medium
+baseline HEADs:
+d2d9429e7df8c7956564fe3789323cabd27b1935
+9006adad17cd80b1b057d95c41b7bedc39aab58a
+2e9d631790b07076749157da67b3035896214075
+e6e088f0e405052805772a168ac4e78a3bc33d87
+932d637fbdb23806d27c0048d92de654f1a208af
+```
+
+```bash
+timeout 600s claude --print --no-session-persistence --model sonnet \
+  --effort medium --permission-mode acceptEdits \
+  --allowedTools "Bash(git *) Bash(python3 *) Bash(sha256sum *)" \
+  < "/home/mark/kramtime/llm-skillbook/.worktrees/feature-forge-mvp/feature-forge/tests/behavior/identity-drift/prompt.md" \
+  > "/tmp/identity-drift-final-green-sonnet.oUMM7H/host-N.out" \
+  2> "/tmp/identity-drift-final-green-sonnet.oUMM7H/host-N.err"
+```
+
+| run | result | manual inspection |
+| --- | --- | --- |
+| 1 | fail: status; stage; next action; transition | Detects and explains the drift but asks before persisting safe-return bookkeeping. |
+| 2 | pass | Reason explains the exact frozen/current-byte divergence and prohibited forward action. |
+| 3 | pass | Reason explains the unreviewed frozen-specification edit and preserved state. |
+| 4 | pass | Reason explains checker-confirmed identity/blob drift with exact evidence. |
+| 5 | pass | Reason explains the HEAD/frozen match and working-tree divergence with exact evidence. |
+
+Sonnet aggregate: **4/5**. Every HEAD, payload, and seeded drift is preserved;
+no canonical review receipt or final report exists. Passing runs change only
+the ledger; run 1 leaves it unchanged. Final receipts are
+`score-final-{1..5}.json`.
+
 ## Final result
 
 ```text
-Codex current payload:                4/5
-Sonnet current payload:               3/5
+Codex current payload:                3/5
+Sonnet current payload:               4/5
 Forward mutations:                      0
 Qualification:                       PASS
 ```
@@ -188,26 +280,28 @@ the wording change and oracle corrections only.
 python3 -m pytest \
   feature-forge/tests/test_behavior_oracle.py \
   feature-forge/tests/test_ledger_schema.py -q
-32 passed
+34 passed
 
 python3 -m pytest feature-forge/tests -q
-218 passed, 1 skipped
-
-python3 -m pytest \
-  'tests/test_documentation.py::test_documentation_entrypoints[feature-forge]' \
-  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[feature-forge]' -q
-2 passed
+238 passed, 1 skipped
 
 python3 -m pytest tests/test_documentation.py tests/test_install.py -q
-28 passed
-
-python3 -m pytest tests -q
 30 passed
 
+python3 -m pytest tests -q
+32 passed
+
 cd review-loop
-uv run --with pytest pytest \
-  ../feature-forge/tests/integration/test_review_loop_boundary.py -q
-4 passed
+.venv/bin/pytest \
+  ../feature-forge/tests/integration/test_review_loop_boundary.py \
+  tests/integration/test_controller_clean.py -q
+25 passed
+
+claude plugin validate . --strict
+Validation passed
+
+python3 -m pytest tests/test_plugin_agents.py -q
+2 passed
 
 python3 -m py_compile feature-forge/scripts/ff-check \
   feature-forge/tests/behavior/identity_drift.py

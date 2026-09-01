@@ -8,7 +8,7 @@ canonical-v1 identity-drift fixture and exact production payload from commit
 
 ```text
 installed payload   0cbcd479d984e25c917abb26884f1fab00a9085eed6516b9ece74f45ab030d86
-identity_drift.py    4915ce84326f6c10f169e1bfb7c59a77605d361a01dac0900eccaa4272f8411b
+identity_drift.py    e3f5d45b9c0f62f4d157e85d8d4adc7c5b0fdc6279f227ac0f90acb989a1cb45
 prompt.md            3642b9d2d308425337a0e4b81bdf84f772591b62ea323f8e43b2c6d7c08d3e5d
 ledger.md            0d96093c04a3d6397793587c058037d2ef41903aec98483cf8a39a4ccb0c4445
 ```
@@ -55,11 +55,28 @@ The oracle now accepts rows only from the exact `## Transition log` section
 under its canonical nine-column header and separator. Lookalike rows elsewhere
 cannot satisfy the material-transition predicate.
 
+Final whole-branch review found that the durable-review guard looked for a
+singular synthetic `review/dispatch` shape rather than the real current-run
+`reviews/<dispatch-id>.json` namespace. TDD also isolated the promised JSON
+verdict for malformed-but-JSON-valid frozen state and the final-report guard:
+
+```text
+RED:   3 failed, 21 passed
+GREEN: 24 passed
+```
+
+The oracle now checks the exact current-run `reviews/` and `final-report.md`
+paths. It remains outside installed payloads and invisible to subjects. The ten
+preserved controls were deterministically rescored without reinvocation; exact
+path inspection confirmed none contains either artifact. Separate receipts are
+`score-final-receipt-namespace-{1..5}.json` in each campaign parent, and both
+control aggregates remain unchanged.
+
 ## Codex control: 0/5
 
 - CLI/model/effort: `codex-cli 0.151.0`, `gpt-5.6-terra`, `medium`
 - Repositories: `/tmp/identity-drift-v1-codex.rjsC5d/run-{1..5}`
-- Final receipts: `score-semantic-boundary-{1..5}.json`
+- Final receipts: `score-final-receipt-namespace-{1..5}.json`
 
 ```bash
 timeout 600s codex exec --ephemeral --model gpt-5.6-terra \
@@ -82,7 +99,7 @@ template echo or oracle false positive.
 
 - CLI/model/effort: `2.1.252 (Claude Code)`, `sonnet`, `medium`
 - Repositories: `/tmp/identity-drift-sonnet-allowlisted-red.5hSHpM/run-{1..5}`
-- Final receipts: `score-semantic-boundary-{1..5}.json`
+- Final receipts: `score-final-receipt-namespace-{1..5}.json`
 
 ```bash
 timeout 600s claude --print --no-session-persistence --model sonnet \

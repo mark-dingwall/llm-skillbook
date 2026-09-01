@@ -74,20 +74,20 @@ def git_status(repo: Path, *args: str) -> int | None:
     return observed.returncode
 
 
-def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical", "unverifiable"]:
-    """Separate lexical full-OID validity from commit-object observation."""
+def object_identity(
+    repo: Path, value: object, kind: Literal["blob", "commit"],
+) -> Literal["valid", "noncanonical", "unverifiable"]:
+    """Separate lexical full-OID validity from typed-object observation."""
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]+", value) is None:
         return "noncanonical"
     if len(value) not in {40, 64}:
         return "noncanonical"
-    object_format = git(repo, "rev-parse", "--show-object-format")
-    lengths = {"sha1": 40, "sha256": 64}
-    if object_format not in lengths:
-        return "unverifiable"
-    if len(value) != lengths[object_format]:
-        return "noncanonical"
-    observed = git(repo, "rev-parse", "--verify", f"{value}^{{commit}}")
+    observed = git(repo, "rev-parse", "--verify", f"{value}^{{{kind}}}")
     return "valid" if observed == value else "unverifiable"
+
+
+def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical", "unverifiable"]:
+    return object_identity(repo, value, "commit")
 
 
 def repository(path: str) -> Path | None:
@@ -228,7 +228,14 @@ def runs(repo_arg: str, run_id: str) -> Result:
                 if not valid_date(directory.name, run_id):
                     diagnostics.append(f"ledger={relative}:noncanonical")
                 else:
-                    ledgers.append((ledger_path, data))
+                    checked = audit_current_head(repo, directory, data)
+                    destination = unverifiable if checked.status == "unverifiable" else diagnostics
+                    if checked.status == "pass":
+                        ledgers.append((ledger_path, data))
+                    else:
+                        destination.extend(
+                            f"ledger={relative}:{finding}" for finding in checked.findings
+                        )
     if unverifiable:
         return result("unverifiable", *unverifiable, *branch_matches, *worktree_findings)
     if diagnostics:
@@ -307,7 +314,7 @@ def safe_frozen_path(repo: Path, value: object) -> str | None:
     return value
 
 
-def frozen_snapshot(repo: Path, frozen: object) -> Result:
+def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
     """Check the two frozen blobs without broadening identity semantics."""
     if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
         return result("unverifiable", "frozen=unsupported")
@@ -321,6 +328,13 @@ def frozen_snapshot(repo: Path, frozen: object) -> Result:
         path, blob = safe_frozen_path(repo, item.get("path")), item.get("blob")
         if path is None or not isinstance(blob, str) or not blob:
             return result("unverifiable", f"frozen={name}:unsupported")
+        if path != canonical_candidate_path(run, name):
+            return result("fail", f"frozen={name}:wrong-path")
+        identity = object_identity(repo, blob, "blob")
+        if identity == "noncanonical":
+            return result("fail", f"frozen={name}:noncanonical-blob")
+        if identity == "unverifiable":
+            return result("unverifiable", f"frozen={name}:blob-unresolvable")
         observed = git(repo, "hash-object", "--", path)
         if observed is None:
             return result("unverifiable", f"frozen={name}:unavailable")
@@ -529,7 +543,7 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
         return result("unverifiable", "ancestry=unavailable")
     if ancestry == 1:
         return result("fail", "ancestry=not-descendant")
-    frozen = frozen_snapshot(repo, data.get("frozen"))
+    frozen = frozen_snapshot(repo, run, data.get("frozen"))
     if frozen.status != "pass":
         return frozen
     committed_raw = git_bytes(
@@ -696,6 +710,35 @@ def canonical_candidate_path(run: Path, kind: str) -> str:
     return f"docs/superpowers/plans/{dated_id}.md"
 
 
+def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) -> Result:
+    """Validate that ledger identity claims cannot redirect the canonical run."""
+    suffix = DATED_DIRECTORY.fullmatch(run.name)
+    assert suffix is not None
+    expected_branch = f"feature/{suffix.group(4)}"
+    if data["branch"] != expected_branch:
+        return result("fail", "branch=wrong-run")
+    base = commit_identity(repo, data["base_identity"])
+    if base == "noncanonical":
+        return result("fail", "base-identity=noncanonical")
+    if base == "unverifiable":
+        return result("unverifiable", "base-identity=unresolvable")
+    frozen = data["frozen"]
+    assert isinstance(frozen, dict)
+    for name in ("specification", "plan"):
+        item = frozen[name]
+        if item is None:
+            continue
+        assert isinstance(item, dict)
+        if item["path"] != canonical_candidate_path(run, name):
+            return result("fail", f"frozen={name}:wrong-path")
+        identity = object_identity(repo, item["blob"], "blob")
+        if identity == "noncanonical":
+            return result("fail", f"frozen={name}:noncanonical-blob")
+        if identity == "unverifiable":
+            return result("unverifiable", f"frozen={name}:blob-unresolvable")
+    return result("pass")
+
+
 def receipt_source_matches(
     repo: Path, run: Path, review: dict[str, object], payload: dict[str, object],
 ) -> Result:
@@ -748,20 +791,13 @@ def audit_receipt(repo: Path, run: Path, review: dict[str, object]) -> Result:
     return receipt_source_matches(repo, run, review, payload)
 
 
-def audit(repo_arg: str, run_arg: str) -> Result:
-    """Audit only deterministic invariants of the current v1 ledger head."""
-    repo = repository(repo_arg)
-    if repo is None:
-        return result("unverifiable", "repository=unavailable")
-    run = canonical_run(repo, run_arg)
-    if run is None:
-        return result("unverifiable", "run=noncanonical")
-    data, error = parse_ledger(run / "ledger.md")
-    if error:
-        return result("unverifiable", f"ledger={error}")
-    assert data is not None
+def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result:
+    """Apply the exact shared v1 current-head predicates."""
     if error := audit_head_shape(repo, run, data):
         return result("unverifiable", error)
+    identities = canonical_identity_claims(repo, run, data)
+    if identities.status != "pass":
+        return identities
     if not terminal_invariant(data):
         return result("fail", "terminal=inconsistent")
     review = data["review"]
@@ -793,6 +829,21 @@ def audit(repo_arg: str, run_arg: str) -> Result:
     return audit_receipt(repo, run, review) if receipt_required else result("pass")
 
 
+def audit(repo_arg: str, run_arg: str) -> Result:
+    """Audit only deterministic invariants of the current v1 ledger head."""
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run = canonical_run(repo, run_arg)
+    if run is None:
+        return result("unverifiable", "run=noncanonical")
+    data, error = parse_ledger(run / "ledger.md")
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    return audit_current_head(repo, run, data)
+
+
 def identities(repo_arg: str, run_arg: str) -> Result:
     repo = repository(repo_arg)
     if repo is None:
@@ -814,29 +865,15 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     worktree, branch, base = data.get("worktree"), data.get("branch"), data.get("base_identity")
     if not all(isinstance(value, str) for value in (worktree, branch, base)):
         return result("unverifiable", "ledger-identity=unsupported")
-    if worktree != str(repo) or branch != observed_branch:
+    expected_branch = f"feature/{suffix.group(4)}"
+    if worktree != str(repo) or branch != expected_branch or observed_branch != expected_branch:
         return result("fail", "identity=worktree-or-branch-mismatch")
-    if git(repo, "rev-parse", "--verify", f"{base}^{{commit}}") is None:
+    base_status = commit_identity(repo, base)
+    if base_status == "noncanonical":
+        return result("fail", "base-identity=noncanonical")
+    if base_status == "unverifiable":
         return result("unverifiable", "base-identity=unresolvable")
-    frozen = data.get("frozen")
-    if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
-        return result("unverifiable", "frozen=unsupported")
-    mismatches: list[str] = []
-    for name in ("specification", "plan"):
-        item = frozen[name]
-        if item is None:
-            continue
-        if not isinstance(item, dict) or set(item) != {"path", "blob"}:
-            return result("unverifiable", f"frozen={name}:unsupported")
-        path, blob = safe_frozen_path(repo, item.get("path")), item.get("blob")
-        if path is None or not isinstance(blob, str):
-            return result("unverifiable", f"frozen={name}:unsafe")
-        observed_blob = git(repo, "hash-object", "--", path)
-        if observed_blob is None:
-            return result("unverifiable", f"frozen={name}:path-unavailable")
-        if observed_blob != blob:
-            mismatches.append(f"path={path}")
-    return result("fail", *mismatches) if mismatches else result("pass")
+    return frozen_snapshot(repo, run, data.get("frozen"))
 
 
 def parser() -> argparse.ArgumentParser:

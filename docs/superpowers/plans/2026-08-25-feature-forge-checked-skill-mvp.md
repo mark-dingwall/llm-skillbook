@@ -568,8 +568,8 @@ review-loop validates its temporary target seal during public calls; Feature
 Forge stores the returned seal, external run reference, strict JSON receipt, and
 captured source identity, then rechecks the source identity before mapping the
 return or freezing. Document the sequence `capture identity → materialize →
-create_run → reserve fresh receipt path → persist review_active → conditional
-run_stage0/round1/triage → recheck identity → write receipt without overwrite
+create_run → reserve fresh receipt path → persist review_active → run_stage0 →
+conditional round1/triage → recheck identity → write receipt without overwrite
 → map return`, stopping at the first terminal outcome. Do not claim Feature
 Forge can recompute the seal
 against a materialized tree after the run.

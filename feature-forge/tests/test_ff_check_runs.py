@@ -40,6 +40,43 @@ def test_runs_accepts_blocked_ledger(tmp_path: Path) -> None:
     assert_result(result, "runs", "pass", 0)
 
 
+@pytest.mark.parametrize("defect", [
+    "unknown-head-key", "missing-stage", "malformed-stage", "malformed-frozen", "malformed-review",
+])
+def test_runs_treats_exact_v1_head_shape_defects_as_unverifiable(
+    tmp_path: Path, defect: str,
+) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    if defect == "unknown-head-key":
+        data["unexpected"] = True
+    elif defect == "missing-stage":
+        del data["stage"]
+    elif defect == "malformed-stage":
+        data["stage"] = {"id": 1, "state": "active", "extra": True}
+    elif defect == "malformed-frozen":
+        data["frozen"] = {"specification": None}
+    else:
+        data["review"] = {"state": "not_started"}
+    write_ledger(run_dir(repo), data)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_rejects_a_structurally_valid_but_inconsistent_current_head(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    data["review"]["kind"] = "specification"
+    data["review"]["state"] = "pass"
+    write_ledger(run_dir(repo), data)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "fail", 1)
+
+
+def test_runs_rejects_a_noncanonical_base_ref_in_a_resumable_head(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write_ledger(run_dir(repo), head(repo, base_identity="HEAD"))
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "fail", 1)
+
+
 @pytest.mark.parametrize("run_id", ["Alpha", "alpha--beta", "-alpha", "alpha-", "a/b", ""])
 def test_runs_rejects_invalid_slug_or_feature_ref(tmp_path: Path, run_id: str) -> None:
     arguments = ["runs", "--repo", str(make_repo(tmp_path))]

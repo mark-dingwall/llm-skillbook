@@ -35,10 +35,10 @@ as absent.
 | `schema` | Exactly `feature-forge/ledger/v1`. |
 | `run_id` | Work-unit slug. |
 | `status` | `active`, `blocked`, or `complete`. |
-| `worktree`, `branch`, `base_identity` | Current absolute worktree, branch, and Git object identity. |
+| `worktree`, `branch`, `base_identity` | Current absolute worktree; exact `feature/<run_id>` branch; canonical full, resolvable commit OID. |
 | `stage` | `{id, state}`; IDs are 1..14 and state is `pending`, `active`, `blocked`, `complete`, or `invalidated`. |
 | `next_action` | Nonempty for nonterminal heads; null only when status is `complete`, which is valid only with Stage 14 complete. |
-| `frozen` | `specification` and `plan`, each null or exactly `{path, blob}` strings; paths are canonical repository-relative paths and Git resolves blobs/commits. |
+| `frozen` | `specification` and `plan`, each null or exactly `{path, blob}` strings; non-null paths are the run-derived canonical artifacts and blobs are canonical full, resolvable blob OIDs. |
 | `review` | Current review control object, defined below. |
 
 The exact top-level key set is `schema`, `run_id`, `status`, `worktree`,

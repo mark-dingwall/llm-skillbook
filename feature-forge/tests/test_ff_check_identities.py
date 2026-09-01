@@ -26,8 +26,8 @@ def identity_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(contents)
     frozen = {
-        "specification": {"path": specification, "blob": git(repo, "hash-object", specification)},
-        "plan": {"path": plan, "blob": git(repo, "hash-object", plan)},
+        "specification": {"path": specification, "blob": git(repo, "hash-object", "-w", specification)},
+        "plan": {"path": plan, "blob": git(repo, "hash-object", "-w", plan)},
     }
     directory = run_dir(repo)
     data = head(repo, frozen=frozen)
@@ -38,6 +38,23 @@ def identity_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
 def test_identities_accepts_matching_worktree_branch_base_and_blobs(tmp_path: Path) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+def test_identities_rejects_observed_branch_redirected_from_the_run_id(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    git(repo, "checkout", "-qb", "feature/other")
+    data["branch"] = "feature/other"
+    write_ledger(directory, data)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "fail", 1)
+
+
+def test_identities_rejects_frozen_path_redirected_from_the_run_id(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data["frozen"]["specification"] = {
+        "path": "README.md", "blob": git(repo, "hash-object", "README.md"),
+    }
+    write_ledger(directory, data)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "fail", 1)
 
 
 @pytest.mark.parametrize("field, value", [("worktree", "/other"), ("branch", "feature/other")])
@@ -51,6 +68,23 @@ def test_identities_rejects_wrong_worktree_or_branch(tmp_path: Path, field: str,
 def test_identities_treats_unresolvable_base_as_unverifiable(tmp_path: Path) -> None:
     repo, directory, data = identity_fixture(tmp_path)
     data["base_identity"] = "0" * 40
+    write_ledger(directory, data)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
+def test_identities_rejects_noncanonical_base_identity(tmp_path: Path, identity: str) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    if identity == "abbreviated":
+        identity = git(repo, "rev-parse", "HEAD")[:12]
+    data["base_identity"] = identity
+    write_ledger(directory, data)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "fail", 1)
+
+
+def test_identities_treats_unresolvable_canonical_frozen_blob_as_unverifiable(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data["frozen"]["specification"]["blob"] = "0" * len(git(repo, "rev-parse", "HEAD"))
     write_ledger(directory, data)
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
 

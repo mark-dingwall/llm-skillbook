@@ -137,12 +137,26 @@ def test_oracle_rejects_review_dispatch_artifact(tmp_path):
     assert not _score(tmp_path)["pass"]
 
 
-def test_oracle_rejects_untracked_review_dispatch_path(tmp_path):
+def test_oracle_rejects_untracked_canonical_review_receipt(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
-    path = Path(str(fixture["repo"])) / "review" / "dispatch.json"
-    path.parent.mkdir()
+    path = (
+        Path(str(fixture["repo"]))
+        / "docs/feature-forge/runs/2026-08-25-identity-drift/reviews/dispatch.json"
+    )
+    path.parent.mkdir(parents=True)
     path.write_text("dispatch\n")
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_rejects_untracked_final_report(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    report = (
+        Path(str(fixture["repo"]))
+        / "docs/feature-forge/runs/2026-08-25-identity-drift/final-report.md"
+    )
+    report.write_text("premature final report\n")
     assert not _score(tmp_path)["pass"]
 
 
@@ -186,6 +200,16 @@ def test_oracle_rejects_invalid_resulting_ledger(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     _ledger(fixture).write_text("not valid JSON\n")
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_returns_json_for_a_malformed_json_valid_frozen_object(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    ledger = _ledger(fixture)
+    data, markdown = _head(ledger)
+    data["frozen"]["specification"] = []
+    _write_head(ledger, data, markdown)
     assert not _score(tmp_path)["pass"]
 
 

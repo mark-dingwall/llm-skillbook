@@ -323,6 +323,9 @@ if its directory is noncanonical, the result is `fail` rather than absence.
 - A missing JSON head, unknown schema, unreadable ledger, or unavailable Git
   observation is `unverifiable`.
 
+A matching v1 head must also satisfy the shared exact current-head `audit`
+predicates before `runs` may report it as resumable.
+
 Unsupported pre-schema state therefore blocks Preflight and never permits a new
 run. A same-ID collision with materially different intent remains an LLM/user
 decision after the mechanical inventory; code does not compare intent meaning.
@@ -335,10 +338,11 @@ decision after the mechanical inventory; code does not compare intent meaning.
 - `git -C REPOSITORY rev-parse --show-toplevel` resolves the observation root,
   and the ledger worktree equals that canonical root;
 - `git -C RESOLVED_ROOT symbolic-ref --quiet --short HEAD` observes the branch,
-  which equals the ledger branch;
-- `base_identity` resolves to a commit;
-- each non-null frozen path is canonical, remains inside the worktree, and its
-  current Git blob equals the recorded blob.
+  which equals both the ledger branch and exact `feature/<run-id>` branch;
+- `base_identity` is a canonical full OID that resolves to a commit;
+- each non-null frozen path equals its run-derived canonical specification or
+  plan path, remains inside the worktree, and its canonical full recorded blob
+  OID resolves to a blob equal to the current Git blob.
 
 A mismatch is `fail`. Missing Git objects, inaccessible paths, an unsupported
 ledger, or inability to establish the observation is `unverifiable`.
