@@ -234,6 +234,17 @@ def test_verifier_return_rejects_duplicate_candidate_ids() -> None:
     assert ".candidates:" in result.stderr
 
 
+def test_unique_id_validation_reports_unhashable_values_without_crashing() -> None:
+    result = validate(
+        "verifier.schema.json",
+        {"candidates": [{"id": {}, "verdict": "confirmed", "evidence": "x.py:4"}]},
+    )
+
+    assert result.returncode == 1
+    assert "expected string" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def run_codex_eval(tmp_path: Path, timestamp: str) -> subprocess.CompletedProcess[str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir(exist_ok=True)

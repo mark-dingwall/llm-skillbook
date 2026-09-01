@@ -45,7 +45,10 @@ def check(v, s, path="$"):
             errs.append(f"{path}: fewer than {s['minItems']} items")
         if "uniqueBy" in s:
             key = s["uniqueBy"]
-            values = [x[key] for x in v if isinstance(x, dict) and key in x]
+            values = [
+                json.dumps(x[key], sort_keys=True, separators=(",", ":"))
+                for x in v if isinstance(x, dict) and key in x
+            ]
             if len(values) != len(set(values)):
                 errs.append(f"{path}: duplicate {key!r} values")
         if "items" in s:
