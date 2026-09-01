@@ -75,6 +75,10 @@ return. Do not invoke a one-shot skill and claim to interrupt its required
 handoff. Planning stops before execution, execution stops before Finish, and
 Finish journals every effect.
 
+Use a capable model tier to execute or behaviorally qualify Feature Forge.
+Small-model tiers such as Claude Haiku and Codex Luna are unsuitable for
+either role.
+
 Choose one execution mode under the stage-method contract. Every delegated
 worker packet must be independently executable from the frozen
 specification and plan: exact task and applicable requirement/scenario IDs,
@@ -127,12 +131,26 @@ is proven complete.
 
 ## Verification
 
-Feature Forge is instruction-only and has no separate runtime suite in this
-repository. After changing its entry points or links, run its documentation
-parameters from the repository root:
+Feature Forge is a checked skill: instructions own semantic workflow decisions,
+and its installed standard-library checker owns deterministic repository,
+identity, reviewed-snapshot, and current-ledger predicates. The
+[workflow contract](references/workflow.md) owns the ledger schema and its
+semantics.
+
+The production-copy exclusion of `reports/` remains a defense-in-depth rule for
+any skill-local research. Foundational 0.2.0 research is archived under
+`docs/archive/0.2.0-research/` as non-authoritative provenance; active Feature
+Forge instructions neither link to nor load it.
+
+Run Feature Forge behavior checks from the repository root:
 
 ```bash
-python3 -m pytest \
-  'tests/test_documentation.py::test_documentation_entrypoints[feature-forge]' \
-  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[feature-forge]' -q
+python3 -m pytest feature-forge/tests -q
+```
+
+Run the review-loop boundary fixture in its owning environment:
+
+```bash
+cd review-loop && uv run pytest \
+  ../feature-forge/tests/integration/test_review_loop_boundary.py -q
 ```

@@ -37,6 +37,14 @@ methods, worker packets, review charters) before any dispatch. Use
 Use only the bounded stage returns and regain control at every return; record
 the result in the ledger and follow its declared transition.
 
+Invoke every mechanical gate as
+`python3 "$SKILL_DIR/scripts/ff-check" COMMAND --repo REPOSITORY [OPTIONS]`,
+where `$SKILL_DIR` is this installed skill directory. A well-formed verified
+`fail` follows the explicit route in `workflow.md`; checker launch failure or a
+missing/malformed result line is `unverifiable -> blocked`. The checker reports
+facts only: Feature Forge still owns classification, invalidation, and the
+ledger transition.
+
 Drive the terminal recipe in this order, never any other: implementation
 returns, implementation review passes, fresh verification, acceptance
 evidence, Stage 13 Report, Stage 14 Finish. Stage 13 writes the final report,
@@ -46,12 +54,6 @@ Stage 14 then durably drives the controller-owned Finish operation for that
 `finish_id`, one journaled side effect at a time. Finish is recoverable, not
 physically atomic — on resume, continue the same `finish_id` from its recorded
 phase rather than re-claiming or repeating an effect.
-
-## Quick checks
-
-Confirm the active worktree, branch, canonical artifact paths, ledger state,
-and content seals before each transition. Keep the specification, plan,
-ledger, and final report synchronized with the declared state.
 
 ## Red flags
 

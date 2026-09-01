@@ -180,24 +180,82 @@ Map the read-only return as follows:
 
 | Read-only return | Workflow review result |
 | --- | --- |
-| TRIAGE completed with no open findings and all required gates/reviewers complete | `pass` |
-| TRIAGE completed with only open Minor findings and all required gates/reviewers complete | `pass`, recording the residual Minor finding IDs in the review evidence |
+| TRIAGE completed with no actionable findings and all required gates/reviewers complete | `pass` |
 | TRIAGE completed with actionable open findings | `changes_required` |
 | `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, missing authority, or non-actionable Important+ blocker | `blocked` |
 
+## Bounded review return rule
+
+Starting a different review kind creates a fresh current review object with
+`review.round` zero, empty finding-ID arrays, and a new root identity; prior
+evidence stays in transition history. `root_identity` is an opaque controller
+label. Ordinary fixes retain it. Only an authority-governed root-cause
+invalidation may replace it, and the transition records the old and new root
+identities, reason, authority, and parent event.
+
+After each completed nonempty actionable TRIAGE return, make one bounded LLM
+judgment: reuse a prior opaque ID only for the materially same finding and
+allocate a new ID otherwise, recording the mapping and rationale. Then copy the
+preceding actionable set to `previous_open_finding_ids`, store the current
+sorted unique set in `open_finding_ids`, and increment `review.round` before
+applying:
+
+```text
+must_block =
+  (review.round >= 3 and open_finding_ids is nonempty)
+  or
+  (open_finding_ids is nonempty
+   and open_finding_ids == previous_open_finding_ids)
+```
+
+The third actionable return therefore blocks, as does the first identical
+consecutive nonempty finding-ID set. Write receipt/head result `blocked` when
+`must_block` is true and `changes_required` otherwise. A pass leaves the round
+unchanged and clears the current actionable set. `audit` validates only the
+resulting current state; it does not infer finding similarity or the legitimacy
+of a root reset from history.
+
 For every review round, the controller must:
 
-1. Persist `review_active` before dispatch. While it is active, obey the
-   workflow rule that permits only await or recovery of that existing review.
-2. Select the exact target described above; seal frozen **ground truth** through
+1. Capture source identity before materializing: SHA-256 plus canonical path
+   for a Specification or Plan candidate, or source `HEAD` plus null path for
+   Implementation. Materialize the exact subject, create its one disposable
+   bootstrap commit, and pass that exact commit as `InvocationIntent.base`.
+2. Call `create_run` and retain its returned external run reference and target
+   seal. Allocate a fresh filename-safe dispatch ID and reserve the absent
+   canonical receipt path
+   `docs/feature-forge/runs/YYYY-MM-DD-<run-id>/reviews/<dispatch-id>.json`.
+   Persist a fully populated `review_active` head before any semantic call.
+3. Select the exact target described above; seal frozen **ground truth** through
    `InvocationIntent.ground_truth`, mount the same paths through
    `CallRequest.input_paths`, and render the applicable focus, pass criterion,
-   and mounted locations through the prompt's declared `subject` value.
-3. Keep loop reports **outside the sealed tree**. During the round, mutate
-   neither the target nor the ledger.
-4. On return, first record the TRIAGE outcome, open finding IDs, stable run
-   reference, and whole-subject **content seal** — never before the round
-   actually returns — and only then apply the fixed mapping above.
+   and mounted locations through the prompt's declared `subject` value. The
+   containment mapping admits only the materialized target and declared ground
+   truth, never the source worktree, ledger, or external run root.
+4. Call `run_stage0`, then `run_round1` only for a reviewable
+   Stage 0, and `run_triage` only for a usable Round 1. Stop at the first
+   terminal outcome. Keep loop reports **outside the sealed tree**; during the
+   round mutate neither target nor ledger.
+5. Recheck the captured source identity before mapping the return or freezing.
+   Then write, without overwrite, the strict receipt with exactly `schema`,
+   `kind`, `dispatch_id`, `run_ref`, `target_seal`, `source_identity`, `result`,
+   and sorted unique `actionable_finding_ids`. The schema is
+   `feature-forge/review-receipt/v1`; `result` is `pass`,
+   `changes_required`, or `blocked` and maps to the same review state.
+
+`review-loop` validates its temporary target seal during its public calls.
+Feature Forge stores that returned seal, the external run reference, strict
+receipt, and captured source identity; it does not recompute the seal against
+the materialized tree after the run. A corrected subject always starts a fresh
+linked review-loop run root and fresh dispatch/receipt rather than attempting
+Round-N TRIAGE on the prior root.
+
+On recovery from `review_active`, map a return only from an already-written,
+valid Feature Forge receipt whose source identity still matches. Review-loop
+status or transcripts alone cannot reconstruct a controller return; retain
+`review_active` and block instead. Only explicit user authority may abandon
+that review for a fresh linked round, recording the prior run reference and
+reason in history.
 
 Fixes occur only between rounds, never during an active round. For
 Specification review and Plan review, a fix to the candidate need not be

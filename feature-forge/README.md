@@ -23,8 +23,10 @@ runs use only recorded authority and otherwise stop safely.
 
 ## What a run needs
 
-Feature Forge is an instruction-only outer controller, not a runtime or a
-replacement for its participating skills. A run needs Git, an isolated
+Feature Forge is a checked skill. Its instructions own semantic workflow
+decisions, while its installed standard-library checker owns deterministic
+repository, identity, reviewed-snapshot, and current-ledger predicates. It is
+not a replacement for its participating skills. A run needs Git, an isolated
 worktree, a configured reviewer runner for `review-loop`, and these installed
 skills:
 
@@ -37,14 +39,27 @@ skills from taking over the outer workflow or finishing the branch early.
 
 ## Operating contract
 
-[`SKILL.md`](SKILL.md) is the invocation contract. Before operating a run,
-read the live owner references for the [workflow and durable state](references/workflow.md),
-[authority and acceptance](references/authority.md), and [adapters and reviews](references/adapters-and-reviews.md).
-The reusable ledger and final-report templates support those contracts.
+[`SKILL.md`](SKILL.md) is the invocation contract. The
+[workflow and durable-state contract](references/workflow.md) owns the ledger
+schema. Before operating a run, read that contract and the live owner
+references for [authority and acceptance](references/authority.md), and
+[adapters and reviews](references/adapters-and-reviews.md). The reusable ledger
+and final-report templates support those contracts.
+
+Run a deterministic gate from an installed skill directory with, for example:
+
+```bash
+python3 "$SKILL_DIR/scripts/ff-check" --help
+```
 
 Design notes, qualification records, and prior reviews under `docs/` are
 lineage and evidence. They are not current execution authority; use the live
 contract above when operating or maintaining Feature Forge.
+
+The production-copy exclusion of `reports/` remains a defense-in-depth rule for
+any skill-local research. Foundational 0.2.0 research is archived under
+`docs/archive/0.2.0-research/` as non-authoritative provenance; active Feature
+Forge instructions neither link to nor load it.
 
 ## Install
 

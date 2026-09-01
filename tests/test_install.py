@@ -3,6 +3,8 @@
 Run: python3 -m pytest tests/test_install.py
 """
 import importlib.util
+import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,6 +29,39 @@ def test_codex_payload_ships_runtime_excludes_dev(tmp_path):
 
 def test_maintainer_guidance_is_excluded_by_name():
     assert {"README.md", "CLAUDE.md", "AGENTS.md"} <= install.EXCLUDE_TOP
+
+
+def test_reports_are_excluded_from_production_payloads():
+    assert "reports" in install.EXCLUDE_TOP
+
+
+@pytest.mark.parametrize("host", ["codex", "claude"])
+def test_feature_forge_payload_ships_checker(tmp_path, host):
+    install.install("feature-forge", host, tmp_path, dev=False, force=False)
+    namespace = ".agents" if host == "codex" else ".claude"
+    skill_root = tmp_path / namespace / "skills" / "feature-forge"
+    assert (skill_root / "scripts" / "ff-check").is_file()
+    assert not (skill_root / "tests").exists()
+    assert not (skill_root / "reports").exists()
+
+
+@pytest.mark.parametrize(
+    ("host", "namespace"), [("codex", ".agents"), ("claude", ".claude")],
+)
+def test_feature_forge_production_checker_is_user_executable(tmp_path, host, namespace):
+    source = REPO / "feature-forge" / "scripts" / "ff-check"
+    assert source.stat().st_mode & stat.S_IXUSR
+
+    install.install("feature-forge", host, tmp_path, dev=False, force=False)
+    checker = tmp_path / namespace / "skills" / "feature-forge" / "scripts" / "ff-check"
+    assert checker.stat().st_mode & stat.S_IXUSR
+
+    result = subprocess.run(
+        [sys.executable, str(checker), "--help"], text=True, capture_output=True,
+    )
+    assert result.returncode == 0
+    assert "{runs,identities,reviewed-snapshot,audit}" in result.stdout
+    assert "FF-CHECK" not in result.stdout
 
 
 def test_claude_splits_subagents(tmp_path):

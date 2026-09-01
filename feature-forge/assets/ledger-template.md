@@ -1,34 +1,35 @@
-# Feature Forge Run Ledger
+```json
+{
+  "schema": "feature-forge/ledger/v1",
+  "run_id": "work-unit",
+  "status": "active",
+  "worktree": "/absolute/path/to/worktree",
+  "branch": "feature/work-unit",
+  "base_identity": "<git-object-id>",
+  "stage": {"id": 1, "state": "active"},
+  "next_action": "run preflight checks",
+  "frozen": {"specification": null, "plan": null},
+  "review": {
+    "kind": null,
+    "state": "not_started",
+    "round": 0,
+    "root_identity": null,
+    "dispatch_id": null,
+    "run_ref": null,
+    "target_seal": null,
+    "evidence_path": null,
+    "reviewed_commit": null,
+    "previous_open_finding_ids": [],
+    "open_finding_ids": []
+  }
+}
+```
 
-## Run identity
+## Intent and run evidence
 
-- Work-unit/run ID:
-- Automation mode: `interactive | supervised | unattended`
-- Overall status: `active | blocked | complete`
-- Worktree:
-- Branch:
-- Base identity: (the run's fork point; Stage 14 independently re-determines and records it as the Finish journal's `confirmed base`)
-
-## Canonical artifacts
-
-Frozen blob identity applies only to the independently reviewed specification
-and plan. The ledger and final report are deliberately mutable run records and
-never receive their own frozen blob identity.
-
-| artifact | canonical path | frozen identity |
+| intent or preflight event | authority | evidence |
 | --- | --- | --- |
-| specification | `docs/superpowers/specs/YYYY-MM-DD-<work-unit>-design.md` | `<path>@<git-blob-id>` |
-| plan | `docs/superpowers/plans/YYYY-MM-DD-<work-unit>.md` | `<path>@<git-blob-id>` |
-| ledger | `docs/feature-forge/runs/YYYY-MM-DD-<work-unit>/ledger.md` | mutable — no frozen identity |
-| final report | `docs/feature-forge/runs/YYYY-MM-DD-<work-unit>/final-report.md` | mutable — no frozen identity |
-
-## Stage register
-
-| stage | stage state | entry/exit evidence | current |
-| --- | --- | --- | --- |
-|  | `pending \| active \| blocked \| complete \| invalidated` |  |  |
-
-- Current stage/state:
+|  |  |  |
 
 ## Current authority
 
@@ -45,20 +46,11 @@ never receive their own frozen blob identity.
 | --- | --- | --- | --- |
 |  |  |  |  |
 
-## Reviews
-
-| review | state | stage charter | completion criterion | TRIAGE outcome/open finding IDs | stable run reference | content seal |
-| --- | --- | --- | --- | --- | --- | --- |
-|  | `not_started \| review_active \| pass \| changes_required \| blocked` |  |  |  |  |  |
-
 ## Verification and acceptance
 
-| verification state | reviewed implementation commit | commands/results | identity/seal evidence |
-| --- | --- | --- | --- |
-|  |  |  |  |
-
-- Verification state: record in plain language whether deterministic
-  verification is pending, passed, or blocked, with its evidence above.
+| verification evidence | commands/results | identity/seal evidence |
+| --- | --- | --- |
+|  |  |  |
 
 | requirement/scenario | acceptance method | acceptance state | authority | evidence | fallback |
 | --- | --- | --- | --- | --- | --- |
@@ -98,26 +90,20 @@ canonical artifact. It carries exactly these fields:
 
 ## Transition log
 
-| event | UTC time | from | to | next action | reason/authority | evidence |
-| --- | --- | --- | --- | --- | --- | --- |
-|  |  |  |  |  |  |  |
+For every material dispatch, return, correction, authority decision,
+invalidation, or Finish transition, record the harness/session identity and
+any materially different root, parent, or subagent identity. Use `unavailable`
+when the harness exposes none.
 
-## Sole next permitted action
-
-- Every nonterminal state names exactly one next permitted action.
-- Terminal overall status `complete` (Finish phase `terminal`): records the terminal outcome and no next action.
-- `review_active` permits only: `await or recover the existing review`.
-- Exactly one next permitted action:
-- Complete ledger write before external dispatch:
-- Complete ledger write immediately after return:
-- Resume cross-check of recorded Git and evidence references:
+| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|  |  |  |  |  |  |  |  |  |
 
 ## Ledger copy-time checklist
 
 These are ledger copy-time checks; they never duplicate requirement, task, or review prose.
 
-- [ ] Every mandatory field has one value.
-- [ ] Status terms come from the owner references.
-- [ ] Exactly one next action exists for every nonterminal state; the terminal state has the terminal outcome and no next action.
-- [ ] No requirement, task, or review prose is duplicated into the ledger.
-- [ ] No blob identity is recorded for the ledger or the final report — only for the frozen specification and plan.
+- [ ] The JSON head validates before any workflow action.
+- [ ] Human evidence remains in the tables; current checker state remains in the head.
+- [ ] No requirement, task, or finding prose is copied into the JSON head.
+- [ ] The ledger and final report receive no frozen blob identity.
