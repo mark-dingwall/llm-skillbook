@@ -56,10 +56,10 @@ Design notes, qualification records, and prior reviews under `docs/` are
 lineage and evidence. They are not current execution authority; use the live
 contract above when operating or maintaining Feature Forge.
 
-The production-copy exclusion of `reports/` applies only to copied installs.
-Repository-local and plugin-development operation can physically read that
-directory, but active Feature Forge instructions neither link to nor load its
-non-authoritative files.
+The production-copy exclusion of `reports/` remains a defense-in-depth rule for
+any skill-local research. Foundational 0.2.0 research is archived under
+`docs/archive/0.2.0-research/` as non-authoritative provenance; active Feature
+Forge instructions neither link to nor load it.
 
 ## Install
 

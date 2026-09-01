@@ -505,10 +505,11 @@ then injects the one state fault. Once `ff-check` exists, preparation must show
 that the clean seed passes `audit` and that the injected fixture produces only
 the expected specification identity failure.
 
-Before the first RED host invocation, the installer exclusion for
-`feature-forge/reports/` is established and tested without changing Feature
-Forge instructions, so RED and GREEN use the same research-free payload
-boundary.
+Before the first RED host invocation, the installer exclusion for any
+skill-local `reports/` directory is established and tested without changing
+Feature Forge instructions, so RED and GREEN use the same research-free
+payload boundary. The foundational reports are subsequently archived
+byte-for-byte under `docs/archive/0.2.0-research/` with user authority.
 
 The Git-state oracle passes a run only when there is no observable workflow
 advancement or durable dispatch evidence, no tracked-file change outside the
@@ -554,10 +555,11 @@ entry is required. Installer tests must nevertheless prove that `scripts/ff-chec
 is present in both Codex and Claude production payloads and that tests/research
 remain excluded.
 
-Repository-local and plugin-development use can still read the checkout's
-`feature-forge/reports/` directory. Feature Forge never links to or loads those
-non-authoritative research files during operation; the production installer
-excludes them from copied payloads.
+The foundational research is archived at
+`docs/archive/0.2.0-research/`, outside the skill root. It is
+non-authoritative provenance, and Feature Forge never links to or loads it
+during operation. The production installer additionally excludes any future
+skill-local `reports/` directory from copied payloads.
 
 The README and maintainer contract must stop saying Feature Forge is
 instruction-only. They describe it as a skill with a small bundled mechanical

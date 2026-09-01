@@ -35,8 +35,9 @@ pytest, Git, existing `review_loop` public library, Codex CLI, Claude Code CLI.
 
 - Work in an isolated worktree created under the
   `superpowers:using-git-worktrees` procedure before implementation.
-- Preserve the existing untracked `feature-forge/reports/` tree and all other
-  unrelated work. Never stage it as part of this change.
+- Archive the eight foundational research reports byte-for-byte under
+  `docs/archive/0.2.0-research/` with a non-authoritative provenance label.
+  Keep them outside installed payloads and active Feature Forge instructions.
 - Read `feature-forge/CLAUDE.md` before editing its scope.
 - Do not edit any Feature Forge instruction before recording and running the
   RED baseline in Task 1.
@@ -101,7 +102,8 @@ python3 -m pytest tests/test_install.py -q
 
 This installer-only prerequisite changes no Feature Forge instruction. It must
 land before the first host baseline so RED and GREEN both install the same
-research-free payload; do not move or modify the untracked reports.
+research-free payload. Archive the source reports only after qualification,
+without modifying their bytes or exposing them to the active skill.
 
 - [ ] **Step 2: Write the failing oracle tests**
 
@@ -916,9 +918,9 @@ inventories, current test totals, CLI versions, or historical findings to
 maintainer entry points.
 
 State that the Task 1 exclusion governs copied production installs only.
-Repository-local and plugin-development operation can physically read
-`feature-forge/reports/`, so active Feature Forge instructions neither link to
-nor load those non-authoritative files.
+The repository archive at `docs/archive/0.2.0-research/` preserves the
+foundational provenance outside the skill root, and active Feature Forge
+instructions neither link to nor load those non-authoritative files.
 
 - [ ] **Step 2: Run focused packaging and documentation verification**
 
@@ -1005,8 +1007,9 @@ git status --short
 git diff --stat
 ```
 
-Inspect every path. Confirm the pre-existing `feature-forge/reports/` material
-is still untracked/untouched and absent from every commit.
+Inspect every path. Confirm the eight source reports are committed byte-for-byte
+under `docs/archive/0.2.0-research/` beside their status README, no duplicate
+remains under `feature-forge/reports/`, and installed payloads exclude research.
 
 - [ ] **Step 4: Recheck design acceptance one criterion at a time**
 

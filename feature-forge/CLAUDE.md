@@ -137,10 +137,10 @@ identity, reviewed-snapshot, and current-ledger predicates. The
 [workflow contract](references/workflow.md) owns the ledger schema and its
 semantics.
 
-The production-copy exclusion of `reports/` applies only to copied installs.
-Repository-local and plugin-development operation can physically read that
-directory, but active Feature Forge instructions neither link to nor load its
-non-authoritative files.
+The production-copy exclusion of `reports/` remains a defense-in-depth rule for
+any skill-local research. Foundational 0.2.0 research is archived under
+`docs/archive/0.2.0-research/` as non-authoritative provenance; active Feature
+Forge instructions neither link to nor load it.
 
 Run Feature Forge behavior checks from the repository root:
 
