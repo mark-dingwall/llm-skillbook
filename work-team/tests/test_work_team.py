@@ -74,6 +74,36 @@ def test_plan_rejects_unknown_role() -> None:
     assert ".role:" in result.stderr
 
 
+@pytest.mark.parametrize(("field", "value"), [("id", ""), ("verify", "")])
+def test_plan_rejects_blank_worker_identity_or_verification(
+    field: str, value: str
+) -> None:
+    result = validate("plan.schema.json", plan(worker(**{field: value})))
+
+    assert result.returncode == 1
+    assert f".{field}:" in result.stderr
+
+
+def test_plan_rejects_duplicate_worker_ids_within_a_phase() -> None:
+    value = plan(worker())
+    value["phases"][0]["workers"].append(worker(goal="A different goal. Done."))
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert ".workers:" in result.stderr
+
+
+def test_plan_rejects_duplicate_phase_ids() -> None:
+    value = plan(worker())
+    value["phases"].append({"id": "build", "workers": [worker(id="other")]})
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert "$.phases:" in result.stderr
+
+
 def test_plan_rejects_non_positive_review_loop_bound() -> None:
     result = validate("plan.schema.json", plan(worker(), max_rounds=0))
 
@@ -134,6 +164,16 @@ def test_complete_result_rejects_important_finding() -> None:
     assert ".severity:" in result.stderr
 
 
+def test_complete_result_rejects_blank_verification_command() -> None:
+    result = validate(
+        "result.schema.json",
+        result_payload(verification=[{"command": "", "passed": True}]),
+    )
+
+    assert result.returncode == 1
+    assert ".command:" in result.stderr
+
+
 def test_finding_residual_requires_structured_severity_and_scope() -> None:
     result = validate(
         "result.schema.json",
@@ -177,6 +217,21 @@ def test_verifier_return_requires_candidate_identity_and_verdict() -> None:
     assert valid.returncode == 0, valid.stderr
     assert invalid.returncode == 1
     assert ".id: required" in invalid.stderr
+
+
+def test_verifier_return_rejects_duplicate_candidate_ids() -> None:
+    result = validate(
+        "verifier.schema.json",
+        {
+            "candidates": [
+                {"id": "candidate-1", "verdict": "confirmed", "evidence": "x.py:4"},
+                {"id": "candidate-1", "verdict": "refuted", "evidence": "x.py:8"},
+            ]
+        },
+    )
+
+    assert result.returncode == 1
+    assert ".candidates:" in result.stderr
 
 
 def run_codex_eval(tmp_path: Path, timestamp: str) -> subprocess.CompletedProcess[str]:

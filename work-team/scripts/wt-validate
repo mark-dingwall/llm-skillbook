@@ -2,8 +2,8 @@
 """Validate a worker result against a JSON schema subset.
 usage: wt-validate <schema.json> [result.json]   (reads stdin if omitted)
 
-Supports: type, required, properties, items, enum, const, minimum, minItems,
-allOf, and if/then. Exit 0 = valid (exit 1 = invalid; exit 2 = not JSON).
+Supports: type, required, properties, items, enum, const, minimum, minLength,
+minItems, uniqueBy, allOf, and if/then. Exit 0 = valid; exit 1 = invalid.
 A worker's final message may wrap JSON in ```json fences; they are stripped.
 """
 import json
@@ -27,6 +27,8 @@ def check(v, s, path="$"):
         errs.append(f"{path}: expected constant {s['const']!r}, got {v!r}")
     if "minimum" in s and isinstance(v, (int, float)) and v < s["minimum"]:
         errs.append(f"{path}: {v!r} is less than minimum {s['minimum']!r}")
+    if isinstance(v, str) and len(v) < s.get("minLength", 0):
+        errs.append(f"{path}: shorter than {s['minLength']} characters")
     for sub in s.get("allOf", []):
         errs += check(v, sub, path)
     if "if" in s and "then" in s and not check(v, s["if"], path):
@@ -41,6 +43,11 @@ def check(v, s, path="$"):
     if isinstance(v, list):
         if len(v) < s.get("minItems", 0):
             errs.append(f"{path}: fewer than {s['minItems']} items")
+        if "uniqueBy" in s:
+            key = s["uniqueBy"]
+            values = [x[key] for x in v if isinstance(x, dict) and key in x]
+            if len(values) != len(set(values)):
+                errs.append(f"{path}: duplicate {key!r} values")
         if "items" in s:
             for i, x in enumerate(v):
                 errs += check(x, s["items"], f"{path}[{i}]")

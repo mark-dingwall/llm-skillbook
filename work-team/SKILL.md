@@ -48,7 +48,7 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    `spawn_agent` with `fork_turns: "none"`. Never pass conversation history.
 4. **Ingest.** Pipe each worker's final message through `wt-validate` with the
    packet's return schema. Invalid or empty → retry once with the same work
-   packet and a fresh attempt id (`<id>:r2`). The shared checkout may contain
+   packet and a fresh attempt id (`<phase>:<id>:r2`). The shared checkout may contain
    partial edits from the first attempt; the packet always requires the worker
    to establish and verify the complete goal state. Still invalid → record an
    `invalid_return` residual; never repair, reinterpret, or accept partial output.

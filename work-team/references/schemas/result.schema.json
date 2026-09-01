@@ -31,7 +31,7 @@
       "type": "array",
       "items": {
         "type": "object", "required": ["command", "passed"],
-        "properties": {"command": {"type": "string"}, "passed": {"type": "boolean"}, "summary": {"type": "string"}}
+        "properties": {"command": {"type": "string", "minLength": 1}, "passed": {"type": "boolean"}, "summary": {"type": "string"}}
       }
     },
     "residual": {

@@ -38,8 +38,8 @@ Your final message is machine-read. Return only a JSON object matching:
 No prose before or after it.
 ```
 
-REQUIRED parts: stable plan id, attempt id (`<id>:r1`, then `<id>:r2` on the
-single retry), role, root, run dir, GOAL with goal condition, INPUTS, OWNED
+REQUIRED parts: stable plan id, attempt id (`<phase>:<id>:r1`, then `:r2` on
+the single retry), role, root, run dir, GOAL with goal condition, INPUTS, OWNED
 PATHS, VERIFY, AUDIT PROTOCOL with the literal `wt-log` command, and RETURN
 with the role-derived inline schema. A packet missing any part is not dispatched.
 
@@ -61,7 +61,8 @@ any file except appending to the run log with `wt-log`." Their charter names
 the spec or standard being judged; each finding
 sets `scope: "spec"` (violates a stated requirement) or `"adjacent"` (the spec
 is silent). A verifier returns one `verifier.schema.json` row per assigned
-candidate; the controller compares the returned and assigned id sets exactly.
+candidate; the controller rejects duplicate ids, then compares returned and
+assigned id sets exactly.
 Fixers receive only `scope: "spec"` findings, verbatim and without finder
 identity.
 

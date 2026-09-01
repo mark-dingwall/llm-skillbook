@@ -5,12 +5,12 @@
     "run": {"type": "string"},
     "task": {"type": "string"},
     "phases": {
-      "type": "array", "minItems": 1,
+      "type": "array", "minItems": 1, "uniqueBy": "id",
       "items": {
         "type": "object",
         "required": ["id", "workers"],
         "properties": {
-          "id": {"type": "string"},
+          "id": {"type": "string", "minLength": 1},
           "barrier": {"type": "boolean"},
           "loop": {
             "type": "object", "required": ["review", "fix", "max_rounds"],
@@ -20,12 +20,12 @@
             }
           },
           "workers": {
-            "type": "array", "minItems": 1,
+            "type": "array", "minItems": 1, "uniqueBy": "id",
             "items": {
               "type": "object",
               "required": ["id", "role", "goal", "inputs", "owns", "verify"],
               "properties": {
-                "id": {"type": "string"},
+                "id": {"type": "string", "minLength": 1},
                 "role": {
                   "type": "string",
                   "enum": ["writer", "implementer", "reviewer", "verifier", "fixer", "judge"]
@@ -33,7 +33,7 @@
                 "goal": {"type": "string"},
                 "inputs": {"type": "array", "items": {"type": "string"}},
                 "owns": {"type": "array", "items": {"type": "string"}},
-                "verify": {"type": "string"},
+                "verify": {"type": "string", "minLength": 1},
                 "group": {"type": "string"},
                 "model": {"type": "string"}
               }
