@@ -18,7 +18,7 @@ The controller owns scope, the run plan, packet construction, dispatch,
 return validation, loop bounds, verification commands, and the report. It
 never writes a deliverable, applies a fix, or issues a review verdict. When a
 worker stalls, fails, or returns junk, the controller's only moves are: retry
-once with the identical packet on a fresh worker, re-plan the goal into
+once with the same work packet and a fresh attempt id, re-plan the goal into
 smaller packets, or record a residual and continue. Doing the work itself
 "because it's faster" produces an audit trail describing a team that did not
 exist.
@@ -46,15 +46,16 @@ defect.
 ## Returns, loops, and residuals
 
 Validate every worker's final message with `wt-validate` against the packet's
-return schema. Invalid or empty means one retry with the identical packet on
-a fresh worker; still invalid means an `invalid_return` residual, never
-repair, reinterpretation, or partial acceptance. Discard an incomplete
-verifier group as a whole and retry it once; do not keep its apparently valid
-rows.
+return schema. Invalid or empty means one retry with the same work packet and
+a fresh attempt id; the retry treats owned paths as potentially partially
+modified and establishes the complete goal state. Still invalid means an
+`invalid_return` residual, never repair, reinterpretation, or partial
+acceptance. Discard an incomplete verifier group as a whole and retry it once;
+do not keep its apparently valid rows.
 
 Review and fix are separate fresh workers with bounded rounds from the plan;
 open findings at the cap become `loop_cap` residuals. Every finding carries
-`scope: spec | adjacent`, and only `spec` findings count against the task.
+`scope: spec | adjacent`; only `spec` findings count or enter the fix loop.
 `result.json.residual` is required and must reconcile with the log: any
 `ok=false`, cap hit, or unverified requirement without a matching entry is a
 reporting defect. A requirement no test can observe gets a verification
@@ -76,8 +77,9 @@ library only.
 
 ## Verification
 
-Instruction-only skill; scripts have no separate suite here. After changing
-entry points or links, run from the repository root:
+Run deterministic helper tests with `python3 -m pytest
+work-team/tests/test_work_team.py -q`. After changing entry points or links,
+run from the repository root:
 
 ```bash
 python3 -m pytest \

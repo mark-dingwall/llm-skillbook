@@ -7,7 +7,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TS=${EVAL_TS:-$(date -u +%Y%m%dT%H%M%SZ)}
 OUT="$HERE/transcripts/$PHASE/$TS/Scenario-$SCEN-$HARNESS/$ATTEMPT"
 WS=${EVAL_WS:-${CLAUDE_JOB_DIR:-/tmp}/tmp/evals}/$PHASE-$TS-$SCEN-$HARNESS-$ATTEMPT
-mkdir -p "$OUT" "$WS"
+if [ -e "$OUT" ] || [ -e "$WS" ]; then
+  echo "refusing colliding evaluation: output or workspace already exists" >&2
+  exit 2
+fi
+mkdir -p "$(dirname "$OUT")" "$(dirname "$WS")"
+mkdir "$OUT" "$WS"
 
 case $SCEN in
   A) FIX="" ;;
@@ -37,8 +42,8 @@ case $HARNESS in
     (codex exec --json --enable multi_agent --skip-git-repo-check -C "$WS" \
       -m gpt-5.6-terra -c model_reasoning_effort='"medium"' -s workspace-write "$PROMPT" \
       < /dev/null > "$OUT/stdout.jsonl" 2> "$OUT/stderr.txt") && EXIT=0 || EXIT=$?
-    jq -r 'select(.type=="item.completed" and .item.type=="agent_message") | .item.text' "$OUT/stdout.jsonl" \
-      | tail -n 60 > "$OUT/final-response.md" || true
+    jq -rs 'map(select(.type=="item.completed" and .item.type=="agent_message")) | last.item.text // empty' \
+      "$OUT/stdout.jsonl" > "$OUT/final-response.md" || true
     ;;
 esac
 END=$(date -u +%FT%TZ)

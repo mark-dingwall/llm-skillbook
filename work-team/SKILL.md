@@ -47,12 +47,15 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    send it to a fresh subagent invocation — Claude Code's Agent tool, or Codex
    `spawn_agent` with `fork_turns: "none"`. Never pass conversation history.
 4. **Ingest.** Pipe each worker's final message through `wt-validate` with the
-   packet's return schema. Invalid or empty → retry once with the identical
-   packet and a fresh worker. Still invalid → record a `residual` of kind
-   `invalid_return`; never repair, reinterpret, or accept partial output.
+   packet's return schema. Invalid or empty → retry once with the same work
+   packet and a fresh attempt id (`<id>:r2`). The shared checkout may contain
+   partial edits from the first attempt; the packet always requires the worker
+   to establish and verify the complete goal state. Still invalid → record an
+   `invalid_return` residual; never repair, reinterpret, or accept partial output.
 5. **Loop.** Review and fix are separate workers with bounded rounds from the
-   plan. When the cap is hit, every open finding becomes a `residual` of kind
-   `loop_cap`. The controller never applies a fix itself.
+   plan. Send only `scope: "spec"` findings to fixers; report `adjacent`
+   observations without changing spec-silent behavior. At the cap, every open
+   finding becomes a `loop_cap` residual. The controller never applies a fix.
 6. **Verify.** Run the plan's verification commands from the controller and
    keep the exact output. A claim of completion without command output is a
    contract violation.
@@ -72,10 +75,11 @@ not among them; the audit trail would then describe a team that did not exist.
 
 ## Dispatch discipline
 
-Each packet contains exactly the REQUIRED parts in packets.md: worker id, goal
-with a goal condition, inputs, owned paths, verification command, return
-schema, and the `wt-log` protocol. Workers append their own log lines at
-start, at each file written, at each verification run, and at return; the
+Each packet contains exactly the REQUIRED parts in packets.md: stable plan id,
+attempt id, goal with a goal condition, inputs, owned paths, verification
+command, role-derived return schema, and the `wt-log` protocol. Workers append
+their own log lines at start, at each file written, at each verification run,
+and at return; the
 controller logs only its own actions. A log line the controller writes on a
 worker's behalf, or a timestamp not produced by `wt-log`, is a defect.
 
@@ -85,8 +89,8 @@ time. Wave the rest. Never drop a planned worker to fit capacity.
 
 ## Failure policy
 
-- Verifier or reviewer response missing any assigned item → the whole response
-  is incomplete. Discard it entirely and retry the whole group once. Still
+- A verifier response whose candidate ids do not exactly match its assigned
+  ids is incomplete. Discard it entirely and retry the whole group once. Still
   incomplete → stop that group and record `worker_failed`.
 - Two workers touched the same path in one phase → stop the phase, record the
   conflict, and re-plan ownership before continuing.

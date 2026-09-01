@@ -16,7 +16,7 @@ Validate with `wt-validate <skill>/references/schemas/result.schema.json`.
   "outcome": "complete | partial | stopped",
   "verification": [{"command": "python3 -m pytest -q", "passed": true, "summary": "20 passed"}],
   "residual": [
-    {"kind": "finding", "detail": "save() not atomic (minor)", "source": "reviewer r1"},
+    {"kind": "finding", "detail": "save() not atomic", "severity": "minor", "scope": "spec", "source": "reviewer:r1"},
     {"kind": "loop_cap", "detail": "…", "source": "impl loop"}
   ],
   "workers": [{"id": "implementer", "role": "implementer", "status": "ok"}],
@@ -26,10 +26,13 @@ Validate with `wt-validate <skill>/references/schemas/result.schema.json`.
 ```
 
 Residual kinds: `finding` (open review finding), `gap` (spec item no worker
-covered), `worker_failed`, `loop_cap`, `invalid_return`, `skipped`. Every
-retry, stall, cap hit, or empty-after-retry produces one entry. `outcome` is
-`complete` only when `residual` has no `blocker`/`important` finding and every
-verification passed.
+covered), `worker_failed`, `loop_cap`, `invalid_return`, `skipped`. A finding
+also records `severity` and `scope`. An unresolved stall, cap hit, or
+empty-after-retry produces a residual. A failed attempt later superseded by a
+successful retry or re-plan stays in `workers` and the log but is not residual
+work. `outcome` is `complete` only when verification is non-empty and passed
+and no `blocker`/`important` finding remains; failed superseded attempts do not
+independently block completion.
 
 ## report.md
 

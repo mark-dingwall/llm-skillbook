@@ -1,6 +1,12 @@
 {
   "type": "object",
   "required": ["verdict", "findings"],
+  "allOf": [
+    {
+      "if": {"properties": {"verdict": {"const": "changes_required"}}},
+      "then": {"properties": {"findings": {"minItems": 1}}}
+    }
+  ],
   "properties": {
     "verdict": {"type": "string", "enum": ["pass", "changes_required"]},
     "findings": {

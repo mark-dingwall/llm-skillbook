@@ -19,8 +19,8 @@ Artefacts land in `.work-team/<run>/`: `plan.json`, `workflow-log.jsonl`,
 ## What a result means
 
 `outcome: complete` means every verification command passed and no
-blocker/important residual is open. `residual` lists everything dropped,
-capped, retried, or unverified; an empty list is a claim, not a default.
+blocker/important finding remains. `residual` lists unresolved work; retries
+that eventually succeed remain visible in the worker table and audit log.
 
 ## Use the live contract
 

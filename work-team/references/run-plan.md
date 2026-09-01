@@ -17,8 +17,7 @@ humans between runs, and cited by `result.json`.
         "id": "spec-writer", "role": "writer",
         "goal": "Write SPEC.md: commands, storage schema, exact outputs, exit codes. Done when every command has a Given/When/Then.",
         "inputs": ["<task text>"], "owns": ["SPEC.md"],
-        "verify": "test -s SPEC.md",
-        "returns": "schemas/status.schema.json"
+        "verify": "test -s SPEC.md"
       }]
     },
     {
@@ -27,8 +26,7 @@ humans between runs, and cited by `result.json`.
         "id": "test-writer", "role": "writer",
         "goal": "Black-box pytest suite derived from SPEC.md only. Done when the suite collects and fails for missing implementation.",
         "inputs": ["SPEC.md"], "owns": ["test_todo.py"],
-        "verify": "python3 -m pytest -q --collect-only test_todo.py",
-        "returns": "schemas/status.schema.json"
+        "verify": "python3 -m pytest -q --collect-only test_todo.py"
       }]
     },
     {
@@ -38,8 +36,7 @@ humans between runs, and cited by `result.json`.
         "id": "implementer", "role": "implementer",
         "goal": "Make test_todo.py pass with minimal code. Done when pytest is green.",
         "inputs": ["SPEC.md", "test_todo.py"], "owns": ["todo.py"],
-        "verify": "python3 -m pytest -q test_todo.py",
-        "returns": "schemas/status.schema.json"
+        "verify": "python3 -m pytest -q test_todo.py"
       }]
     }
   ]
@@ -50,7 +47,8 @@ humans between runs, and cited by `result.json`.
   sets must be disjoint; the controller checks this before dispatch.
 - `verify` — a command the worker runs and pastes into `verify_output`, and the
   controller reruns on ingest.
-- `returns` — the schema `wt-validate` applies to the worker's final message.
+- `role` — determines the return schema from the table in
+  [packets.md](packets.md); plans do not duplicate that fixed mapping.
 - `group` — optional label; workers sharing a group run concurrently, groups
   run in order. Omit when the whole phase is one group.
 - `loop` — review→fix rounds for the phase. `review` and `fix` name roles from
