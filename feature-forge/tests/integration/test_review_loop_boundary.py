@@ -385,7 +385,9 @@ class BoundaryFixture:
 
     def apply_result(self, result: str, actionable_ids: list[str]) -> None:
         head = self._load_head()
+        prior_open = head["review"]["open_finding_ids"]
         head["review"]["state"] = result
+        head["review"]["previous_open_finding_ids"] = prior_open
         head["review"]["open_finding_ids"] = sorted(set(actionable_ids))
         if result == "pass":
             head.update(status="active", stage={"id": 5, "state": "complete"}, next_action="freeze the reviewed specification")
@@ -393,6 +395,8 @@ class BoundaryFixture:
             head["review"]["round"] += 1
             head.update(status="active", stage={"id": 3, "state": "active"}, next_action="correct the specification")
         else:
+            if actionable_ids:
+                head["review"]["round"] += 1
             head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="resolve the review blocker")
         self._write_head(head)
 
@@ -414,7 +418,10 @@ def _map_controller_return(outcome, *, round1_error: ControllerError | None = No
     if outcome.stage != "TRIAGE":
         raise ValueError("unsupported controller return")
     rows = outcome.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
-    actionable_ids = sorted(row["id"] for row in rows if row["state"] == "OPEN")
+    actionable_ids = sorted(
+        row["id"] for row in rows
+        if row["state"] == "OPEN" and row["current_severity"] in {"Important", "Critical"}
+    )
     return outcome, ("changes_required" if actionable_ids else "pass"), actionable_ids
 
 
@@ -441,36 +448,42 @@ def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):
 
 def _recover_receipt(fixture: BoundaryFixture, receipt: Path) -> None:
     """Recovery records a return only from one valid canonical Feature Forge receipt."""
+    original_head: dict[str, object] | None = None
     try:
         head = fixture._load_head()
+        original_head = head
         review = head["review"]
         if review["state"] != "review_active":
             raise ValueError("recovery requires an active review")
         canonical = fixture.receipt_path(str(review["dispatch_id"]))
+        current = fixture.repository
+        for part in receipt.relative_to(current).parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("canonical receipt follows a symlink")
+        if not receipt.is_file():
+            raise ValueError("canonical receipt is not a regular file")
         payload = json.loads(receipt.read_text())
         if (
-            receipt.resolve() != canonical.resolve()
-            or set(payload) != RECEIPT_KEYS
-            or payload["schema"] != "feature-forge/review-receipt/v1"
-            or payload["kind"] != review["kind"]
-            or payload["dispatch_id"] != review["dispatch_id"]
-            or payload["run_ref"] != review["run_ref"]
-            or payload["target_seal"] != review["target_seal"]
-            or payload["source_identity"] != fixture.captured_identity
-            or payload["source_identity"] != fixture.source_identity
-            or payload["result"] not in {"pass", "changes_required", "blocked"}
-            or not isinstance(payload["actionable_finding_ids"], list)
-            or not all(isinstance(item, str) and item for item in payload["actionable_finding_ids"])
-            or payload["actionable_finding_ids"] != sorted(set(payload["actionable_finding_ids"]))
-            or (payload["result"] == "pass" and payload["actionable_finding_ids"] != [])
-            or (payload["result"] == "changes_required" and not payload["actionable_finding_ids"])
-            or (payload["result"] == "blocked" and payload["actionable_finding_ids"] != [])
+            receipt != canonical
+            or not isinstance(payload, dict)
+            or payload.get("result") not in {"pass", "changes_required", "blocked"}
+            or not isinstance(payload.get("actionable_finding_ids"), list)
         ):
             raise ValueError("invalid receipt")
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         fixture.block_recovery()
         return
     fixture.apply_result(payload["result"], payload["actionable_finding_ids"])
+    audited = subprocess.run(
+        [sys.executable, str(FF_CHECK), "audit", "--repo", str(fixture.repository),
+         "--run", str(fixture.ledger_path.parent)],
+        text=True, capture_output=True,
+    )
+    if audited.returncode != 0:
+        assert original_head is not None
+        fixture._write_head(original_head)
+        fixture.block_recovery()
 
 
 def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_identity(tmp_path):
@@ -639,6 +652,39 @@ def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path):
     _recover_receipt(recovery, recovery_receipt)
     assert recovery._load_head()["stage"] == {"id": 3, "state": "active"}
     assert recovery._load_head()["next_action"] == "correct the specification"
+
+
+def test_residual_minor_triage_maps_to_pass(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "minor")
+    run_state = fixture.controller.create_run(fixture.intent())
+    fixture.persist_review_active("minor-1", run_state)
+    stage0 = fixture.stage0(run_state)
+    source_finding = ({"id": "raw-minor", "claim": "minor residual", "severity": "Minor",
+                       "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
+    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
+    triage = fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
+    receipt = fixture.record_controller_return("minor-1", triage)
+    assert json.loads(receipt.read_text())["result"] == "pass"
+    assert fixture._load_head()["review"]["open_finding_ids"] == []
+
+
+def test_recovery_accepts_a_capped_blocked_receipt_with_actionable_ids(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "capped-recovery")
+    run_state = fixture.controller.create_run(fixture.intent())
+    fixture.persist_review_active("capped-1", run_state)
+    head = fixture._load_head()
+    head["review"]["round"] = 2
+    head["review"]["previous_open_finding_ids"] = ["F-1"]
+    head["review"]["open_finding_ids"] = ["F-2"]
+    fixture._write_head(head)
+    receipt = fixture.write_receipt(
+        "capped-1", run_state, "blocked", ["F-3"], fixture.captured_identity,
+    )
+    _recover_receipt(fixture, receipt)
+    recovered = fixture._load_head()
+    assert recovered["review"]["state"] == "blocked"
+    assert recovered["review"]["round"] == 3
+    assert recovered["review"]["open_finding_ids"] == ["F-3"]
 
 
 def test_boundary_persists_review_active_before_stage0(tmp_path):

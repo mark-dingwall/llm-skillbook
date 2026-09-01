@@ -99,6 +99,16 @@ def test_identities_reports_each_frozen_blob_drift_as_a_path_failure(tmp_path: P
     assert result.stderr.splitlines() == [f"path={path}"]
 
 
+def test_identities_rejects_a_frozen_file_replaced_by_a_same_byte_symlink(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    relative = data["frozen"]["specification"]["path"]
+    target = repo / "same-bytes.md"
+    target.write_bytes((repo / relative).read_bytes())
+    (repo / relative).unlink()
+    (repo / relative).symlink_to(target)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
+
+
 @pytest.mark.parametrize("path", ["../README.md", "/tmp/escape", "docs/../README.md", "."])
 def test_identities_treats_path_escape_as_unverifiable(tmp_path: Path, path: str) -> None:
     repo, directory, data = identity_fixture(tmp_path)

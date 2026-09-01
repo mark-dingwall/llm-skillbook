@@ -60,9 +60,9 @@ sorted, unique opaque actionable IDs and never finding text.
 | --- | --- |
 | `not_started` | kind, root, dispatch, run reference, target, evidence, and reviewed commit null; round 0; both arrays empty. |
 | `review_active` | kind, root, dispatch, run reference, target, and evidence present; reviewed commit null; round and arrays describe completed returns for this kind/root. |
-| `changes_required` | `review_active` fields; reviewed commit null; round at least 1; open IDs nonempty. |
+| `changes_required` | `review_active` fields; round at least 1; open IDs nonempty; reviewed commit is required only for implementation and otherwise null. |
 | `pass` | `review_active` fields; open IDs empty; reviewed commit is required only for implementation and otherwise null. |
-| `blocked` | kind and root present; dispatch/evidence fields are either all null for a pre-dispatch block or all present for a returned/capped review; reviewed commit null. |
+| `blocked` | kind and root present; dispatch/evidence fields are either all null for a pre-dispatch block or all present for a returned/capped review; reviewed commit is required only for a returned implementation review and otherwise null. |
 
 Starting a different review kind creates a fresh current review object at round
 0 with empty arrays and a new kind/root. Earlier review evidence remains in the
@@ -74,7 +74,8 @@ Only review-loop owns review target seals.
 | Candidate input identity | SHA-256 of exact uncommitted spec/plan candidate bytes | Feature Forge adapter |
 | Review target seal | Seal for review-loop materialized target | review-loop only |
 | Frozen identity | canonical path plus Git blob | ff-check identities |
-| Reviewed implementation commit | source HEAD on which implementation review passed | ff-check reviewed-snapshot |
+| Reviewed implementation commit | source HEAD reviewed by the current returned implementation review | ff-check audit/reviewed-snapshot |
+| Implementation source snapshot | SHA-256 seal of every reviewed source path, type, mode, and content except the mutable ledger, reserved receipt, and stage-owned final report | ff-check implementation-snapshot/reviewed-snapshot |
 
 These identities are not interchangeable; Feature Forge cannot derive a review
 target seal from a source commit. A human transition row records `event`,
@@ -257,7 +258,7 @@ explicit change control rather than being marked complete.
 - **Goal:** Select exactly one canonical run in an isolated non-primary worktree.
 - **Inputs:** Repository, bounded intent, requested run ID, invocation mode, Git state, and configured review host.
 - **Mechanical check:** Run `runs`; if it reports one existing nonterminal run, run `identities` before resuming it.
-- **Owned action:** Record `supervised` when mode is omitted; resolve the collision inventory by mode and intent; inventory dirt; create or reuse the isolated worktree and ledger; project all stages. Validate that the authorized review host can import `review_loop.controller.Controller`, construct its contained dispatchers/strict validators, and write a disjoint run root; a CLI probe alone is insufficient.
+- **Owned action:** Record `supervised` when mode is omitted; resolve the collision inventory by mode and intent; inventory dirt; create or reuse the isolated worktree and ledger; project all stages. Resume a same-ID run only when intent and identities match. Otherwise interactive/supervised mode asks resume-versus-new; unattended mode selects the lowest unused numeric suffix only when the intents are clearly distinct and blocks when ambiguous. Validate that the authorized review host can import `review_loop.controller.Controller`, construct its contained dispatchers/strict validators, and write a disjoint run root; a CLI probe alone is insufficient. Interactive/supervised mode asks for an authorized host when none is configured; unattended mode blocks when none is pre-authorized.
 - **Pass:** Git/worktree/branch, mode, collision decision, runner capability, and dirty-path reconciliation are recorded with one next action; either a no-collision run is created or one matching run is resumed.
 - **Failure:** A verified `fail` routes an identity/collision mismatch to read-only reconciliation and the mode's user decision, never implicit selection; `unverifiable`, unavailable authority/runner, foreign dirt, non-Git state, or failed isolation blocks here.
 - **Next:** Stage 2: Brainstorm.
@@ -306,7 +307,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Freeze exactly the specification bytes that passed review.
 - **Inputs:** Passing specification receipt, unchanged candidate identity, canonical path, and Git worktree.
-- **Mechanical check:** Run `identities` before freezing and `audit` after the ledger update.
+- **Mechanical check:** Run `identities` before freezing, then run `identities` immediately after recording the frozen blob and `audit` after the ledger update.
 - **Owned action:** Commit the reviewed specification and record its canonical path and Git blob as the frozen baseline.
 - **Pass:** The freeze checkpoint, matching blob identity, transition evidence, and one next action are durable.
 - **Failure:** A verified `fail` routes seal/identity drift through read-only reconciliation and the invalidation graph; `unverifiable` or Git failure blocks.
@@ -326,7 +327,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Independently review and freeze the exact implementation plan candidate.
 - **Inputs:** Self-reviewed plan candidate/identity, frozen specification, plan charter, review host, and current review control state.
-- **Mechanical check:** Run `identities` then `audit` immediately before every external review dispatch; run `audit` after mapping the return and after freeze state is recorded.
+- **Mechanical check:** Run `identities` then `audit` immediately before every external review dispatch; run `audit` after mapping the return, then run `identities` and `audit` after freeze state is recorded.
 - **Owned action:** Execute the read-only review lifecycle and bounded return rule; after pass, commit the unchanged candidate and record its canonical Git blob.
 - **Pass:** The valid passing receipt, freeze-plan checkpoint, matching frozen identity, and one next action are durable.
 - **Failure:** A verified `fail` follows read-only reconciliation or the bounded correction/invalidation route; `unverifiable` blocks. While `review_active`, only await or recover; `changes_required` returns to Plan and a specification defect follows the fixed graph.

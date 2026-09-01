@@ -39,7 +39,7 @@ area ID exactly once — a bijection with `areas`.
 
 **Initial inventory** — `role_id` is the literal string `inventory-owner`.
 `payload` is `areas`, `priority_order`, and `mappings`; `mappings` must be
-empty.
+an empty array.
 
 **Refresh** — `role_id` is `inventory-owner`. `mappings` maps every
 previously-named area ID the controller supplies exactly once to one of:
@@ -53,8 +53,9 @@ them true when it should invalidate retained specialist coverage. If two
 prior areas map onto the same active area, their `invalidators` must agree.
 
 **Revision** — `role_id` is the literal string `inventory-revision`.
-`payload` is `areas`, `priority_order`, and `resolutions`; `resolutions` maps
-every challenge ID the controller supplies exactly once to a `resolution`
-string explaining how your replacement inventory addresses it, or why you
-reject it with primary evidence. The replacement inventory is a complete
-replacement, never a partial diff.
+`payload` is `areas`, `priority_order`, and `resolutions`; `resolutions` is an
+array containing exactly one `{{ "challenge_id": ID, "resolution": STRING }}`
+object for every supplied challenge ID. The resolution explains how the
+replacement inventory addresses the challenge, or rejects it with primary
+evidence. The replacement inventory is a complete replacement, never a partial
+diff.

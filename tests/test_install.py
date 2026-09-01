@@ -60,7 +60,7 @@ def test_feature_forge_production_checker_is_user_executable(tmp_path, host, nam
         [sys.executable, str(checker), "--help"], text=True, capture_output=True,
     )
     assert result.returncode == 0
-    assert "{runs,identities,reviewed-snapshot,audit}" in result.stdout
+    assert "{runs,identities,reviewed-snapshot,audit,implementation-snapshot}" in result.stdout
     assert "FF-CHECK" not in result.stdout
 
 

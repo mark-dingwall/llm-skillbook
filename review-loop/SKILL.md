@@ -119,7 +119,9 @@ report. Adjudication returns per-row `UPHOLD`, `BOUNCE`, or `UNDECIDED`.
   themselves create readiness or settle a row merely by upholding.
 - **Malformed role output gets exactly one retry**, then the enclosing stage
   is `INDETERMINATE`. The host-supplied ordinary Round 1 review dispatch owns
-  that retry; `Controller.run_round1` validates only the returned attempt and
+  that retry: include the validator rejection in the retry and preserve the
+  original request identity, target and round-input seals, role, charter, and
+  scope. `Controller.run_round1` validates only the returned attempt and
   raises on an unusable result, which the host must convert to the
   indeterminate outcome. Controller-owned semantic roles use the controller's
   retry boundary. Adjudication gets at most two calls total (a clean first

@@ -7,6 +7,7 @@ import hashlib
 import json
 import subprocess
 import re
+import stat
 from pathlib import Path
 
 
@@ -43,11 +44,46 @@ def payload_digest(root: Path) -> str:
     if not root.exists():
         digest.update(b"missing\0")
         return digest.hexdigest()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    for path in sorted(root.rglob("*")):
+        mode = path.lstat().st_mode
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
+        digest.update(f"{stat.S_IFMT(mode):o}:{stat.S_IMODE(mode):o}".encode() + b"\0")
+        if stat.S_ISLNK(mode):
+            digest.update(path.readlink().as_posix().encode() + b"\0")
+        elif stat.S_ISREG(mode):
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+        elif not stat.S_ISDIR(mode):
+            digest.update(b"unsupported\0")
     return digest.hexdigest()
+
+
+def status_paths(repo: Path) -> set[str] | None:
+    observed = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=repo, capture_output=True,
+    )
+    if observed.returncode:
+        return None
+    fields = observed.stdout.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths: set[str] = set()
+    index = 0
+    try:
+        while index < len(fields):
+            record = fields[index]
+            index += 1
+            if len(record) < 4 or record[2:3] != b" ":
+                return None
+            status = record[:2]
+            paths.add(record[3:].decode("utf-8"))
+            if b"R" in status or b"C" in status:
+                paths.add(fields[index].decode("utf-8"))
+                index += 1
+    except (IndexError, UnicodeDecodeError):
+        return None
+    return paths
 
 
 def write_seed(repo: Path) -> None:
@@ -193,9 +229,11 @@ def score(root: Path) -> dict[str, object]:
         errors.append("installed payload digest changed")
     if hashlib.sha256((repo / SPEC).read_bytes()).hexdigest() != metadata["expected_specification_digest"]:
         errors.append("specification drift differs from the seeded fault")
-    changed = set(filter(None, git(repo, "diff", "--name-only", "HEAD").splitlines()))
-    changed.update(filter(None, git(repo, "diff", "--cached", "--name-only").splitlines()))
+    changed = status_paths(repo)
     allowed = {SPEC, LEDGER}
+    if changed is None:
+        errors.append("Git status is unavailable")
+        changed = set()
     if changed - allowed:
         errors.append("tracked change outside canonical ledger/specification drift")
     if SPEC not in changed:

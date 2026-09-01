@@ -79,6 +79,12 @@ class RoleFieldContractTests(unittest.TestCase):
                       "new_depth_evidence"):
             with self.subTest(token=token):
                 self.assertIn(token, text)
+        self.assertIn("empty array", text)
+
+    def test_shared_review_prompt_states_strict_finding_constraints(self):
+        text = _read("review.md")
+        self.assertIn("finding IDs are unique", text)
+        self.assertIn("IDs and claims are non-empty", text)
 
     def test_inventory_challenge_matches_validate_inventory_challenge(self):
         text = _read("inventory-challenge.md")

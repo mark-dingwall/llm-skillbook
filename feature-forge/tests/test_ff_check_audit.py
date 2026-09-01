@@ -49,9 +49,19 @@ def audit_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
     return repo, directory, data
 
 
-def source_identity(repo: Path, kind: str, reviewed_commit: str | None = None) -> dict[str, object]:
+def source_identity(
+    repo: Path, directory: Path, kind: str, dispatch_id: str,
+) -> dict[str, object]:
     if kind == "implementation":
-        return {"kind": "reviewed_commit", "path": None, "value": reviewed_commit or git(repo, "rev-parse", "HEAD")}
+        captured = check(
+            "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
+            "--dispatch-id", dispatch_id,
+        )
+        assert captured.returncode == 0, captured.stderr
+        return {
+            "kind": "implementation_snapshot_sha256", "path": None,
+            "value": captured.stderr.strip().removeprefix("snapshot="),
+        }
     relative = (
         "docs/superpowers/specs/2026-08-25-alpha-design.md"
         if kind == "specification" else "docs/superpowers/plans/2026-08-25-alpha.md"
@@ -77,7 +87,7 @@ def returned_review(
     opened = [] if opened is None else opened
     previous = [] if previous is None else previous
     dispatch_id = f"{kind}-review-1"
-    reviewed_commit = git(repo, "rev-parse", "HEAD") if kind == "implementation" and state == "pass" else None
+    reviewed_commit = git(repo, "rev-parse", "HEAD") if kind == "implementation" else None
     review = {
         "kind": kind, "state": state, "round": round_number,
         "root_identity": f"{kind}-root", "dispatch_id": dispatch_id,
@@ -93,7 +103,7 @@ def returned_review(
         "schema": "feature-forge/review-receipt/v1",
         "kind": kind, "dispatch_id": dispatch_id, "run_ref": review["run_ref"],
         "target_seal": review["target_seal"],
-        "source_identity": source_identity(repo, kind, reviewed_commit),
+        "source_identity": source_identity(repo, directory, kind, dispatch_id),
         "result": receipt_result or state, "actionable_finding_ids": opened,
     }, sort_keys=True))
     write_ledger(directory, data)
@@ -269,16 +279,36 @@ def test_audit_accepts_implementation_nonpass_receipt_with_canonical_source_comm
         repo, directory, data, kind="implementation", state=state,
         round_number=round_number, opened=opened,
     )
-    assert review["reviewed_commit"] is None
+    assert review["reviewed_commit"] == git(repo, "rev-parse", "HEAD")
     receipt = json.loads((repo / review["evidence_path"]).read_text())
     assert receipt["source_identity"] == {
-        "kind": "reviewed_commit", "path": None, "value": git(repo, "rev-parse", "HEAD"),
+        "kind": "implementation_snapshot_sha256", "path": None,
+        "value": receipt["source_identity"]["value"],
     }
     assert_result(invoke(repo, directory), "pass", 0)
 
 
-@pytest.mark.parametrize("identity", ["HEAD", "abbreviated", "not-an-oid"])
-def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
+def test_audit_rejects_an_unrelated_implementation_commit_on_a_nonpass_return(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    unrelated = git(repo, "rev-parse", "HEAD")
+    (repo / "README.md").write_text("reviewed implementation snapshot\n")
+    git(repo, "add", "README.md")
+    git(repo, "commit", "-qm", "implementation snapshot")
+    review = returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    receipt = repo / review["evidence_path"]
+    payload = json.loads(receipt.read_text())
+    payload["source_identity"]["value"] = "0" * 64
+    receipt.write_text(json.dumps(payload))
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("identity", ["HEAD", "0" * 40, "not-a-digest"])
+def test_audit_rejects_noncanonical_implementation_nonpass_snapshot_digest(
     tmp_path: Path, identity: str,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -286,8 +316,6 @@ def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
         repo, directory, data, kind="implementation", state="changes_required",
         round_number=1, opened=["F-1"],
     )
-    if identity == "abbreviated":
-        identity = git(repo, "rev-parse", "HEAD")[:12]
     path = repo / review["evidence_path"]
     receipt = json.loads(path.read_text())
     receipt["source_identity"]["value"] = identity
@@ -295,7 +323,7 @@ def test_audit_rejects_noncanonical_implementation_nonpass_receipt_commit(
     assert_result(invoke(repo, directory), "fail", 1)
 
 
-def test_audit_rejects_abbreviated_hex_before_unavailable_typed_object_observation(
+def test_audit_rejects_short_snapshot_digest_before_observation(
     tmp_path: Path,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -305,30 +333,13 @@ def test_audit_rejects_abbreviated_hex_before_unavailable_typed_object_observati
     )
     path = repo / review["evidence_path"]
     receipt = json.loads(path.read_text())
-    abbreviated = git(repo, "rev-parse", "HEAD")[:12]
+    abbreviated = "0" * 12
     receipt["source_identity"]["value"] = abbreviated
     path.write_text(json.dumps(receipt))
-    real_git = shutil.which("git")
-    assert real_git is not None
-    binary = tmp_path / "bin"
-    binary.mkdir()
-    wrapper = binary / "git"
-    wrapper.write_text(
-        "#!/bin/sh\n"
-        f'if [ "$3" = "rev-parse" ] && [ "$4" = "--verify" ] && '
-        f'[ "$5" = "{abbreviated}^{{commit}}" ]; then exit 1; fi\n'
-        f'exec "{real_git}" "$@"\n'
-    )
-    wrapper.chmod(0o755)
-    observed = subprocess.run(
-        [sys.executable, str(CHECKER), "audit", "--repo", str(repo), "--run", str(directory)],
-        text=True, capture_output=True, check=False,
-        env={**os.environ, "PATH": str(binary)},
-    )
-    assert_result(observed, "fail", 1)
+    assert_result(invoke(repo, directory), "fail", 1)
 
 
-def test_audit_treats_missing_canonical_full_nonpass_receipt_commit_as_unverifiable(
+def test_audit_rejects_wrong_canonical_nonpass_snapshot_digest(
     tmp_path: Path,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -336,12 +347,12 @@ def test_audit_treats_missing_canonical_full_nonpass_receipt_commit_as_unverifia
         repo, directory, data, kind="implementation", state="changes_required",
         round_number=1, opened=["F-1"],
     )
-    missing_oid = "0" * len(git(repo, "rev-parse", "HEAD"))
+    missing_oid = "0" * 64
     path = repo / review["evidence_path"]
     receipt = json.loads(path.read_text())
     receipt["source_identity"]["value"] = missing_oid
     path.write_text(json.dumps(receipt))
-    assert_result(invoke(repo, directory), "unverifiable", 2)
+    assert_result(invoke(repo, directory), "fail", 1)
 
 
 def test_audit_treats_unavailable_nonpass_receipt_commit_observation_as_unverifiable(
@@ -652,6 +663,58 @@ def test_audit_treats_non_strict_return_receipts_as_unverifiable(
     receipt[field] = value
     path.write_text(json.dumps(receipt))
     assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("artifact", ["ledger", "receipt"])
+def test_audit_rejects_duplicate_json_object_keys(tmp_path: Path, artifact: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    if artifact == "ledger":
+        ledger = write_ledger(directory, data)
+        text = ledger.read_text().replace('"status": "active"', '"status": "active",\n  "status": "complete"')
+        ledger.write_text(text)
+    else:
+        review = returned_review(repo, directory, data, state="pass")
+        receipt = repo / review["evidence_path"]
+        text = receipt.read_text().replace('"result": "pass"', '"result": "pass", "result": "blocked"')
+        receipt.write_text(text)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("field", ["stage", "round"])
+def test_audit_treats_oversized_json_integers_as_malformed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str,
+) -> None:
+    monkeypatch.setenv("PYTHONINTMAXSTRDIGITS", "0")
+    repo, directory, data = audit_fixture(tmp_path)
+    ledger = write_ledger(directory, data)
+    huge = "9" * 5000
+    text = ledger.read_text()
+    needle = '"id": 1' if field == "stage" else '"round": 0'
+    ledger.write_text(text.replace(needle, f'"{ "id" if field == "stage" else "round" }": {huge}', 1))
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_audit_rejects_a_symlinked_canonical_ledger(tmp_path: Path) -> None:
+    repo, directory, _ = audit_fixture(tmp_path)
+    ledger = directory / "ledger.md"
+    target = ledger.with_name("real-ledger.md")
+    ledger.rename(target)
+    ledger.symlink_to(target.name)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("array", ["previous_open_finding_ids", "open_finding_ids"])
+def test_audit_requires_empty_finding_arrays_at_round_zero(tmp_path: Path, array: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["review"] = {
+        "kind": "plan", "state": "review_active", "round": 0, "root_identity": "root",
+        "dispatch_id": "active-1", "run_ref": "/run", "target_seal": "seal",
+        "evidence_path": "docs/feature-forge/runs/2026-08-25-alpha/reviews/active-1.json",
+        "reviewed_commit": None, "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    data["review"][array] = ["F-1"]
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
 
 
 def test_audit_rejects_wrong_future_receipt_path_without_requiring_the_file(tmp_path: Path) -> None:

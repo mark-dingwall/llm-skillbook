@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,6 +26,12 @@ def commit(repo: Path, message: str, *paths: str) -> str:
 
 
 def write_receipt(directory: Path, review: dict[str, object], **changes: object) -> Path:
+    captured = check(
+        "implementation-snapshot", "--repo", str(directory.parents[3]),
+        "--run", str(directory), "--dispatch-id", str(review["dispatch_id"]),
+    )
+    assert captured.returncode == 0, captured.stderr
+    snapshot = captured.stderr.strip().removeprefix("snapshot=")
     receipt = {
         "schema": "feature-forge/review-receipt/v1",
         "kind": "implementation",
@@ -30,7 +39,7 @@ def write_receipt(directory: Path, review: dict[str, object], **changes: object)
         "run_ref": review["run_ref"],
         "target_seal": review["target_seal"],
         "source_identity": {
-            "kind": "reviewed_commit", "path": None, "value": review["reviewed_commit"],
+            "kind": "implementation_snapshot_sha256", "path": None, "value": snapshot,
         },
         "result": "pass",
         "actionable_finding_ids": [],
@@ -195,10 +204,57 @@ def test_reviewed_snapshot_parses_both_paths_of_a_nul_delimited_copy(tmp_path: P
     assert_result(invoke(repo, directory), "fail", 1)
 
 
-def test_reviewed_snapshot_accepts_all_three_allowed_paths_as_dirty_files(tmp_path: Path) -> None:
+def test_reviewed_snapshot_rejects_a_final_report_before_its_owning_stage(tmp_path: Path) -> None:
     repo, directory, _ = reviewed_fixture(tmp_path)
     (directory / "final-report.md").write_text("draft final report\n")
-    assert_result(invoke(repo, directory), "pass", 0)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_rejects_a_mode_change_hidden_by_core_filemode(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    git(repo, "config", "core.fileMode", "false")
+    target = repo / "src/app.py"
+    target.chmod(target.stat().st_mode | 0o111)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_uses_shared_audit_result_classification(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["review"]["open_finding_ids"] = ["F-1"]
+    write_receipt(directory, data["review"], actionable_finding_ids=["F-1"])
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_treats_signal_terminated_ancestry_check_as_unverifiable(
+    tmp_path: Path,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"merge-base\" ]; then kill -TERM $$; fi\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), "reviewed-snapshot", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, check=False, env={**os.environ, "PATH": str(binary)},
+    )
+    assert_result(observed, "unverifiable", 2)
+
+
+def test_reviewed_snapshot_rejects_a_symlinked_ledger(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    ledger = directory / "ledger.md"
+    target = ledger.with_name("real-ledger.md")
+    ledger.rename(target)
+    ledger.symlink_to(target.name)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
 def test_reviewed_snapshot_never_uses_a_ledger_selected_report_path(tmp_path: Path) -> None:
@@ -206,7 +262,7 @@ def test_reviewed_snapshot_never_uses_a_ledger_selected_report_path(tmp_path: Pa
     data["final_report_path"] = "src/app.py"
     write_ledger(directory, data)
     (repo / "src/app.py").write_text("foreign content\n")
-    assert_result(invoke(repo, directory), "fail", 1)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
 @pytest.mark.parametrize("field", [
@@ -218,7 +274,7 @@ def test_reviewed_snapshot_treats_missing_required_review_fields_as_unverifiable
     repo, directory, data = reviewed_fixture(tmp_path)
     data["review"][field] = None
     write_ledger(directory, data)
-    assert_result(invoke(repo, directory), "unverifiable", 2)
+    assert_result(invoke(repo, directory), "fail", 1)
 
 
 def test_reviewed_snapshot_treats_missing_receipt_as_unverifiable(tmp_path: Path) -> None:
@@ -312,17 +368,22 @@ def test_reviewed_snapshot_rejects_receipt_head_disagreement(
 
 
 @pytest.mark.parametrize("source_identity", [
-    {"kind": "reviewed_commit", "path": "src/app.py", "value": "COMMIT"},
-    {"kind": "reviewed_commit", "path": None, "value": "0" * 40},
-    {"kind": "candidate_sha256", "path": None, "value": "COMMIT"},
+    {"kind": "implementation_snapshot_sha256", "path": "src/app.py", "value": "0" * 64},
+    {"kind": "implementation_snapshot_sha256", "path": None, "value": "0" * 64},
+    {"kind": "candidate_sha256", "path": None, "value": "0" * 64},
 ])
 def test_reviewed_snapshot_requires_an_exact_implementation_source_identity(
     tmp_path: Path, source_identity: dict[str, object],
 ) -> None:
     repo, directory, data = reviewed_fixture(tmp_path)
-    if source_identity["value"] == "COMMIT":
-        source_identity["value"] = data["review"]["reviewed_commit"]
     write_receipt(directory, data["review"], source_identity=source_identity)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_rejects_an_ignored_file_added_after_review(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    (repo / ".git" / "info" / "exclude").write_text("ignored.cache\n")
+    (repo / "ignored.cache").write_text("post-review ignored content\n")
     assert_result(invoke(repo, directory), "fail", 1)
 
 

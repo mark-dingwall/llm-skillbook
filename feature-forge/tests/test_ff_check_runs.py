@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -168,6 +169,87 @@ def test_runs_rejects_calendar_invalid_and_noncanonical_matching_locations(tmp_p
     path.mkdir(parents=True)
     write_ledger(path, head(repo))
     assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "fail", 1)
+
+
+def test_runs_rejects_unicode_digits_in_a_dated_identity(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    path = repo / "docs" / "feature-forge" / "runs" / "２０２６-０８-２５-alpha"
+    path.mkdir(parents=True)
+    write_ledger(path, head(repo))
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "fail", 1)
+
+
+@pytest.mark.parametrize("entry_kind", ["file", "broken-symlink"])
+def test_runs_treats_an_occupied_canonical_non_directory_as_a_collision(
+    tmp_path: Path, entry_kind: str,
+) -> None:
+    repo = make_repo(tmp_path, branch="feature/other")
+    root = repo / "docs" / "feature-forge" / "runs"
+    root.mkdir(parents=True)
+    occupied = root / "2026-08-25-alpha"
+    if entry_kind == "file":
+        occupied.write_text("occupied\n")
+    else:
+        occupied.symlink_to("missing")
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "fail", 1)
+
+
+def test_runs_rejects_a_symlinked_canonical_ledger(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    ledger = write_ledger(directory, head(repo))
+    external = tmp_path / "external-ledger.md"
+    ledger.rename(external)
+    ledger.symlink_to(external)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_rejects_a_symlinked_runs_root(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, branch="feature/other")
+    docs = repo / "docs" / "feature-forge"
+    docs.mkdir(parents=True)
+    external = tmp_path / "external-runs"
+    external.mkdir()
+    (docs / "runs").symlink_to(external, target_is_directory=True)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_parses_newline_worktree_paths_without_truncation(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path, branch="feature/primary")
+    linked = tmp_path / "linked\nworktree"
+    subprocess.run(
+        ["git", "worktree", "add", "-qb", "feature/alpha", str(linked), "HEAD"],
+        cwd=primary, check=True, capture_output=True,
+    )
+    write_ledger(run_dir(linked), head(linked))
+    observed = check("runs", "--repo", str(linked), "--run-id", "alpha")
+    assert observed.returncode == 0
+    assert observed.stdout == "FF-CHECK v1 gate=runs status=pass\n"
+    assert f"worktree={linked}\n" in observed.stderr
+
+
+def test_runs_does_not_parse_a_head_shaped_line_inside_a_worktree_path(tmp_path: Path) -> None:
+    primary = make_repo(tmp_path, branch="feature/primary")
+    forged_head = "a" * 40
+    linked = tmp_path / f"linked\nHEAD {forged_head}"
+    subprocess.run(
+        ["git", "worktree", "add", "-qb", "feature/alpha", str(linked), "HEAD"],
+        cwd=primary, check=True, capture_output=True,
+    )
+    write_ledger(run_dir(linked), head(linked))
+    observed = check("runs", "--repo", str(linked), "--run-id", "alpha")
+    assert observed.returncode == 0
+    assert observed.stdout == "FF-CHECK v1 gate=runs status=pass\n"
+    assert f"worktree={linked}\n" in observed.stderr
+
+
+def test_runs_fails_closed_when_git_output_is_not_utf8(tmp_path: Path) -> None:
+    raw_root = os.fsencode(tmp_path) + b"/repo-\xff"
+    os.mkdir(raw_root)
+    subprocess.run([b"git", b"init", b"-q", raw_root], check=True)
+    repo = os.fsdecode(raw_root)
+    observed = check("runs", "--repo", repo, "--run-id", "alpha")
+    assert_result(observed, "runs", "unverifiable", 2)
 
 
 def test_runs_requires_exact_directory_id_not_suffix(tmp_path: Path) -> None:

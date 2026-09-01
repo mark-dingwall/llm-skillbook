@@ -180,8 +180,8 @@ Map the read-only return as follows:
 
 | Read-only return | Workflow review result |
 | --- | --- |
-| TRIAGE completed with no actionable findings and all required gates/reviewers complete | `pass` |
-| TRIAGE completed with actionable open findings | `changes_required` |
+| TRIAGE completed with no open Important or Critical findings and all required gates/reviewers complete; residual open Minor findings remain human evidence | `pass` |
+| TRIAGE completed with open Important or Critical findings | `changes_required` |
 | `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, missing authority, or non-actionable Important+ blocker | `blocked` |
 
 ## Bounded review return rule
@@ -218,8 +218,11 @@ of a root reset from history.
 For every review round, the controller must:
 
 1. Capture source identity before materializing: SHA-256 plus canonical path
-   for a Specification or Plan candidate, or source `HEAD` plus null path for
-   Implementation. Materialize the exact subject, create its one disposable
+   for a Specification or Plan candidate, or the `implementation-snapshot`
+   digest plus null path and source `HEAD` for Implementation. The snapshot
+   digest covers every subject path, type, mode, and content while excluding
+   only the current ledger, reserved receipt, and stage-owned final report.
+   Materialize the exact subject, create its one disposable
    bootstrap commit, and pass that exact commit as `InvocationIntent.base`.
 2. Call `create_run` and retain its returned external run reference and target
    seal. Allocate a fresh filename-safe dispatch ID and reserve the absent
@@ -242,6 +245,10 @@ For every review round, the controller must:
    and sorted unique `actionable_finding_ids`. The schema is
    `feature-forge/review-receipt/v1`; `result` is `pass`,
    `changes_required`, or `blocked` and maps to the same review state.
+   Implementation receipts use source-identity kind
+   `implementation_snapshot_sha256`, null path, and the captured digest; the
+   current review head separately records the captured source `HEAD` as
+   `reviewed_commit` for every returned implementation result.
 
 `review-loop` validates its temporary target seal during its public calls.
 Feature Forge stores that returned seal, the external run reference, strict

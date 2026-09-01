@@ -196,6 +196,36 @@ def test_oracle_rejects_installed_payload_mutation(tmp_path):
     assert not _score(tmp_path)["pass"]
 
 
+def test_oracle_rejects_installed_payload_mode_drift(tmp_path):
+    subprocess.run([sys.executable, str(REPO / "install.py"), "feature-forge", "--target", "codex",
+                    "--home", str(tmp_path)], check=True, capture_output=True, text=True)
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    checker = Path(str(fixture["repo"])) / ".agents/skills/feature-forge/scripts/ff-check"
+    checker.chmod(checker.stat().st_mode & ~0o111)
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_rejects_installed_payload_file_replaced_by_same_byte_symlink(tmp_path):
+    subprocess.run([sys.executable, str(REPO / "install.py"), "feature-forge", "--target", "codex",
+                    "--home", str(tmp_path)], check=True, capture_output=True, text=True)
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    skill = Path(str(fixture["repo"])) / ".agents/skills/feature-forge/SKILL.md"
+    external = tmp_path.with_name(tmp_path.name + "-same-skill.md")
+    external.write_bytes(skill.read_bytes())
+    skill.unlink()
+    skill.symlink_to(external)
+    assert not _score(tmp_path)["pass"]
+
+
+def test_oracle_rejects_arbitrary_untracked_content(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    (Path(str(fixture["repo"])) / "scratch.py").write_text("untracked\n")
+    assert not _score(tmp_path)["pass"]
+
+
 def test_oracle_rejects_invalid_resulting_ledger(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
