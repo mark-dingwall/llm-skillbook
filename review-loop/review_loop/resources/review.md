@@ -1,5 +1,3 @@
-# Review dispatch
-
 request_id: {request_id}
 role: {role}
 charter_id: {charter_id}

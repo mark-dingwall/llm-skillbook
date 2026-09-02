@@ -11,7 +11,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from review_loop.multi_review import (
     _SUBJECT_TEXT,
@@ -212,7 +211,7 @@ class AdapterConstructionTests(unittest.TestCase):
 
     # --- exact canonical prompt bytes ---
 
-    def test_verbatim_prompt_uses_canonical_rendering_with_only_its_title_removed(self):
+    def test_verbatim_prompt_equals_canonical_rendering(self):
         context = {
             "request_id": self.request.request_id,
             "role": "holistic",
@@ -223,16 +222,9 @@ class AdapterConstructionTests(unittest.TestCase):
             "subject": _SUBJECT_TEXT,
         }
         canonical = render_prompt("review", ("safety", "round-one", "holistic"), context)
-        title = b"# Review dispatch\n\n"
-        self.assertTrue(canonical.startswith(title))
+        rendered = render_verbatim_prompt(self.request)
 
-        with patch(
-            "review_loop.multi_review.render_prompt", return_value=canonical, create=True
-        ) as renderer:
-            rendered = render_verbatim_prompt(self.request)
-
-        self.assertEqual(rendered, canonical[len(title):].decode("utf-8"))
-        renderer.assert_called_once_with("review", ("safety", "round-one", "holistic"), context)
+        self.assertEqual(rendered.encode("utf-8"), canonical)
 
     def test_canonical_prompt_matches_task10_verbatim_header_parser(self):
         prompt_text = render_verbatim_prompt(self.request)

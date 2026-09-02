@@ -312,18 +312,14 @@ class MultiReviewResult:
 # --- verbatim prompt: byte-identical to parse_verbatim_dispatch_header -----
 
 
-_REVIEW_TEMPLATE_TITLE = "# Review dispatch\n\n"
-
-
 def render_verbatim_prompt(request: HolisticRequest) -> str:
     """Render the exact custom_prompt bytes sent to both reviewers.
 
     `multi_review.core.aggregate.parse_verbatim_dispatch_header` (Task 10)
     requires the six `key: value` dispatch fields to be the FIRST lines of
     the prompt, ending in a blank line before anything else -- it stops
-    scanning at the first blank line it meets. The ordinary template starts
-    with `# Review dispatch`; remove only that fixed prefix so the header is
-    first.
+    scanning at the first blank line it meets. The canonical ordinary template
+    keeps that header first, so its rendered bytes can be reused unchanged.
     """
     context = {
         "request_id": request.request_id,
@@ -338,9 +334,7 @@ def render_verbatim_prompt(request: HolisticRequest) -> str:
         rendered = render_prompt("review", ("safety", "round-one", "holistic"), context).decode("utf-8")
     except (RenderError, UnicodeError) as exc:
         raise MultiReviewError(f"cannot render the verbatim multi-review prompt: {exc}") from exc
-    if not rendered.startswith(_REVIEW_TEMPLATE_TITLE):
-        raise MultiReviewError("review.md no longer starts with the expected title line; header alignment broke")
-    return rendered[len(_REVIEW_TEMPLATE_TITLE):]
+    return rendered
 
 
 # --- request.yaml (PromptFile) construction ---------------------------------
