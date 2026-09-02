@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -103,6 +104,40 @@ def _candidate_identity(candidate: bytes) -> dict[str, object]:
     }
 
 
+def _exact_candidate_bytes(root: Path, path: Path) -> bytes:
+    relative = path.absolute().relative_to(root.absolute())
+    current = root
+    if not stat.S_ISDIR(current.lstat().st_mode):
+        raise ValueError("candidate root is unavailable")
+    for index, part in enumerate(relative.parts):
+        current /= part
+        mode = current.lstat().st_mode
+        if index == len(relative.parts) - 1:
+            if not stat.S_ISREG(mode):
+                raise ValueError("candidate is not an exact regular file")
+        elif not stat.S_ISDIR(mode):
+            raise ValueError("candidate ancestor is not a real directory")
+    return path.read_bytes()
+
+
+def _absent_entry_under_real_directories(root: Path, path: Path) -> bool:
+    relative = path.absolute().relative_to(root.absolute())
+    current = root
+    if not stat.S_ISDIR(current.lstat().st_mode):
+        return False
+    for index, part in enumerate(relative.parts):
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return True
+        if index == len(relative.parts) - 1:
+            return False
+        if not stat.S_ISDIR(mode):
+            return False
+    return False
+
+
 def _assert_v1_head(head: dict[str, object]) -> None:
     assert set(head) == HEAD_KEYS
     assert head["schema"] == "feature-forge/ledger/v1"
@@ -135,24 +170,34 @@ class BoundaryFixture:
     ) -> None:
         self.root = tmp_path / name
         self.root.mkdir()
-        self.repository = repository or self.root / "feature-forge-repository"
+        self.reservations: list[dict[str, object]] = []
+        if repository is None:
+            primary = self.root / "feature-forge-primary"
+            primary.mkdir()
+            _git(primary, "init", "-q")
+            _git(primary, "config", "user.name", "Feature Forge fixture")
+            _git(primary, "config", "user.email", "fixture@example.invalid")
+            (primary / "README.md").write_text("fixture\n")
+            _git(primary, "add", "README.md")
+            _git(primary, "commit", "-qm", "seed")
+            _git(primary, "branch", "-M", "main")
+            self.repository = self.root / "feature-forge-repository"
+            _git(primary, "worktree", "add", "-qb", "feature/alpha", str(self.repository), "HEAD")
+        else:
+            self.repository = repository
         self.source = self.repository / RELATIVE_CANDIDATE
         self.source.parent.mkdir(parents=True, exist_ok=True)
         self.source.write_bytes(candidate)
         if repository is None:
-            _git(self.repository, "init", "-q")
-            _git(self.repository, "config", "user.name", "Feature Forge fixture")
-            _git(self.repository, "config", "user.email", "fixture@example.invalid")
             _git(self.repository, "add", RELATIVE_CANDIDATE.as_posix())
             _git(self.repository, "commit", "-qm", "candidate source")
-            _git(self.repository, "checkout", "-qb", "feature/alpha")
         else:
             _git(self.repository, "add", RELATIVE_CANDIDATE.as_posix())
             _git(self.repository, "commit", "-qm", "correct candidate")
         self.source_commit = _git(self.repository, "rev-parse", "HEAD")
         # Capture once, before the disposable target exists.  All later reads
         # intentionally use source_identity to detect drift against this value.
-        self.captured_candidate = self.source.read_bytes()
+        self.captured_candidate = _exact_candidate_bytes(self.repository, self.source)
         self.captured_identity = _candidate_identity(self.captured_candidate)
         self.ground_truth = self.root / "frozen-authority.md"
         self.ground_truth.write_text("authoritative review constraints\n")
@@ -173,11 +218,11 @@ class BoundaryFixture:
 
     @property
     def candidate_sha256(self) -> str:
-        return hashlib.sha256(self.source.read_bytes()).hexdigest()
+        return hashlib.sha256(_exact_candidate_bytes(self.repository, self.source)).hexdigest()
 
     @property
     def source_identity(self) -> dict[str, object]:
-        return _candidate_identity(self.source.read_bytes())
+        return _candidate_identity(_exact_candidate_bytes(self.repository, self.source))
 
     @property
     def ledger_path(self) -> Path:
@@ -202,14 +247,96 @@ class BoundaryFixture:
         assert match, "ledger must begin with a JSON head fence"
         return json.loads(match.group(1))
 
-    def _write_head(self, head: dict[str, object]) -> None:
+    def _write_head(
+        self, head: dict[str, object], reservations: list[dict[str, object]] | None = None,
+    ) -> None:
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        self.ledger_path.write_text("```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n")
+        persisted = (
+            self._load_reservations() if reservations is None and self.ledger_path.exists()
+            else reservations or []
+        )
+        reservations = "".join(
+            "RESERVATION " + json.dumps(item, sort_keys=True) + "\n"
+            for item in persisted
+        )
+        self.ledger_path.write_text(
+            "```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n" + reservations
+        )
+
+    def _load_reservations(self) -> list[dict[str, object]]:
+        reservations = []
+        for line in self.ledger_path.read_text().splitlines():
+            if line.startswith("RESERVATION "):
+                item = json.loads(line.removeprefix("RESERVATION "))
+                if not isinstance(item, dict):
+                    raise ValueError("invalid review reservation")
+                reservations.append(item)
+        return reservations
+
+    def reserve_review(self, dispatch_id: str) -> dict[str, object]:
+        path = self.receipt_path(dispatch_id)
+        reservations = self._load_reservations()
+        if path.exists() or path.is_symlink():
+            raise ValueError("receipt path is already allocated")
+        if not _absent_entry_under_real_directories(self.repository, path):
+            raise ValueError("receipt path is unavailable")
+        if any(
+            item["dispatch_id"] == dispatch_id for item in reservations
+        ):
+            raise ValueError("receipt path is already allocated")
+        reservation = {
+            "dispatch_id": dispatch_id,
+            "run_ref": str(self.run_root),
+            "evidence_path": path.relative_to(self.repository).as_posix(),
+            "source_identity": self.captured_identity,
+        }
+        reservations.append(reservation)
+        self.reservations = reservations
+        head = self._load_head()
+        head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="create-or-recover")
+        head["review"] = {
+            "kind": "specification", "state": "blocked", "round": 0,
+            "root_identity": self.captured_identity["value"], "dispatch_id": None,
+            "run_ref": None, "target_seal": None, "evidence_path": None,
+            "reviewed_commit": None, "previous_open_finding_ids": [], "open_finding_ids": [],
+        }
+        self._write_head(head, reservations)
+        return reservation
+
+    def begin_review(self, dispatch_id: str):
+        self.reserve_review(dispatch_id)
+        run_state = self.create_or_recover_review(dispatch_id)
+        assert run_state is not None
+        return run_state
+
+    def create_or_recover_review(self, dispatch_id: str):
+        reservation = next(
+            (item for item in self._load_reservations() if item["dispatch_id"] == dispatch_id),
+            None,
+        )
+        if reservation is None:
+            raise ValueError("review has no durable reservation")
+        if Path(str(reservation["run_ref"])).exists():
+            head = self._load_head()
+            head["next_action"] = "resolve existing external review run root"
+            self._write_head(head)
+            return None
+        run_state = self.controller.create_run(self.intent())
+        self.persist_review_active(dispatch_id, run_state)
+        return run_state
 
     def persist_review_active(self, dispatch_id: str, run_state) -> dict[str, object]:
         path = self.receipt_path(dispatch_id)
-        if path.exists():
+        if path.exists() or path.is_symlink():
             raise ValueError("receipt path is already allocated")
+        if not _absent_entry_under_real_directories(self.repository, path):
+            raise ValueError("receipt path is unavailable")
+        reservation = next((
+            item for item in self._load_reservations()
+            if item["dispatch_id"] == dispatch_id
+        ), None)
+        if reservation is None or reservation["run_ref"] != str(run_state.run_root):
+            raise ValueError("review has no matching durable reservation")
         head = self._load_head()
         head.update(status="active", stage={"id": 5, "state": "active"}, next_action="await or recover the active review")
         head["review"] = {
@@ -219,7 +346,11 @@ class BoundaryFixture:
             "evidence_path": path.relative_to(self.repository).as_posix(), "reviewed_commit": None,
             "previous_open_finding_ids": [], "open_finding_ids": [],
         }
-        self._write_head(head)
+        self.reservations = [
+            item for item in self._load_reservations()
+            if item["dispatch_id"] != dispatch_id
+        ]
+        self._write_head(head, [])
         return head
 
     def block_recovery(self) -> None:
@@ -368,7 +499,11 @@ class BoundaryFixture:
             raise ValueError("receipt does not match the active review")
         if review["run_ref"] != str(run_state.run_root) or review["target_seal"] != run_state.governing_seal:
             raise ValueError("receipt is not bound to the controller return")
+        if not _absent_entry_under_real_directories(self.repository, path):
+            raise ValueError("receipt path is unavailable")
         path.parent.mkdir(parents=True, exist_ok=True)
+        if not _absent_entry_under_real_directories(self.repository, path):
+            raise ValueError("receipt path is unavailable")
         payload = {
             "schema": "feature-forge/review-receipt/v1",
             "kind": "specification",
@@ -427,11 +562,11 @@ def _map_controller_return(outcome, *, round1_error: ControllerError | None = No
 
 def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):
     captured_identity = fixture.captured_identity
-    run_state = fixture.controller.create_run(fixture.intent())
+    run_state = fixture.begin_review(dispatch_id)
     assert run_state.run_root == fixture.run_root
     assert run_state.governing_seal
     assert run_state.snapshot["processor_state"]["preflight"]["invocation_intent"]["base"] == fixture.bootstrap_commit
-    review_active = fixture.persist_review_active(dispatch_id, run_state)
+    review_active = fixture._load_head()
     assert review_active["review"]["run_ref"] != str(fixture.target)
     assert not fixture.receipt_path(dispatch_id).exists()
     stage0 = fixture.stage0(run_state)
@@ -467,8 +602,20 @@ def _recover_receipt(fixture: BoundaryFixture, receipt: Path) -> None:
         if (
             receipt != canonical
             or not isinstance(payload, dict)
+            or set(payload) != {
+                "schema", "kind", "dispatch_id", "run_ref", "target_seal",
+                "source_identity", "result", "actionable_finding_ids",
+            }
+            or payload.get("schema") != "feature-forge/review-receipt/v1"
+            or payload.get("kind") != review["kind"]
+            or payload.get("dispatch_id") != review["dispatch_id"]
+            or payload.get("run_ref") != review["run_ref"]
+            or payload.get("target_seal") != review["target_seal"]
+            or payload.get("source_identity") != fixture.captured_identity
+            or payload.get("source_identity") != fixture.source_identity
             or payload.get("result") not in {"pass", "changes_required", "blocked"}
             or not isinstance(payload.get("actionable_finding_ids"), list)
+            or payload["actionable_finding_ids"] != sorted(set(payload["actionable_finding_ids"]))
         ):
             raise ValueError("invalid receipt")
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -528,8 +675,7 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
         second.persist_review_active("spec-review-2", triage_two)
 
     stopped = BoundaryFixture(tmp_path, b"stopped\n", "stopped")
-    stopped_run = stopped.controller.create_run(stopped.intent())
-    stopped.persist_review_active("stop-1", stopped_run)
+    stopped_run = stopped.begin_review("stop-1")
     stopped_stage0 = stopped.stage0(stopped_run, scout_fails=True)
     assert stopped_stage0.run_state.stage == "INDETERMINATE"
     assert stopped.events == ["scout", "scout"]
@@ -538,8 +684,7 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
     assert stopped._load_head()["stage"] == {"id": 5, "state": "blocked"}
 
     failed_gate = BoundaryFixture(tmp_path, b"failed gate\n", "failed-gate")
-    failed_gate_run = failed_gate.controller.create_run(failed_gate.intent())
-    failed_gate.persist_review_active("gate-1", failed_gate_run)
+    failed_gate_run = failed_gate.begin_review("gate-1")
     failed_stage0 = failed_gate.stage0(failed_gate_run, gate_fails=True)
     assert not failed_stage0.review_may_start
     assert failed_gate.events == ["scout", "gate:tests", "inventory-owner", "inventory-challenge"]
@@ -547,8 +692,7 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
     assert json.loads(failed_gate_receipt.read_text())["result"] == failed_gate._load_head()["review"]["state"] == "blocked"
 
     failed_round = BoundaryFixture(tmp_path, b"failed review\n", "failed-round")
-    failed_round_run = failed_round.controller.create_run(failed_round.intent())
-    failed_round.persist_review_active("round-1", failed_round_run)
+    failed_round_run = failed_round.begin_review("round-1")
     reviewable = failed_round.stage0(failed_round_run)
     with pytest.raises(ControllerError, match="synthetic reviewer unavailable") as round1_failure:
         failed_round.controller.run_round1(reviewable, dispatch_role=failed_round.reviewer(fail=True))
@@ -563,7 +707,7 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
 
 def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "containment")
-    run_state = fixture.controller.create_run(fixture.intent())
+    run_state = fixture.begin_review("recovery-1")
     target_seal = seal_target(fixture.target, GitPolicy(enabled=True, base=fixture.bootstrap_commit, include_untracked=True))
     host = CodexHostPaths(
         bwrap=Path("/bin/false"), node=Path("/bin/false"),
@@ -582,7 +726,6 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
     assert fixture.repository not in mapping.target_ro + mapping.inputs_ro
     assert fixture.run_root not in mapping.target_ro + mapping.inputs_ro
 
-    fixture.persist_review_active("recovery-1", run_state)
     stage0 = fixture.stage0(run_state)
     round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer())
     triage = fixture.controller.run_triage(round1, triager=fixture.triager())
@@ -597,8 +740,7 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
     assert fixture._load_head()["next_action"] == "freeze the reviewed specification"
 
     recovery = BoundaryFixture(tmp_path, b"candidate\n", "recovery-block")
-    recovery_run = recovery.controller.create_run(recovery.intent())
-    recovery.persist_review_active("recovery-2", recovery_run)
+    recovery_run = recovery.begin_review("recovery-2")
     transcript = fixture.run_root / "transcript.md"
     transcript.write_text("review-loop status is not a Feature Forge receipt\n")
     _recover_receipt(recovery, transcript)
@@ -609,8 +751,7 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
         recovery.receipt_path("../transcript")
 
     malformed = BoundaryFixture(tmp_path, b"candidate\n", "recovery-malformed")
-    malformed_run = malformed.controller.create_run(malformed.intent())
-    malformed.persist_review_active("malformed-1", malformed_run)
+    malformed_run = malformed.begin_review("malformed-1")
     malformed_receipt = malformed.receipt_path("malformed-1")
     malformed_receipt.parent.mkdir(parents=True)
     malformed_receipt.write_text(json.dumps({
@@ -627,8 +768,7 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
 
 def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "actionable")
-    run_state = fixture.controller.create_run(fixture.intent())
-    fixture.persist_review_active("actionable-1", run_state)
+    run_state = fixture.begin_review("actionable-1")
     stage0 = fixture.stage0(run_state)
     source_finding = ({"id": "raw-b", "claim": "needs a correction", "severity": "Important",
                        "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
@@ -644,8 +784,7 @@ def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path):
     assert fixture._load_head()["next_action"] == "correct the specification"
 
     recovery = BoundaryFixture(tmp_path, b"candidate\n", "actionable-recovery")
-    recovery_run = recovery.controller.create_run(recovery.intent())
-    recovery.persist_review_active("actionable-recovery-1", recovery_run)
+    recovery_run = recovery.begin_review("actionable-recovery-1")
     recovery_receipt = recovery.write_receipt(
         "actionable-recovery-1", recovery_run, "changes_required", ["actionable-a"], recovery.captured_identity,
     )
@@ -656,8 +795,7 @@ def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path):
 
 def test_residual_minor_triage_maps_to_pass(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "minor")
-    run_state = fixture.controller.create_run(fixture.intent())
-    fixture.persist_review_active("minor-1", run_state)
+    run_state = fixture.begin_review("minor-1")
     stage0 = fixture.stage0(run_state)
     source_finding = ({"id": "raw-minor", "claim": "minor residual", "severity": "Minor",
                        "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
@@ -670,8 +808,7 @@ def test_residual_minor_triage_maps_to_pass(tmp_path):
 
 def test_recovery_accepts_a_capped_blocked_receipt_with_actionable_ids(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "capped-recovery")
-    run_state = fixture.controller.create_run(fixture.intent())
-    fixture.persist_review_active("capped-1", run_state)
+    run_state = fixture.begin_review("capped-1")
     head = fixture._load_head()
     head["review"]["round"] = 2
     head["review"]["previous_open_finding_ids"] = ["F-1"]
@@ -687,10 +824,28 @@ def test_recovery_accepts_a_capped_blocked_receipt_with_actionable_ids(tmp_path)
     assert recovered["review"]["open_finding_ids"] == ["F-3"]
 
 
-def test_boundary_persists_review_active_before_stage0(tmp_path):
+def test_boundary_persists_reservation_before_create_run_and_review_active_before_stage0(
+    tmp_path, monkeypatch,
+):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "durable-head")
-    run_state = fixture.controller.create_run(fixture.intent())
-    head = fixture.persist_review_active("durable-1", run_state)
+    create_run = fixture.controller.create_run
+
+    def assert_reserved_before_create(intent):
+        reserved_head = fixture._load_head()
+        reservations = fixture._load_reservations()
+        assert reserved_head["status"] == "blocked"
+        assert reserved_head["next_action"] == "create-or-recover"
+        assert reservations == [{
+            "dispatch_id": "durable-1",
+            "run_ref": str(fixture.run_root),
+            "evidence_path": "docs/feature-forge/runs/2026-08-25-alpha/reviews/durable-1.json",
+            "source_identity": fixture.captured_identity,
+        }]
+        return create_run(intent)
+
+    monkeypatch.setattr(fixture.controller, "create_run", assert_reserved_before_create)
+    run_state = fixture.begin_review("durable-1")
+    head = fixture._load_head()
     assert fixture.ledger_path.exists()
     assert head["review"] == fixture._load_head()["review"]
     _assert_v1_head(fixture._load_head())
@@ -709,3 +864,90 @@ def test_boundary_persists_review_active_before_stage0(tmp_path):
     assert head["review"]["evidence_path"] == "docs/feature-forge/runs/2026-08-25-alpha/reviews/durable-1.json"
     fixture.stage0(run_state)
     assert fixture._load_head()["review"]["state"] == "review_active"
+
+
+def test_boundary_stays_blocked_after_create_run_before_review_active_promotion(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "create-crash")
+    reservation = fixture.reserve_review("crash-1")
+    fixture.controller.create_run(fixture.intent())
+    fixture.reservations.clear()
+    recovered = fixture._load_head()
+    assert recovered["status"] == "blocked"
+    assert recovered["next_action"] == "create-or-recover"
+    assert reservation["run_ref"] == str(fixture.run_root)
+    assert fixture.run_root.exists()
+    assert fixture.events == []
+    assert fixture.create_or_recover_review("crash-1") is None
+    assert fixture._load_head()["next_action"] == "resolve existing external review run root"
+    assert fixture.events == []
+
+
+def test_boundary_rejects_a_symlinked_receipt_ancestor_before_create_run(
+    tmp_path, monkeypatch,
+):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "receipt-ancestor")
+    reviews = fixture.receipt_path("symlinked-1").parent
+    outside = fixture.root / "outside-reviews"
+    outside.mkdir()
+    reviews.symlink_to(outside, target_is_directory=True)
+    create_run = fixture.controller.create_run
+    calls = []
+
+    def observed_create(intent):
+        calls.append(intent)
+        return create_run(intent)
+
+    monkeypatch.setattr(fixture.controller, "create_run", observed_create)
+    with pytest.raises(ValueError, match="receipt path is unavailable"):
+        fixture.begin_review("symlinked-1")
+    assert calls == []
+    assert fixture._load_reservations() == []
+
+
+def test_recovery_rejects_changes_required_when_the_candidate_drifted(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "recovery-drift")
+    run_state = fixture.begin_review("drift-1")
+    receipt = fixture.write_receipt(
+        "drift-1", run_state, "changes_required", ["F-1"], fixture.captured_identity,
+    )
+    fixture.source.write_bytes(b"changed after review\n")
+    _recover_receipt(fixture, receipt)
+    recovered = fixture._load_head()
+    assert recovered["status"] == "blocked"
+    assert recovered["stage"] == {"id": 5, "state": "blocked"}
+    assert recovered["review"]["state"] == "review_active"
+
+
+def test_recovery_rejects_a_same_byte_candidate_symlink(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "recovery-symlink")
+    run_state = fixture.begin_review("symlink-1")
+    receipt = fixture.write_receipt(
+        "symlink-1", run_state, "changes_required", ["F-1"], fixture.captured_identity,
+    )
+    same_bytes = fixture.root / "same-bytes.md"
+    same_bytes.write_bytes(fixture.captured_candidate)
+    fixture.source.unlink()
+    fixture.source.symlink_to(same_bytes)
+    _recover_receipt(fixture, receipt)
+    recovered = fixture._load_head()
+    assert recovered["status"] == "blocked"
+    assert recovered["stage"] == {"id": 5, "state": "blocked"}
+    assert recovered["review"]["state"] == "review_active"
+
+
+def test_return_rejects_a_receipt_ancestor_swapped_to_a_symlink(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "return-symlink")
+    run_state = fixture.begin_review("late-symlink-1")
+    stage0 = fixture.stage0(run_state)
+    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer())
+    triage = fixture.controller.run_triage(round1, triager=fixture.triager())
+    receipt = fixture.receipt_path("late-symlink-1")
+    outside = fixture.root / "outside-return-receipts"
+    outside.mkdir()
+    receipt.parent.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="receipt path is unavailable"):
+        fixture.record_controller_return("late-symlink-1", triage)
+    assert not (outside / receipt.name).exists()
+    recovered = fixture._load_head()
+    assert recovered["review"]["state"] == "review_active"
+    assert recovered["stage"] == {"id": 5, "state": "active"}

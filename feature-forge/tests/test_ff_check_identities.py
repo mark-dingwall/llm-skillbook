@@ -40,6 +40,46 @@ def test_identities_accepts_matching_worktree_branch_base_and_blobs(tmp_path: Pa
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
 
 
+def test_identities_uses_full_branch_ref_when_a_tag_has_the_same_short_name(tmp_path: Path) -> None:
+    repo, directory, _ = identity_fixture(tmp_path)
+    git(repo, "tag", "feature/alpha")
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+def test_identities_never_runs_a_configured_clean_filter(tmp_path: Path) -> None:
+    repo, directory, _ = identity_fixture(tmp_path)
+    marker = tmp_path / "filter-ran"
+    specification = "docs/superpowers/specs/2026-08-25-alpha-design.md"
+    (repo / ".gitattributes").write_text(f"{specification} filter=demo\n")
+    git(repo, "config", "filter.demo.clean", f"touch {marker}; cat")
+    assert_result(
+        check("identities", "--repo", str(repo), "--run", str(directory)),
+        "unverifiable", 2,
+    )
+    assert not marker.exists()
+
+
+def test_identities_honors_builtin_eol_normalization_for_frozen_files(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    (repo / ".gitattributes").write_text("*.md text eol=lf\n")
+    paths = {
+        "specification": "docs/superpowers/specs/2026-08-25-alpha-design.md",
+        "plan": "docs/superpowers/plans/2026-08-25-alpha.md",
+    }
+    frozen = {}
+    for name, relative in paths.items():
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((name + "\r\n").encode())
+        frozen[name] = {
+            "path": relative,
+            "blob": git(repo, "hash-object", "-w", f"--path={relative}", "--", relative),
+        }
+    directory = run_dir(repo)
+    write_ledger(directory, head(repo, frozen=frozen))
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
 def test_identities_rejects_the_primary_checkout(tmp_path: Path) -> None:
     repo = make_primary_repo(tmp_path)
     specification = "docs/superpowers/specs/2026-08-25-alpha-design.md"

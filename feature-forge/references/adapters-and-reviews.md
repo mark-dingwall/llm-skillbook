@@ -217,7 +217,8 @@ of a root reset from history.
 
 For every review round, the controller must:
 
-1. Capture source identity before materializing: SHA-256 plus canonical path
+1. Capture source identity before materializing: require an exact regular file
+   reached only through real-directory ancestors, then record its SHA-256 plus canonical path
    for a Specification or Plan candidate, or the `implementation-snapshot`
    digest plus null path and source `HEAD` for Implementation. The snapshot
    digest covers every materialized regular file and declared symlink path,
@@ -226,6 +227,8 @@ For every review round, the controller must:
    create its one disposable bootstrap commit. Allocate a fresh filename-safe
    dispatch ID, caller-chosen external run root, and absent canonical receipt
    path `docs/feature-forge/runs/YYYY-MM-DD-<run-id>/reviews/<dispatch-id>.json`.
+   Require every existing receipt-path ancestor to be a real directory and
+   reserve the leaf for exclusive creation without following symlinks.
    Before `create_run`, persist a pre-dispatch blocked head whose sole next
    action is create-or-recover, plus transition evidence containing those exact
    three reserved identities and the captured source identity.
@@ -247,7 +250,8 @@ For every review round, the controller must:
    Stage 0, and `run_triage` only for a usable Round 1. Stop at the first
    terminal outcome. Keep loop reports **outside the sealed tree**; during the
    round mutate neither target nor ledger.
-5. Recheck the captured source identity before mapping the return or freezing.
+5. Recheck the captured source identity against the same exact-regular-file
+   boundary before mapping the return or freezing.
    Then write, without overwrite, the strict receipt with exactly `schema`,
    `kind`, `dispatch_id`, `run_ref`, `target_seal`, `source_identity`, `result`,
    and sorted unique `actionable_finding_ids`. The schema is

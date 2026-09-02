@@ -33,6 +33,8 @@ def audit_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
     for path, content in ((specification, b"specification\n"), (plan, b"plan\n")):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+    git(repo, "add", specification.relative_to(repo).as_posix(), plan.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "freeze specification and plan")
     data = head(repo)
     data["frozen"] = {
         "specification": {
@@ -254,6 +256,43 @@ def test_audit_accepts_populated_review_active_without_a_return_receipt(tmp_path
     assert_result(invoke(repo, directory), "pass", 0)
 
 
+def test_audit_rejects_a_review_reservation_beneath_a_symlinked_reviews_directory(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    outside = tmp_path / "outside-reviews"
+    outside.mkdir()
+    (directory / "reviews").symlink_to(outside, target_is_directory=True)
+    data["review"] = {
+        "kind": "specification", "state": "review_active", "round": 0,
+        "root_identity": "a" * 64, "dispatch_id": "specification-1",
+        "run_ref": "/external/run", "target_seal": "opaque-seal",
+        "evidence_path": (
+            "docs/feature-forge/runs/2026-08-25-alpha/reviews/specification-1.json"
+        ),
+        "reviewed_commit": None, "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_audit_requires_both_frozen_authorities_during_implementation(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["stage"] = {"id": 11, "state": "active"}
+    returned_review(repo, directory, data, kind="implementation", state="pass")
+    data["frozen"] = {"specification": None, "plan": None}
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_audit_rejects_the_wrong_symbolic_branch_at_the_same_commit(tmp_path: Path) -> None:
+    repo, directory, _ = audit_fixture(tmp_path)
+    git(repo, "checkout", "-qb", "feature/other")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
 @pytest.mark.parametrize(("kind", "state", "round_number", "opened"), [
     ("specification", "changes_required", 1, ["F-1"]),
     ("plan", "pass", 0, []),
@@ -413,7 +452,7 @@ def test_audit_treats_unavailable_nonpass_receipt_commit_observation_as_unverifi
     wrapper = binary / "git"
     wrapper.write_text(
         "#!/bin/sh\n"
-        "if [ \"$3\" = \"rev-parse\" ] && [ \"$4\" = \"--verify\" ]; then exit 1; fi\n"
+        "case \" $* \" in *\" rev-parse --verify \"*) exit 1;; esac\n"
         f'exec "{real_git}" "$@"\n'
     )
     wrapper.chmod(0o755)
@@ -665,6 +704,26 @@ def test_audit_rejects_wrong_candidate_identity_kind_path_or_digest(
     receipt.update(change)
     path.write_text(json.dumps(receipt))
     assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("entry_type", ["symlink", "fifo"])
+def test_audit_requires_an_exact_regular_candidate_file(
+    tmp_path: Path, entry_type: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["frozen"]["specification"] = None
+    review = returned_review(repo, directory, data, state="pass")
+    candidate = repo / "docs/superpowers/specs/2026-08-25-alpha-design.md"
+    contents = candidate.read_bytes()
+    candidate.unlink()
+    if entry_type == "symlink":
+        outside = tmp_path / "outside-candidate.md"
+        outside.write_bytes(contents)
+        candidate.symlink_to(outside)
+    else:
+        os.mkfifo(candidate)
+    assert review["kind"] == "specification"
+    assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
 @pytest.mark.parametrize("source", [

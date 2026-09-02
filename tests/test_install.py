@@ -3,6 +3,7 @@
 Run: python3 -m pytest tests/test_install.py
 """
 import importlib.util
+import os
 import stat
 import subprocess
 import sys
@@ -62,6 +63,24 @@ def test_feature_forge_production_checker_is_user_executable(tmp_path, host, nam
     assert result.returncode == 0
     assert "{runs,identities,reviewed-snapshot,audit,implementation-snapshot}" in result.stdout
     assert "FF-CHECK" not in result.stdout
+
+
+def test_review_loop_production_launcher_excludes_dev_dependencies(tmp_path):
+    install.install("review-loop", "codex", tmp_path, dev=False, force=False)
+    skill_root = tmp_path / ".agents" / "skills" / "review-loop"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    captured = tmp_path / "uv-argv"
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {captured}\n")
+    fake_uv.chmod(0o755)
+    result = subprocess.run(
+        [str(skill_root / "scripts" / "py"), "-c", "pass"],
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        text=True, capture_output=True,
+    )
+    assert result.returncode == 0
+    assert "--no-dev" in captured.read_text().splitlines()
 
 
 def test_claude_splits_subagents(tmp_path):

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CHECKER, check, head, make_primary_repo, make_repo, run_dir, write_ledger
+from conftest import CHECKER, check, git, head, make_primary_repo, make_repo, run_dir, write_ledger
 
 
 def assert_result(result, gate: str, status: str, code: int) -> None:
@@ -245,6 +245,28 @@ def test_runs_rejects_a_symlinked_runs_root(tmp_path: Path) -> None:
     external.mkdir()
     (docs / "runs").symlink_to(external, target_is_directory=True)
     assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_rejects_an_absent_runs_root_beneath_a_symlinked_ancestor(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    outside = tmp_path / "outside-docs"
+    outside.mkdir()
+    (repo / "docs").symlink_to(outside, target_is_directory=True)
+    assert_result(
+        check("runs", "--repo", str(repo), "--run-id", "beta"),
+        "runs", "unverifiable", 2,
+    )
+
+
+def test_runs_uses_full_branch_refs_when_a_tag_has_the_same_short_name(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    write_ledger(directory, head(repo))
+    git(repo, "tag", "feature/alpha")
+    assert_result(
+        check("runs", "--repo", str(repo), "--run-id", "alpha"),
+        "runs", "pass", 0,
+    )
 
 
 def test_runs_parses_newline_worktree_paths_without_truncation(tmp_path: Path) -> None:

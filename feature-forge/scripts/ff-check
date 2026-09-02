@@ -46,8 +46,10 @@ class Result:
 def git(repo: Path, *args: str) -> str | None:
     """Return a Git observation, or None when Git cannot establish it."""
     try:
-        result = subprocess.run(["git", "-C", str(repo), *args], text=True,
-                                capture_output=True, check=False)
+        result = subprocess.run(
+            ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], text=True, capture_output=True,
+            check=False, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
     except (OSError, UnicodeError, ValueError):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
@@ -57,7 +59,8 @@ def git_bytes(repo: Path, *args: str) -> bytes | None:
     """Return an exact byte-oriented Git observation for NUL-delimited paths."""
     try:
         observed = subprocess.run(
-            ["git", "-C", str(repo), *args], capture_output=True, check=False,
+            ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], capture_output=True, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
     except (OSError, ValueError):
         return None
@@ -68,7 +71,8 @@ def git_status(repo: Path, *args: str) -> int | None:
     """Return a Git predicate status without interpreting its output."""
     try:
         observed = subprocess.run(
-            ["git", "-C", str(repo), *args], capture_output=True, check=False,
+            ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], capture_output=True, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
     except (OSError, ValueError):
         return None
@@ -200,7 +204,7 @@ def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
                     return None
                 path = fields[0].removeprefix(b"worktree ").decode("utf-8")
                 branch = next(
-                    (field.removeprefix(b"branch refs/heads/").decode("utf-8")
+                    (field.removeprefix(b"branch ").decode("utf-8")
                      for field in fields[1:] if field.startswith(b"branch refs/heads/")),
                     None,
                 )
@@ -212,7 +216,7 @@ def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
     # Older Git still exposes checked-out branch paths through a NUL-delimited
     # ref atom. Detached worktrees cannot match a run branch.
     raw = git_bytes(
-        repo, "for-each-ref", "--format=%(refname:short)%00%(worktreepath)%00",
+        repo, "for-each-ref", "--format=%(refname)%00%(worktreepath)%00",
         "refs/heads",
     )
     if raw is None:
@@ -237,25 +241,28 @@ def runs(repo_arg: str, run_id: str) -> Result:
         return result("unverifiable", "repository=unavailable")
     if not valid_run_id(repo, run_id):
         return result("fail", f"run-id={run_id}")
-    branches_text = git(repo, "branch", "--list", "--format=%(refname:short)")
+    branches_text = git(repo, "branch", "--list", "--format=%(refname)")
     observed_worktrees = worktrees(repo)
     if branches_text is None or observed_worktrees is None:
         return result("unverifiable", "git-inventory=unavailable")
     expected_branch = f"feature/{run_id}"
+    expected_branch_ref = f"refs/heads/{expected_branch}"
     branches = set(filter(None, branches_text.splitlines()))
-    branch_matches = [f"branch={expected_branch}"] if expected_branch in branches else []
-    worktree_matches = [(path, branch) for path, branch in observed_worktrees if branch == expected_branch]
+    branch_matches = [f"branch={expected_branch}"] if expected_branch_ref in branches else []
+    worktree_matches = [
+        (path, branch) for path, branch in observed_worktrees
+        if branch == expected_branch_ref
+    ]
     worktree_findings = [f"worktree={path}" for path, _ in worktree_matches]
 
     runs_root = repo / "docs" / "feature-forge" / "runs"
     ledgers: list[tuple[Path, dict[str, object]]] = []
     diagnostics: list[str] = []
     unverifiable: list[str] = []
-    if runs_root.exists() and not exact_directory(repo, runs_root):
+    runs_state = exact_entry_state(repo, runs_root)
+    if runs_state not in {"absent", "directory"}:
         return result("unverifiable", "runs-directory=unavailable")
-    if runs_root.is_symlink():
-        return result("unverifiable", "runs-directory=unavailable")
-    if runs_root.is_dir():
+    if runs_state == "directory":
         try:
             children = sorted(runs_root.iterdir(), key=lambda item: item.name)
         except OSError:
@@ -329,9 +336,11 @@ def runs(repo_arg: str, run_id: str) -> Result:
     recorded_worktree = data.get("worktree")
     if not isinstance(recorded_branch, str) or not isinstance(recorded_worktree, str):
         return result("unverifiable", *ledger_findings, "ledger-identity=unsupported")
-    matching_worktree = any(path == str(Path(recorded_worktree).resolve()) and branch == recorded_branch
-                             for path, branch in observed_worktrees)
-    if recorded_branch != expected_branch or recorded_branch not in branches or not matching_worktree:
+    matching_worktree = any(
+        path == str(Path(recorded_worktree).resolve()) and branch == expected_branch_ref
+        for path, branch in observed_worktrees
+    )
+    if recorded_branch != expected_branch or expected_branch_ref not in branches or not matching_worktree:
         return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
     return result("pass", *ledger_findings, *branch_matches, *worktree_findings)
 
@@ -411,7 +420,12 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
             return result("fail", f"frozen={name}:noncanonical-blob")
         if identity == "unverifiable":
             return result("unverifiable", f"frozen={name}:blob-unresolvable")
-        observed = git(repo, "hash-object", "--", path)
+        filter_state = paths_have_filter(repo, path.encode("utf-8") + b"\0")
+        if filter_state is None:
+            return result("unverifiable", f"frozen={name}:filter-unavailable")
+        if filter_state:
+            return result("unverifiable", f"frozen={name}:filter-unsupported")
+        observed = git(repo, "hash-object", f"--path={path}", "--", path)
         if observed is None:
             return result("unverifiable", f"frozen={name}:unavailable")
         if observed != blob:
@@ -538,6 +552,119 @@ def exact_directory(root: Path, path: Path) -> bool:
     return True
 
 
+def exact_entry_state(root: Path, path: Path) -> str | None:
+    """Return absent, directory, or regular without following symlink components."""
+    try:
+        relative = path.absolute().relative_to(root.absolute())
+        if not stat.S_ISDIR(root.lstat().st_mode):
+            return None
+    except (OSError, ValueError):
+        return None
+    current = root
+    for index, part in enumerate(relative.parts):
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return "absent"
+        except OSError:
+            return None
+        final = index == len(relative.parts) - 1
+        if not final:
+            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                return None
+            continue
+        if stat.S_ISDIR(mode):
+            return "directory"
+        if stat.S_ISREG(mode):
+            return "regular"
+        return None
+    return "directory"
+
+
+def sha256_regular_file(root: Path, path: Path) -> str | None:
+    if not exact_regular_file(root, path):
+        return None
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def paths_have_filter(repo: Path, paths: bytes) -> bool | None:
+    try:
+        attributes = subprocess.run(
+            [
+                "git", "-C", str(repo), "-c", "core.fsmonitor=false",
+                "check-attr", "-z", "--stdin", "--all",
+            ],
+            input=paths, capture_output=True, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except OSError:
+        return None
+    if attributes.returncode != 0:
+        return None
+    fields = attributes.stdout.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    if len(fields) % 3:
+        return None
+    return any(fields[index] == b"filter" for index in range(1, len(fields), 3))
+
+
+def worktree_paths(repo: Path) -> tuple[set[str] | None, str | None]:
+    """Observe dirt without running configured clean-filter commands."""
+    tracked = git_bytes(repo, "ls-files", "-z")
+    if tracked is None:
+        return None, "filters=unavailable"
+    index_flags = git_bytes(repo, "ls-files", "-v", "-z")
+    if index_flags is None:
+        return None, "index-flags=unavailable"
+    if any(
+        len(record) < 3 or record[:2] != b"H "
+        for record in filter(None, index_flags.split(b"\0"))
+    ):
+        return None, "index-flags=unsupported"
+    filter_state = paths_have_filter(repo, tracked)
+    if filter_state is None:
+        return None, "filters=unavailable"
+    if filter_state:
+        return None, "filters=unsupported"
+    raw = git_bytes(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    if raw is None:
+        return None, "paths=unavailable"
+    parsed = parse_porcelain_z(raw)
+    return (parsed, None) if parsed is not None else (None, "paths=unsupported")
+
+
+def implementation_subject_clean(
+    repo: Path, run: Path, dispatch_id: object, *, allow_receipt: bool,
+) -> Result:
+    expected = expected_receipt_path(repo, run, dispatch_id)
+    if expected is None:
+        return result("unverifiable", "review=unsupported")
+    dirty, error = worktree_paths(repo)
+    if error:
+        return result("unverifiable", error)
+    assert dirty is not None
+    allowed = {(run / "ledger.md").relative_to(repo).as_posix()}
+    if allow_receipt:
+        allowed.add(expected[0])
+    mode_mismatches = tracked_mode_mismatches(repo, allowed)
+    if mode_mismatches is None:
+        return result("unverifiable", "modes=unavailable")
+    content_mismatches = tracked_content_mismatches(repo, allowed | mode_mismatches)
+    if content_mismatches is None:
+        return result("unverifiable", "content=unavailable")
+    foreign = sorted((dirty - allowed) | mode_mismatches | content_mismatches)
+    return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
+
+
 def parse_name_status_z(raw: bytes) -> set[str] | None:
     fields = raw.split(b"\0")
     if fields and fields[-1] == b"":
@@ -605,6 +732,75 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
     return mismatches
 
 
+def hash_object_bytes(repo: Path, payload: bytes) -> str | None:
+    try:
+        observed = subprocess.run(
+            [
+                "git", "-C", str(repo), "-c", "core.fsmonitor=false",
+                "hash-object", "--stdin",
+            ],
+            input=payload, capture_output=True, check=False,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except OSError:
+        return None
+    if observed.returncode != 0:
+        return None
+    try:
+        return observed.stdout.strip().decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+
+def tracked_content_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
+    """Compare tracked worktree bytes with index blobs without trusting stat data."""
+    raw = git_bytes(repo, "ls-files", "--stage", "-z")
+    if raw is None:
+        return None
+    mismatches: set[str] = set()
+    try:
+        for record in filter(None, raw.split(b"\0")):
+            metadata, raw_path = record.split(b"\t", 1)
+            mode, expected_oid, stage = metadata.split(b" ")
+            path = raw_path.decode("utf-8")
+            if path in allowed:
+                continue
+            if stage != b"0":
+                return None
+            if mode in {b"100644", b"100755"}:
+                observed_oid = git(repo, "hash-object", f"--path={path}", "--", path)
+            elif mode == b"120000":
+                observed_oid = hash_object_bytes(repo, os.readlink(os.fsencode(repo / path)))
+            else:
+                return None
+            if observed_oid is None:
+                return None
+            if observed_oid.encode("ascii") != expected_oid:
+                mismatches.add(path)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return mismatches
+
+
+def head_has_regular_file(repo: Path, path: str) -> bool | None:
+    raw = git_bytes(repo, "ls-tree", "-z", "HEAD", "--", path)
+    if raw is None:
+        return None
+    records = list(filter(None, raw.split(b"\0")))
+    if len(records) != 1:
+        return False
+    try:
+        metadata, observed_path = records[0].split(b"\t", 1)
+        mode, kind, _oid = metadata.split(b" ")
+        return (
+            observed_path.decode("utf-8") == path
+            and kind == b"blob"
+            and mode in {b"100644", b"100755"}
+        )
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
 def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     """Verify the pre-Finish reviewed tree plus exact workflow evidence."""
     repo = repository(repo_arg)
@@ -646,25 +842,51 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
         repo, "diff", "--name-status", "-z", "--find-renames", "--find-copies-harder",
         f"{review['reviewed_commit']}..HEAD", "--",
     )
-    dirty_raw = git_bytes(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    if committed_raw is None or dirty_raw is None:
+    dirty, dirty_error = worktree_paths(repo)
+    if committed_raw is None:
         return result("unverifiable", "paths=unavailable")
     committed = parse_name_status_z(committed_raw)
-    dirty = parse_porcelain_z(dirty_raw)
+    if dirty_error:
+        return result("unverifiable", dirty_error)
     if committed is None or dirty is None:
         return result("unverifiable", "paths=unsupported")
-    allowed = {
+    committed_allowed = {
         (run / "ledger.md").relative_to(repo).as_posix(),
         expected_relative,
     }
+    dirty_allowed = set(committed_allowed)
     stage = data["stage"]
     assert isinstance(stage, dict)
-    if stage["id"] >= 13:
-        allowed.add((run / "final-report.md").relative_to(repo).as_posix())
-    mode_mismatches = tracked_mode_mismatches(repo, allowed)
+    report = run / "final-report.md"
+    report_relative = report.relative_to(repo).as_posix()
+    report_state = exact_entry_state(repo, report)
+    if stage["id"] >= 14:
+        if report_state != "regular":
+            return result("unverifiable", "report=unavailable")
+        committed_report = head_has_regular_file(repo, report_relative)
+        if committed_report is None:
+            return result("unverifiable", "report=commit-unavailable")
+        if not committed_report:
+            return result("fail", "report=uncommitted")
+        committed_allowed.add(report_relative)
+    elif stage["id"] == 13:
+        if report_state == "regular":
+            committed_report = head_has_regular_file(repo, report_relative)
+            if committed_report is None:
+                return result("unverifiable", "report=commit-unavailable")
+            if not committed_report:
+                return result("fail", "report=uncommitted")
+            committed_allowed.add(report_relative)
+        elif report_state != "absent":
+            return result("unverifiable", "report=unavailable")
+    elif report_state != "absent":
+        return result("fail", "report=premature")
+    mode_mismatches = tracked_mode_mismatches(repo, committed_allowed)
     if mode_mismatches is None:
         return result("unverifiable", "modes=unavailable")
-    foreign = sorted(((committed | dirty) - allowed) | mode_mismatches)
+    foreign = sorted(
+        (committed - committed_allowed) | (dirty - dirty_allowed) | mode_mismatches
+    )
     return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
 
 
@@ -890,6 +1112,16 @@ def implementation_snapshot(repo_arg: str, run_arg: str, dispatch_id: str) -> Re
     run = canonical_run(repo, run_arg)
     if run is None:
         return result("unverifiable", "run=noncanonical")
+    if exact_entry_state(repo, run / "final-report.md") != "absent":
+        return result("fail", "report=premature")
+    expected = expected_receipt_path(repo, run, dispatch_id)
+    if expected is None:
+        return result("unverifiable", "review=unsupported")
+    if exact_entry_state(repo, expected[1]) != "absent":
+        return result("unverifiable", "receipt=unavailable")
+    clean = implementation_subject_clean(repo, run, dispatch_id, allow_receipt=False)
+    if clean.status != "pass":
+        return clean
     digest = implementation_snapshot_digest(repo, run, dispatch_id)
     return result("pass", f"snapshot={digest}") if digest else result("unverifiable", "snapshot=unavailable")
 
@@ -907,6 +1139,11 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
     if data["worktree"] != str(repo):
         return result("fail", "worktree=wrong-run")
     if data["branch"] != expected_branch:
+        return result("fail", "branch=wrong-run")
+    observed_branch = git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
+    if observed_branch is None:
+        return result("unverifiable", "branch=unavailable")
+    if observed_branch != f"refs/heads/{expected_branch}":
         return result("fail", "branch=wrong-run")
     base = commit_identity(repo, data["base_identity"])
     if base == "noncanonical":
@@ -948,9 +1185,8 @@ def receipt_source_matches(
             return result("fail", "receipt=source-mismatch")
         if not observe_current:
             return result("pass")
-        try:
-            digest = hashlib.sha256((repo / path).read_bytes()).hexdigest()
-        except OSError:
+        digest = sha256_regular_file(repo, repo / path)
+        if digest is None:
             return result("unverifiable", "receipt=source-unavailable")
         return result("pass") if source.get("value") == digest else result("fail", "receipt=source-mismatch")
     if source.get("kind") != "implementation_snapshot_sha256" or source.get("path") is not None:
@@ -960,6 +1196,11 @@ def receipt_source_matches(
         return result("fail", "receipt=source-mismatch")
     if not observe_current:
         return result("pass")
+    clean = implementation_subject_clean(
+        repo, run, review["dispatch_id"], allow_receipt=True,
+    )
+    if clean.status != "pass":
+        return clean
     observed = implementation_snapshot_digest(repo, run, review["dispatch_id"])
     if observed is None:
         return result("unverifiable", "receipt=source-unavailable")
@@ -999,6 +1240,11 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
     """Apply the exact shared v1 current-head predicates."""
     if error := audit_head_shape(repo, run, data):
         return result("unverifiable", error)
+    stage = data["stage"]
+    frozen = data["frozen"]
+    assert isinstance(stage, dict) and isinstance(frozen, dict)
+    if stage["id"] >= 9 and any(frozen[name] is None for name in ("specification", "plan")):
+        return result("fail", "frozen=incomplete")
     identities = canonical_identity_claims(repo, run, data)
     if identities.status != "pass":
         return identities
@@ -1029,6 +1275,8 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
             return result("unverifiable", "review=unsupported")
         if review["evidence_path"] != expected[0]:
             return result("fail", "receipt=wrong-path")
+        if exact_entry_state(repo, expected[1]) != "absent":
+            return result("unverifiable", "receipt=unavailable")
     must_block = (
         (review["round"] >= 3 and bool(review["open_finding_ids"]))
         or (
@@ -1093,7 +1341,7 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     assert suffix is not None
     if data.get("run_id") != suffix.group(4) or not valid_run_id(repo, suffix.group(4)):
         return result("unverifiable", "run=unsupported")
-    observed_branch = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+    observed_branch = git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
     if observed_branch is None:
         return result("unverifiable", "branch=unavailable")
     linked = linked_worktree(repo)
@@ -1105,7 +1353,11 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     if not all(isinstance(value, str) for value in (worktree, branch, base)):
         return result("unverifiable", "ledger-identity=unsupported")
     expected_branch = f"feature/{suffix.group(4)}"
-    if worktree != str(repo) or branch != expected_branch or observed_branch != expected_branch:
+    if (
+        worktree != str(repo)
+        or branch != expected_branch
+        or observed_branch != f"refs/heads/{expected_branch}"
+    ):
         return result("fail", "identity=worktree-or-branch-mismatch")
     base_status = commit_identity(repo, base)
     if base_status == "noncanonical":
