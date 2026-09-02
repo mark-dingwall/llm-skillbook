@@ -10,7 +10,7 @@
 
 **Goal:** Make `review-team` report every independently verified surviving finding while keeping its upstream candidate ceilings and favoring terse, evidence-complete issue prose.
 
-**Architecture:** Keep Scope, Finder, verification, replacement, Sweep, ordering, and candidate ceilings unchanged. Replace the final numeric report cap with the closed policy `allVerifiedSurvivors`: Synthesis may order and conservatively merge findings, but the controller must deterministically backfill every unmentioned survivor, and fallback must emit every exact-deduplicated survivor. Apply concise-language guidance where report text originates—in Finder summaries and failure scenarios, Verifier evidence, and final assembly—without weakening evidence requirements.
+**Architecture:** Keep Scope, Finder, verification, replacement, Sweep, and candidate ceilings unchanged. Replace the final numeric report cap with the closed policy `allVerifiedSurvivors`: Synthesis may order and conservatively merge findings only when their normalized issue semantics match, the controller must deterministically backfill every unmentioned survivor with a total accepted-before-backfilled same-bucket order, and fallback must emit every exact-deduplicated survivor. Apply concise-language guidance where report text originates—in Finder summaries and failure scenarios, Verifier evidence, and final assembly—without weakening evidence requirements.
 
 **Tech Stack:** Markdown skill contracts, Python 3, pytest, Git.
 
@@ -22,8 +22,8 @@
 
 - Remove only the final report cap. Preserve the existing `high` and `xhigh` Finder, Cleanup, Sweep, replacement, and all-record ceilings exactly.
 - Account for every independently verified `CONFIRMED` or `PLAUSIBLE` survivor exactly once: as a primary finding, as a member of an explicit same-root-cause merge, or as a retained identity in a fallback exact-duplicate group. Surface every distinct verified issue and every distinct verifier-evidence item.
-- Keep Synthesis optional and non-authoritative. Invalid, missing, failed, or unusable Synthesis output must not drop a distinct verified issue or distinct verifier evidence.
-- Keep correctness before cleanup and `CONFIRMED` before `PLAUSIBLE`. Preserve reasoning-based severity ordering for usable Synthesis and the existing deterministic base order for fallback and backfill.
+- Keep Synthesis optional and non-authoritative. Invalid, missing, failed, or unusable Synthesis output must not drop a distinct verified issue or distinct verifier evidence. Admit a same-root-cause merge only when every member also has the same category and verdict and byte-identical normalized `summary` and `failure_scenario` after trimming and collapsing internal whitespace; otherwise keep the members as separate primaries.
+- Keep correctness before cleanup and `CONFIRMED` before `PLAUSIBLE`. Within each category/verdict bucket, emit accepted primaries in Synthesis severity order followed by backfilled primaries in base order; preserve the existing deterministic base order for fallback.
 - Keep refuted details hidden unless requested at invocation, and preserve the exact no-survivor outcome.
 - Declare `reportPolicy: allVerifiedSurvivors` before dispatch and in final stats. Keep numeric candidate limits inside `ceilings`; do not represent unlimited reporting as a numeric sentinel.
 - Favor terse prose: one-line imperative titles and, when the evidence remains complete, one sentence each for the failure scenario or cleanup cost and verifier evidence. Never shorten text by dropping the trigger, consequence, cited guard, invariant, rule, or concrete cost required by the applicable evidence ladder.
@@ -114,6 +114,39 @@ def test_numeric_candidate_ceilings_are_preserved() -> None:
         "| `xhigh` | A-E, `5 × 8` | `1 × 40` | 80 | 8 | 88 | 88 | 176 |"
         in REPORT
     )
+
+
+def test_higher_priority_backfilled_survivor_precedes_accepted_lower_priority_finding() -> None:
+    assert (
+        "After backfill, order the complete set of accepted and backfilled primary findings\n"
+        "together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`."
+        in REPORT
+    )
+
+
+def test_semantic_merges_require_identical_normalized_issue_semantics() -> None:
+    assert (
+        "Admit a semantic merge only when the supplied summaries and verifier evidence\n"
+        "make the same root cause explicit and every member has the same category and\n"
+        "verdict."
+        in REPORT
+    )
+    assert (
+        "Require the normalized `summary` and `failure_scenario` values to be\n"
+        "byte-identical across all members."
+        in REPORT
+    )
+    assert "Normalize each field by trimming it and\ncollapsing internal whitespace" in REPORT
+    assert "Otherwise keep the records as\nseparate primary findings." in REPORT
+    assert "Preserve every affected location." in REPORT
+
+
+def test_same_bucket_accepted_primaries_precede_backfilled_primaries() -> None:
+    assert (
+        "Within each category and verdict bucket, emit accepted primaries in Synthesis\n"
+        "severity order followed by backfilled primaries in base order."
+        in REPORT
+    )
 ```
 
 - [ ] **Step 2: Run the new test and confirm the RED state**
@@ -124,7 +157,7 @@ Run:
 python3 -m pytest review-team/tests/test_reporting_contract.py -q
 ```
 
-Expected: `test_every_verified_survivor_is_reported` fails because the live files still contain the numeric report-cap contract. `test_numeric_candidate_ceilings_are_preserved` passes because it pins the candidate values that must survive this change.
+Expected: `test_every_verified_survivor_is_reported` and the three Synthesis ordering/merge tests fail because the live files still contain the numeric report-cap contract and lack the exhaustive compatibility and tie rules. `test_numeric_candidate_ceilings_are_preserved` passes because it pins the candidate values that must survive this change.
 
 - [ ] **Step 3: Remove the cap from the live entry point**
 
@@ -170,7 +203,24 @@ every dispatched survivor identity to appear exactly once across primary and
 merge positions; otherwise discard Synthesis and use deterministic fallback.
 ```
 
-5. Replace report-slot language with finding identity: a valid same-root-cause merge emits one primary finding carrying every affected location; distinct root causes remain distinct findings. Add this evidence rule:
+After global correctness-before-Cleanup and `CONFIRMED`-before-`PLAUSIBLE`
+precedence, define the complete same-bucket tie rule:
+
+```markdown
+Within each category and verdict bucket, emit accepted primaries in Synthesis
+severity order followed by backfilled primaries in base order.
+```
+
+5. Replace report-slot language with finding identity. Admit a semantic merge only when the records have an explicit shared root cause, the same category and verdict, and byte-identical normalized `summary` and `failure_scenario` after trimming each field and collapsing internal whitespace. Otherwise keep them as separate primary findings. A valid merge emits one primary carrying every affected location; distinct root causes remain distinct findings. Add these compatibility and evidence rules:
+
+```markdown
+Admit a semantic merge only when the supplied summaries and verifier evidence
+make the same root cause explicit and every member has the same category and
+verdict. Require the normalized `summary` and `failure_scenario` values to be
+byte-identical across all members. Normalize each field by trimming it and
+collapsing internal whitespace before comparing. Otherwise keep the records as
+separate primary findings.
+```
 
 ```markdown
 Render every distinct verifier-evidence item from a semantic merge with its
@@ -246,7 +296,7 @@ Run:
 python3 -m pytest review-team/tests/test_reporting_contract.py -q
 ```
 
-Expected: 2 tests pass. Inspect a failure rather than weakening an assertion or changing any preserved numeric ceiling.
+Expected: 5 tests pass. Inspect a failure rather than weakening an assertion or changing any preserved numeric ceiling.
 
 - [ ] **Step 7: Review and commit the exhaustive-reporting contract**
 
@@ -347,7 +397,7 @@ Run:
 python3 -m pytest review-team/tests/test_reporting_contract.py -q
 ```
 
-Expected: 3 tests pass.
+Expected: 6 tests pass.
 
 - [ ] **Step 7: Review and commit the terse-output contract**
 
@@ -433,7 +483,7 @@ python3 -m pytest \
   'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[review-team]' -q
 ```
 
-Expected: 5 tests pass.
+Expected: 8 tests pass.
 
 - [ ] **Step 5: Audit live versus historical cap references**
 
@@ -478,14 +528,16 @@ Expected: the explicit diff matches this plan, the commit succeeds, and the feat
 Confirm each requirement against authoritative current state:
 
 1. `review-team/references/report-contract.md` contains no final numeric cap and declares `allVerifiedSurvivors`.
-2. Synthesis accounts for every survivor or falls back; fallback exact-duplicate groups partition all survivor IDs, retain distinct evidence, and emit every remaining representative.
-3. `high` retains `48/0/48/48/96` and `xhigh` retains `80/8/88/88/176` in `initial/sweep/finderOutput/replacement/allRecords` order.
-4. Finder, Verifier, and report contracts favor terse language without removing their evidence ladders.
-5. Refutation visibility, no-survivor wording, ordering, read-only behavior, and failure policy remain unchanged.
-6. Historical design and evaluation records remain unmodified.
-7. `review-team/README.md` describes exhaustive, terse reporting and `review-team/CLAUDE.md` owns its maintainer invariant and verification route.
-8. Root `README.md` and `CLAUDE.md` remain unchanged; root and Review Team `AGENTS.md` remain exact `CLAUDE.md` symlinks.
-9. The focused component gate, root test suite, and `git diff --check` have fresh passing output.
-10. No user-scoped installation or remote state was changed.
+2. Synthesis accounts for every survivor or falls back. A semantic merge requires an explicit shared root cause, the same category and verdict, and byte-identical normalized `summary` and `failure_scenario` after trimming and collapsing internal whitespace; otherwise the records remain separate primaries. Every valid merge retains all affected locations and distinct verifier evidence.
+3. After global correctness-before-Cleanup and `CONFIRMED`-before-`PLAUSIBLE` precedence, accepted primaries precede backfilled primaries within each category/verdict bucket; accepted primaries retain Synthesis severity order and backfilled primaries retain base order.
+4. Fallback exact-duplicate groups partition all survivor IDs, retain distinct evidence, and emit every remaining representative.
+5. `high` retains `48/0/48/48/96` and `xhigh` retains `80/8/88/88/176` in `initial/sweep/finderOutput/replacement/allRecords` order.
+6. Finder, Verifier, and report contracts favor terse language without removing their evidence ladders.
+7. Refutation visibility, no-survivor wording, survivor base ordering, read-only behavior, and failure policy remain unchanged.
+8. Historical design and evaluation records remain unmodified.
+9. `review-team/README.md` describes exhaustive, terse reporting and `review-team/CLAUDE.md` owns its maintainer invariant and verification route.
+10. Root `README.md` and `CLAUDE.md` remain unchanged; root and Review Team `AGENTS.md` remain exact `CLAUDE.md` symlinks.
+11. The five Task 1 contract checks, six complete reporting-contract checks, focused component gate, root test suite, and `git diff --check` have fresh passing output.
+12. No user-scoped installation or remote state was changed.
 
 Do not claim completion if any item lacks direct evidence.

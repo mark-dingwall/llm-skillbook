@@ -399,9 +399,13 @@ positions. Synthesis never re-emits or rewrites candidate text. Every survivor
 must be claimed by a valid primary or merge identity, or deterministically
 backfilled.
 
-Allow a semantic merge only when the supplied summaries and verifier evidence
-make the same root cause explicit. Synthesis has no diff access; when causality
-is ambiguous, keep records separate. Preserve every affected location. A valid
+Admit a semantic merge only when the supplied summaries and verifier evidence
+make the same root cause explicit and every member has the same category and
+verdict. Require the normalized `summary` and `failure_scenario` values to be
+byte-identical across all members. Normalize each field by trimming it and
+collapsing internal whitespace before comparing. Otherwise keep the records as
+separate primary findings. Synthesis has no diff access; when causality is
+ambiguous, keep records separate. Preserve every affected location. A valid
 same-root-cause merge emits one primary finding carrying every affected
 location; distinct root causes remain distinct findings.
 
@@ -417,9 +421,9 @@ refinements and never promote an unverified replacement. After backfill, require
 every dispatched survivor identity to appear exactly once across primary and
 merge positions; otherwise discard Synthesis and use deterministic fallback.
 After backfill, order the complete set of accepted and backfilled primary findings
-together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`. Within
-those precedence constraints, retain Synthesis's reasoned severity order;
-preserve base order among equivalent backfilled findings.
+together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`.
+Within each category and verdict bucket, emit accepted primaries in Synthesis
+severity order followed by backfilled primaries in base order.
 
 Do not retry Synthesis. A failure or response with no usable decisions selects
 fallback immediately and must not lose verified evidence.

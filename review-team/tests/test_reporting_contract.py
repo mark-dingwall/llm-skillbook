@@ -50,9 +50,32 @@ def test_numeric_candidate_ceilings_are_preserved() -> None:
 def test_higher_priority_backfilled_survivor_precedes_accepted_lower_priority_finding() -> None:
     assert (
         "After backfill, order the complete set of accepted and backfilled primary findings\n"
-        "together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`. Within\n"
-        "those precedence constraints, retain Synthesis's reasoned severity order;\n"
-        "preserve base order among equivalent backfilled findings."
+        "together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`."
+        in REPORT
+    )
+
+
+def test_semantic_merges_require_identical_normalized_issue_semantics() -> None:
+    assert (
+        "Admit a semantic merge only when the supplied summaries and verifier evidence\n"
+        "make the same root cause explicit and every member has the same category and\n"
+        "verdict."
+        in REPORT
+    )
+    assert (
+        "Require the normalized `summary` and `failure_scenario` values to be\n"
+        "byte-identical across all members."
+        in REPORT
+    )
+    assert "Normalize each field by trimming it and\ncollapsing internal whitespace" in REPORT
+    assert "Otherwise keep the records as\nseparate primary findings." in REPORT
+    assert "Preserve every affected location." in REPORT
+
+
+def test_same_bucket_accepted_primaries_precede_backfilled_primaries() -> None:
+    assert (
+        "Within each category and verdict bucket, emit accepted primaries in Synthesis\n"
+        "severity order followed by backfilled primaries in base order."
         in REPORT
     )
 
