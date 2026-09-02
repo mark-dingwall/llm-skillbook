@@ -101,3 +101,22 @@ dispatch. The focused helper suite passes 64 tests.
 No run read `evals/`, `oracle.md`, or scenario sources through the filtered
 skill installation. These runs verify the evaluator's fail-closed behavior;
 they do not replace the earlier clean positive scenario evidence.
+
+## Second PR review hardening (`20260902T-review-round2`)
+
+This campaign exercises the stricter all-workers-complete evaluator and the
+new plan/result invariants. The focused component suite contains 99 tests.
+
+- Claude Scenario A attempt 1 exited 1 because its OAuth session had expired;
+  no worker was dispatched.
+- Codex attempt 1 exited 1 during sandboxed app-server startup.
+- Codex attempt 2 completed the artifact-level workflow: seven worker records,
+  review/fix/re-review, a schema-valid result with exact verification output,
+  and 42 passing generated-project tests. The harness stream exposed only
+  empty-receiver `wait` events, however, so it provided no worker identities or
+  completed returns. The evaluator correctly rejected the run with exit 2.
+
+No attempt read `evals/`, `oracle.md`, or scenario sources through the filtered
+installation. These are negative harness/evaluator results; the artifact-level
+Codex workflow is retained as supporting evidence, not scored as an evaluator
+pass.

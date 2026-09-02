@@ -3,8 +3,8 @@
 usage: wt-validate <schema.json> [result.json]   (reads stdin if omitted)
 
 Supports: type, required, properties, items, enum, const, minimum, minLength,
-pattern, minItems, contains, uniqueBy, repoRelativePath,
-disjointNormalizedPathsBy, allOf, and if/then.
+pattern, minItems, contains, uniqueBy, repoRelativePath, runArtifactPaths,
+disjointNormalizedPathsBy, noConcurrentInputDependencies, allOf, and if/then.
 Exit 0 = valid; exit 1 = invalid.
 A worker's final message may wrap JSON in ```json fences; they are stripped.
 """
@@ -12,9 +12,25 @@ import json
 import posixpath
 import re
 import sys
+from pathlib import Path
 
 TYPES = {"object": dict, "array": list, "string": str, "integer": int,
          "number": (int, float), "boolean": bool, "null": type(None)}
+
+
+def resolved_path(raw):
+    return (Path.cwd() / raw).resolve()
+
+
+def paths_overlap(left, right):
+    return left == right or left in right.parents or right in left.parents
+
+
+def display_path(path):
+    try:
+        return path.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def check(v, s, path="$"):
@@ -41,6 +57,7 @@ def check(v, s, path="$"):
             or posixpath.isabs(v)
             or normalized in (".", "..")
             or normalized.startswith("../")
+            or not resolved_path(v).is_relative_to(Path.cwd().resolve())
         ):
             errs.append(f"{path}: expected a path within the repository")
     for sub in s.get("allOf", []):
@@ -48,6 +65,17 @@ def check(v, s, path="$"):
     if "if" in s and "then" in s and not check(v, s["if"], path):
         errs += check(v, s["then"], path)
     if isinstance(v, dict):
+        if s.get("runArtifactPaths") and isinstance(v.get("run"), str):
+            expected = {
+                "plan": f".work-team/{v['run']}/plan.json",
+                "log": f".work-team/{v['run']}/workflow-log.jsonl",
+            }
+            for field, expected_path in expected.items():
+                if v.get(field) != expected_path:
+                    errs.append(
+                        f"{path}.{field}: expected declared run path "
+                        f"{expected_path!r}"
+                    )
         for k in s.get("required", []):
             if k not in v:
                 errs.append(f"{path}.{k}: required")
@@ -76,14 +104,47 @@ def check(v, s, path="$"):
                 for raw in item[key]:
                     if not isinstance(raw, str):
                         continue
-                    normalized = posixpath.normpath(raw)
-                    if normalized in owners and owners[normalized] != i:
-                        errs.append(
-                            f"{path}: normalized path {normalized!r} is owned by "
-                            f"workers at indexes {owners[normalized]} and {i}"
-                        )
-                    else:
-                        owners[normalized] = i
+                    resolved = resolved_path(raw)
+                    for owned_path, owner in owners.items():
+                        if owner != i and paths_overlap(resolved, owned_path):
+                            errs.append(
+                                f"{path}: path {display_path(resolved)!r} "
+                                f"overlaps ownership by "
+                                f"workers at indexes {owner} and {i}"
+                            )
+                    owners[resolved] = i
+        if s.get("noConcurrentInputDependencies"):
+            for consumer, item in enumerate(v):
+                if not isinstance(item, dict):
+                    continue
+                consumer_group = item.get("group")
+                raw_inputs = item.get("inputs", [])
+                if not isinstance(raw_inputs, list):
+                    continue
+                inputs = [
+                    resolved_path(raw)
+                    for raw in raw_inputs
+                    if isinstance(raw, str) and raw
+                ]
+                for producer, candidate in enumerate(v):
+                    if (
+                        producer == consumer
+                        or not isinstance(candidate, dict)
+                        or candidate.get("group") != consumer_group
+                    ):
+                        continue
+                    owned = candidate.get("owns", [])
+                    if not isinstance(owned, list):
+                        continue
+                    for raw in owned:
+                        if not isinstance(raw, str):
+                            continue
+                        produced = resolved_path(raw)
+                        if any(paths_overlap(source, produced) for source in inputs):
+                            errs.append(
+                                f"{path}: producer/consumer dependency between "
+                                f"workers at indexes {producer} and {consumer}"
+                            )
         if "items" in s:
             for i, x in enumerate(v):
                 errs += check(x, s["items"], f"{path}[{i}]")

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +20,7 @@ SCHEMAS = COMPONENT / "references" / "schemas"
 RUN_EVAL = COMPONENT / "evals" / "run-eval.sh"
 EXTRACT_RESPONSE = COMPONENT / "evals" / "extract-response.py"
 TELEMETRY = COMPONENT / "scripts" / "wt-telemetry"
+WT_LOG = COMPONENT / "scripts" / "wt-log"
 
 
 def validate(schema: str, payload: dict) -> subprocess.CompletedProcess[str]:
@@ -114,6 +118,43 @@ def test_plan_rejects_non_positive_review_loop_bound() -> None:
 
 
 @pytest.mark.parametrize(
+    "run_id", ["", ".", "..", "../../outside", "/tmp/outside", "nested/run"]
+)
+def test_plan_rejects_unsafe_run_identifier(run_id: str) -> None:
+    value = plan(worker())
+    value["run"] = run_id
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert "$.run:" in result.stderr
+
+
+@pytest.mark.parametrize("target", ["phase", "worker"])
+def test_plan_rejects_colons_in_composed_attempt_id_parts(target: str) -> None:
+    value = plan(worker())
+    if target == "phase":
+        value["phases"][0]["id"] = "build:one"
+    else:
+        value["phases"][0]["workers"][0]["id"] = "writer:one"
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert ".id:" in result.stderr
+
+
+@pytest.mark.parametrize(("field", "value"), [("goal", "   "), ("verify", "   ")])
+def test_plan_rejects_whitespace_only_worker_instruction(
+    field: str, value: str
+) -> None:
+    result = validate("plan.schema.json", plan(worker(**{field: value})))
+
+    assert result.returncode == 1
+    assert f".{field}:" in result.stderr
+
+
+@pytest.mark.parametrize(
     ("review_role", "fix_role"),
     [
         ("", "fixer"),
@@ -169,6 +210,81 @@ def test_plan_rejects_path_outside_repository_ownership(owned_path: str) -> None
 
     assert result.returncode == 1
     assert ".owns[0]:" in result.stderr
+
+
+def test_plan_rejects_same_group_producer_consumer_dependency() -> None:
+    value = plan(worker(id="producer", owns=["generated/output.json"]))
+    value["phases"][0]["workers"].append(
+        worker(id="consumer", inputs=["generated/output.json"], owns=["report.md"])
+    )
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert ".workers:" in result.stderr
+    assert "producer/consumer" in result.stderr
+
+
+def test_plan_accepts_producer_consumer_in_ordered_groups() -> None:
+    value = plan(
+        worker(id="producer", group="first", owns=["generated/output.json"])
+    )
+    value["phases"][0]["workers"].append(
+        worker(
+            id="consumer",
+            group="second",
+            inputs=["generated/output.json"],
+            owns=["report.md"],
+        )
+    )
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_plan_treats_freeform_task_input_as_data_not_a_path() -> None:
+    result = validate("plan.schema.json", plan(worker(inputs=["x" * 5000])))
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("field", ["inputs", "owns"])
+def test_plan_reports_malformed_worker_path_lists_without_crashing(
+    field: str,
+) -> None:
+    value = plan(worker(**{field: None}))
+    if field == "owns":
+        value["phases"][0]["workers"].append(worker(id="other"))
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert f".{field}: expected array" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_plan_rejects_directory_and_descendant_ownership_overlap() -> None:
+    value = plan(worker(id="directory-owner", owns=["src"]))
+    value["phases"][0]["workers"].append(
+        worker(id="file-owner", owns=["src/main.py"])
+    )
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert ".workers:" in result.stderr
+
+
+def test_plan_rejects_symlinked_repository_ownership_alias() -> None:
+    value = plan(worker(id="canonical", owns=["work-team/SKILL.md"]))
+    value["phases"][0]["workers"].append(
+        worker(id="alias", owns=[".agents/skills/work-team/SKILL.md"])
+    )
+
+    result = validate("plan.schema.json", value)
+
+    assert result.returncode == 1
+    assert ".workers:" in result.stderr
 
 
 def test_review_rejects_changes_required_without_findings() -> None:
@@ -250,7 +366,9 @@ def result_payload(**overrides: object) -> dict:
     value = {
         "run": "run-1",
         "outcome": "complete",
-        "verification": [{"command": "test -s artefact.txt", "passed": True}],
+        "verification": [
+            {"command": "test -s artefact.txt", "passed": True, "output": ""}
+        ],
         "residual": [],
         "workers": [{"id": "writer:r1", "role": "writer", "status": "ok"}],
         "plan": ".work-team/run-1/plan.json",
@@ -302,6 +420,39 @@ def test_complete_result_rejects_uncovered_requirement() -> None:
     assert ".kind:" in result.stderr
 
 
+def test_complete_result_rejects_important_capped_finding() -> None:
+    result = validate(
+        "result.schema.json",
+        result_payload(
+            residual=[
+                {
+                    "kind": "loop_cap",
+                    "detail": "Required behavior remains broken.",
+                    "severity": "important",
+                    "scope": "spec",
+                }
+            ]
+        ),
+    )
+
+    assert result.returncode == 1
+    assert ".severity:" in result.stderr
+
+
+def test_capped_finding_requires_structured_severity_and_scope() -> None:
+    result = validate(
+        "result.schema.json",
+        result_payload(
+            outcome="partial",
+            residual=[{"kind": "loop_cap", "detail": "Review round capped."}],
+        ),
+    )
+
+    assert result.returncode == 1
+    assert ".severity: required" in result.stderr
+    assert ".scope: required" in result.stderr
+
+
 def test_complete_result_requires_worker_records() -> None:
     result = validate("result.schema.json", result_payload(workers=[]))
 
@@ -312,11 +463,41 @@ def test_complete_result_requires_worker_records() -> None:
 def test_complete_result_rejects_blank_verification_command() -> None:
     result = validate(
         "result.schema.json",
-        result_payload(verification=[{"command": "", "passed": True}]),
+        result_payload(verification=[{"command": "", "passed": True, "output": ""}]),
     )
 
     assert result.returncode == 1
     assert ".command:" in result.stderr
+
+
+def test_result_requires_exact_verification_output_field() -> None:
+    result = validate(
+        "result.schema.json",
+        result_payload(verification=[{"command": "true", "passed": True}]),
+    )
+
+    assert result.returncode == 1
+    assert ".output: required" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("field", "path"),
+    [
+        ("plan", ""),
+        ("plan", "/tmp/plan.json"),
+        ("plan", ".work-team/other/plan.json"),
+        ("log", ""),
+        ("log", "/tmp/workflow-log.jsonl"),
+        ("log", ".work-team/other/workflow-log.jsonl"),
+    ],
+)
+def test_result_artifact_paths_are_bound_to_declared_run(
+    field: str, path: str
+) -> None:
+    result = validate("result.schema.json", result_payload(**{field: path}))
+
+    assert result.returncode == 1
+    assert f"$.{field}:" in result.stderr
 
 
 def test_finding_residual_requires_structured_severity_and_scope() -> None:
@@ -444,6 +625,7 @@ def run_codex_eval(
             "#!/usr/bin/env bash\n"
             "printf '%s\\n' "
             "'{\"type\":\"item.completed\",\"item\":{\"type\":\"collab_tool_call\",\"tool\":\"spawn_agent\",\"status\":\"completed\",\"receiver_thread_ids\":[\"thread-child\"]}}' "
+            "'{\"type\":\"item.completed\",\"item\":{\"type\":\"collab_tool_call\",\"tool\":\"wait\",\"status\":\"completed\",\"receiver_thread_ids\":[\"thread-child\"],\"agents_states\":{\"thread-child\":{\"completed\":\"{}\"}}}}' "
             "'{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"progress\"}}' "
             "'{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"final\\ncomplete\"}}'\n"
         )
@@ -642,6 +824,52 @@ def test_eval_runner_extracts_response_without_jq(tmp_path: Path) -> None:
         shutil.rmtree(output.parents[1], ignore_errors=True)
 
 
+def test_eval_runner_uses_python_stdlib_instead_of_shell_utilities(
+    tmp_path: Path,
+) -> None:
+    timestamp = f"pytest-{os.getpid()}-stdlib"
+    output = eval_output(timestamp)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    codex = fake_bin / "codex"
+    codex.write_text(
+        f"#!{sys.executable}\n"
+        "import json\n"
+        "events = [\n"
+        "    {'type': 'item.completed', 'item': {'type': 'collab_tool_call', 'tool': 'spawn_agent', 'status': 'completed', 'receiver_thread_ids': ['worker-1']}},\n"
+        "    {'type': 'item.completed', 'item': {'type': 'collab_tool_call', 'tool': 'wait', 'status': 'completed', 'receiver_thread_ids': ['worker-1'], 'agents_states': {'worker-1': {'completed': '{}'}}}},\n"
+        "    {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'final'}},\n"
+        "]\n"
+        "for event in events:\n"
+        "    print(json.dumps(event))\n"
+    )
+    codex.chmod(0o755)
+    env = os.environ | {
+        "PATH": str(fake_bin),
+        "EVAL_TS": timestamp,
+        "EVAL_WS": str(tmp_path / "workspace"),
+    }
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(RUN_EVAL),
+                "refactor",
+                "A",
+                "codex",
+                "attempt-1",
+            ],
+            text=True,
+            capture_output=True,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (output / "final-response.md").read_text() == "final\n"
+    finally:
+        shutil.rmtree(output.parents[1], ignore_errors=True)
+
+
 def test_response_extractor_supports_claude_result_events(tmp_path: Path) -> None:
     transcript = tmp_path / "stdout.jsonl"
     transcript.write_text(
@@ -686,6 +914,7 @@ def test_response_extractor_supports_claude_result_events(tmp_path: Path) -> Non
                         "tool_use_id": "tool-agent-1",
                         "task_id": "agent-1",
                         "status": "completed",
+                        "summary": "worker result",
                     }
                 ),
                 json.dumps({"type": "assistant", "message": "progress"}),
@@ -794,6 +1023,195 @@ def test_response_extractor_rejects_unfinished_claude_agent(tmp_path: Path) -> N
     assert result.stdout == ""
 
 
+def run_response_extractor(
+    tmp_path: Path, harness: str, events: list[dict]
+) -> subprocess.CompletedProcess[str]:
+    transcript = tmp_path / f"{harness}.jsonl"
+    transcript.write_text("\n".join(json.dumps(event) for event in events) + "\n")
+    return subprocess.run(
+        ["python3", str(EXTRACT_RESPONSE), harness, str(transcript)],
+        text=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_response_extractor_rejects_empty_claude_worker_return(
+    tmp_path: Path, mode: str
+) -> None:
+    events = [
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool-agent-1",
+                        "name": "Agent",
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tool-agent-1"}
+                ]
+            },
+            "tool_use_result": {
+                "status": "completed" if mode == "sync" else "async_launched",
+                "agentId": "agent-1",
+                "content": [],
+            },
+        },
+    ]
+    if mode == "async":
+        events.append(
+            {
+                "type": "system",
+                "subtype": "task_notification",
+                "tool_use_id": "tool-agent-1",
+                "task_id": "agent-1",
+                "status": "completed",
+                "summary": "   ",
+            }
+        )
+    events.append({"type": "result", "result": "final"})
+
+    result = run_response_extractor(tmp_path, "claude", events)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+
+
+def test_response_extractor_requires_every_claude_worker_to_finish(
+    tmp_path: Path,
+) -> None:
+    events = []
+    for number in (1, 2):
+        events.extend(
+            [
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": f"tool-agent-{number}",
+                                "name": "Agent",
+                            }
+                        ]
+                    },
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": f"tool-agent-{number}",
+                            }
+                        ]
+                    },
+                    "tool_use_result": {
+                        "status": "async_launched",
+                        "agentId": f"agent-{number}",
+                    },
+                },
+            ]
+        )
+    events.extend(
+        [
+            {
+                "type": "system",
+                "subtype": "task_notification",
+                "tool_use_id": "tool-agent-1",
+                "task_id": "agent-1",
+                "status": "completed",
+            },
+            {"type": "result", "result": "final"},
+        ]
+    )
+
+    result = run_response_extractor(tmp_path, "claude", events)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+
+
+def test_response_extractor_requires_every_codex_worker_return(tmp_path: Path) -> None:
+    result = run_response_extractor(
+        tmp_path,
+        "codex",
+        [
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "collab_tool_call",
+                    "tool": "spawn_agent",
+                    "status": "completed",
+                    "receiver_thread_ids": ["worker-1", "worker-2"],
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "collab_tool_call",
+                    "tool": "wait",
+                    "status": "completed",
+                    "receiver_thread_ids": ["worker-1"],
+                    "agents_states": {"worker-1": {"completed": "{}"}},
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": "final"},
+            },
+        ],
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+
+
+def test_response_extractor_requires_codex_return_before_final_response(
+    tmp_path: Path,
+) -> None:
+    result = run_response_extractor(
+        tmp_path,
+        "codex",
+        [
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "collab_tool_call",
+                    "tool": "spawn_agent",
+                    "status": "completed",
+                    "receiver_thread_ids": ["worker-1"],
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": "premature final"},
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "collab_tool_call",
+                    "tool": "wait",
+                    "status": "completed",
+                    "receiver_thread_ids": ["worker-1"],
+                    "agents_states": {"worker-1": {"completed": "{}"}},
+                },
+            },
+        ],
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+
+
 @pytest.mark.parametrize(
     "malformed",
     [None, {"ts": "2026-09-01T00:00:00Z", "agent": []}],
@@ -826,3 +1244,64 @@ def test_telemetry_skips_invalid_record_and_continues(
     assert result.returncode == 0, result.stderr
     assert "skip malformed line:" in result.stderr
     assert "writer:r1" in result.stdout
+
+
+def test_telemetry_skips_timezone_less_timestamp_and_continues(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "workflow-log.jsonl"
+    log.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "ts": "2026-09-01T00:00:00",
+                        "agent": "writer:r1",
+                        "action": "invalid",
+                        "artefacts": [],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "ts": "2026-09-01T00:00:01Z",
+                        "agent": "writer:r1",
+                        "action": "valid",
+                        "artefacts": [],
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+
+    result = subprocess.run(
+        [str(TELEMETRY), str(log)], text=True, capture_output=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "skip malformed line:" in result.stderr
+    assert "writer:r1" in result.stdout
+    assert "      1" in result.stdout
+
+
+def test_wt_log_rejects_record_at_or_above_four_kib(tmp_path: Path) -> None:
+    log = tmp_path / "workflow-log.jsonl"
+
+    result = subprocess.run(
+        [str(WT_LOG), str(log), "writer:r1", "start", "x" * 5000],
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "4 KiB" in result.stderr
+    assert not log.exists()
+
+
+def test_wt_log_fails_when_append_is_short(tmp_path: Path) -> None:
+    log = tmp_path / "workflow-log.jsonl"
+    argv = [str(WT_LOG), str(log), "writer:r1", "start"]
+
+    with patch.object(sys, "argv", argv), patch("os.write", return_value=1):
+        with pytest.raises(OSError, match="short audit-log write"):
+            runpy.run_path(str(WT_LOG), run_name="__main__")

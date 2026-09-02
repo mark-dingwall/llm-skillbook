@@ -15,8 +15,12 @@ line = json.dumps(
     {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
      "agent": agent, "action": action[:300], "artefacts": artefacts},
     ensure_ascii=False) + "\n"
+encoded = line.encode()
+if len(encoded) >= 4096:
+    sys.exit("audit record must be below 4 KiB")
 fd = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
 try:
-    os.write(fd, line.encode())
+    if os.write(fd, encoded) != len(encoded):
+        raise OSError("short audit-log write")
 finally:
     os.close(fd)

@@ -1,0 +1,1 @@
+{"ok":true,"note":"Complete CLI specification written with Given/When/Then coverage for add, list, and done.","artefacts":["SPEC.md"],"verify_output":"exit 0"}

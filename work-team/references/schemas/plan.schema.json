@@ -2,7 +2,7 @@
   "type": "object",
   "required": ["run", "task", "phases"],
   "properties": {
-    "run": {"type": "string"},
+    "run": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
     "task": {"type": "string"},
     "phases": {
       "type": "array", "minItems": 1, "uniqueBy": "id",
@@ -10,7 +10,7 @@
         "type": "object",
         "required": ["id", "workers"],
         "properties": {
-          "id": {"type": "string", "minLength": 1},
+          "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
           "barrier": {"type": "boolean"},
           "loop": {
             "type": "object", "required": ["review", "fix", "max_rounds"],
@@ -23,6 +23,7 @@
           "workers": {
             "type": "array", "minItems": 1, "uniqueBy": "id",
             "disjointNormalizedPathsBy": "owns",
+            "noConcurrentInputDependencies": true,
             "items": {
               "type": "object",
               "required": ["id", "role", "goal", "inputs", "owns", "verify"],
@@ -33,15 +34,15 @@
                 }
               ],
               "properties": {
-                "id": {"type": "string", "minLength": 1},
+                "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
                 "role": {
                   "type": "string",
                   "enum": ["writer", "implementer", "reviewer", "verifier", "fixer", "judge"]
                 },
-                "goal": {"type": "string"},
+                "goal": {"type": "string", "pattern": "\\S"},
                 "inputs": {"type": "array", "items": {"type": "string"}},
                 "owns": {"type": "array", "items": {"type": "string", "repoRelativePath": true}},
-                "verify": {"type": "string", "minLength": 1},
+                "verify": {"type": "string", "pattern": "\\S"},
                 "group": {"type": "string"},
                 "model": {"type": "string"}
               }

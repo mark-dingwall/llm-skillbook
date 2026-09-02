@@ -12,16 +12,16 @@ Validate with `wt-validate <skill>/references/schemas/result.schema.json`.
 
 ```json
 {
-  "run": "<run>",
+  "run": "run-1",
   "outcome": "complete | partial | stopped",
-  "verification": [{"command": "python3 -m pytest -q", "passed": true, "summary": "20 passed"}],
+  "verification": [{"command": "python3 -m pytest -q", "passed": true, "output": "20 passed in 0.12s", "summary": "20 passed"}],
   "residual": [
     {"kind": "finding", "detail": "save() not atomic", "severity": "minor", "scope": "spec", "source": "reviewer:r1"},
-    {"kind": "loop_cap", "detail": "…", "source": "impl loop"}
+    {"kind": "loop_cap", "detail": "…", "severity": "important", "scope": "spec", "source": "impl loop"}
   ],
   "workers": [{"id": "implementer", "role": "implementer", "status": "ok"}],
-  "plan": ".work-team/<run>/plan.json",
-  "log": ".work-team/<run>/workflow-log.jsonl"
+  "plan": ".work-team/run-1/plan.json",
+  "log": ".work-team/run-1/workflow-log.jsonl"
 }
 ```
 
@@ -31,8 +31,8 @@ also records `severity` and `scope`. An unresolved stall, cap hit, or
 empty-after-retry produces a residual. A failed attempt later superseded by a
 successful retry or re-plan stays in `workers` and the log but is not residual
 work. `outcome` is `complete` only when verification is non-empty and passed
-and no `blocker`/`important` finding remains; failed superseded attempts do not
-independently block completion.
+and no `blocker`/`important` finding or capped finding remains; failed
+superseded attempts do not independently block completion.
 
 ## report.md
 

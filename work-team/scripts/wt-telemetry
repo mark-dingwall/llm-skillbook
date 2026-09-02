@@ -28,6 +28,8 @@ for line in open(sys.argv[1]):
         if not isinstance(e.get("agent"), str) or not e["agent"]:
             raise ValueError("agent must be a nonempty string")
         ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
+        if ts.utcoffset() is None:
+            raise ValueError("ts must include a timezone offset")
     except (json.JSONDecodeError, ValueError) as err:
         print(f"skip malformed line: {err}", file=sys.stderr)
         continue

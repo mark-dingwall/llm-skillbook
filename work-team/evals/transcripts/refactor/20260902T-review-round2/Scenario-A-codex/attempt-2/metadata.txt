@@ -1,0 +1,8 @@
+command=codex exec --json --enable multi_agent --skip-git-repo-check -C /tmp/tmp/evals/refactor-20260902T-review-round2-A-codex-attempt-2 -m gpt-5.6-terra -c model_reasoning_effort="medium" -s workspace-write - </dev/null
+workspace=/tmp/tmp/evals/refactor-20260902T-review-round2-A-codex-attempt-2
+harness=codex
+phase=refactor
+scenario=A
+start=2026-09-02T05:55:54Z
+end=2026-09-02T06:20:25Z
+exit=2

@@ -1,69 +1,221 @@
-#!/usr/bin/env bash
-# Run one scenario on one harness; capture transcript artefacts.
-# usage: run-eval.sh <red|green|refactor> <A|B|C> <claude|codex> [attempt-N]
-set -euo pipefail
-PHASE=$1 SCEN=$2 HARNESS=$3 ATTEMPT=${4:-attempt-1}
-HERE=$(cd "$(dirname "$0")" && pwd)
-TS=${EVAL_TS:-$(date -u +%Y%m%dT%H%M%SZ)}
-OUT="$HERE/transcripts/$PHASE/$TS/Scenario-$SCEN-$HARNESS/$ATTEMPT"
-WS=${EVAL_WS:-${CLAUDE_JOB_DIR:-/tmp}/tmp/evals}/$PHASE-$TS-$SCEN-$HARNESS-$ATTEMPT
-if [ -e "$OUT" ] || [ -e "$WS" ]; then
-  echo "refusing colliding evaluation: output or workspace already exists" >&2
-  exit 2
-fi
-mkdir -p "$(dirname "$OUT")" "$(dirname "$WS")"
-mkdir "$OUT" "$WS"
+#!/usr/bin/env python3
+"""Run one work-team scenario and capture its transcript artefacts.
 
-case $SCEN in
-  A) FIX="" ;;
-  B) cp -r "$HERE/fixtures/audit-target" "$WS/"; FIX="$WS/audit-target" ;;
-  C) cp -r "$HERE/fixtures/run-dir" "$WS/"; FIX="$WS/run-dir" ;;
-esac
+usage: run-eval.sh <red|green|refactor> <A|B|C> <claude|codex> [attempt-N]
+"""
 
-# Extract the scenario body (after the heading, up to the next "## ").
-FIX_ESCAPED=$(printf '%s' "$FIX" | sed -e 's/[\\&|]/\\&/g')
-BODY=$(awk -v s="## Scenario $SCEN" '$0 ~ "^"s {p=1; next} /^## /{p=0} p' "$HERE/scenarios.md" \
-  | sed -e "s|<FIXTURE>|$FIX_ESCAPED|g" -e '/^Fixture:/d' -e '/^Fresh empty directory/d')
-PREFIX=""
-[ "$PHASE" != red ] && PREFIX=$'Use the work-team skill for the task below. Before dispatching, state the skill name and the resolved SKILL.md path you loaded.\n\n'
-PROMPT="$PREFIX$BODY"
-printf '%s\n' "$PROMPT" > "$OUT/prompt.txt"
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
-START=$(date -u +%FT%TZ)
-case $HARNESS in
-  claude)
-    CMD="claude --model sonnet --output-format stream-json --verbose --allowedTools Agent,Read,Write,Edit,Bash,Glob,Grep -p <prompt>"
-    (cd "$WS" && claude --model sonnet --output-format stream-json --verbose \
-      --allowedTools "Agent,Read,Write,Edit,Bash,Glob,Grep" -p "$PROMPT" \
-      > "$OUT/stdout.jsonl" 2> "$OUT/stderr.txt") && EXIT=0 || EXIT=$?
-    ;;
-  codex)
-    CMD="codex exec --json --enable multi_agent --skip-git-repo-check -C $WS -m gpt-5.6-terra -c model_reasoning_effort=\"medium\" -s workspace-write - </dev/null"
-    (codex exec --json --enable multi_agent --skip-git-repo-check -C "$WS" \
-      -m gpt-5.6-terra -c model_reasoning_effort='"medium"' -s workspace-write "$PROMPT" \
-      < /dev/null > "$OUT/stdout.jsonl" 2> "$OUT/stderr.txt") && EXIT=0 || EXIT=$?
-    ;;
-esac
-EXTRACT=0
-python3 "$HERE/extract-response.py" "$HARNESS" "$OUT/stdout.jsonl" \
-  > "$OUT/final-response.md" || EXTRACT=$?
-if [ "$EXIT" -eq 0 ] && [ "$EXTRACT" -ne 0 ]; then
-  case $EXTRACT in
-    1) echo "evaluation produced no final agent response" >&2 ;;
-    2) echo "evaluation produced no worker dispatch" >&2 ;;
-    *) echo "evaluation produced an invalid harness transcript" >&2 ;;
-  esac
-  EXIT=$EXTRACT
-fi
-END=$(date -u +%FT%TZ)
 
-# Keep produced logs and any work-team run directory, not the whole workspace.
-[ -d "$WS/.work-team" ] && cp -r "$WS/.work-team" "$OUT/run-artefacts"
-find "$WS" -path "$WS/.work-team" -prune -o -name workflow-log.jsonl -print 2>/dev/null \
-  | while read -r f; do cp "$f" "$OUT/$(echo "${f#$WS/}" | tr / _)"; done
-(cd "$WS" && find . -type f -not -path '*/node_modules/*' -not -path '*/.venv/*' | sort) > "$OUT/workspace-files.txt"
-printf 'command=%s\nworkspace=%s\nharness=%s\nphase=%s\nscenario=%s\nstart=%s\nend=%s\nexit=%s\n' \
-  "$CMD" "$WS" "$HARNESS" "$PHASE" "$SCEN" "$START" "$END" "$EXIT" > "$OUT/metadata.txt"
-(cd "$OUT" && sha256sum prompt.txt stdout.jsonl metadata.txt > attempt.sha256)
-echo "$OUT exit=$EXIT"
-exit "$EXIT"
+def utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def scenario_body(source, scenario, fixture):
+    selected = []
+    active = False
+    for line in source.read_text().splitlines():
+        if line.startswith(f"## Scenario {scenario}"):
+            active = True
+            continue
+        if active and line.startswith("## "):
+            break
+        if active and not line.startswith(("Fixture:", "Fresh empty directory")):
+            selected.append(line.replace("<FIXTURE>", str(fixture)))
+    return "\n".join(selected).strip()
+
+
+def harness_command(harness, workspace, prompt):
+    if harness == "claude":
+        display = (
+            "claude --model sonnet --output-format stream-json --verbose "
+            "--allowedTools Agent,Read,Write,Edit,Bash,Glob,Grep -p <prompt>"
+        )
+        command = [
+            "claude",
+            "--model",
+            "sonnet",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--allowedTools",
+            "Agent,Read,Write,Edit,Bash,Glob,Grep",
+            "-p",
+            prompt,
+        ]
+    else:
+        display = (
+            "codex exec --json --enable multi_agent --skip-git-repo-check "
+            f"-C {workspace} -m gpt-5.6-terra "
+            '-c model_reasoning_effort="medium" -s workspace-write - </dev/null'
+        )
+        command = [
+            "codex",
+            "exec",
+            "--json",
+            "--enable",
+            "multi_agent",
+            "--skip-git-repo-check",
+            "-C",
+            str(workspace),
+            "-m",
+            "gpt-5.6-terra",
+            "-c",
+            'model_reasoning_effort="medium"',
+            "-s",
+            "workspace-write",
+            prompt,
+        ]
+    return display, command
+
+
+def copy_run_artefacts(workspace, output):
+    run_dir = workspace / ".work-team"
+    if run_dir.is_dir():
+        shutil.copytree(run_dir, output / "run-artefacts", symlinks=True)
+    for log in workspace.rglob("workflow-log.jsonl"):
+        relative = log.relative_to(workspace)
+        if ".work-team" in relative.parts:
+            continue
+        shutil.copy2(log, output / "_".join(relative.parts))
+    files = []
+    for candidate in workspace.rglob("*"):
+        relative = candidate.relative_to(workspace)
+        if "node_modules" in relative.parts or ".venv" in relative.parts:
+            continue
+        if candidate.is_file() and not candidate.is_symlink():
+            files.append(f"./{relative.as_posix()}")
+    listing = "\n".join(sorted(files))
+    (output / "workspace-files.txt").write_text(
+        listing + ("\n" if listing else "")
+    )
+
+
+def write_checksums(output):
+    names = ["prompt.txt", "stdout.jsonl", "metadata.txt"]
+    rows = []
+    for name in names:
+        digest = hashlib.sha256((output / name).read_bytes()).hexdigest()
+        rows.append(f"{digest}  {name}")
+    (output / "attempt.sha256").write_text("\n".join(rows) + "\n")
+
+
+def main():
+    if len(sys.argv) not in (4, 5):
+        sys.exit(__doc__)
+    phase, scenario, harness = sys.argv[1:4]
+    attempt = sys.argv[4] if len(sys.argv) == 5 else "attempt-1"
+    if phase not in {"red", "green", "refactor"}:
+        sys.exit(f"unknown phase: {phase}")
+    if scenario not in {"A", "B", "C"}:
+        sys.exit(f"unknown scenario: {scenario}")
+    if harness not in {"claude", "codex"}:
+        sys.exit(f"unknown harness: {harness}")
+
+    here = Path(__file__).resolve().parent
+    timestamp = os.environ.get("EVAL_TS") or datetime.now(timezone.utc).strftime(
+        "%Y%m%dT%H%M%SZ"
+    )
+    suffix = f"{phase}-{timestamp}-{scenario}-{harness}-{attempt}"
+    output = (
+        here
+        / "transcripts"
+        / phase
+        / timestamp
+        / f"Scenario-{scenario}-{harness}"
+        / attempt
+    )
+    workspace_base = Path(
+        os.environ.get("EVAL_WS")
+        or Path(os.environ.get("CLAUDE_JOB_DIR", "/tmp")) / "tmp/evals"
+    )
+    workspace = workspace_base / suffix
+    if output.exists() or workspace.exists():
+        sys.exit("refusing colliding evaluation: output or workspace already exists")
+    output.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+
+    fixture = ""
+    if scenario == "B":
+        fixture = workspace / "audit-target"
+        shutil.copytree(here / "fixtures/audit-target", fixture)
+    elif scenario == "C":
+        fixture = workspace / "run-dir"
+        shutil.copytree(here / "fixtures/run-dir", fixture)
+
+    body = scenario_body(here / "scenarios.md", scenario, fixture)
+    prefix = ""
+    if phase != "red":
+        prefix = (
+            "Use the work-team skill for the task below. Before dispatching, "
+            "state the skill name and the resolved SKILL.md path you loaded.\n\n"
+        )
+    prompt = prefix + body
+    (output / "prompt.txt").write_text(prompt + "\n")
+
+    display, command = harness_command(harness, workspace, prompt)
+    started = utc_now()
+    with (output / "stdout.jsonl").open("w") as stdout, (
+        output / "stderr.txt"
+    ).open("w") as stderr:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=workspace,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+                text=True,
+            )
+            exit_code = completed.returncode
+        except OSError as error:
+            print(error, file=stderr)
+            exit_code = 127
+
+    with (output / "final-response.md").open("w") as final_response:
+        extracted = subprocess.run(
+            [
+                sys.executable,
+                str(here / "extract-response.py"),
+                harness,
+                str(output / "stdout.jsonl"),
+            ],
+            stdout=final_response,
+        ).returncode
+    if exit_code == 0 and extracted:
+        messages = {
+            1: "evaluation produced no final agent response",
+            2: "evaluation produced no worker dispatch",
+        }
+        print(
+            messages.get(extracted, "evaluation produced an invalid harness transcript"),
+            file=sys.stderr,
+        )
+        exit_code = extracted
+
+    ended = utc_now()
+    copy_run_artefacts(workspace, output)
+    metadata = (
+        f"command={display}\n"
+        f"workspace={workspace}\n"
+        f"harness={harness}\n"
+        f"phase={phase}\n"
+        f"scenario={scenario}\n"
+        f"start={started}\n"
+        f"end={ended}\n"
+        f"exit={exit_code}\n"
+    )
+    (output / "metadata.txt").write_text(metadata)
+    write_checksums(output)
+    print(f"{output} exit={exit_code}")
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
