@@ -83,14 +83,20 @@ invocation. When no candidates survive independent verification, say so
 without claiming the change is safe. An evidence-backed empty Finder or Sweep
 result is complete and valuable; do not pad output to meet a quota.
 
+Final reporting is exhaustive and has no numeric output limit. Account for
+every independently verified `CONFIRMED` or `PLAUSIBLE` survivor through a
+rendered primary, a valid same-root-cause merge, or a fallback exact-duplicate
+group. Preserve every distinct verifier-evidence item and favor terse,
+evidence-complete fields.
+
 ## Verification
 
-Review Team is instruction-only and has no separate runtime suite in this
-repository. After changing its entry points or links, run its documentation
-parameters from the repository root:
+Review Team is instruction-only. Its focused static contract pins reporting
+behavior, while the documentation parameters verify entry points and links:
 
 ```bash
 python3 -m pytest \
+  review-team/tests/test_reporting_contract.py \
   'tests/test_documentation.py::test_documentation_entrypoints[review-team]' \
   'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[review-team]' -q
 ```

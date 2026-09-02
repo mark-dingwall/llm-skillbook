@@ -19,6 +19,11 @@ changes remote state.
 
 Only independently verified candidates become findings. An empty result means
 none survived verification; it does not certify that the change is safe.
+Every independently verified `CONFIRMED` or `PLAUSIBLE` survivor is surfaced,
+directly or through an explicit same-root-cause merge. Final reporting is
+exhaustive rather than numerically limited, while effort-level candidate
+ceilings still bound discovery. Reports favor terse prose without omitting the
+trigger, consequence, or verifier evidence.
 
 ## Use the live contract
 
