@@ -35,7 +35,7 @@ from typing import Mapping
 
 import yaml
 
-from .prompts import RESOURCES, ReviewRecord, SourceFinding, ValidatedReview
+from .prompts import RenderError, ReviewRecord, SourceFinding, ValidatedReview, render_prompt
 from .seals import GitPolicy, SealEntry, seal_target
 
 # The only environment variables the outer wrapper ever sets inside the
@@ -47,8 +47,6 @@ ENV_ALLOWLIST = ("HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "UV_CACHE_DIR", "PAT
 
 _MULTI_REVIEW_REVIEWERS = ("claude", "codex")
 _shell_quote = shlex.quote
-
-_HOLISTIC_FRAGMENT = RESOURCES / "holistic.md"
 
 _SUBJECT_TEXT = (
     "The complete sealed target tree named in this dispatch's `files` "
@@ -323,28 +321,10 @@ def render_verbatim_prompt(request: HolisticRequest) -> str:
     `multi_review.core.aggregate.parse_verbatim_dispatch_header` (Task 10)
     requires the six `key: value` dispatch fields to be the FIRST lines of
     the prompt, ending in a blank line before anything else -- it stops
-    scanning at the first blank line it meets. review_loop/resources/
-    review.md instead leads with a `# Review dispatch` title line before
-    those same six fields, for the ordinary (non-verbatim) dispatch path.
-    This reuses review.md's own field stringification and fragment
-    composition byte-for-byte, only dropping that one leading title line so
-    the header lands first, exactly as Task 10's parser requires.
-
-    M4 (fix round 1, noted not fixed): the `safety.md`/`round-one.md`
-    fragment set and order below is hand-duplicated from
-    `prompts.py`'s own composition, not delegated to
-    `prompts.render_prompt`'s `FRAGMENTS` registry, because `"holistic"`
-    isn't (and can't cheaply become) a registered fragment there and
-    `prompts.py` is out of this task's file scope. If `prompts.py`'s
-    fragment set or order ever changes, this function's fragment list must
-    be updated to match by hand -- there is no shared source of truth
-    enforcing that beyond this comment.
+    scanning at the first blank line it meets. The ordinary template starts
+    with `# Review dispatch`; remove only that fixed prefix so the header is
+    first.
     """
-    review_text = (RESOURCES / "review.md").read_text(encoding="utf-8")
-    if not review_text.startswith(_REVIEW_TEMPLATE_TITLE):
-        raise MultiReviewError("review.md no longer starts with the expected title line; header alignment broke")
-    header_first_template = review_text[len(_REVIEW_TEMPLATE_TITLE):]
-
     context = {
         "request_id": request.request_id,
         "role": "holistic",
@@ -355,13 +335,12 @@ def render_verbatim_prompt(request: HolisticRequest) -> str:
         "subject": _SUBJECT_TEXT,
     }
     try:
-        base = header_first_template.format(**context)
-    except (KeyError, ValueError, IndexError) as exc:
+        rendered = render_prompt("review", ("safety", "round-one", "holistic"), context).decode("utf-8")
+    except (RenderError, UnicodeError) as exc:
         raise MultiReviewError(f"cannot render the verbatim multi-review prompt: {exc}") from exc
-
-    fragments = [(RESOURCES / name).read_text(encoding="utf-8") for name in ("safety.md", "round-one.md")]
-    holistic_text = _HOLISTIC_FRAGMENT.read_text(encoding="utf-8")
-    return base + "".join(fragments) + holistic_text
+    if not rendered.startswith(_REVIEW_TEMPLATE_TITLE):
+        raise MultiReviewError("review.md no longer starts with the expected title line; header alignment broke")
+    return rendered[len(_REVIEW_TEMPLATE_TITLE):]
 
 
 # --- request.yaml (PromptFile) construction ---------------------------------

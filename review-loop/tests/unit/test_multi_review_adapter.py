@@ -11,8 +11,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from review_loop.multi_review import (
+    _SUBJECT_TEXT,
     HolisticRequest,
     MultiReviewError,
     MultiReviewHostPaths,
@@ -21,6 +23,7 @@ from review_loop.multi_review import (
     build_prompt_yaml_text,
     render_verbatim_prompt,
 )
+from review_loop.prompts import render_prompt
 from review_loop.seals import GitPolicy, SealEntry, seal_target
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -208,6 +211,28 @@ class AdapterConstructionTests(unittest.TestCase):
         self.assertEqual(paths1.request_yaml.read_bytes(), paths2.request_yaml.read_bytes())
 
     # --- exact canonical prompt bytes ---
+
+    def test_verbatim_prompt_uses_canonical_rendering_with_only_its_title_removed(self):
+        context = {
+            "request_id": self.request.request_id,
+            "role": "holistic",
+            "charter_id": "holistic",
+            "target_seal": self.request.target_seal,
+            "round_input_seal": "null",
+            "scope_locator_ids": json.dumps(list(self.request.scope_locator_ids)),
+            "subject": _SUBJECT_TEXT,
+        }
+        canonical = render_prompt("review", ("safety", "round-one", "holistic"), context)
+        title = b"# Review dispatch\n\n"
+        self.assertTrue(canonical.startswith(title))
+
+        with patch(
+            "review_loop.multi_review.render_prompt", return_value=canonical, create=True
+        ) as renderer:
+            rendered = render_verbatim_prompt(self.request)
+
+        self.assertEqual(rendered, canonical[len(title):].decode("utf-8"))
+        renderer.assert_called_once_with("review", ("safety", "round-one", "holistic"), context)
 
     def test_canonical_prompt_matches_task10_verbatim_header_parser(self):
         prompt_text = render_verbatim_prompt(self.request)

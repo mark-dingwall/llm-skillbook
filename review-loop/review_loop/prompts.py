@@ -24,6 +24,9 @@ FRAGMENTS = {
     "safety": "safety.md",
     "round-one": "round-one.md",
     "later-round": "later-round.md",
+    "holistic": "holistic.md",
+    "adversarial": "adversarial.md",
+    "specialist": "specialist.md",
 }
 
 _LEDGER_STATES = {"OPEN", "FIX_APPLIED", "FIX_VERIFIED", "REFUTED", "INTENTIONAL"}
