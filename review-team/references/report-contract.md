@@ -416,6 +416,10 @@ Backfill every unmentioned survivor in base order. Preserve verifier
 refinements and never promote an unverified replacement. After backfill, require
 every dispatched survivor identity to appear exactly once across primary and
 merge positions; otherwise discard Synthesis and use deterministic fallback.
+After backfill, order the complete set of accepted and backfilled primary findings
+together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`. Within
+those precedence constraints, retain Synthesis's reasoned severity order;
+preserve base order among equivalent backfilled findings.
 
 Do not retry Synthesis. A failure or response with no usable decisions selects
 fallback immediately and must not lose verified evidence.

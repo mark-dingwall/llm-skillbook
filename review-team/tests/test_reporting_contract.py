@@ -45,3 +45,13 @@ def test_numeric_candidate_ceilings_are_preserved() -> None:
         "| `xhigh` | A-E, `5 × 8` | `1 × 40` | 80 | 8 | 88 | 88 | 176 |"
         in REPORT
     )
+
+
+def test_higher_priority_backfilled_survivor_precedes_accepted_lower_priority_finding() -> None:
+    assert (
+        "After backfill, order the complete set of accepted and backfilled primary findings\n"
+        "together: correctness before Cleanup and `CONFIRMED` before `PLAUSIBLE`. Within\n"
+        "those precedence constraints, retain Synthesis's reasoned severity order;\n"
+        "preserve base order among equivalent backfilled findings."
+        in REPORT
+    )
