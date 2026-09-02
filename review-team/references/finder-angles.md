@@ -75,6 +75,11 @@ candidates[]: {
 }
 ```
 
+Keep `summary` to one terse sentence. Keep `failure_scenario` to one terse sentence
+when that sentence can still name the observable wrong output, crash, data loss,
+security effect, wasted work, or concrete maintenance cost. Use a second sentence
+only when it is necessary to preserve the trigger or consequence.
+
 Use a repository-relative path when possible. Cite a changed line or the best
 changed-file anchor. Describe an observable wrong output, crash, data loss,
 security effect, wasted work, or concrete maintenance cost—not merely an

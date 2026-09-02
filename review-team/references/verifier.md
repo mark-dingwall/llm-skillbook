@@ -205,6 +205,14 @@ Evidence must cite the relevant code, guard, invariant, rule, or concrete cost.
 Return the strongest evidence-backed verdicts; never confirm, refute, or invent
 a claim merely to make the response look decisive.
 
+Keep `evidence` to one terse sentence when that sentence can still cite the
+relevant code, guard, invariant, rule, or concrete cost and satisfy the selected
+verdict ladder. Use additional sentences only for evidence necessary to the
+verdict or a supported refinement. Apply the same terse-field rules to refinements and replacements.
+Their `summary` is one terse sentence, and their
+`failure_scenario` is one terse sentence unless a second is necessary to
+preserve the trigger or consequence.
+
 ## Prompt recipe
 
 Build every Verifier prompt in this order:

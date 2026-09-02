@@ -55,3 +55,12 @@ def test_higher_priority_backfilled_survivor_precedes_accepted_lower_priority_fi
         "preserve base order among equivalent backfilled findings."
         in REPORT
     )
+
+
+def test_report_fields_favor_terse_evidence_complete_language() -> None:
+    assert "Keep `summary` to one terse sentence." in FINDER
+    assert "Keep `failure_scenario` to one terse sentence" in FINDER
+    assert "Keep `evidence` to one terse sentence when that sentence" in VERIFIER
+    assert "Apply the same terse-field rules to refinements and replacements." in VERIFIER
+    assert "Do not repeat the same mechanism across fields." in REPORT
+    assert "Never omit evidence required by the applicable verdict ladder." in REPORT

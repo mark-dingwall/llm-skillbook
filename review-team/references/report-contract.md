@@ -467,6 +467,11 @@ concise verifier evidence
 same-root-cause locations, when merged
 ```
 
+Favor terse language. Keep the imperative title on one line and keep the
+failure scenario or cleanup cost and verifier evidence to one sentence each
+when their required meaning remains complete. Do not repeat the same mechanism across fields.
+Never omit evidence required by the applicable verdict ladder.
+
 Follow findings with a short assessment and stats containing:
 
 ```text
