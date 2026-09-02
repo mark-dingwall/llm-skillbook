@@ -218,6 +218,46 @@ def test_implementation_snapshot_rejects_a_fifo_without_blocking(tmp_path: Path)
     assert observed.stderr == "path=src/app.py\n"
 
 
+def test_implementation_snapshot_reports_an_unstaged_deleted_tracked_path_as_drift(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    target = repo / "src/app.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("committed\n")
+    commit(repo, "add implementation", "src/app.py")
+    target.unlink()
+    observed = check(
+        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
+        "--dispatch-id", "implementation-1",
+    )
+    assert observed.returncode == 1
+    assert observed.stdout == "FF-CHECK v1 gate=implementation-snapshot status=fail\n"
+    assert observed.stderr == "path=src/app.py\n"
+
+
+def test_implementation_snapshot_reports_a_tracked_path_behind_a_non_directory_as_drift(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    target = repo / "src/app.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("committed\n")
+    commit(repo, "add implementation", "src/app.py")
+    target.unlink()
+    target.parent.rmdir()
+    target.parent.write_text("not a directory\n")
+    observed = check(
+        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
+        "--dispatch-id", "implementation-1",
+    )
+    assert observed.returncode == 1
+    assert observed.stdout == "FF-CHECK v1 gate=implementation-snapshot status=fail\n"
+    assert observed.stderr == "path=src\npath=src/app.py\n"
+
+
 def test_implementation_snapshot_rejects_same_size_dirt_hidden_by_git_stat_cache(
     tmp_path: Path,
 ) -> None:

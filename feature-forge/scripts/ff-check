@@ -719,7 +719,11 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
             path = raw_path.decode("utf-8")
             if path in allowed:
                 continue
-            observed = (repo / path).lstat().st_mode
+            try:
+                observed = (repo / path).lstat().st_mode
+            except (FileNotFoundError, NotADirectoryError):
+                mismatches.add(path)
+                continue
             expected = {
                 b"100644": stat.S_ISREG(observed) and not bool(observed & 0o111),
                 b"100755": stat.S_ISREG(observed) and bool(observed & 0o111),
