@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CHECKER, check, head, make_repo, run_dir, write_ledger
+from conftest import CHECKER, check, head, make_primary_repo, make_repo, run_dir, write_ledger
 
 
 def assert_result(result, gate: str, status: str, code: int) -> None:
@@ -21,6 +21,15 @@ def assert_result(result, gate: str, status: str, code: int) -> None:
 def test_runs_passes_when_no_matching_inventory_exists(tmp_path: Path) -> None:
     result = check("runs", "--repo", str(make_repo(tmp_path, branch="feature/other")), "--run-id", "alpha")
     assert_result(result, "runs", "pass", 0)
+
+
+def test_runs_rejects_the_primary_checkout_as_a_canonical_run_worktree(tmp_path: Path) -> None:
+    repo = make_primary_repo(tmp_path)
+    write_ledger(run_dir(repo), head(repo))
+    assert_result(
+        check("runs", "--repo", str(repo), "--run-id", "alpha"),
+        "runs", "fail", 1,
+    )
 
 
 def test_runs_accepts_one_matching_active_ledger_branch_and_worktree(tmp_path: Path) -> None:
@@ -156,6 +165,16 @@ def test_runs_treats_malformed_identity_fields_as_unverifiable(tmp_path: Path, f
     assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
 
 
+def test_runs_treats_a_nul_in_the_ledger_worktree_as_unverifiable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    data["worktree"] = f"{repo}\0forged"
+    write_ledger(run_dir(repo), data)
+    observed = check("runs", "--repo", str(repo), "--run-id", "alpha")
+    assert_result(observed, "runs", "unverifiable", 2)
+    assert "Traceback" not in observed.stderr
+
+
 def test_runs_rejects_canonical_directory_with_a_different_supported_head(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     write_ledger(run_dir(repo), head(repo, run_id="other", branch="feature/other"))
@@ -202,6 +221,20 @@ def test_runs_rejects_a_symlinked_canonical_ledger(tmp_path: Path) -> None:
     ledger.rename(external)
     ledger.symlink_to(external)
     assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
+def test_runs_rejects_a_matching_ledger_beneath_a_noncanonical_symlink(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, branch="feature/other")
+    external = tmp_path / "external-run"
+    external.mkdir()
+    write_ledger(external, head(repo))
+    root = repo / "docs" / "feature-forge" / "runs"
+    root.mkdir(parents=True)
+    (root / "alias").symlink_to(external, target_is_directory=True)
+    assert_result(
+        check("runs", "--repo", str(repo), "--run-id", "alpha"),
+        "runs", "unverifiable", 2,
+    )
 
 
 def test_runs_rejects_a_symlinked_runs_root(tmp_path: Path) -> None:

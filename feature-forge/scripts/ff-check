@@ -6,6 +6,7 @@ import argparse
 import calendar
 import hashlib
 import json
+import os
 import re
 import stat
 import subprocess
@@ -47,7 +48,7 @@ def git(repo: Path, *args: str) -> str | None:
     try:
         result = subprocess.run(["git", "-C", str(repo), *args], text=True,
                                 capture_output=True, check=False)
-    except (OSError, UnicodeError):
+    except (OSError, UnicodeError, ValueError):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
 
@@ -58,7 +59,7 @@ def git_bytes(repo: Path, *args: str) -> bytes | None:
         observed = subprocess.run(
             ["git", "-C", str(repo), *args], capture_output=True, check=False,
         )
-    except OSError:
+    except (OSError, ValueError):
         return None
     return observed.stdout if observed.returncode == 0 else None
 
@@ -69,7 +70,7 @@ def git_status(repo: Path, *args: str) -> int | None:
         observed = subprocess.run(
             ["git", "-C", str(repo), *args], capture_output=True, check=False,
         )
-    except OSError:
+    except (OSError, ValueError):
         return None
     return observed.returncode
 
@@ -93,6 +94,21 @@ def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical
 def repository(path: str) -> Path | None:
     root = git(Path(path), "rev-parse", "--show-toplevel")
     return Path(root).resolve() if root else None
+
+
+def linked_worktree(repo: Path) -> bool | None:
+    """Distinguish an isolated linked worktree from the primary checkout."""
+    git_dir = git(repo, "rev-parse", "--absolute-git-dir")
+    common = git(repo, "rev-parse", "--git-common-dir")
+    if git_dir is None or common is None:
+        return None
+    try:
+        common_path = Path(common)
+        if not common_path.is_absolute():
+            common_path = repo / common_path
+        return Path(git_dir).resolve() != common_path.resolve()
+    except (OSError, ValueError):
+        return None
 
 
 def result(status: Literal["pass", "fail", "unverifiable"], *findings: str) -> Result:
@@ -164,7 +180,7 @@ def run_head_error(repo: Path, data: dict[str, object]) -> str | None:
                                         data.get("branch"), data.get("status"))
     if not isinstance(run_id, str) or not valid_run_id(repo, run_id):
         return "run-id=unsupported"
-    if not isinstance(worktree, str) or not Path(worktree).is_absolute():
+    if not isinstance(worktree, str) or "\0" in worktree or not Path(worktree).is_absolute():
         return "worktree=unsupported"
     if not isinstance(branch, str) or git(repo, "check-ref-format", "--branch", branch) is None:
         return "branch=unsupported"
@@ -248,6 +264,12 @@ def runs(repo_arg: str, run_id: str) -> Result:
             canonical_requested = valid_date(directory.name, run_id)
             if canonical_requested and not exact_directory(repo, directory):
                 diagnostics.append(f"run={directory.relative_to(repo).as_posix()}:occupied")
+                continue
+            if not exact_directory(repo, directory):
+                redirected_ledger = directory / "ledger.md"
+                if directory.is_symlink() and redirected_ledger.exists():
+                    relative = redirected_ledger.relative_to(repo).as_posix()
+                    unverifiable.append(f"ledger={relative}:unreadable")
                 continue
             if not directory.is_dir():
                 continue
@@ -694,7 +716,11 @@ def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | No
         return "run=unsupported"
     if data.get("status") not in {"active", "blocked", "complete"}:
         return "status=unsupported"
-    if not isinstance(data.get("worktree"), str) or not Path(str(data["worktree"])).is_absolute():
+    if (
+        not isinstance(data.get("worktree"), str)
+        or "\0" in str(data["worktree"])
+        or not Path(str(data["worktree"])).is_absolute()
+    ):
         return "worktree=unsupported"
     if not isinstance(data.get("branch"), str) or git(repo, "check-ref-format", "--branch", str(data["branch"])) is None:
         return "branch=unsupported"
@@ -808,6 +834,10 @@ def implementation_snapshot_digest(repo: Path, run: Path, dispatch_id: object) -
     }
     digest = hashlib.sha256()
 
+    def frame(value: bytes) -> None:
+        digest.update(len(value).to_bytes(8, "big"))
+        digest.update(value)
+
     def visit(directory: Path, prefix: PurePosixPath) -> bool:
         try:
             entries = sorted(directory.iterdir(), key=lambda item: item.name)
@@ -818,20 +848,32 @@ def implementation_snapshot_digest(repo: Path, run: Path, dispatch_id: object) -
             if relative == ".git" or relative in excluded:
                 continue
             try:
-                mode = entry.lstat().st_mode
+                metadata = entry.lstat()
+                mode = metadata.st_mode
                 encoded = relative.encode("utf-8")
                 if stat.S_ISDIR(mode):
                     if not visit(entry, prefix / entry.name):
                         return False
                     continue
-                digest.update(encoded + b"\0" + f"{stat.S_IFMT(mode):o}:{stat.S_IMODE(mode):o}".encode() + b"\0")
+                mode_bytes = f"{stat.S_IFMT(mode):o}:{stat.S_IMODE(mode):o}".encode()
                 if stat.S_ISLNK(mode):
-                    digest.update(entry.readlink().as_posix().encode("utf-8") + b"\0")
+                    digest.update(b"L")
+                    frame(encoded)
+                    frame(mode_bytes)
+                    frame(os.fsencode(os.readlink(entry)))
                 elif stat.S_ISREG(mode):
+                    digest.update(b"F")
+                    frame(encoded)
+                    frame(mode_bytes)
+                    expected_size = metadata.st_size
+                    digest.update(expected_size.to_bytes(8, "big"))
+                    observed_size = 0
                     with entry.open("rb") as stream:
                         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                             digest.update(chunk)
-                    digest.update(b"\0")
+                            observed_size += len(chunk)
+                    if observed_size != expected_size or entry.lstat().st_size != expected_size:
+                        return False
                 else:
                     return False
             except (OSError, UnicodeError):
@@ -857,6 +899,13 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
     suffix = DATED_DIRECTORY.fullmatch(run.name)
     assert suffix is not None
     expected_branch = f"feature/{suffix.group(4)}"
+    linked = linked_worktree(repo)
+    if linked is None:
+        return result("unverifiable", "worktree=unavailable")
+    if not linked:
+        return result("fail", "worktree=primary")
+    if data["worktree"] != str(repo):
+        return result("fail", "worktree=wrong-run")
     if data["branch"] != expected_branch:
         return result("fail", "branch=wrong-run")
     base = commit_identity(repo, data["base_identity"])
@@ -883,13 +932,22 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
 
 def receipt_source_matches(
     repo: Path, run: Path, review: dict[str, object], payload: dict[str, object],
+    *, observe_current: bool,
 ) -> Result:
     source = payload["source_identity"]
     assert isinstance(source, dict)
     if review["kind"] in {"specification", "plan"}:
         path = canonical_candidate_path(run, str(review["kind"]))
-        if source.get("kind") != "candidate_sha256" or source.get("path") != path:
+        value = source.get("value")
+        if (
+            source.get("kind") != "candidate_sha256"
+            or source.get("path") != path
+            or not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        ):
             return result("fail", "receipt=source-mismatch")
+        if not observe_current:
+            return result("pass")
         try:
             digest = hashlib.sha256((repo / path).read_bytes()).hexdigest()
         except OSError:
@@ -900,13 +958,17 @@ def receipt_source_matches(
     value = source.get("value")
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
         return result("fail", "receipt=source-mismatch")
+    if not observe_current:
+        return result("pass")
     observed = implementation_snapshot_digest(repo, run, review["dispatch_id"])
     if observed is None:
         return result("unverifiable", "receipt=source-unavailable")
     return result("pass") if value == observed else result("fail", "receipt=source-mismatch")
 
 
-def audit_receipt(repo: Path, run: Path, review: dict[str, object]) -> Result:
+def audit_receipt(
+    repo: Path, run: Path, review: dict[str, object], *, observe_current: bool,
+) -> Result:
     expected = expected_receipt_path(repo, run, review["dispatch_id"])
     if expected is None:
         return result("unverifiable", "review=unsupported")
@@ -928,7 +990,9 @@ def audit_receipt(repo: Path, run: Path, review: dict[str, object]) -> Result:
         or payload["actionable_finding_ids"] != review["open_finding_ids"]
     ):
         return result("fail", "receipt=mismatch")
-    return receipt_source_matches(repo, run, review, payload)
+    return receipt_source_matches(
+        repo, run, review, payload, observe_current=observe_current,
+    )
 
 
 def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result:
@@ -945,12 +1009,20 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
     valid, receipt_required = review_state_invariant(review)
     if not valid:
         return result("fail", "review=inconsistent")
-    if (
+    implementation_return = (
         review["kind"] == "implementation"
         and review["reviewed_commit"] is not None
-        and commit_identity(repo, review["reviewed_commit"]) != "valid"
-    ):
-        return result("unverifiable", "reviewed-commit=unresolvable")
+    )
+    if implementation_return:
+        if commit_identity(repo, review["reviewed_commit"]) != "valid":
+            return result("unverifiable", "reviewed-commit=unresolvable")
+        ancestry = git_status(
+            repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD",
+        )
+        if ancestry not in {0, 1}:
+            return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+        if ancestry == 1:
+            return result("fail", "reviewed-commit=not-ancestor")
     expected = expected_receipt_path(repo, run, review["dispatch_id"])
     if review["state"] == "review_active":
         if expected is None:
@@ -966,7 +1038,23 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
     )
     if must_block and review["state"] != "blocked":
         return result("fail", "review=must-block")
-    return audit_receipt(repo, run, review) if receipt_required else result("pass")
+    if (
+        review["state"] == "blocked"
+        and receipt_required
+        and bool(review["open_finding_ids"])
+        and not must_block
+    ):
+        return result("fail", "review=premature-block")
+    observe_current = review["state"] != "changes_required"
+    if implementation_return and review["state"] == "changes_required":
+        current_head = git(repo, "rev-parse", "HEAD")
+        if current_head is None:
+            return result("unverifiable", "reviewed-commit=head-unavailable")
+        observe_current = current_head == review["reviewed_commit"]
+    return (
+        audit_receipt(repo, run, review, observe_current=observe_current)
+        if receipt_required else result("pass")
+    )
 
 
 def audit(repo_arg: str, run_arg: str) -> Result:
@@ -1008,6 +1096,11 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     observed_branch = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
     if observed_branch is None:
         return result("unverifiable", "branch=unavailable")
+    linked = linked_worktree(repo)
+    if linked is None:
+        return result("unverifiable", "worktree=unavailable")
+    if not linked:
+        return result("fail", "worktree=primary")
     worktree, branch, base = data.get("worktree"), data.get("branch"), data.get("base_identity")
     if not all(isinstance(value, str) for value in (worktree, branch, base)):
         return result("unverifiable", "ledger-identity=unsupported")

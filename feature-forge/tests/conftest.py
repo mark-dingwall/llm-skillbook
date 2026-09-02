@@ -16,7 +16,7 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True).stdout.strip()
 
 
-def make_repo(tmp_path: Path, branch: str = "feature/alpha") -> Path:
+def make_primary_repo(tmp_path: Path, branch: str = "feature/alpha") -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-q")
@@ -27,6 +27,13 @@ def make_repo(tmp_path: Path, branch: str = "feature/alpha") -> Path:
     git(repo, "commit", "-qm", "seed")
     git(repo, "checkout", "-qb", branch)
     return repo
+
+
+def make_repo(tmp_path: Path, branch: str = "feature/alpha") -> Path:
+    primary = make_primary_repo(tmp_path, "main")
+    worktree = tmp_path / "worktree"
+    git(primary, "worktree", "add", "-qb", branch, str(worktree), "HEAD")
+    return worktree
 
 
 def head(repo: Path, run_id: str = "alpha", *, status: str = "active",

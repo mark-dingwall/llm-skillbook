@@ -7,6 +7,7 @@ Task-2 validators in `prompts.py` actually accept. A model that follows a
 role resource whose content these tests protect should produce output that
 passes the matching `validate_role_json`/`validate_review_report` validator.
 """
+import json
 import unittest
 from pathlib import Path
 
@@ -80,6 +81,17 @@ class RoleFieldContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, text)
         self.assertIn("empty array", text)
+
+    def test_inventory_revision_example_uses_valid_json_grammar(self):
+        text = _read("inventory.md")
+        example = text.split("exactly one `", 1)[1].split("`", 1)[0]
+        rendered = example.replace("ID", json.dumps("challenge-1")).replace(
+            "STRING", json.dumps("resolution text")
+        )
+        self.assertEqual(
+            json.loads(rendered),
+            {"challenge_id": "challenge-1", "resolution": "resolution text"},
+        )
 
     def test_shared_review_prompt_states_strict_finding_constraints(self):
         text = _read("review.md")

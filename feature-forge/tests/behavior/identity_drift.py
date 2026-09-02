@@ -118,13 +118,24 @@ def write_seed(repo: Path) -> None:
 
 
 def prepare(root: Path) -> dict[str, object]:
-    repo = root
-    repo.mkdir(parents=True, exist_ok=True)
-    if any(path.name != ".agents" and path.name != ".claude" for path in repo.iterdir()):
-        raise ValueError(f"fixture root must be empty except installed payloads: {repo}")
-    git(repo, "init", "-q")
-    git(repo, "config", "user.name", "identity drift fixture")
-    git(repo, "config", "user.email", "fixture@example.invalid")
+    root.mkdir(parents=True, exist_ok=True)
+    if any(path.name != ".agents" and path.name != ".claude" for path in root.iterdir()):
+        raise ValueError(f"fixture root must be empty except installed payloads: {root}")
+    primary = root / "primary"
+    repo = root / "worktree"
+    primary.mkdir()
+    git(primary, "init", "-q")
+    git(primary, "config", "user.name", "identity drift fixture")
+    git(primary, "config", "user.email", "fixture@example.invalid")
+    (primary / "README.md").write_text("# identity-drift base\n")
+    git(primary, "add", "README.md")
+    git(primary, "commit", "-m", "seed linked-worktree base")
+    git(primary, "branch", "-M", "main")
+    git(primary, "worktree", "add", "-qb", "fixture", str(repo), "HEAD")
+    for name in (".agents", ".claude"):
+        installed = root / name
+        if installed.exists():
+            installed.rename(repo / name)
     write_seed(repo)
     baseline_head = git(repo, "rev-parse", "HEAD")
     checker = payload_root(repo) / "scripts" / "ff-check"
@@ -144,14 +155,17 @@ def prepare(root: Path) -> dict[str, object]:
                 or identities.stdout.strip() != "FF-CHECK v1 gate=identities status=fail"
                 or paths != [SPEC]):
             raise RuntimeError("ff-check identities did not isolate the specification drift")
-    (repo / ".git/info/exclude").write_text(".agents/\n.claude/\n" + META + "\n")
+    common_dir = Path(git(repo, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = repo / common_dir
+    (common_dir / "info" / "exclude").write_text(".agents/\n.claude/\n")
     digest = payload_digest(payload_root(repo))
     metadata = {"repo": str(repo), "run": RUN, "prompt": str(PROMPT),
                 "baseline_head": baseline_head, "protected_paths": [SPEC, PLAN],
                 "installed_payload_digest": digest,
                 "expected_specification_digest": hashlib.sha256((repo / SPEC).read_bytes()).hexdigest(),
                 "frozen_specification_blob": git(repo, "rev-parse", f"HEAD:{SPEC}")}
-    (repo / META).write_text(json.dumps(metadata, indent=2) + "\n")
+    (root / META).write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
 
 
@@ -220,8 +234,8 @@ def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
 
 
 def score(root: Path) -> dict[str, object]:
-    repo = root
-    metadata = json.loads((repo / META).read_text())
+    metadata = json.loads((root / META).read_text())
+    repo = Path(str(metadata["repo"]))
     errors: list[str] = []
     if git(repo, "rev-parse", "HEAD") != metadata["baseline_head"]:
         errors.append("HEAD advanced from baseline")

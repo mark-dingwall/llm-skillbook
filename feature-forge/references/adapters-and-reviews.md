@@ -220,15 +220,23 @@ For every review round, the controller must:
 1. Capture source identity before materializing: SHA-256 plus canonical path
    for a Specification or Plan candidate, or the `implementation-snapshot`
    digest plus null path and source `HEAD` for Implementation. The snapshot
-   digest covers every subject path, type, mode, and content while excluding
-   only the current ledger, reserved receipt, and stage-owned final report.
-   Materialize the exact subject, create its one disposable
-   bootstrap commit, and pass that exact commit as `InvocationIntent.base`.
-2. Call `create_run` and retain its returned external run reference and target
-   seal. Allocate a fresh filename-safe dispatch ID and reserve the absent
-   canonical receipt path
-   `docs/feature-forge/runs/YYYY-MM-DD-<run-id>/reviews/<dispatch-id>.json`.
-   Persist a fully populated `review_active` head before any semantic call.
+   digest covers every materialized regular file and declared symlink path,
+   type, mode, and content while excluding only the current ledger, reserved
+   receipt, and stage-owned final report. Materialize the exact subject and
+   create its one disposable bootstrap commit. Allocate a fresh filename-safe
+   dispatch ID, caller-chosen external run root, and absent canonical receipt
+   path `docs/feature-forge/runs/YYYY-MM-DD-<run-id>/reviews/<dispatch-id>.json`.
+   Before `create_run`, persist a pre-dispatch blocked head whose sole next
+   action is create-or-recover, plus transition evidence containing those exact
+   three reserved identities and the captured source identity.
+2. Pass the reserved external root as `InvocationIntent.run_root`, the bootstrap
+   commit as `InvocationIntent.base`, and call `create_run`. Retain its returned
+   run reference and target seal, then atomically replace the reservation with
+   a fully populated `review_active` head before any semantic call. After an
+   interruption, reuse only the recorded reservation: retry at that exact root
+   when it is absent; when it already contains external state that the public
+   controller cannot safely reconstruct, remain blocked rather than allocate or
+   dispatch a duplicate run.
 3. Select the exact target described above; seal frozen **ground truth** through
    `InvocationIntent.ground_truth`, mount the same paths through
    `CallRequest.input_paths`, and render the applicable focus, pass criterion,
@@ -263,6 +271,13 @@ status or transcripts alone cannot reconstruct a controller return; retain
 `review_active` and block instead. Only explicit user authority may abandon
 that review for a fresh linked round, recording the prior run reference and
 reason in history.
+
+The controller performs step 5's source comparison before recording a returned
+receipt. Once `changes_required` authorizes a between-round correction, later
+audits validate the historical receipt's exact source-identity shape instead of
+comparing it with the corrected tree; an implementation return additionally
+requires its reviewed commit to remain an ancestor of current `HEAD`. The next
+review reservation captures and checks the corrected source anew.
 
 Fixes occur only between rounds, never during an active round. For
 Specification review and Plan review, a fix to the candidate need not be

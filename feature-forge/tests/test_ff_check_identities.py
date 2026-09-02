@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CHECKER, check, git, head, make_repo, run_dir, write_ledger
+from conftest import CHECKER, check, git, head, make_primary_repo, make_repo, run_dir, write_ledger
 
 
 def assert_result(result: subprocess.CompletedProcess[str], status: str, code: int) -> None:
@@ -38,6 +38,24 @@ def identity_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
 def test_identities_accepts_matching_worktree_branch_base_and_blobs(tmp_path: Path) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+def test_identities_rejects_the_primary_checkout(tmp_path: Path) -> None:
+    repo = make_primary_repo(tmp_path)
+    specification = "docs/superpowers/specs/2026-08-25-alpha-design.md"
+    target = repo / specification
+    target.parent.mkdir(parents=True)
+    target.write_text("specification\n")
+    frozen = {
+        "specification": {"path": specification, "blob": git(repo, "hash-object", "-w", specification)},
+        "plan": None,
+    }
+    directory = run_dir(repo)
+    write_ledger(directory, head(repo, frozen=frozen))
+    assert_result(
+        check("identities", "--repo", str(repo), "--run", str(directory)),
+        "fail", 1,
+    )
 
 
 def test_identities_rejects_observed_branch_redirected_from_the_run_id(tmp_path: Path) -> None:

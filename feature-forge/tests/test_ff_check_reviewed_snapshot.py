@@ -90,6 +90,15 @@ def invoke(repo: Path, directory: Path) -> subprocess.CompletedProcess[str]:
     return check("reviewed-snapshot", "--repo", str(repo), "--run", str(directory))
 
 
+def snapshot_digest(repo: Path, directory: Path, dispatch_id: str = "implementation-1") -> str:
+    observed = check(
+        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
+        "--dispatch-id", dispatch_id,
+    )
+    assert observed.returncode == 0, observed.stderr
+    return observed.stderr.strip().removeprefix("snapshot=")
+
+
 def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
     files = {
         path.relative_to(repo).as_posix(): path.read_bytes()
@@ -100,6 +109,31 @@ def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
         capture_output=True, check=True,
     ).stdout
     return files, status
+
+
+def test_implementation_snapshot_length_frames_file_records(tmp_path: Path) -> None:
+    roots = [tmp_path / "left", tmp_path / "right"]
+    for root in roots:
+        root.mkdir()
+    left, right = (make_repo(root) for root in roots)
+    left_run, right_run = run_dir(left), run_dir(right)
+    second_header = b"b\x00100000:644\x00"
+    (left / "a").write_bytes(b"x")
+    (left / "b").write_bytes(b"p\x00" + second_header + b"q")
+    (right / "a").write_bytes(b"x\x00" + second_header + b"p")
+    (right / "b").write_bytes(b"q")
+    assert snapshot_digest(left, left_run) != snapshot_digest(right, right_run)
+
+
+def test_implementation_snapshot_hashes_the_raw_symlink_target(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    link = repo / "link"
+    os.symlink("target//file", link)
+    before = snapshot_digest(repo, directory)
+    link.unlink()
+    os.symlink("./target/file", link)
+    assert snapshot_digest(repo, directory) != before
 
 
 def test_reviewed_snapshot_accepts_exact_reviewed_head_without_interpreting_target_seal(tmp_path: Path) -> None:
@@ -382,7 +416,10 @@ def test_reviewed_snapshot_requires_an_exact_implementation_source_identity(
 
 def test_reviewed_snapshot_rejects_an_ignored_file_added_after_review(tmp_path: Path) -> None:
     repo, directory, _ = reviewed_fixture(tmp_path)
-    (repo / ".git" / "info" / "exclude").write_text("ignored.cache\n")
+    common_dir = Path(git(repo, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = repo / common_dir
+    (common_dir / "info" / "exclude").write_text("ignored.cache\n")
     (repo / "ignored.cache").write_text("post-review ignored content\n")
     assert_result(invoke(repo, directory), "fail", 1)
 

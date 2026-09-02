@@ -75,7 +75,7 @@ Only review-loop owns review target seals.
 | Review target seal | Seal for review-loop materialized target | review-loop only |
 | Frozen identity | canonical path plus Git blob | ff-check identities |
 | Reviewed implementation commit | source HEAD reviewed by the current returned implementation review | ff-check audit/reviewed-snapshot |
-| Implementation source snapshot | SHA-256 seal of every reviewed source path, type, mode, and content except the mutable ledger, reserved receipt, and stage-owned final report | ff-check implementation-snapshot/reviewed-snapshot |
+| Implementation source snapshot | SHA-256 seal of every reviewed regular-file and declared-symlink path, type, mode, and content except the mutable ledger, reserved receipt, and stage-owned final report | ff-check implementation-snapshot/reviewed-snapshot |
 
 These identities are not interchangeable; Feature Forge cannot derive a review
 target seal from a source commit. A human transition row records `event`,
@@ -144,8 +144,11 @@ pass on the post-fix snapshot. Preserve the TRIAGE outcome and open finding
 IDs, stable run reference, stage charter, completion criterion, and content
 seal for every review.
 
-Persist a complete ledger update before each external dispatch and immediately
-after each return. A transition-log row has event ID, parent event, UTC time,
+Persist a complete ledger update before each external operation and immediately
+after each return. Before review-loop run creation, that update is the safe
+pre-dispatch blocked reservation defined by the adapter contract; it records the
+caller-chosen external root and dispatch identities before `create_run` can
+create durable state. A transition-log row has event ID, parent event, UTC time,
 from/to state, sole next permitted action, session provenance,
 reason/authority, and evidence reference. A missing recorded return is
 recovered from its referenced dispatch before re-dispatch.

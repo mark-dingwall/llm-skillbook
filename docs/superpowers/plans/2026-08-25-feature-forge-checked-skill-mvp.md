@@ -1,5 +1,7 @@
 # Feature Forge Checked-Skill MVP Implementation Plan
 
+**Status:** Active
+
 > **For agentic workers:** REQUIRED AUTHORITIES: Use
 > `superpowers:writing-skills` across the behavior-shaping Feature Forge change:
 > Task 1 records the no-guidance RED baseline before instruction edits and Task

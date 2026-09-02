@@ -267,6 +267,49 @@ def test_audit_accepts_each_returned_review_shape(
     assert_result(invoke(repo, directory), "pass", 0)
 
 
+def test_audit_accepts_a_candidate_correction_between_review_rounds(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(
+        repo, directory, data, kind="specification", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    specification = repo / data["frozen"]["specification"]["path"]
+    specification.write_text("corrected specification\n")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_audit_accepts_a_committed_implementation_correction_between_rounds(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    (repo / "README.md").write_text("corrected implementation\n")
+    git(repo, "add", "README.md")
+    git(repo, "commit", "-qm", "correct implementation")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_audit_rejects_an_unrelated_reviewed_commit_for_an_implementation_return(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    tree = git(repo, "rev-parse", "HEAD^{tree}")
+    unrelated = subprocess.run(
+        ["git", "commit-tree", tree], cwd=repo, input="unrelated\n", text=True,
+        check=True, capture_output=True,
+    ).stdout.strip()
+    review["reviewed_commit"] = unrelated
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
 @pytest.mark.parametrize(("state", "round_number", "opened"), [
     ("changes_required", 1, ["F-1"]),
     ("blocked", 0, []),
@@ -414,6 +457,19 @@ def test_audit_accepts_both_blocked_dispatch_cardinalities(tmp_path: Path) -> No
     assert_result(invoke(repo, directory), "pass", 0)
 
 
+def test_audit_accepts_a_between_round_pre_dispatch_reservation(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="create-or-recover")
+    data["review"] = {
+        "kind": "specification", "state": "blocked", "round": 1,
+        "root_identity": "spec-root-2", "dispatch_id": None, "run_ref": None,
+        "target_seal": None, "evidence_path": None, "reviewed_commit": None,
+        "previous_open_finding_ids": [], "open_finding_ids": ["F-1"],
+    }
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
 def test_audit_rejects_a_partial_blocked_dispatch_tuple(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
     data["review"] = {
@@ -476,6 +532,15 @@ def test_audit_treats_wrong_review_scalar_types_as_unverifiable(
     assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
+def test_audit_treats_a_nul_in_the_ledger_branch_as_unverifiable(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["branch"] = "feature/alpha\0forged"
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert "Traceback" not in observed.stderr
+
+
 def test_audit_requires_reviewed_commit_only_for_implementation_pass(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
     review = returned_review(repo, directory, data, kind="implementation", state="pass")
@@ -495,6 +560,15 @@ def test_audit_fails_unblocked_cap_or_oscillation_state(
     returned_review(
         repo, directory, data, state="changes_required", round_number=round_number,
         previous=previous, opened=opened,
+    )
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_audit_rejects_blocked_before_the_actionable_return_boundary(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(
+        repo, directory, data, state="blocked", round_number=1,
+        previous=[], opened=["F-1"],
     )
     assert_result(invoke(repo, directory), "fail", 1)
 
