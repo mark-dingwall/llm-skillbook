@@ -173,7 +173,7 @@ when explicitly nominated. Report a convention candidate only when it cites
 the exact instruction-file path, quotes the exact rule, and names the exact
 changed line that violates it. Do not infer unstated style preferences.
 
-Correctness defects outrank Cleanup findings when the final cap forces a cut.
+Correctness survivors precede Cleanup survivors in base and final ordering.
 
 ## Sweep
 

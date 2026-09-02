@@ -44,9 +44,9 @@ Scope capture → Find barrier → normalize and group → Verify
 
 1. Capture Scope in the controller: pin the repository and immutable content
    diffs, then derive changed files, instruction files, restrictions, and a
-   factual summary. Before Finder dispatch, emit the canonical schedule and
-   closed `ceilings` record from the report contract; return them in final
-   stats.
+   factual summary. Before Finder dispatch, emit the closed report policy,
+   canonical schedule, and numeric `ceilings` record from the report contract;
+   return them in final stats.
 2. Dispatch every configured Finder in capacity-safe waves. Wait for the
    complete Finder barrier before ingesting any results.
 3. Apply the controller-owned normalization, identity, category, grouping, and
@@ -56,7 +56,7 @@ Scope capture → Find barrier → normalize and group → Verify
 5. At `xhigh`, dispatch the required gap-only Sweep with every prior
    adjudication, then independently verify its new candidates and replacements.
 6. Send only verified `CONFIRMED` and `PLAUSIBLE` survivors to optional
-   Synthesis. Assemble and cap the report deterministically.
+   Synthesis. Assemble the complete report deterministically.
 
 Use the level schedule in the report contract. Do not copy its role or cap
 values into another live file.

@@ -34,7 +34,7 @@ scope capture
 → choose exactly one report path:
     usable Synthesis: identity validation → conservative semantic merge/backfill
     Synthesis skipped/failed/unusable: exact fallback deduplication and ordering
-→ report cap and output
+→ complete report output
 ```
 
 No candidate may bypass canonicalization, scope validation, controller identity
@@ -244,10 +244,16 @@ Ignore category fields supplied by a Finder or replacement.
 
 Enforce these aggregate ceilings:
 
-| Level | Correctness finders | Cleanup | Initial max | Sweep max | Finder-output max | Replacement max | All-record max | Report cap |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `high` | A-C, `3 × 6` | `1 × 30` | 48 | 0 | 48 | 48 | 96 | 10 |
-| `xhigh` | A-E, `5 × 8` | `1 × 40` | 80 | 8 | 88 | 88 | 176 | 15 |
+| Level | Correctness finders | Cleanup | Initial max | Sweep max | Finder-output max | Replacement max | All-record max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `high` | A-C, `3 × 6` | `1 × 30` | 48 | 0 | 48 | 48 | 96 |
+| `xhigh` | A-E, `5 × 8` | `1 × 40` | 80 | 8 | 88 | 88 | 176 |
+
+The closed report policy is `allVerifiedSurvivors`. It is not a numeric
+ceiling. Account for every independently verified `CONFIRMED` or `PLAUSIBLE`
+survivor exactly once: as a primary finding, as a member of an explicit
+same-root-cause merge, or as a retained identity in a fallback exact-duplicate
+group. Surface every distinct verified issue and verifier-evidence item.
 
 Slice each role result to its cap before ingest. Replacement max equals the
 number of finder-output records because each eligible source may propose at
@@ -371,8 +377,7 @@ Require decisions by identity rather than rewritten finding text. Validate
 `reportIndex` with the strict actual-integer/range predicate used for
 `groupIndex`, then require strict `candidateId` equality. Index zero is valid;
 numeric strings are invalid. Reject duplicate candidate IDs. Ignore invalid
-individual decisions and backfill their verified records deterministically
-while capacity remains.
+individual decisions and backfill their verified records deterministically.
 
 Require structured Synthesis output in this shape:
 
@@ -390,18 +395,27 @@ decisions[]: {
 
 Validate every primary and merged identity pair against the dispatched ordered
 survivor list. A record may be claimed only once across primary and merge
-positions. Synthesis never re-emits or rewrites candidate text.
+positions. Synthesis never re-emits or rewrites candidate text. Every survivor
+must be claimed by a valid primary or merge identity, or deterministically
+backfilled.
 
 Allow a semantic merge only when the supplied summaries and verifier evidence
 make the same root cause explicit. Synthesis has no diff access; when causality
-is ambiguous, keep records separate. Preserve every affected location. One
-merged root cause consumes one report slot regardless of location count;
-distinct root causes consume distinct slots even at one location.
+is ambiguous, keep records separate. Preserve every affected location. A valid
+same-root-cause merge emits one primary finding carrying every affected
+location; distinct root causes remain distinct findings.
+
+Render every distinct verifier-evidence item from a semantic merge with its
+affected location. Collapse only byte-identical evidence; terse presentation
+must not erase evidence that supports a different merged survivor.
 
 Order accepted decisions most severe first while preserving correctness before
-cleanup and `CONFIRMED` before `PLAUSIBLE`. Backfill every unmentioned survivor
-in base order while report capacity remains. Preserve verifier refinements and
-never promote an unverified replacement.
+cleanup and `CONFIRMED` before `PLAUSIBLE`.
+
+Backfill every unmentioned survivor in base order. Preserve verifier
+refinements and never promote an unverified replacement. After backfill, require
+every dispatched survivor identity to appear exactly once across primary and
+merge positions; otherwise discard Synthesis and use deterministic fallback.
 
 Do not retry Synthesis. A failure or response with no usable decisions selects
 fallback immediately and must not lose verified evidence.
@@ -417,11 +431,21 @@ tuple:
 
 Trim fields and collapse internal whitespace before comparing. Keep the lowest
 `candidateId` as representative and retain the evidence and IDs of its exact
-duplicates. Do not perform semantic merging.
+duplicates. Treat each representative plus its retained exact-duplicate IDs as
+one controller-owned identity group. Those groups must form an exact partition
+of all fallback survivor IDs. Retain every distinct verifier-evidence item and
+collapse only byte-identical evidence before rendering. Do not perform semantic
+merging.
 
-Order the remaining representatives by the survivor total order and take the
-report cap. Label the report as deterministic fallback because Synthesis was
-skipped, failed, or unusable.
+Emit every remaining representative in survivor order. Label the report as
+deterministic fallback because Synthesis was skipped, failed, or unusable.
+
+Every survivor `candidateId` must be accounted for exactly once by a rendered
+primary, a valid semantic merge, or a fallback exact-duplicate group. Preserve
+every distinct verifier-evidence item attached to an accounted survivor. The
+fallback groups must form an exact partition of all fallback survivor IDs.
+`reported` is the number of rendered primary findings after valid semantic
+merges or fallback exact deduplication; it is not the survivor count.
 
 ## Report output
 
@@ -443,6 +467,7 @@ Follow findings with a short assessment and stats containing:
 
 ```text
 level
+reportPolicy: allVerifiedSurvivors
 completedFinders
 candidates
 verifierAgents
@@ -459,13 +484,13 @@ ceilings: {
   finderOutput
   replacement
   allRecords
-  reportCap
 }
 ```
 
-Emit that same closed `ceilings` record when presenting scheduling decisions,
-before dispatch begins. Copy the selected row from “Identity, category, and
-ceilings”; do not reconstruct or duplicate its values elsewhere.
+Emit that closed report policy together with the same numeric `ceilings` record
+when presenting scheduling decisions, before dispatch begins, and in final
+stats. Copy the selected row from “Identity, category, and ceilings”; do not
+reconstruct or duplicate its values elsewhere.
 
 If no record survives, report: “No findings survived independent verification.”
 Do not claim that the reviewed change is safe.
