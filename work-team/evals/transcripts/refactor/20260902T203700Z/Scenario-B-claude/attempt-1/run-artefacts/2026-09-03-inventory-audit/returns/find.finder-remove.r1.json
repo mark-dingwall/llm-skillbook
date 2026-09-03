@@ -1,0 +1,35 @@
+{
+  "verdict": "changes_required",
+  "findings": [
+    {
+      "severity": "blocker",
+      "scope": "spec",
+      "where": "Ledger.remove",
+      "owner": "finder-remove",
+      "path": "audit-target/inventory/stock.py",
+      "issue": "remove() unconditionally does item.qty -= qty and never raises ValueError when qty exceeds current stock, allowing item.qty to go negative silently.",
+      "fix": "Add a check before mutating: if qty > item.qty: raise ValueError(...) prior to `item.qty -= qty`.",
+      "evidence": "SPEC.md: \"`Ledger.remove(sku, qty)`: raise `ValueError` if `qty` exceeds current stock.\" | stock.py lines 22-24: \"def remove(self, sku: str, qty: int) -> None:\\n        item = self.items[sku]\\n        item.qty -= qty\""
+    },
+    {
+      "severity": "important",
+      "scope": "adjacent",
+      "where": "Ledger.remove",
+      "owner": "finder-remove",
+      "path": "audit-target/test_stock.py",
+      "issue": "test_stock.py contains only test_add_and_total; there is no test exercising Ledger.remove() at all, so neither the normal decrement path nor the required ValueError-on-overdraw behavior is covered.",
+      "fix": "Add tests: one asserting a normal remove() decrements qty correctly, and one asserting remove() raises ValueError when qty exceeds current stock (e.g. pytest.raises(ValueError)).",
+      "evidence": "SPEC.md: \"`Ledger.remove(sku, qty)`: raise `ValueError` if `qty` exceeds current stock.\" | test_stock.py lines 1-8 (entire file): \"from inventory.stock import Ledger\\n\\n\\ndef test_add_and_total():\\n    l = Ledger()\\n    l.add(\\\"a\\\", 2, 150)\\n    l.add(\\\"a\\\", 1, 150)\\n    assert l.total_value_cents() == 450\""
+    },
+    {
+      "severity": "minor",
+      "scope": "adjacent",
+      "where": "Ledger.remove",
+      "owner": "finder-remove",
+      "path": "audit-target/inventory/stock.py",
+      "issue": "remove() raises a KeyError (not ValueError) if sku is not present in self.items, since it does `item = self.items[sku]` with no membership check; SPEC.md does not specify behavior for an unknown sku, so this is not a spec violation but is an unhandled edge case worth deciding on.",
+      "fix": "Consider explicitly handling unknown sku (e.g. raise a clear KeyError/ValueError or document the behavior) and add a regression test for it.",
+      "evidence": "SPEC.md is silent on unknown-sku behavior (only bullet present: \"`Ledger.remove(sku, qty)`: raise `ValueError` if `qty` exceeds current stock.\") | stock.py line 23: \"item = self.items[sku]\""
+    }
+  ]
+}

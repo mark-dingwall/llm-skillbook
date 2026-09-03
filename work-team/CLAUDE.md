@@ -34,8 +34,9 @@ charter or promoting spec-silent behaviour to approach a count is a defect.
 artefact a human edits to tune a rerun. Workers in one phase run concurrently
 only when the fan-out predicate in [run-plan.md](references/run-plan.md)
 holds: disjoint `owns` sets, an independently passable `verify` per worker,
-and no same-phase producer/consumer pair. Size workers by verification
-boundary, not by numeric caps.
+and no same-phase producer/consumer pair. The `verify` predicate applies to
+mutable roles; read-only roles are gated by controller validation of their
+structured return. Size workers by verification boundary, not by numeric caps.
 
 Every worker is a fresh, isolated invocation carrying exactly the REQUIRED
 packet parts in [packets.md](references/packets.md); never pass conversation
@@ -89,7 +90,9 @@ python3 -m pytest \
 
 Behavioral changes to SKILL.md or references require a scenario run per
 `evals/run-eval.sh` on both harnesses before merge; record results in `evals/`.
-Install the skill under test as a filtered copy (`install.py` without `--dev`,
-mirrored to `~/.codex/skills`); a symlink exposes `evals/oracle.md` to the
-evaluated agent and invalidates the run. Audit each transcript for reads of
-`evals/` before scoring.
+The runner stages a fresh filtered payload in both project-local discovery
+roots, records immediate before/after snapshots, and rejects an observed
+difference or a successful transcript without a harness-recorded
+read/invocation of the matching staged `SKILL.md` and its per-run marker. A dev
+symlink exposes `evals/oracle.md` to the evaluated agent and invalidates the
+run. Audit each transcript for reads of `evals/` before scoring.

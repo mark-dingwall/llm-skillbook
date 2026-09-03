@@ -1,0 +1,41 @@
+{
+  "run": "previous-run-diagnosis",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": ".agents/skills/work-team/scripts/wt-telemetry run-dir/workflow-log.jsonl",
+      "passed": true,
+      "output": "agent                            entries  span_s  share\nOrchestrator                          18    7877    46%\nfinal-fixer                           13    2067    12%\nimplementer-T9                         7    1097     6%\nimplementer-T16                        4     545     3%\nimplementer-T15                        6     347     2%\nimpl-reviewer-T16                      3     303     2%\nimplementer-T10                        4     241     1%\ntest-writer-T16                        4     194     1%\ntest-writer-T9                         4     180     1%\nimplementer-T5                         4     139     1%\nimpl-reviewer-T9                       4     137     1%\nverifier                               5     129     1%\nplan-reviewer-conflicts-r3             3     125     1%\ntest-reviewer-T4                       3     124     1%\nimplementer-T13                        4     113     1%\n\nrole                         agents entries max_span_s\nOrchestrator                      1      18       7877\nfinal-fixer                       1      13       2067\nimplementer                      16      65       1097\nimpl-reviewer                    16      48        303\ntest-writer                      16      54        194\nverifier                          2       9        129\nplan-reviewer-conflicts           3       9        125\ntest-reviewer                    16      47        124\nplanner                           1       3        107\nplan-reviewer-coverage            3       8         85\ncompleteness-critic               1       3         81\ntest-fixer                        5      17         79\nscaffolder                        1      13         74\nspec-fixer                        2       9         51\nspec-reviewer-testability         3       8         47\nspec-writer                       1       3         40\nspec-reviewer-faithfulness        3       7         36\nspec-reviewer-coherence           3       8         36\nplan-fixer                        2       6         36\nimpl-fixer                        5      15         31",
+      "summary": "Telemetry completed successfully."
+    }
+  ],
+  "residual": [
+    {
+      "kind": "gap",
+      "detail": "No rendering-assertion or other visual-verification entry covers SPEC.md section 5.",
+      "source": "visual-gap-auditor"
+    },
+    {
+      "kind": "finding",
+      "detail": "The prior log retains bed-reorder animation and overdue CSS while the prior result says residual:null.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "diagnosis-synthesizer"
+    },
+    {
+      "kind": "finding",
+      "detail": "The prior final result omits the unresolved renumber item and the preceding verifier/critic history.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "reporting-gap-auditor"
+    }
+  ],
+  "workers": [
+    {"id": "visual-gap-auditor", "role": "reviewer", "status": "ok", "summary": "Found missing visual verification and residual mismatch."},
+    {"id": "telemetry-auditor", "role": "reviewer", "status": "ok", "summary": "Computed wall-clock, summed usage, and concentration."},
+    {"id": "reporting-gap-auditor", "role": "reviewer", "status": "ok", "summary": "Compared reported result with workflow evidence."},
+    {"id": "diagnosis-synthesizer", "role": "reviewer", "status": "ok", "summary": "Validated the evidence-backed diagnostic findings."}
+  ],
+  "plan": ".work-team/previous-run-diagnosis/plan.json",
+  "log": ".work-team/previous-run-diagnosis/workflow-log.jsonl"
+}

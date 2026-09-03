@@ -1,0 +1,34 @@
+{
+  "candidates": [
+    {
+      "evidence": "SPEC.md line 3: 'Ledger.remove(sku, qty): raise ValueError if qty exceeds current stock.' stock.py lines 22-24: 'def remove(self, sku: str, qty: int) -> None:\n    item = self.items[sku]\n    item.qty -= qty' \u2014 no comparison of qty to item.qty and no raise statement anywhere in the method; qty is subtracted unconditionally regardless of whether it exceeds current stock.",
+      "id": "find:finder-remove:r1:F1",
+      "verdict": "confirmed"
+    },
+    {
+      "evidence": "test_stock.py contains exactly one test function, 'test_add_and_total' (lines 4-8), which calls only l.add() and l.total_value_cents(). Ledger.remove is never called/imported/referenced anywhere in the file, so neither the normal-decrement nor the overdraw-ValueError path is exercised.",
+      "id": "find:finder-remove:r1:F2",
+      "verdict": "confirmed"
+    },
+    {
+      "evidence": "stock.py line 23: 'item = self.items[sku]' performs a plain dict subscript with no .get()/try-except, so an unknown sku raises KeyError, not ValueError. SPEC.md (all 4 bullets) makes no mention of unknown-sku handling for remove(), confirming it is silent on this case.",
+      "id": "find:finder-remove:r1:F3",
+      "verdict": "confirmed"
+    },
+    {
+      "evidence": "SPEC.md line 4: 'Ledger.low_stock(threshold): SKUs with qty <= threshold.' stock.py line 30: 'return [i.sku for i in self.items.values() if i.qty < threshold]' uses strict '<', so an item with qty exactly equal to threshold is excluded, contradicting the spec's '<=' requirement.",
+      "id": "find:finder-lowstock:r1:F1",
+      "verdict": "confirmed"
+    },
+    {
+      "evidence": "test_stock.py's only test, 'test_add_and_total' (lines 4-8), calls add() and total_value_cents() only; low_stock is never called or referenced anywhere in the file.",
+      "id": "find:finder-lowstock:r1:F2",
+      "verdict": "confirmed"
+    },
+    {
+      "evidence": "stock.py lines 17-18: 'if sku in self.items:\n    self.items[sku].qty += qty' \u2014 on the existing-sku branch only qty is updated; price_cents (the third parameter to add()) is never assigned to the existing Item, so the original price from the first add() call is retained. SPEC.md bullets (lines 3-6) say nothing about what should happen to price on a repeat add for the same sku.",
+      "id": "find:finder-total:r1:F1",
+      "verdict": "confirmed"
+    }
+  ]
+}

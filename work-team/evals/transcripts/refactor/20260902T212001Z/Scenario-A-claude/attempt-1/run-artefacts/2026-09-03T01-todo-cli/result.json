@@ -1,0 +1,22 @@
+{
+  "run": "2026-09-03T01-todo-cli",
+  "outcome": "partial",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "output": "OK: SPEC.md is non-empty (177 lines)", "summary": "SPEC.md written and non-empty"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "output": "12 tests collected in 0.09s", "summary": "12 tests collected, no collection errors"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "output": "............ [100%]\n12 passed in 0.33s", "summary": "12 passed"},
+    {"command": "manual smoke test in isolated tmp dir: add 'buy milk'; add 'write spec'; done 1; list", "passed": true, "output": "1\n2\n1 [x] buy milk\n2 [ ] write spec\nexit code of list: 0\ntodo.json: [{\"id\": 1, \"text\": \"buy milk\", \"done\": true}, {\"id\": 2, \"text\": \"write spec\", \"done\": false}]", "summary": "add/list/done behave per SPEC.md end-to-end"}
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "save_todos() truncates todo.json before writing (open(path,'w') then json.dump); a crash or kill mid-write leaves the file corrupt/truncated, losing prior todos. Not a spec violation (spec only guarantees valid JSON on success) but a real durability hazard. Fix: write to a temp file and os.replace() onto todo.json.", "severity": "important", "scope": "adjacent", "source": "impl:reviewer:r1"},
+    {"kind": "finding", "detail": "save_todos() has no try/except around the write, unlike load_todos(); an OSError on write (permission denied, disk full) would produce a raw traceback on stderr instead of the one-line error-message convention used elsewhere in the CLI. Exit code still happens to be 1.", "severity": "minor", "scope": "adjacent", "source": "impl:reviewer:r1"}
+  ],
+  "workers": [
+    {"id": "spec-writer", "role": "writer", "status": "ok"},
+    {"id": "test-writer", "role": "writer", "status": "ok"},
+    {"id": "implementer", "role": "implementer", "status": "ok"},
+    {"id": "reviewer", "role": "reviewer", "status": "ok"}
+  ],
+  "plan": ".work-team/2026-09-03T01-todo-cli/plan.json",
+  "log": ".work-team/2026-09-03T01-todo-cli/workflow-log.jsonl"
+}

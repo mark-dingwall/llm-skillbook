@@ -1,0 +1,46 @@
+{"ts": "2026-09-02T09:35:30Z", "agent": "controller", "action": "frame", "artefacts": ["audit-target"]}
+{"ts": "2026-09-02T09:35:30Z", "agent": "controller", "action": "plan", "artefacts": [".work-team/inventory-spec-audit-20260902/plan.json"]}
+{"ts": "2026-09-02T09:36:01Z", "agent": "finders:finder-state:r1", "action": "start audit", "artefacts": ["audit-target/SPEC.md audit-target/inventory/stock.py audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:36:08Z", "agent": "finders:finder-state:r1", "action": "run behavioral checks", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:18Z", "agent": "finders:finder-csv-money:r1", "action": "start", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:36:22Z", "agent": "finders:finder-state:r1", "action": "verify boundary cases", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:23Z", "agent": "finders:finder-state:r1", "action": "verification complete", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:27Z", "agent": "finders:finder-csv-money:r1", "action": "verify", "artefacts": ["pytest audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:36:36Z", "agent": "finders:finder-csv-money:r1", "action": "verify", "artefacts": ["parse_csv_line dollar conversion probe"]}
+{"ts": "2026-09-02T09:36:36Z", "agent": "finders:finder-end-to-end:r1", "action": "start", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory"]}
+{"ts": "2026-09-02T09:36:37Z", "agent": "finders:finder-state:r1", "action": "python unavailable boundary rerun", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:37Z", "agent": "finders:finder-state:r1", "action": "boundary verification complete", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:46Z", "agent": "finders:finder-csv-money:r1", "action": "verify", "artefacts": ["python3 parse_csv_line dollar conversion probe"]}
+{"ts": "2026-09-02T09:36:46Z", "agent": "finders:finder-csv-money:r1", "action": "return", "artefacts": ["review.schema.json"]}
+{"ts": "2026-09-02T09:36:47Z", "agent": "finders:finder-end-to-end:r1", "action": "verify", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:36:48Z", "agent": "finders:finder-state:r1", "action": "inspect csv support", "artefacts": ["audit-target"]}
+{"ts": "2026-09-02T09:36:48Z", "agent": "finders:finder-state:r1", "action": "return findings", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:55Z", "agent": "finders:finder-end-to-end:r1", "action": "return", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:37:01Z", "agent": "finders:finder-state:r1", "action": "inspect csv implementation", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:37:01Z", "agent": "finders:finder-state:r1", "action": "return findings", "artefacts": ["audit-target/inventory/stock.py audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:37:04Z", "agent": "controller", "action": "ingest", "artefacts": ["finder-csv-money"]}
+{"ts": "2026-09-02T09:37:16Z", "agent": "controller", "action": "ingest", "artefacts": ["finder-end-to-end"]}
+{"ts": "2026-09-02T09:37:35Z", "agent": "controller", "action": "ingest", "artefacts": ["finder-state"]}
+{"ts": "2026-09-02T09:38:01Z", "agent": "controller", "action": "plan-amend", "artefacts": [".work-team/inventory-spec-audit-20260902/plan.json"]}
+{"ts": "2026-09-02T09:38:29Z", "agent": "verifiers:verifier-state-group:r1", "action": "started", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:38:44Z", "agent": "verifiers:verifier-money:r1", "action": "started verification", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:38:45Z", "agent": "verifiers:verifier-state-group:r1", "action": "verified", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:38:59Z", "agent": "verifiers:verifier-state-group:r1", "action": "verification_failed", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:38:59Z", "agent": "verifiers:verifier-state-group:r1", "action": "verified", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:39:05Z", "agent": "verifiers:verifier-money:r1", "action": "verification run failed: python unavailable", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:07Z", "agent": "verifiers:verifier-state-group:r1", "action": "returning_incomplete_for_fault_injection", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:39:19Z", "agent": "controller", "action": "reject-incomplete", "artefacts": ["verifier-state-group", "finders:finder-state:r1:F2"]}
+{"ts": "2026-09-02T09:39:21Z", "agent": "verifiers:verifier-money:r1", "action": "verification run failed: incorrect import root", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:34Z", "agent": "verifiers:verifier-money:r1", "action": "verification run: parser returns dollars unchanged and rejects decimal dollars", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:34Z", "agent": "verifiers:verifier-money:r1", "action": "returning confirmed verdict", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:49Z", "agent": "controller", "action": "ingest", "artefacts": ["verifier-money"]}
+{"ts": "2026-09-02T09:39:56Z", "agent": "verifiers:verifier-state-group:r2", "action": "verification_started", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:40:07Z", "agent": "verifiers:verifier-state-group:r2", "action": "boundary_checks_ran", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:40:20Z", "agent": "verifiers:verifier-state-group:r2", "action": "boundary_checks_ran_python3", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:40:29Z", "agent": "verifiers:verifier-state-group:r2", "action": "verdict_ready_both_confirmed", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:40:56Z", "agent": "controller", "action": "ingest", "artefacts": ["verifier-state-group-r2"]}
+{"ts": "2026-09-02T09:40:57Z", "agent": "controller", "action": "verify", "artefacts": ["audit-target"]}
+{"ts": "2026-09-02T09:41:08Z", "agent": "controller", "action": "verify-command-failed", "artefacts": ["python unavailable"]}
+{"ts": "2026-09-02T09:41:08Z", "agent": "controller", "action": "verify", "artefacts": ["audit-target"]}
+{"ts": "2026-09-02T09:42:02Z", "agent": "controller", "action": "report", "artefacts": [".work-team/inventory-spec-audit-20260902/result.json", ".work-team/inventory-spec-audit-20260902/report.md"]}
+{"ts": "2026-09-02T09:42:47Z", "agent": "controller", "action": "report-update", "artefacts": [".work-team/inventory-spec-audit-20260902/result.json"]}

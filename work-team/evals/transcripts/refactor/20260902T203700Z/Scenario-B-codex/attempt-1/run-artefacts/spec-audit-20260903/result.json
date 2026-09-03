@@ -1,0 +1,28 @@
+{
+  "run": "spec-audit-20260903",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider audit-target",
+      "passed": true,
+      "output": ".                                                                        [100%]\\n1 passed in 0.11s\\n",
+      "summary": "1 passed in 0.11s"
+    }
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "Ledger.remove permits quantities above available stock and leaves a negative quantity instead of raising ValueError.", "severity": "important", "scope": "spec", "source": "verify:verifier-stock:r2 find:finder-state:r1:F1"},
+    {"kind": "finding", "detail": "Ledger.low_stock excludes stock exactly equal to the threshold.", "severity": "important", "scope": "spec", "source": "verify:verifier-stock:r2 find:finder-state:r1:F2"},
+    {"kind": "finding", "detail": "parse_csv_line neither accepts decimal dollar prices nor converts dollar values to cents.", "severity": "important", "scope": "spec", "source": "verify:verifier-csv:r1 find:finder-report:r1:F1"}
+  ],
+  "workers": [
+    {"id": "find:finder-state:r1", "role": "reviewer", "status": "ok", "summary": "state/mutation finder"},
+    {"id": "find:finder-report:r1", "role": "reviewer", "status": "ok", "summary": "report/API finder"},
+    {"id": "find:finder-contract:r1", "role": "reviewer", "status": "ok", "summary": "full-contract finder"},
+    {"id": "find:finder-adversarial:r1", "role": "reviewer", "status": "ok", "summary": "adversarial finder"},
+    {"id": "verify:verifier-stock:r1", "role": "verifier", "status": "retried", "summary": "fault-injected partial copy rejected; raw response not accepted"},
+    {"id": "verify:verifier-stock:r2", "role": "verifier", "status": "ok", "summary": "fresh whole-group retry confirmed both stock candidates"},
+    {"id": "verify:verifier-csv:r1", "role": "verifier", "status": "ok", "summary": "confirmed CSV candidate"}
+  ],
+  "plan": ".work-team/spec-audit-20260903/plan.json",
+  "log": ".work-team/spec-audit-20260903/workflow-log.jsonl"
+}

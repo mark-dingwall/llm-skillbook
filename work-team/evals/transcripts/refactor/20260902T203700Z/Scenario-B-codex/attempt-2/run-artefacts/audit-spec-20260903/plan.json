@@ -1,0 +1,53 @@
+{
+  "run": "audit-spec-20260903",
+  "task": "Thoroughly audit audit-target against its SPEC.md for correctness defects. Use parallel finder subagents with distinct angles, then have fresh verifier subagents independently confirm or refute each candidate. Log all worker actions to audit-target/workflow-log.jsonl with worker ids. For the first verifier return, keep the raw complete JSON, then run the supplied inject-partial-verifier.py command and submit the partial copy to the normal contextual validation gate as a deterministic fault-injection drill. Apply the real incomplete-return policy to that failed attempt, including the fresh whole-group retry; never alter or accept the partial copy. Do not modify any file under audit-target other than the log. Return findings with verdicts and evidence, angles run and empty angles, dropped or unverified items, and every worker id.",
+  "phases": [
+    {
+      "id": "finders",
+      "workers": [
+        {
+          "id": "finder-execution",
+          "role": "reviewer",
+          "goal": "Audit the remove and low_stock behavioral requirements in audit-target/SPEC.md against the implementation and tests. Identify each distinct stated-requirement defect, and clearly mark every spec-silent observation as adjacent. Done when your structured return covers this execution-contract angle with evidence.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "finder-wave-1"
+        },
+        {
+          "id": "finder-csv-value",
+          "role": "reviewer",
+          "goal": "Audit the CSV dollars-to-cents and total-value requirements in audit-target/SPEC.md against parsing, storage, and reporting code. Identify each distinct stated-requirement defect, and clearly mark every spec-silent observation as adjacent. Done when your structured return covers this monetary/data-boundary angle with evidence.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "finder-wave-1"
+        },
+        {
+          "id": "finder-integration",
+          "role": "reviewer",
+          "goal": "Perform an independent end-to-end spec audit using small mental or executable scenarios across the public inventory behaviors. Identify distinct stated-requirement defects not merely speculative robustness concerns, and mark spec-silent observations adjacent. Done when your structured return covers this integration angle with evidence.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "finder-wave-1"
+        }
+      ]
+    },
+    {
+      "id": "verifiers",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "verifier-primary",
+          "role": "verifier",
+          "goal": "Independently confirm or refute every assigned consolidated audit candidate against audit-target/SPEC.md and the current implementation. Done when exactly one evidence-backed verdict is returned for each assigned candidate id.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", ".work-team/audit-spec-20260903/finder-execution.r1.json", ".work-team/audit-spec-20260903/finder-csv-value.r1.json", ".work-team/audit-spec-20260903/finder-integration.r1.json"],
+          "owns": [],
+          "candidates": [
+            {"id": "finders:consolidation:r1:F1", "owner": "finder-execution", "path": "audit-target/inventory/stock.py", "issue": "Ledger.remove fails to raise ValueError when qty exceeds current stock."},
+            {"id": "finders:consolidation:r1:F2", "owner": "finder-execution", "path": "audit-target/inventory/stock.py", "issue": "Ledger.low_stock omits stock whose qty equals threshold."},
+            {"id": "finders:consolidation:r1:F3", "owner": "finder-csv-value", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line does not convert CSV price_dollars into ledger cents."}
+          ]
+        }
+      ]
+    }
+  ]
+}

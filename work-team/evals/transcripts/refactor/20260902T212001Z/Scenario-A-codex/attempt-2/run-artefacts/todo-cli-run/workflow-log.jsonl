@@ -1,0 +1,39 @@
+{"ts": "2026-09-02T21:36:19Z", "agent": "controller", "action": "frame", "artefacts": ["workspace-empty"]}
+{"ts": "2026-09-02T21:36:37Z", "agent": "controller", "action": "plan_validated", "artefacts": [".work-team/todo-cli-run/plan.json"]}
+{"ts": "2026-09-02T21:37:07Z", "agent": "spec:spec-writer:r1", "action": "start specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:37:44Z", "agent": "spec:spec-writer:r1", "action": "wrote command specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:37:57Z", "agent": "spec:spec-writer:r1", "action": "verified nonempty specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:37:57Z", "agent": "spec:spec-writer:r1", "action": "return specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:38:05Z", "agent": "controller", "action": "invalid_return", "artefacts": ["spec-writer"]}
+{"ts": "2026-09-02T21:38:35Z", "agent": "spec:spec-writer:r2", "action": "started", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:40:15Z", "agent": "spec:spec-writer:r2", "action": "wrote", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:40:29Z", "agent": "spec:spec-writer:r2", "action": "verified", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:40:34Z", "agent": "spec:spec-writer:r2", "action": "returning", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:40:44Z", "agent": "controller", "action": "worker_ingested", "artefacts": ["spec-writer", "SPEC.md"]}
+{"ts": "2026-09-02T21:41:16Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:42:25Z", "agent": "tests:test-writer:r1", "action": "wrote black-box tests", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:42:35Z", "agent": "tests:test-writer:r1", "action": "verified collection", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:42:51Z", "agent": "tests:test-writer:r1", "action": "verified red state; CLI absent", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:42:51Z", "agent": "tests:test-writer:r1", "action": "returning", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:44:02Z", "agent": "controller", "action": "worker_ingested", "artefacts": ["test-writer", "test_todo.py"]}
+{"ts": "2026-09-02T21:44:30Z", "agent": "implementation:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:45:21Z", "agent": "implementation:implementer:r1", "action": "verify failed: todo missing", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:45:21Z", "agent": "implementation:implementer:r1", "action": "wrote implementation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:45:37Z", "agent": "implementation:implementer:r1", "action": "verify passed", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:45:37Z", "agent": "implementation:implementer:r1", "action": "returning", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:45:46Z", "agent": "controller", "action": "worker_ingested", "artefacts": ["implementer", "todo.py"]}
+{"ts": "2026-09-02T21:46:14Z", "agent": "implementation:reviewer:r1", "action": "started review", "artefacts": ["SPEC.md", "todo.py", "test_todo.py"]}
+{"ts": "2026-09-02T21:46:32Z", "agent": "implementation:reviewer:r1", "action": "reviewed specification and source", "artefacts": ["SPEC.md", "todo.py", "test_todo.py"]}
+{"ts": "2026-09-02T21:46:49Z", "agent": "implementation:reviewer:r1", "action": "ran acceptance tests", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:46:58Z", "agent": "implementation:reviewer:r1", "action": "probed Unicode database edge case", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:47:22Z", "agent": "implementation:reviewer:r1", "action": "completed review with one finding", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:47:31Z", "agent": "controller", "action": "review_ingested", "artefacts": ["reviewer", "todo.py"]}
+{"ts": "2026-09-02T21:47:59Z", "agent": "controller", "action": "verification_completed", "artefacts": ["SPEC.md", "test_todo.py", "todo.py"]}
+{"ts": "2026-09-02T21:48:41Z", "agent": "controller", "action": "report_validated", "artefacts": [".work-team/todo-cli-run/result.json", ".work-team/todo-cli-run/report.md"]}
+{"ts": "2026-09-02T21:49:30Z", "agent": "implementation:reviewer:r2", "action": "review started", "artefacts": ["SPEC.md", "test_todo.py", "todo.py"]}
+{"ts": "2026-09-02T21:50:10Z", "agent": "implementation:reviewer:r2", "action": "reviewed specification tests implementation", "artefacts": ["SPEC.md", "test_todo.py", "todo.py"]}
+{"ts": "2026-09-02T21:50:32Z", "agent": "implementation:reviewer:r2", "action": "tested oversized canonical done id", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:50:58Z", "agent": "implementation:reviewer:r2", "action": "identified spec finding: oversized integers crash", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:50:58Z", "agent": "implementation:reviewer:r2", "action": "returning one spec finding", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:51:07Z", "agent": "controller", "action": "review_ingested", "artefacts": ["reviewer-r2", "todo.py"]}
+{"ts": "2026-09-02T21:52:01Z", "agent": "controller", "action": "partial_result_validated", "artefacts": [".work-team/todo-cli-run/result.json", ".work-team/todo-cli-run/report.md"]}

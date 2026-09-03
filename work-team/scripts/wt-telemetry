@@ -11,11 +11,21 @@ import json
 import re
 import sys
 from datetime import datetime
+from pathlib import Path
 
-if len(sys.argv) < 2:
+if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--csv"):
     sys.exit(__doc__)
+try:
+    log_path = Path(sys.argv[1]).resolve()
+    csv_path = Path(sys.argv[3]).resolve() if len(sys.argv) == 4 else None
+except (OSError, RuntimeError) as error:
+    sys.exit(f"cannot resolve telemetry path: {error}")
+if csv_path == log_path or (
+    csv_path is not None and csv_path.exists() and csv_path.samefile(log_path)
+):
+    sys.exit("CSV output must not overwrite the audit log")
 rows = {}
-for line in open(sys.argv[1]):
+for line in open(log_path, encoding="utf-8"):
     line = line.strip()
     if not line:
         continue
@@ -41,8 +51,8 @@ out = [(a, r["n"], r["first"].isoformat(), r["last"].isoformat(),
         int((r["last"] - r["first"]).total_seconds())) for a, r in rows.items()]
 out.sort(key=lambda x: -x[4])
 
-if "--csv" in sys.argv:
-    with open(sys.argv[sys.argv.index("--csv") + 1], "w", newline="") as f:
+if csv_path is not None:
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["agent", "entries", "first", "last", "span_s"])
         w.writerows(out)

@@ -14,7 +14,7 @@
           "residual": {
             "items": {
               "properties": {
-                "kind": {"enum": ["finding", "worker_failed", "loop_cap", "invalid_return", "skipped"]}
+                "kind": {"const": "finding"}
               },
               "allOf": [
                 {
@@ -24,13 +24,16 @@
               ]
             }
           },
-          "workers": {"minItems": 1}
+          "workers": {
+            "minItems": 1,
+            "items": {"properties": {"status": {"enum": ["ok", "retried"]}}}
+          }
         }
       }
     }
   ],
   "properties": {
-    "run": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "run": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\Z"},
     "outcome": {"type": "string", "enum": ["complete", "partial", "stopped"]},
     "verification": {
       "type": "array",

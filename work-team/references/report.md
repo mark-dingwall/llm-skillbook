@@ -8,7 +8,9 @@ judge, its verdict is a verification entry too.
 
 ## result.json
 
-Validate with `wt-validate <skill>/references/schemas/result.schema.json`.
+Validate the written file from the repository root with `wt-validate
+<skill>/references/schemas/result.schema.json .work-team/<run>/result.json`.
+File validation also requires the declared canonical plan and log to exist.
 
 ```json
 {
@@ -32,7 +34,9 @@ empty-after-retry produces a residual. A failed attempt later superseded by a
 successful retry or re-plan stays in `workers` and the log but is not residual
 work. `outcome` is `complete` only when verification is non-empty and passed
 and no `blocker`/`important` finding or capped finding remains; failed
-superseded attempts do not independently block completion.
+superseded attempts are recorded with worker status `retried` and do not
+independently block completion. A `failed` or `invalid` worker status is
+incompatible with `complete`.
 
 ## report.md
 

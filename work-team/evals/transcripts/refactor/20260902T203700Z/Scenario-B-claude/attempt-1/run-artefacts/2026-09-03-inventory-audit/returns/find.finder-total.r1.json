@@ -1,0 +1,25 @@
+{
+  "verdict": "pass",
+  "findings": [
+    {
+      "severity": "important",
+      "scope": "adjacent",
+      "where": "Ledger.add()",
+      "owner": "finder-total",
+      "path": "audit-target/inventory/stock.py",
+      "issue": "When add() is called for a sku that already exists, only qty is accumulated (self.items[sku].qty += qty); the incoming price_cents argument is silently discarded and the item keeps its original price. SPEC.md's total_value_cents formula is correctly implemented against whatever price_cents is stored, but SPEC.md never states what should happen to price on a repeat add, so a later CSV row with a changed price for the same sku will be ignored without warning, making total_value_cents reflect a stale price.",
+      "fix": "Decide and document in SPEC.md the intended policy for repeat adds with a different price (e.g. update to latest price, weighted-average, or raise on mismatch), then implement it in add().",
+      "evidence": "SPEC bullet: \"`total_value_cents` = sum of `qty * price_cents`.\" Code: \"if sku in self.items:\\n            self.items[sku].qty += qty\" (price_cents parameter unused in this branch)."
+    },
+    {
+      "severity": "minor",
+      "scope": "adjacent",
+      "where": "test_add_and_total",
+      "owner": "finder-total",
+      "path": "audit-target/test_stock.py",
+      "issue": "The only test calls add(\"a\", 2, 150) then add(\"a\", 1, 150) with the identical price both times, so it never exercises total_value_cents() summing across multiple distinct skus, nor does it reveal add()'s behavior when a repeat add supplies a different price_cents.",
+      "fix": "Add a test with two different skus summed in total_value_cents(), and a test asserting the expected behavior when add() is called twice on the same sku with different price_cents values.",
+      "evidence": "SPEC bullet: \"`total_value_cents` = sum of `qty * price_cents`.\" Test: \"l.add(\\\"a\\\", 2, 150)\\n    l.add(\\\"a\\\", 1, 150)\\n    assert l.total_value_cents() == 450\"."
+    }
+  ]
+}

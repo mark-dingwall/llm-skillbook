@@ -1,0 +1,25 @@
+{
+  "run": "previous-run-audit",
+  "task": "Audit only the supplied prior-run directory. Determine, using cited files and lines only: the missed visual-requirement mechanism; wall-clock time and cost concentration with numbers; what was silently dropped or unsurfaced; and a next-run reshape. Do not speculate.",
+  "phases": [
+    {
+      "id": "evidence-audit",
+      "workers": [
+        {
+          "id": "pipeline-auditor",
+          "role": "reviewer",
+          "goal": "Audit SPEC.md, result.json, css-inventory.txt, and workflow-log.jsonl for the pipeline omission and every requirement or logged condition that was not surfaced. Done when the review JSON contains only evidence-backed, line-cited findings.",
+          "inputs": ["run-dir/SPEC.md", "run-dir/result.json", "run-dir/css-inventory.txt", "run-dir/workflow-log.jsonl"],
+          "owns": []
+        },
+        {
+          "id": "telemetry-auditor",
+          "role": "reviewer",
+          "goal": "Audit workflow-log.jsonl and agents.csv for wall-clock and cost concentration, calculate only numbers supported by those files, and identify any reporting mismatch visible in result.json. Done when the review JSON contains only evidence-backed, line-cited findings.",
+          "inputs": ["run-dir/workflow-log.jsonl", "run-dir/agents.csv", "run-dir/result.json"],
+          "owns": []
+        }
+      ]
+    }
+  ]
+}

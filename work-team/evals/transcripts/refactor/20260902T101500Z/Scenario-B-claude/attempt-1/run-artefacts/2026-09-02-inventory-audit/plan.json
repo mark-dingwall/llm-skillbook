@@ -1,0 +1,86 @@
+{
+  "run": "2026-09-02-inventory-audit",
+  "task": "Audit /tmp/tmp/evals/refactor-20260902T101500Z-B-claude-attempt-1/audit-target against its SPEC.md for correctness defects. Use parallel finder subagents with distinct angles, then fresh verifier subagents to independently confirm/refute each candidate. At least ten findings expected. Log all worker actions to /tmp/tmp/evals/refactor-20260902T101500Z-B-claude-attempt-1/audit-target/workflow-log.jsonl with worker ids. Do not modify any file under audit-target other than the log.",
+  "phases": [
+    {
+      "id": "find",
+      "workers": [
+        {
+          "id": "finder-spec-clauses",
+          "role": "reviewer",
+          "goal": "Judge inventory/stock.py and inventory/report.py against each literal clause of SPEC.md (remove() raising ValueError on over-removal, low_stock() threshold comparison operator, CSV cents/dollars conversion, total_value_cents formula). Report every place implementation diverges from a stated clause. Done when every SPEC.md bullet has been checked against the code and a verdict returned.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"],
+          "owns": []
+        },
+        {
+          "id": "finder-numeric-edges",
+          "role": "reviewer",
+          "goal": "Judge inventory/stock.py and inventory/report.py for numeric/type correctness defects relative to SPEC.md: integer vs decimal parsing of CSV price fields, rounding/precision in cents<->dollars conversions, negative or zero quantity handling, and any place a stated numeric contract in SPEC.md is violated. Done when parsing and arithmetic paths have been traced end to end against the spec.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"],
+          "owns": []
+        },
+        {
+          "id": "finder-state-mutation",
+          "role": "reviewer",
+          "goal": "Judge inventory/stock.py for state/mutation correctness defects relative to SPEC.md: behavior of remove() and add() on missing SKUs or invalid quantities, whether resulting ledger state can violate the spec's invariants (e.g. remove exceeding stock), and any mismatch between SPEC.md's stated behavior and what the code actually does to Ledger.items. Done when add() and remove() code paths have each been checked against SPEC.md.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"],
+          "owns": []
+        },
+        {
+          "id": "finder-io-format",
+          "role": "reviewer",
+          "goal": "Judge inventory/report.py's parse_csv_line() and format_report() for correctness defects relative to SPEC.md's stated CSV row format (sku,qty,price_dollars) and cents-based internal storage: does parsing actually convert dollars to cents as required, does the round trip between parse_csv_line and format_report preserve values, and are there input formats SPEC.md implies must be supported but aren't handled. Done when both functions have been checked against the CSV row contract in SPEC.md.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": []
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "workers": [
+        {
+          "id": "verifier-a",
+          "role": "verifier",
+          "goal": "Independently confirm or refute each assigned candidate defect by reading the cited code and SPEC.md yourself; do not trust the candidate's own evidence text without checking it against the file.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"],
+          "owns": [],
+          "candidates": [
+            {"id": "find:finder-spec-clauses:r1:F1", "owner": "finder-spec-clauses", "path": "audit-target/inventory/stock.py", "issue": "SPEC.md requires remove(sku, qty) to raise ValueError if qty exceeds current stock; implementation does item.qty -= qty with no check."},
+            {"id": "find:finder-spec-clauses:r1:F2", "owner": "finder-spec-clauses", "path": "audit-target/inventory/stock.py", "issue": "SPEC.md requires low_stock(threshold) to return SKUs with qty <= threshold; implementation uses strict qty < threshold, excluding items exactly at threshold."},
+            {"id": "find:finder-spec-clauses:r1:F3", "owner": "finder-spec-clauses", "path": "audit-target/inventory/report.py", "issue": "SPEC.md states CSV rows are sku,qty,price_dollars and the ledger stores cents; parse_csv_line does int(price) with no dollars-to-cents conversion and cannot parse decimal price strings."},
+            {"id": "find:finder-numeric-edges:r1:F1", "owner": "finder-numeric-edges", "path": "audit-target/inventory/stock.py", "issue": "remove() performs item.qty -= qty unconditionally, never raising ValueError when qty exceeds stock, contrary to SPEC.md."},
+            {"id": "find:finder-numeric-edges:r1:F2", "owner": "finder-numeric-edges", "path": "audit-target/inventory/stock.py", "issue": "low_stock uses strict < instead of the spec's <=, an off-by-one boundary defect."}
+          ]
+        },
+        {
+          "id": "verifier-b",
+          "role": "verifier",
+          "goal": "Independently confirm or refute each assigned candidate defect by reading the cited code and SPEC.md yourself; do not trust the candidate's own evidence text without checking it against the file.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"],
+          "owns": [],
+          "candidates": [
+            {"id": "find:finder-numeric-edges:r1:F3", "owner": "finder-numeric-edges", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line's int(price) crashes on fractional dollar strings like '19.99' and, for whole-dollar strings, stores the raw dollar amount as cents (100x unit error) instead of converting."},
+            {"id": "find:finder-numeric-edges:r1:F4", "owner": "finder-numeric-edges", "path": "audit-target/inventory/stock.py", "issue": "Adjacent: once remove() lacks the ValueError guard, qty can go negative and total_value_cents() sums a negative contribution with no safeguard."},
+            {"id": "find:finder-numeric-edges:r1:F5", "owner": "finder-numeric-edges", "path": "audit-target/inventory/report.py", "issue": "Adjacent: format_report converts cents to dollars via float division (price_cents / 100) rather than integer-safe formatting."},
+            {"id": "find:finder-state-mutation:r1:F1", "owner": "finder-state-mutation", "path": "audit-target/inventory/stock.py", "issue": "remove() has no bounds check before item.qty -= qty, letting qty go negative, contrary to SPEC.md's ValueError requirement."},
+            {"id": "find:finder-state-mutation:r1:F2", "owner": "finder-state-mutation", "path": "audit-target/inventory/stock.py", "issue": "low_stock uses strict < instead of the spec's inclusive <=, omitting SKUs exactly at threshold."}
+          ]
+        },
+        {
+          "id": "verifier-c",
+          "role": "verifier",
+          "goal": "Independently confirm or refute each assigned candidate defect by reading the cited code and SPEC.md yourself; do not trust the candidate's own evidence text without checking it against the file.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py"],
+          "owns": [],
+          "candidates": [
+            {"id": "find:finder-state-mutation:r1:F3", "owner": "finder-state-mutation", "path": "audit-target/inventory/stock.py", "issue": "Adjacent: remove() does self.items[sku] with no existence guard, raising a raw KeyError for a SKU never added; SPEC.md is silent on missing-SKU behavior."},
+            {"id": "find:finder-state-mutation:r1:F4", "owner": "finder-state-mutation", "path": "audit-target/inventory/stock.py", "issue": "Adjacent: add() performs no validation on qty, allowing negative qty to silently corrupt ledger state; SPEC.md does not state a requirement here."},
+            {"id": "find:finder-io-format:r1:F1", "owner": "finder-io-format", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line does int(price) without converting price_dollars to cents, a 100x unit error relative to SPEC.md's cents-storage requirement."},
+            {"id": "find:finder-io-format:r1:F2", "owner": "finder-io-format", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line's int(price) raises ValueError on fractional dollar strings such as '5.99', so it cannot handle the normal form of a price_dollars field."},
+            {"id": "find:finder-io-format:r1:F3", "owner": "finder-io-format", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line and format_report are not inverses: format_report correctly divides cents by 100 for display, but parse_csv_line never multiplies dollars by 100 back into cents."}
+          ]
+        }
+      ]
+    }
+  ]
+}

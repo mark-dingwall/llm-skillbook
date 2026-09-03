@@ -1,0 +1,50 @@
+{
+  "run": "audit-spec-20260903",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 pytest -q -p no:cacheprovider audit-target",
+      "passed": true,
+      "output": ".                                                                        [100%]\n1 passed in 0.12s\n",
+      "summary": "Existing suite passes."
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY' [Ledger and parse_csv_line behavioral probe] PY",
+      "passed": true,
+      "output": "overdraw=no-error qty=-1\nthreshold=[]\ncsv-decimal=ValueError\ncsv-whole=('sku', 3, 2)\n",
+      "summary": "All three confirmed specification failures reproduced."
+    }
+  ],
+  "residual": [
+    {
+      "kind": "finding",
+      "detail": "Ledger.remove permits an overdraw instead of raising ValueError.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "verifiers:verifier-primary:r2:F1"
+    },
+    {
+      "kind": "finding",
+      "detail": "Ledger.low_stock excludes a SKU at the supplied threshold.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "verifiers:verifier-primary:r2:F2"
+    },
+    {
+      "kind": "finding",
+      "detail": "parse_csv_line treats price_dollars as integer cents rather than converting dollars to cents.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "verifiers:verifier-primary:r2:F3"
+    }
+  ],
+  "workers": [
+    {"id": "finders:finder-execution:r1", "role": "reviewer", "status": "ok", "summary": "Found the remove and threshold defects; reported one adjacent test-coverage observation."},
+    {"id": "finders:finder-csv-value:r1", "role": "reviewer", "status": "ok", "summary": "Found the CSV dollars-to-cents defect."},
+    {"id": "finders:finder-integration:r1", "role": "reviewer", "status": "ok", "summary": "Corroborated all three consolidated defects; added no unique candidate."},
+    {"id": "verifiers:verifier-primary:r1", "role": "verifier", "status": "retried", "summary": "Complete raw return retained; injected partial copy failed contextual ID coverage and was discarded."},
+    {"id": "verifiers:verifier-primary:r2", "role": "verifier", "status": "ok", "summary": "Fresh whole-group retry confirmed F1, F2, and F3 with exact coverage."}
+  ],
+  "plan": ".work-team/audit-spec-20260903/plan.json",
+  "log": ".work-team/audit-spec-20260903/workflow-log.jsonl"
+}

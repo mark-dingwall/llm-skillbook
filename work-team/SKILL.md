@@ -50,18 +50,22 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    `worker_failed` and never simulate the packet inline.
 4. **Ingest.** Pipe each worker's final message through `wt-validate` with the
    packet's return schema. Invalid or empty → retry once with the same work
-   packet and a fresh attempt id (`<phase>:<id>:r2`). The shared checkout may contain
-   partial edits from the first attempt; the packet always requires the worker
-   to establish and verify the complete goal state. Still invalid → record an
-   `invalid_return` residual; never repair, reinterpret, or accept partial output.
+   packet and a fresh attempt id (`<phase>:<id>:r2`). The shared checkout may
+   contain partial edits from the first attempt; the packet always requires the
+   worker to establish and verify the complete goal state. Still invalid →
+   record an `invalid_return` residual; never repair, reinterpret, or accept
+   partial output.
 5. **Loop.** Review and fix are separate workers with bounded rounds from the
-   plan. Send only `scope: "spec"` findings to fixers; report `adjacent`
-   observations without changing spec-silent behavior. At the cap, every open
-   finding becomes a `loop_cap` residual. The controller never applies a fix.
+   plan. Validate each loop review against its plan and phase using the
+   contextual invocation in `packets.md`. Send only `scope: "spec"` findings
+   to fixers; report `adjacent` observations without changing spec-silent
+   behavior. At the cap, every open finding becomes a `loop_cap` residual. The
+   controller never applies a fix.
 6. **Verify.** Run the plan's verification commands from the controller and
    keep the exact output. A claim of completion without command output is a
    contract violation.
-7. **Report.** Write `result.json` (validate against `schemas/result.schema.json`)
+7. **Report.** Write `result.json` and validate that file against
+   `schemas/result.schema.json` so its declared plan and log must exist
    and `report.md` per [report.md](references/report.md). `residual` is
    required; an empty array is a claim that nothing was dropped, so it must be
    true.
@@ -78,8 +82,10 @@ not among them; the audit trail would then describe a team that did not exist.
 ## Dispatch discipline
 
 Each packet contains exactly the REQUIRED parts in packets.md: stable plan id,
-attempt id, goal with a goal condition, inputs, owned paths, verification
-command, role-derived return schema, and the `wt-log` protocol. Workers append
+attempt id, goal with a goal condition, inputs, owned paths, role-derived return
+schema, and the `wt-log` protocol. Mutable roles also receive their plan's
+verification command; read-only roles are gated by controller validation of
+their structured return. Workers append
 their own log lines at start, at each file written, at each verification run,
 and at return; the
 controller logs only its own actions. A log line the controller writes on a
@@ -99,7 +105,10 @@ time. Wave the rest. Never drop a planned worker to fit capacity.
 - Cap, count, or quota in the task text ("at least ten findings") is a maximum,
   never a target. Evidence-backed empty results are complete. Do not add
   finder angles, widen the charter, or promote behaviour the spec is silent on
-  to approach a count; every finding carries `scope: spec | adjacent`, and the
+  to approach a count. Consolidate finder rows with the same stated
+  requirement, code locus, and root cause into one candidate before
+  verification; corroborations and consequences are not separate findings.
+  Every finding carries `scope: spec | adjacent`, and the
   report counts only `spec` findings against the task. "More angles would make
   the audit more thorough" after the planned angles have converged is the
   quota talking.

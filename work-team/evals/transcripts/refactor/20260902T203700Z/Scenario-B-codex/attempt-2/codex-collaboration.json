@@ -1,0 +1,41 @@
+{
+  "rollout_sha256": "2b4a976918cc34a7cbbd2b666bca3510af3bcd4682b3d9dc193586ac4c2fb3eb",
+  "root_thread_id": "01a063e3-340d-7ea3-81eb-276036be84ca",
+  "workers": [
+    {
+      "completed_ordinal": 83,
+      "path": "/root/finder_execution",
+      "return_ordinal": 88,
+      "started_ordinal": 60,
+      "thread_id": "01a063e4-b66e-7293-915a-7554e2ff5bf6"
+    },
+    {
+      "completed_ordinal": 92,
+      "path": "/root/finder_csv_value",
+      "return_ordinal": 97,
+      "started_ordinal": 65,
+      "thread_id": "01a063e4-fccd-7433-9e90-0a8c83f314e8"
+    },
+    {
+      "completed_ordinal": 101,
+      "path": "/root/finder_integration",
+      "return_ordinal": 106,
+      "started_ordinal": 70,
+      "thread_id": "01a063e5-4548-7e21-9336-0c5266f61b3b"
+    },
+    {
+      "completed_ordinal": 157,
+      "path": "/root/verifier_primary_r1",
+      "return_ordinal": 162,
+      "started_ordinal": 142,
+      "thread_id": "01a063e7-f627-7091-b6dc-c0578c7ee624"
+    },
+    {
+      "completed_ordinal": 203,
+      "path": "/root/verifier_primary_r2",
+      "return_ordinal": 208,
+      "started_ordinal": 188,
+      "thread_id": "01a063e9-a304-7621-a2c9-7e46ee924c82"
+    }
+  ]
+}

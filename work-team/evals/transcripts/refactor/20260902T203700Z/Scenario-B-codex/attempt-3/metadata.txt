@@ -1,0 +1,8 @@
+command=codex exec --ignore-user-config --json --enable multi_agent --skip-git-repo-check -C /tmp/tmp/evals/refactor-20260902T203700Z-B-codex-attempt-3 -m gpt-5.6-terra -c model_reasoning_effort="high" -s workspace-write <prompt-argument>
+workspace=/tmp/tmp/evals/refactor-20260902T203700Z-B-codex-attempt-3
+harness=codex
+phase=refactor
+scenario=B
+start=2026-09-02T21:02:07Z
+end=2026-09-02T21:17:08Z
+exit=124

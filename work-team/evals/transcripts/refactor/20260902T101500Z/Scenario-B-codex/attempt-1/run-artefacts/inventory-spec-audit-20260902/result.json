@@ -1,0 +1,56 @@
+{
+  "run": "inventory-spec-audit-20260902",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "cd audit-target && pytest -q",
+      "passed": true,
+      "output": "1 passed in 0.12s",
+      "summary": "Existing suite passes but does not cover the specified boundary cases."
+    },
+    {
+      "command": "cd audit-target && python3 spec-boundary-probe",
+      "passed": false,
+      "output": "over-removal=-1\nequal-threshold=[]\ncsv-whole=('widget', 3, 12)\ncsv-decimal=ValueError",
+      "summary": "All three independently verified requirements fail."
+    }
+  ],
+  "residual": [
+    {
+      "kind": "finding",
+      "detail": "F1 confirmed: Ledger.remove allows an over-removal and leaves negative stock rather than raising ValueError.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "verifiers:verifier-state-group:r2"
+    },
+    {
+      "kind": "finding",
+      "detail": "F2 confirmed: Ledger.low_stock excludes stock exactly at the threshold rather than using qty <= threshold.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "verifiers:verifier-state-group:r2"
+    },
+    {
+      "kind": "finding",
+      "detail": "F3 confirmed: parse_csv_line returns price_dollars as unconverted integer cents and rejects decimal dollars.",
+      "severity": "important",
+      "scope": "spec",
+      "source": "verifiers:verifier-money:r1"
+    },
+    {
+      "kind": "skipped",
+      "detail": "Test execution generated Python bytecode and pytest cache files under audit-target; sandbox policy rejected their removal. Production source files were not edited.",
+      "source": "controller cleanup"
+    }
+  ],
+  "workers": [
+    {"id": "finders:finder-state:r1", "role": "reviewer", "status": "ok", "summary": "Found F1/F2 and duplicate corroboration of F3."},
+    {"id": "finders:finder-csv-money:r1", "role": "reviewer", "status": "ok", "summary": "Found F3."},
+    {"id": "finders:finder-end-to-end:r1", "role": "reviewer", "status": "ok", "summary": "Corroborated F1/F2/F3; no unique additional candidate."},
+    {"id": "verifiers:verifier-state-group:r1", "role": "verifier", "status": "retried", "summary": "Incomplete response omitted F2; entire result discarded."},
+    {"id": "verifiers:verifier-state-group:r2", "role": "verifier", "status": "ok", "summary": "Confirmed F1 and F2."},
+    {"id": "verifiers:verifier-money:r1", "role": "verifier", "status": "ok", "summary": "Confirmed F3."}
+  ],
+  "plan": ".work-team/inventory-spec-audit-20260902/plan.json",
+  "log": ".work-team/inventory-spec-audit-20260902/workflow-log.jsonl"
+}

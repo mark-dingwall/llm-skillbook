@@ -76,12 +76,13 @@ edits are re-copied before each run.
 - **A6** — full suite output shown ("27 passed"), rerun by the controller.
 - **A7** — `plan.json` (amended, validated) in the run dir.
 
-## Verdict
+## Historical verdict
 
-All targeted loopholes closed; 3/3 clean re-runs pass every observable. The
-remaining known limitation: Scenario A on Claude was scored on the GREEN run
-only (7/7, clean) and not re-run after the refactors — the refactors do not
-touch any behaviour that run exercised.
+These three runs passed the observables under the then-current harness streams.
+They predate the stricter extractor and later contract hardening; the current
+extractor rejects all three, so they are provenance rather than current positive
+verification. A fresh passing campaign on both harnesses is still required
+before merge.
 
 ## PR review hardening (`20260901T-review-fixes`)
 
@@ -120,3 +121,104 @@ No attempt read `evals/`, `oracle.md`, or scenario sources through the filtered
 installation. These are negative harness/evaluator results; the artifact-level
 Codex workflow is retained as supporting evidence, not scored as an evaluator
 pass.
+
+## Sixth-review live campaign (`20260902T085657Z`, `20260902T101500Z`)
+
+All archived `attempt.sha256` manifests verify and contamination scans are
+clean. Claude was invoked with `--model sonnet --effort medium` as recorded in
+metadata.
+
+The first campaign exposed deterministic evaluator gaps. Claude returned 0
+despite a schema-invalid `result.json` whose log replaced the canonical run log
+with the fixture log. Codex attempt 1 timed out; attempt 2 was correctly rejected
+for having no real worker dispatch, while its fixture snapshot also showed
+pytest cache and bytecode writes. These runs are negative evidence.
+
+After adding generated-artifact validation, exact verifier-return coverage,
+fixture-integrity enforcement, and relative staged-skill proof, Scenario B was
+rerun on both harnesses:
+
+- Claude reached runner exit 0 with a schema-valid plan/result, both canonical
+  and task-requested logs, genuine worker events, and no protected fixture
+  delta. It still fails behavioral B3 and B4: the report counts 15 duplicate
+  candidate rows for three distinct root defects as exceeding the quota, and
+  only describes the assumed incomplete-verifier retry instead of exercising
+  the discard/retry path. It is supporting evidence, not a behavioral pass.
+- Codex exited 2 because the stream again contained no genuine worker dispatch.
+  The hardened runner also reported protected fixture changes from pytest cache
+  and bytecode files. Its generated report consolidates the three seeded
+  defects and describes a retry, but artifact prose cannot substitute for
+  harness worker events or fixture integrity.
+
+There is therefore still no current dual-harness behavioral pass. The runner
+now fails closed on each deterministic defect surfaced by these campaigns;
+remaining failures are model behavior, not accepted evidence.
+
+## Convergence campaign (`20260902T203700Z`, `20260902T212001Z`)
+
+Claude ran as Sonnet/high and Codex as `gpt-5.6-terra`/high. Archived metadata
+retains each runner's original exit code; later acceptance below is only where
+the immutable transcript and checksum manifest pass the corrected deterministic
+gate that the run itself exposed.
+
+The Codex dispatch canary was operational. Codex's public JSON stream omitted
+the real `spawn_agent` identities, while its root rollout contained the worker
+start, completion, delivered return, and terminal controller answer. The eval
+runner now extracts a normalized, hashed `codex-collaboration.json` from that
+authoritative rollout and rejects incomplete rollout evidence. Scenario B also
+uses the eval-only `inject-partial-verifier.py`; the production skill gained
+only the concise same-requirement/locus/root-cause candidate-consolidation rule.
+
+### Scenario B — PASS 7/7 on both harnesses
+
+- Claude attempt 1 exited 0. Four finder angles found exactly the three seeded
+  spec defects; six adjacent observations stayed separate. The complete first
+  verifier return was preserved, the generated partial copy failed contextual
+  validation, the entire group was discarded, and both verifier packets were
+  retried fresh. Only `workflow-log.jsonl` changed under the fixture.
+- Codex attempt 2 completed the same behavior with three finder workers and a
+  complete/partial/fresh-retry verifier sequence. Its original exit 4 was a
+  false negative: the staged-skill read was a shell-wrapped relative `sed`.
+  Under the corrected parser, its final response extracts exactly, five real
+  rollout workers are complete, live schemas accept the plan/result and both
+  complete verifier returns, reject the partial return, and every archived
+  checksum passes. Attempt 3 is retained as negative evidence: an inefficient
+  verifier re-plan reached the 900-second bound and left only generated pytest
+  cache/bytecode files in addition to the permitted log.
+
+### Scenario A — PASS 7/7 on both harnesses
+
+- Claude attempt 1 exited 0 with separate spec, tests, implementation, and
+  review workers; 12 tests and the CLI smoke passed. The plan explains why the
+  dependent phases are sequential, and two adjacent findings are explicit
+  residuals.
+- Codex attempt 1 timed out during final reporting and is negative evidence.
+  Attempt 2 exited 0 with six real worker sessions, 39 valid log rows across
+  seven identities, and 35 passing tests. Empty/contradictory worker returns
+  were retried or recorded as `invalid_return`/`loop_cap`; the controller did
+  not invent the omitted finding or claim completion.
+
+### Scenario C — PASS 5/5 on both harnesses
+
+- Claude attempt 1 produced a complete direct diagnosis but originally exited
+  2 because the runner required a worker dispatch for every scenario. The live
+  skill routes diagnosis through `report.md` instead of requiring a new team,
+  so Scenario C now permits no dispatch while still rejecting any dispatch
+  that starts but does not complete. Re-extraction proves the staged-skill
+  invocation, an unchanged fixture and payload, and a C1-C5 response.
+- Codex attempt 1 failed before dispatch because the selected model was at
+  capacity. Attempt 2 completed four real read-only workers and a C1-C5
+  diagnosis. Its original exit 4 was another proof-parser false negative: the
+  staged `sed` read emitted the unique marker before a later `&& rg` segment
+  returned 1. The corrected gate accepts only an allowed first-segment read
+  with that marker. Checksums, collaboration evidence, fixture integrity, and
+  the archived plan/result all pass.
+
+No accepted run references `evals/oracle.md`, `baseline-results.md`, or the
+scenario source. The explicit workspace-local fault injector in Scenario B is
+the intended test input, not evaluation-answer contamination.
+
+The final sixth-round holistic candidate claimed `.github/workflows/ci.yml`
+would run pytest without a declared dependency. It was refuted as out of
+scope: that path exists only as an untracked file in the separate main
+checkout and is absent from both this worktree's HEAD and the PR base tree.

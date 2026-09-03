@@ -45,21 +45,32 @@ humans between runs, and cited by `result.json`.
 
 - `owns` — every path the worker may create or edit. Within one phase, `owns`
   sets must be disjoint; the controller checks this before dispatch.
-- `verify` — a command the worker runs and pastes into `verify_output`, and the
-  controller reruns on ingest.
+- `verify` — required for writers, implementers, and fixers: a command the
+  worker runs and pastes into `verify_output`, and the controller reruns on
+  ingest. Read-only roles are gated by controller validation of their return
+  schema and do not carry `verify_output`.
 - `role` — determines the return schema from the table in
   [packets.md](packets.md); plans do not duplicate that fixed mapping.
-- `group` — optional label; workers sharing a group run concurrently, groups
-  run in order. Omit when the whole phase is one group.
+- `candidates` — required only for a verifier. It contains the exact stable-id,
+  owner, path, and issue objects assigned to that verifier. Candidate ids are
+  unique across the plan and each owner names one globally unique worker in a
+  prior phase. A mutable owner's path must be inside its `owns`; a read-only
+  owner identifies an audit finder and target path, including in mixed plans.
+- `group` — optional capacity-wave label; workers sharing a group run
+  concurrently and groups run in first-appearance order. Groups do not permit a
+  producer and consumer in one phase; use successive phases for dependencies.
 - `loop` — review→fix rounds for the phase. `review` and `fix` name roles from
-  [packets.md](packets.md); they are always separate fresh workers.
+  [packets.md](packets.md) and are fixed to `reviewer` and `fixer`; they are
+  always separate fresh workers. Their packet fields are derived by the fixed
+  recipe in `packets.md`, not invented by the controller.
 
 ## Fan-out predicate
 
 Workers may run concurrently only when all hold:
 
 1. Their `owns` sets are disjoint.
-2. Each has its own `verify` command that can pass without the others.
+2. Each mutable worker has its own `verify` command that can pass without the
+   others; each read-only worker has an independently validatable return.
 3. None consumes an artefact another is producing in the same phase.
 
 Otherwise put them in successive phases. Tests that read a spec follow the

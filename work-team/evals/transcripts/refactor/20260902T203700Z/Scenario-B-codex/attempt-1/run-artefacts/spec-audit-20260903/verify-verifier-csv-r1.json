@@ -1,0 +1,1 @@
+{"candidates":[{"id":"find:finder-report:r1:F1","verdict":"confirmed","evidence":"SPEC.md requires CSV price_dollars while the ledger stores cents. report.py:10-12 uses int(price) unchanged: '12.34' raises ValueError; '12' returns price 12 rather than 1200 cents."}]}

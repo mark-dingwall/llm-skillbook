@@ -1,0 +1,48 @@
+{"ts": "2026-09-02T20:37:39Z", "agent": "controller", "action": "frame and plan validated", "artefacts": ["audit-target/SPEC.md", ".work-team/spec-audit-20260903/plan.json"]}
+{"ts": "2026-09-02T20:38:11Z", "agent": "find:finder-state:r1", "action": "started", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:38:25Z", "agent": "find:finder-state:r1", "action": "verified pytest exit=0", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:38:28Z", "agent": "find:finder-report:r1", "action": "started reporting API audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T20:38:36Z", "agent": "find:finder-state:r1", "action": "verified boundary behaviors exit=127", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:38:45Z", "agent": "find:finder-state:r1", "action": "verified boundary behaviors exit=0", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:38:49Z", "agent": "find:finder-report:r1", "action": "verified existing test suite passes", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:38:50Z", "agent": "find:finder-contract:r1", "action": "start", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory"]}
+{"ts": "2026-09-02T20:39:00Z", "agent": "find:finder-report:r1", "action": "verification command unavailable: python", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:39:04Z", "agent": "find:finder-state:r1", "action": "returning", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:39:06Z", "agent": "find:finder-contract:r1", "action": "verify", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:39:14Z", "agent": "find:finder-report:r1", "action": "verified inventory public import fails", "artefacts": ["audit-target/inventory/__init__.py"]}
+{"ts": "2026-09-02T20:39:24Z", "agent": "find:finder-contract:r1", "action": "verify-failed", "artefacts": ["audit-target"]}
+{"ts": "2026-09-02T20:39:24Z", "agent": "controller", "action": "ingested valid finder return", "artefacts": [".work-team/spec-audit-20260903/finder-state-r1.json"]}
+{"ts": "2026-09-02T20:39:31Z", "agent": "find:finder-report:r1", "action": "verified CSV dollar parsing and report formatting", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:39:42Z", "agent": "find:finder-report:r1", "action": "verified report formatting execution", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:39:42Z", "agent": "find:finder-report:r1", "action": "completed reporting API audit", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:39:45Z", "agent": "find:finder-contract:r1", "action": "verify-boundaries", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:39:51Z", "agent": "find:finder-contract:r1", "action": "return", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory"]}
+{"ts": "2026-09-02T20:40:00Z", "agent": "controller", "action": "ingested valid finder return", "artefacts": [".work-team/spec-audit-20260903/finder-report-r1.json"]}
+{"ts": "2026-09-02T20:40:15Z", "agent": "controller", "action": "ingested valid finder return", "artefacts": [".work-team/spec-audit-20260903/finder-contract-r1.json"]}
+{"ts": "2026-09-02T20:40:51Z", "agent": "find:finder-adversarial:r1", "action": "start adversarial audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T20:41:00Z", "agent": "find:finder-adversarial:r1", "action": "ran existing tests", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:41:18Z", "agent": "find:finder-adversarial:r1", "action": "ran boundary contract probes", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:41:30Z", "agent": "find:finder-adversarial:r1", "action": "reran boundary contract probes", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:41:39Z", "agent": "find:finder-adversarial:r1", "action": "returning three spec findings", "artefacts": ["audit-target/inventory/stock.py", "audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:42:04Z", "agent": "controller", "action": "ingested valid finder return and consolidated corroborations", "artefacts": [".work-team/spec-audit-20260903/finder-adversarial-r1.json"]}
+{"ts": "2026-09-02T20:42:28Z", "agent": "controller", "action": "consolidated candidates and validated verifier phase", "artefacts": [".work-team/spec-audit-20260903/plan.json"]}
+{"ts": "2026-09-02T20:42:59Z", "agent": "verify:verifier-stock:r1", "action": "start", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:43:14Z", "agent": "verify:verifier-stock:r1", "action": "verification_failed_python_unavailable", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:43:14Z", "agent": "verify:verifier-csv:r1", "action": "start", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/report.py", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:43:25Z", "agent": "verify:verifier-csv:r1", "action": "verification-run", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:43:30Z", "agent": "verify:verifier-stock:r1", "action": "verification_probe_confirmed", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:43:30Z", "agent": "verify:verifier-stock:r1", "action": "return", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:43:33Z", "agent": "verify:verifier-csv:r1", "action": "verification-run", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:43:39Z", "agent": "verify:verifier-csv:r1", "action": "return", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:43:58Z", "agent": "controller", "action": "fault-injected partial verifier return rejected; whole group retry required", "artefacts": [".work-team/spec-audit-20260903/verify-verifier-stock-r1-complete.json", ".work-team/spec-audit-20260903/verify-verifier-stock-r1-partial.json"]}
+{"ts": "2026-09-02T20:44:24Z", "agent": "controller", "action": "contextually validated verifier return", "artefacts": [".work-team/spec-audit-20260903/verify-verifier-csv-r1.json"]}
+{"ts": "2026-09-02T20:44:32Z", "agent": "verify:verifier-stock:r2", "action": "start independent verification", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:44:44Z", "agent": "verify:verifier-stock:r2", "action": "verification pytest path invocation failed", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:44:55Z", "agent": "verify:verifier-stock:r2", "action": "verification pytest passed", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:45:05Z", "agent": "verify:verifier-stock:r2", "action": "verification direct check unavailable: python absent", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:45:19Z", "agent": "verify:verifier-stock:r2", "action": "verification direct boundary check confirmed", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:45:19Z", "agent": "verify:verifier-stock:r2", "action": "returning two assigned verdicts", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:45:40Z", "agent": "controller", "action": "contextually validated fresh whole-group verifier retry", "artefacts": [".work-team/spec-audit-20260903/verify-verifier-stock-r2.json"]}
+{"ts": "2026-09-02T20:45:57Z", "agent": "controller", "action": "removed generated test and bytecode cache artifacts", "artefacts": ["audit-target/.pytest_cache", "audit-target/__pycache__", "audit-target/inventory/__pycache__"]}
+{"ts": "2026-09-02T20:46:14Z", "agent": "controller", "action": "ran final read-only test verification", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:47:04Z", "agent": "controller", "action": "wrote result and report artifacts", "artefacts": [".work-team/spec-audit-20260903/result.json", ".work-team/spec-audit-20260903/report.md"]}

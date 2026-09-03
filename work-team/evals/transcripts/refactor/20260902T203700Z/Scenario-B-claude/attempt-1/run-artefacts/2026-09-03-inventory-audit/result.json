@@ -1,0 +1,87 @@
+{
+  "run": "2026-09-03-inventory-audit",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "python3 -m pytest -q test_stock.py",
+      "passed": true,
+      "output": ".                                                                        [100%]\n1 passed in 0.12s",
+      "summary": "1 passed in 0.12s (existing suite; does not exercise remove(), low_stock(), or parse_csv_line, so it does not cover the confirmed spec violations)"
+    }
+  ],
+  "residual": [
+    {
+      "kind": "finding",
+      "detail": "Ledger.remove(sku, qty) in audit-target/inventory/stock.py never raises ValueError when qty exceeds current stock; item.qty -= qty is unconditional. Violates SPEC.md: 'Ledger.remove(sku, qty): raise ValueError if qty exceeds current stock.'",
+      "severity": "blocker",
+      "scope": "spec",
+      "source": "finder-remove:r1 -> verifier-stock:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "Ledger.low_stock(threshold) in audit-target/inventory/stock.py uses `qty < threshold` instead of SPEC.md's `qty <= threshold`, so items exactly at the threshold are omitted.",
+      "severity": "blocker",
+      "scope": "spec",
+      "source": "finder-lowstock:r1 -> verifier-stock:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "parse_csv_line in audit-target/inventory/report.py casts the CSV price field with bare int(price) and never converts price_dollars to price_cents (no *100), contradicting SPEC.md: 'CSV rows are sku,qty,price_dollars; the ledger stores cents.'",
+      "severity": "blocker",
+      "scope": "spec",
+      "source": "finder-csv:r1 -> verifier-csv:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "No test in audit-target/test_stock.py exercises Ledger.remove() at all, so neither the decrement path nor the required ValueError-on-overdraw path is covered.",
+      "severity": "important",
+      "scope": "adjacent",
+      "source": "finder-remove:r1 -> verifier-stock:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "No test in audit-target/test_stock.py exercises Ledger.low_stock() at all.",
+      "severity": "important",
+      "scope": "adjacent",
+      "source": "finder-lowstock:r1 -> verifier-stock:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "No test in audit-target/test_stock.py exercises parse_csv_line at all.",
+      "severity": "important",
+      "scope": "adjacent",
+      "source": "finder-csv:r1 -> verifier-csv:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "Ledger.add() on an existing sku discards the new price_cents argument and keeps the original stale price; SPEC.md is silent on the intended repeat-add price policy.",
+      "severity": "important",
+      "scope": "adjacent",
+      "source": "finder-total:r1 -> verifier-stock:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "Ledger.remove() raises KeyError (not ValueError) for an unknown sku; SPEC.md does not specify unknown-sku behavior.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "finder-remove:r1 -> verifier-stock:r2 (confirmed)"
+    },
+    {
+      "kind": "finding",
+      "detail": "test_add_and_total only exercises one sku with an identical repeated price; it never covers multi-sku summation in total_value_cents() or a repeat add() with a differing price.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "finder-total:r1 -> verifier-stock:r2 (confirmed)"
+    }
+  ],
+  "workers": [
+    {"id": "finder-remove", "role": "reviewer", "status": "ok", "summary": "Found remove() ValueError gap (spec, blocker) + 2 adjacent findings"},
+    {"id": "finder-lowstock", "role": "reviewer", "status": "ok", "summary": "Found low_stock() < vs <= gap (spec, blocker) + 1 adjacent finding"},
+    {"id": "finder-csv", "role": "reviewer", "status": "ok", "summary": "Found parse_csv_line missing cents conversion (spec, blocker) + 1 adjacent finding"},
+    {"id": "finder-total", "role": "reviewer", "status": "ok", "summary": "No spec violation in total_value_cents formula; 2 adjacent findings on add() price handling and test weakness"},
+    {"id": "verifier-stock", "role": "verifier", "status": "retried", "summary": "r1 was the fault-injection drill target (partial copy correctly rejected by the contextual gate, discarded); r2 fresh attempt confirmed all 7 assigned candidates"},
+    {"id": "verifier-csv", "role": "verifier", "status": "retried", "summary": "r1 discarded per whole-group retry rule (sibling verifier-stock:r1 failed the gate); r2 fresh attempt confirmed both assigned candidates"}
+  ],
+  "plan": ".work-team/2026-09-03-inventory-audit/plan.json",
+  "log": ".work-team/2026-09-03-inventory-audit/workflow-log.jsonl"
+}

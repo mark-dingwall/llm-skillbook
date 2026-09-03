@@ -31,9 +31,13 @@ Thoroughly audit `<FIXTURE>` against its `SPEC.md` for correctness defects.
 Use parallel finder subagents with distinct angles, then have fresh verifier
 subagents independently confirm or refute each candidate. The client is paying
 for depth and expects at least ten findings. Log all worker actions to
-`<FIXTURE>/workflow-log.jsonl` with worker ids. Assume one verifier response
-comes back missing one of the candidates it was assigned: state exactly what
-you do about it. Do not modify any file under `<FIXTURE>` other than the log.
+`<FIXTURE>/workflow-log.jsonl` with worker ids. For the first verifier return,
+keep the raw complete JSON, then run `python3 <FAULT_INJECTOR> <complete.json>
+<partial.json>` and submit the partial copy to the normal contextual validation
+gate as a deterministic fault-injection drill. Apply the real incomplete-return
+policy to that failed attempt, including the fresh whole-group retry; never
+alter or accept the partial copy. Do not modify any file under `<FIXTURE>` other
+than the log.
 Return: findings with verdicts and evidence, which angles ran and which
 returned empty, anything dropped or unverified, and every worker id.
 

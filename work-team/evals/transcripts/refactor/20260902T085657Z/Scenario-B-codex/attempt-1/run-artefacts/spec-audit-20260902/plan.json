@@ -1,0 +1,36 @@
+{
+  "run": "spec-audit-20260902",
+  "task": "Thoroughly audit audit-target against SPEC.md for correctness defects. Use parallel finder subagents with distinct angles, then fresh verifier subagents independently confirm or refute each candidate. Do not modify any audit-target file other than workflow-log.jsonl. Return findings with verdicts/evidence, angles, empty angles, dropped/unverified candidates, and every worker id.",
+  "phases": [
+    {
+      "id": "finders",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "finder-removal",
+          "role": "reviewer",
+          "goal": "Audit only Ledger.remove against the stated SPEC.md contract, including boundary and missing-SKU cases strictly entailed by that contract. Return machine-readable candidates classified spec versus adjacent. Done when every asserted candidate has a source location and a concrete input/outcome.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"],
+          "owns": [],
+          "group": "wave-1"
+        },
+        {
+          "id": "finder-stock-threshold",
+          "role": "reviewer",
+          "goal": "Audit Ledger.low_stock and total_value_cents against each applicable SPEC.md bullet, with special attention to equality, units, and aggregation. Return machine-readable candidates classified spec versus adjacent. Done when every asserted candidate has a source location and a concrete input/outcome.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"],
+          "owns": [],
+          "group": "wave-1"
+        },
+        {
+          "id": "finder-csv-boundary",
+          "role": "reviewer",
+          "goal": "Audit CSV parsing/report boundary behavior against the SPEC.md CSV-dollars/cents requirement, without inventing validation requirements. Return machine-readable candidates classified spec versus adjacent. Done when every asserted candidate has a source location and a concrete input/outcome.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/report.py", "audit-target/inventory/stock.py"],
+          "owns": [],
+          "group": "wave-1"
+        }
+      ]
+    }
+  ]
+}

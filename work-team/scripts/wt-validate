@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Validate a worker result against a JSON schema subset.
-usage: wt-validate <schema.json> [result.json]   (reads stdin if omitted)
+usage: wt-validate <schema.json> [result.json] [--plan plan.json --phase id [--worker id]]
+       (reads the result from stdin if omitted)
 
 Supports: type, required, properties, items, enum, const, minimum, minLength,
 pattern, minItems, contains, uniqueBy, repoRelativePath, runArtifactPaths,
-disjointNormalizedPathsBy, noConcurrentInputDependencies, allOf, and if/then.
+notRepoPathPrefix, forbiddenProperties, disjointNormalizedPathsBy,
+noConcurrentInputDependencies, candidateOwnedPaths, allOf, and if/then.
 Exit 0 = valid; exit 1 = invalid.
 A worker's final message may wrap JSON in ```json fences; they are stripped.
 """
 import json
+import argparse
 import posixpath
 import re
 import sys
@@ -22,6 +25,13 @@ def resolved_path(raw):
     return (Path.cwd() / raw).resolve()
 
 
+def safe_resolved_path(raw):
+    try:
+        return resolved_path(raw)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+
+
 def paths_overlap(left, right):
     return left == right or left in right.parents or right in left.parents
 
@@ -31,6 +41,120 @@ def display_path(path):
         return path.relative_to(Path.cwd().resolve()).as_posix()
     except ValueError:
         return str(path)
+
+
+def check_review_routing(review, plan, phase_id):
+    if not isinstance(review, dict) or not isinstance(plan, dict):
+        return ["$: review routing requires object inputs"]
+    phases = plan.get("phases", [])
+    matches = [
+        phase for phase in phases
+        if isinstance(phase, dict) and phase.get("id") == phase_id
+    ] if isinstance(phases, list) else []
+    if len(matches) != 1 or not isinstance(matches[0].get("loop"), dict):
+        return [f"$: {phase_id!r} is not one review/fix phase"]
+    owners = {}
+    workers = matches[0].get("workers", [])
+    if isinstance(workers, list):
+        for worker in workers:
+            if not isinstance(worker, dict) or worker.get("role") not in (
+                "writer", "implementer", "fixer"
+            ):
+                continue
+            worker_id = worker.get("id")
+            if isinstance(worker_id, str):
+                owners.setdefault(worker_id, []).append(worker)
+    errs = []
+    findings = review.get("findings", [])
+    if not isinstance(findings, list):
+        return errs
+    for index, finding in enumerate(findings):
+        if not isinstance(finding, dict) or finding.get("scope") != "spec":
+            continue
+        owner = finding.get("owner")
+        candidate_path = safe_resolved_path(finding.get("path"))
+        matches = owners.get(owner, []) if isinstance(owner, str) else []
+        routed = len(matches) == 1 and candidate_path is not None
+        raw_owned = matches[0].get("owns", []) if routed else []
+        if not isinstance(raw_owned, list):
+            raw_owned = []
+        if routed:
+            routed = any(
+                owned is not None
+                and (candidate_path == owned or candidate_path.is_relative_to(owned))
+                for owned in (
+                    safe_resolved_path(raw)
+                    for raw in raw_owned
+                    if isinstance(raw, str)
+                )
+            )
+        if not routed:
+            errs.append(
+                f"$.findings[{index}]: finding owner/path does not map to "
+                f"phase {phase_id!r} mutable ownership"
+            )
+    return errs
+
+
+def check_verifier_coverage(result, plan, phase_id, worker_id):
+    if not isinstance(result, dict) or not isinstance(plan, dict):
+        return ["$: verifier coverage requires object inputs"]
+    matches = []
+    phases = plan.get("phases", [])
+    if isinstance(phases, list):
+        for phase in phases:
+            if not isinstance(phase, dict) or phase.get("id") != phase_id:
+                continue
+            workers = phase.get("workers", [])
+            if isinstance(workers, list):
+                matches.extend(
+                    worker for worker in workers
+                    if isinstance(worker, dict)
+                    and worker.get("id") == worker_id
+                    and worker.get("role") == "verifier"
+                )
+    if len(matches) != 1:
+        return [
+            f"$: {worker_id!r} is not one verifier in phase {phase_id!r}"
+        ]
+    assigned = matches[0].get("candidates", [])
+    returned = result.get("candidates", [])
+    if not isinstance(assigned, list) or not isinstance(returned, list):
+        return []
+    assigned_ids = {
+        candidate.get("id") for candidate in assigned
+        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+    }
+    returned_ids = {
+        candidate.get("id") for candidate in returned
+        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+    }
+    if assigned_ids != returned_ids:
+        return [
+            "$: returned candidate ids do not exactly match the verifier's "
+            "assigned candidate ids"
+        ]
+    return []
+
+
+def check_result_artifact_files(result):
+    if not isinstance(result, dict) or not isinstance(result.get("run"), str):
+        return []
+    errs = []
+    for field in ("plan", "log"):
+        raw = result.get(field)
+        if not isinstance(raw, str):
+            continue
+        candidate = Path.cwd() / raw
+        resolved = safe_resolved_path(raw)
+        if (
+            resolved is None
+            or not resolved.is_relative_to(Path.cwd().resolve())
+            or candidate.is_symlink()
+            or not candidate.is_file()
+        ):
+            errs.append(f"$.{field}: declared run artifact does not exist as a regular file")
+    return errs
 
 
 def check(v, s, path="$"):
@@ -52,19 +176,34 @@ def check(v, s, path="$"):
         errs.append(f"{path}: does not match pattern {s['pattern']!r}")
     if isinstance(v, str) and s.get("repoRelativePath"):
         normalized = posixpath.normpath(v)
+        candidate = safe_resolved_path(v)
         if (
             not v
+            or any(ord(character) < 32 or ord(character) == 127 for character in v)
             or posixpath.isabs(v)
             or normalized in (".", "..")
             or normalized.startswith("../")
-            or not resolved_path(v).is_relative_to(Path.cwd().resolve())
+            or candidate is None
+            or not candidate.is_relative_to(Path.cwd().resolve())
         ):
             errs.append(f"{path}: expected a path within the repository")
+    if isinstance(v, str) and "notRepoPathPrefix" in s:
+        protected = safe_resolved_path(s["notRepoPathPrefix"])
+        candidate = safe_resolved_path(v)
+        if candidate is not None and protected is not None and (
+            candidate == protected or candidate.is_relative_to(protected)
+        ):
+            errs.append(
+                f"{path}: path is reserved for controller-owned run artefacts"
+            )
     for sub in s.get("allOf", []):
         errs += check(v, sub, path)
     if "if" in s and "then" in s and not check(v, s["if"], path):
         errs += check(v, s["then"], path)
     if isinstance(v, dict):
+        for forbidden in s.get("forbiddenProperties", []):
+            if forbidden in v:
+                errs.append(f"{path}.{forbidden}: forbidden")
         if s.get("runArtifactPaths") and isinstance(v.get("run"), str):
             expected = {
                 "plan": f".work-team/{v['run']}/plan.json",
@@ -76,6 +215,90 @@ def check(v, s, path="$"):
                         f"{path}.{field}: expected declared run path "
                         f"{expected_path!r}"
                     )
+        if s.get("candidateOwnedPaths") and isinstance(v.get("phases"), list):
+            workers_by_id = {}
+            for phase_index, phase in enumerate(v["phases"]):
+                if not isinstance(phase, dict):
+                    continue
+                workers = phase.get("workers", [])
+                if not isinstance(workers, list):
+                    continue
+                for worker in workers:
+                    if not isinstance(worker, dict):
+                        continue
+                    worker_id = worker.get("id")
+                    if isinstance(worker_id, str):
+                        workers_by_id.setdefault(worker_id, []).append(
+                            (phase_index, worker)
+                        )
+            for worker_id, owners in workers_by_id.items():
+                if len(owners) > 1:
+                    errs.append(
+                        f"{path}: worker id {worker_id!r} is not "
+                        "globally unique"
+                    )
+            candidate_ids = set()
+            for phase_index, phase in enumerate(v["phases"]):
+                if not isinstance(phase, dict):
+                    continue
+                workers = phase.get("workers", [])
+                if not isinstance(workers, list):
+                    continue
+                for worker_index, worker in enumerate(workers):
+                    if not isinstance(worker, dict) or worker.get("role") != "verifier":
+                        continue
+                    candidates = worker.get("candidates", [])
+                    if not isinstance(candidates, list):
+                        continue
+                    for candidate_index, candidate in enumerate(candidates):
+                        if not isinstance(candidate, dict):
+                            continue
+                        candidate_id = candidate.get("id")
+                        if isinstance(candidate_id, str):
+                            if candidate_id in candidate_ids:
+                                errs.append(
+                                    f"{path}: candidate id {candidate_id!r} "
+                                    "is assigned more than once"
+                                )
+                            candidate_ids.add(candidate_id)
+                        owner = candidate.get("owner")
+                        candidate_path = safe_resolved_path(candidate.get("path"))
+                        owners = (
+                            workers_by_id.get(owner, [])
+                            if isinstance(owner, str) else []
+                        )
+                        routed = (
+                            len(owners) == 1
+                            and owners[0][0] < phase_index
+                            and candidate_path is not None
+                        )
+                        source = owners[0][1] if routed else None
+                        if routed and source.get("role") in (
+                            "writer", "implementer", "fixer"
+                        ):
+                            raw_owned = source.get("owns", [])
+                            if not isinstance(raw_owned, list):
+                                raw_owned = []
+                            owned_paths = [
+                                safe_resolved_path(raw)
+                                for raw in raw_owned
+                                if isinstance(raw, str)
+                            ]
+                            routed = any(
+                                owned is not None
+                                and (
+                                    candidate_path == owned
+                                    or candidate_path.is_relative_to(owned)
+                                )
+                                for owned in owned_paths
+                            )
+                        if not routed:
+                            errs.append(
+                                f"{path}.phases[{phase_index}].workers"
+                                f"[{worker_index}].candidates[{candidate_index}]: "
+                                "candidate owner/path does not map to one "
+                                "prior worker or its mutable ownership"
+                            )
         for k in s.get("required", []):
             if k not in v:
                 errs.append(f"{path}.{k}: required")
@@ -104,7 +327,9 @@ def check(v, s, path="$"):
                 for raw in item[key]:
                     if not isinstance(raw, str):
                         continue
-                    resolved = resolved_path(raw)
+                    resolved = safe_resolved_path(raw)
+                    if resolved is None:
+                        continue
                     for owned_path, owner in owners.items():
                         if owner != i and paths_overlap(resolved, owned_path):
                             errs.append(
@@ -117,21 +342,23 @@ def check(v, s, path="$"):
             for consumer, item in enumerate(v):
                 if not isinstance(item, dict):
                     continue
-                consumer_group = item.get("group")
                 raw_inputs = item.get("inputs", [])
                 if not isinstance(raw_inputs, list):
                     continue
-                inputs = [
-                    resolved_path(raw)
-                    for raw in raw_inputs
-                    if isinstance(raw, str) and raw
-                ]
+                inputs = []
+                for input_index, raw in enumerate(raw_inputs):
+                    if not isinstance(raw, str) or not raw:
+                        continue
+                    resolved = safe_resolved_path(raw)
+                    if resolved is None:
+                        errs.append(
+                            f"{path}[{consumer}].inputs[{input_index}]: "
+                            "invalid path-like input"
+                        )
+                    else:
+                        inputs.append(resolved)
                 for producer, candidate in enumerate(v):
-                    if (
-                        producer == consumer
-                        or not isinstance(candidate, dict)
-                        or candidate.get("group") != consumer_group
-                    ):
+                    if producer == consumer or not isinstance(candidate, dict):
                         continue
                     owned = candidate.get("owns", [])
                     if not isinstance(owned, list):
@@ -139,7 +366,9 @@ def check(v, s, path="$"):
                     for raw in owned:
                         if not isinstance(raw, str):
                             continue
-                        produced = resolved_path(raw)
+                        produced = safe_resolved_path(raw)
+                        if produced is None:
+                            continue
                         if any(paths_overlap(source, produced) for source in inputs):
                             errs.append(
                                 f"{path}: producer/consumer dependency between "
@@ -152,11 +381,29 @@ def check(v, s, path="$"):
 
 
 def main():
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
-    schema = json.load(open(sys.argv[1]))
-    raw = open(sys.argv[2]).read() if len(sys.argv) > 2 else sys.stdin.read()
-    m = re.search(r"```(?:json)?\s*(.*?)```", raw, re.S)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("schema")
+    parser.add_argument("result", nargs="?")
+    parser.add_argument("--plan")
+    parser.add_argument("--phase")
+    parser.add_argument("--worker")
+    args = parser.parse_args()
+    if bool(args.plan) != bool(args.phase):
+        parser.error("--plan and --phase are required together")
+    if args.worker and not args.plan:
+        parser.error("--worker requires --plan and --phase")
+    with open(args.schema, encoding="utf-8") as schema_file:
+        schema = json.load(schema_file)
+    if args.result:
+        with open(args.result, encoding="utf-8") as result_file:
+            raw = result_file.read()
+    else:
+        try:
+            raw = sys.stdin.buffer.read().decode("utf-8")
+        except UnicodeDecodeError as error:
+            print(f"not UTF-8: {error}", file=sys.stderr)
+            sys.exit(2)
+    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)```\s*", raw, re.S)
     raw = m.group(1) if m else raw
     try:
         data = json.loads(raw)
@@ -164,6 +411,27 @@ def main():
         print(f"not JSON: {e}", file=sys.stderr)
         sys.exit(2)
     errs = check(data, schema)
+    schema_name = Path(args.schema).name
+    if args.result and schema_name == "result.schema.json":
+        errs += check_result_artifact_files(data)
+    if args.plan:
+        try:
+            with open(args.plan, encoding="utf-8") as plan_file:
+                context_plan = json.load(plan_file)
+        except (OSError, json.JSONDecodeError) as error:
+            print(f"invalid plan context: {error}", file=sys.stderr)
+            sys.exit(2)
+        if schema_name == "review.schema.json" and not args.worker:
+            errs += check_review_routing(data, context_plan, args.phase)
+        elif schema_name == "verifier.schema.json" and args.worker:
+            errs += check_verifier_coverage(
+                data, context_plan, args.phase, args.worker
+            )
+        else:
+            parser.error(
+                "context requires review.schema.json without --worker or "
+                "verifier.schema.json with --worker"
+            )
     if errs:
         print("\n".join(errs), file=sys.stderr)
         sys.exit(1)

@@ -1,0 +1,15 @@
+Use the work-team skill for the task below. Before dispatching, state the skill name and the resolved SKILL.md path you loaded.
+
+from a real previous run).
+
+IMPORTANT: Use only the evidence in the directory; cite files and lines.
+
+A previous multi-agent run at `/tmp/tmp/evals/refactor-20260902T212001Z-C-claude-attempt-1/run-dir` reported success (`result.json`):
+all 132 tests pass and the build is clean. The user reports the delivered app
+has essentially no visual styling even though `SPEC.md` §5 specifies a themed
+UI with animations. From `workflow-log.jsonl`, `agents.csv`, `SPEC.md`,
+`result.json`, and `css-inventory.txt`, determine: (1) what the pipeline missed
+and the mechanism that let it through; (2) where wall-clock time and cost were
+concentrated, with numbers; (3) what was silently dropped or never surfaced in
+the reported result; (4) how you would reshape the next run. Do not speculate
+beyond the evidence.

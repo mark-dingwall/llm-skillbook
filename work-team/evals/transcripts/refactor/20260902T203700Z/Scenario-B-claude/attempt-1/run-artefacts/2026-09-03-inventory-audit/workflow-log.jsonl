@@ -1,0 +1,39 @@
+{"ts": "2026-09-02T20:39:19Z", "agent": "controller", "action": "frame:read_task", "artefacts": ["SPEC.md", "test_stock.py", "inventory/stock.py", "inventory/report.py"]}
+{"ts": "2026-09-02T20:39:19Z", "agent": "controller", "action": "frame:create_rundir", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit"]}
+{"ts": "2026-09-02T20:39:53Z", "agent": "controller", "action": "plan:written_validated", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit/plan.json"]}
+{"ts": "2026-09-02T20:39:53Z", "agent": "controller", "action": "dispatch:wave1", "artefacts": ["find:finder-remove:r1", "find:finder-lowstock:r1", "find:finder-csv:r1"]}
+{"ts": "2026-09-02T20:40:13Z", "agent": "find:finder-remove:r1", "action": "start audit of Ledger.remove", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:40:23Z", "agent": "find:finder-lowstock:r1", "action": "start", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:40:25Z", "agent": "find:finder-remove:r1", "action": "completed audit: remove() never raises ValueError, no test coverage", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:40:30Z", "agent": "find:finder-lowstock:r1", "action": "done: found operator mismatch (< vs <=), no test coverage for low_stock", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:40:31Z", "agent": "find:finder-csv:r1", "action": "start audit", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:40:53Z", "agent": "find:finder-csv:r1", "action": "found: parse_csv_line missing dollars-to-cents conversion; no test coverage", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:41:26Z", "agent": "controller", "action": "ingest:valid", "artefacts": ["find:finder-remove:r1"]}
+{"ts": "2026-09-02T20:41:26Z", "agent": "controller", "action": "ingest:valid", "artefacts": ["find:finder-lowstock:r1"]}
+{"ts": "2026-09-02T20:41:26Z", "agent": "controller", "action": "ingest:valid", "artefacts": ["find:finder-csv:r1"]}
+{"ts": "2026-09-02T20:41:26Z", "agent": "controller", "action": "dispatch:wave2", "artefacts": ["find:finder-total:r1"]}
+{"ts": "2026-09-02T20:41:44Z", "agent": "find:finder-total:r1", "action": "start audit", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:42:06Z", "agent": "find:finder-total:r1", "action": "finished audit, reviewed total_value_cents/add against SPEC and tests", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:42:25Z", "agent": "controller", "action": "ingest:valid", "artefacts": ["find:finder-total:r1"]}
+{"ts": "2026-09-02T20:42:25Z", "agent": "controller", "action": "find_phase:complete", "artefacts": ["4 finders returned, 3 changes_required (spec), 1 pass"]}
+{"ts": "2026-09-02T20:43:08Z", "agent": "controller", "action": "plan:amended_verify_phase", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit/plan.json"]}
+{"ts": "2026-09-02T20:43:08Z", "agent": "controller", "action": "dispatch:verify_group_r1", "artefacts": ["verify:verifier-stock:r1", "verify:verifier-csv:r1"]}
+{"ts": "2026-09-02T20:43:28Z", "agent": "verify:verifier-stock:r1", "action": "start verification", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:43:37Z", "agent": "verify:verifier-csv:r1", "action": "start verification", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:43:39Z", "agent": "verify:verifier-stock:r1", "action": "completed verification of 7 candidates, all confirmed", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:43:44Z", "agent": "verify:verifier-csv:r1", "action": "confirmed F1 and F2 by code inspection", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:44:14Z", "agent": "controller", "action": "drill:save_raw_complete", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit/returns/verify.verifier-stock.r1.complete.json"]}
+{"ts": "2026-09-02T20:44:15Z", "agent": "controller", "action": "drill:injected_partial", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit/returns/verify.verifier-stock.r1.partial.json"]}
+{"ts": "2026-09-02T20:44:21Z", "agent": "controller", "action": "drill:gate_result", "artefacts": ["partial rejected exit=1 (candidate id set mismatch, as expected)"]}
+{"ts": "2026-09-02T20:44:30Z", "agent": "controller", "action": "policy:discard_whole_group", "artefacts": ["verify:verifier-stock:r1(fault-injection drill target, discarded)", "verify:verifier-csv:r1(discarded per whole-group retry rule)"]}
+{"ts": "2026-09-02T20:44:30Z", "agent": "controller", "action": "dispatch:verify_group_r2", "artefacts": ["verify:verifier-stock:r2", "verify:verifier-csv:r2"]}
+{"ts": "2026-09-02T20:44:51Z", "agent": "verify:verifier-stock:r2", "action": "start verification", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:44:59Z", "agent": "verify:verifier-csv:r2", "action": "start verification", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T20:45:02Z", "agent": "verify:verifier-stock:r2", "action": "completed verification: 7/7 confirmed", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T20:45:06Z", "agent": "verify:verifier-csv:r2", "action": "confirmed F1 and F2 by direct read", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:45:34Z", "agent": "controller", "action": "ingest:valid", "artefacts": ["verify:verifier-stock:r2"]}
+{"ts": "2026-09-02T20:45:34Z", "agent": "controller", "action": "ingest:valid", "artefacts": ["verify:verifier-csv:r2"]}
+{"ts": "2026-09-02T20:45:34Z", "agent": "controller", "action": "verify_phase:complete", "artefacts": ["9/9 candidates confirmed across both verifiers"]}
+{"ts": "2026-09-02T20:45:34Z", "agent": "controller", "action": "verify:ran_test_suite", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T20:46:25Z", "agent": "controller", "action": "report:result_json_validated", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit/result.json"]}
+{"ts": "2026-09-02T20:47:04Z", "agent": "controller", "action": "report:written", "artefacts": ["/tmp/tmp/evals/refactor-20260902T203700Z-B-claude-attempt-1/.work-team/2026-09-03-inventory-audit/report.md"]}

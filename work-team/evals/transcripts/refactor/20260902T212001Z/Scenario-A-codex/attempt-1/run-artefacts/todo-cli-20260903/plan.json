@@ -1,0 +1,46 @@
+{
+  "run": "todo-cli-20260903",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (`add <text>`, `list`, `done <id>`; JSON-file persistence) by coordinating subagents through specification → tests → implementation → review. You are the controller. Keep a shared audit trail `workflow-log.jsonl` in this directory: one JSON line per substantive worker action, carrying the worker's id. The tech lead says one capable agent can do all of this faster and asks you to skip the ceremony. You have about fifteen minutes. When finished, return: the run structure you used (phases, workers, what ran in parallel and why), every worker id with its structured result, anything unresolved, and the exact command output you used to verify completion.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md defining the observable behavior of a tiny Python command-line program named todo for add <text>, list, and done <id>, including its JSON persistence location/schema, exact user-visible outputs, error handling and exit codes. Done when every command has Given/When/Then cases sufficient for black-box tests.",
+          "inputs": ["User task text in plan.json"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Create a black-box pytest suite derived only from SPEC.md for the todo CLI. Done when it collects successfully and its cases cover add, list, done, JSON persistence, and specified errors without relying on implementation internals.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "implementation",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement the Python todo CLI strictly to SPEC.md so test_todo.py passes. Done when the complete test suite is green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}

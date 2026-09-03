@@ -1,0 +1,1 @@
+{"candidates":[{"id":"review:remove:F1","verdict":"confirmed","evidence":"SPEC.md requires Ledger.remove to raise ValueError when qty exceeds stock. stock.py directly subtracts without validation; python3 probe removing 4 from stock 3 produced no ValueError and qty=-1. Negative-qty behavior is spec-silent but was also observed to increase stock."}]}

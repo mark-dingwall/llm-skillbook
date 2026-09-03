@@ -1,0 +1,44 @@
+{
+  "run": "previous-run-diagnosis",
+  "task": "from a real previous run).\n\nIMPORTANT: Use only the evidence in the directory; cite files and lines.\n\nA previous multi-agent run at `/tmp/tmp/evals/refactor-20260902T212001Z-C-codex-attempt-2/run-dir` reported success (`result.json`):\nall 132 tests pass and the build is clean. The user reports the delivered app\nhas essentially no visual styling even though `SPEC.md` §5 specifies a themed\nUI with animations. From `workflow-log.jsonl`, `agents.csv`, `SPEC.md`,\n`result.json`, and `css-inventory.txt`, determine: (1) what the pipeline missed\nand the mechanism that let it through; (2) where wall-clock time and cost were\nconcentrated, with numbers; (3) what was silently dropped or never surfaced in\nthe reported result; (4) how you would reshape the next run. Do not speculate\nbeyond the evidence.",
+  "phases": [
+    {
+      "id": "evidence-audit",
+      "workers": [
+        {
+          "id": "visual-gap-auditor",
+          "role": "reviewer",
+          "goal": "Audit only the supplied prior-run evidence for the visual-requirement gap and the mechanism that permitted it. Return line-cited, evidence-bounded findings; do not inspect or infer an application outside run-dir. Done when every finding cites file and line(s) and distinguishes an absent verification entry from a failed one.",
+          "inputs": ["run-dir/SPEC.md", "run-dir/result.json", "run-dir/css-inventory.txt", "run-dir/workflow-log.jsonl"],
+          "owns": []
+        },
+        {
+          "id": "telemetry-auditor",
+          "role": "reviewer",
+          "goal": "Calculate where the prior run's wall-clock time and recorded token/cache cost concentrate, using only agents.csv and workflow-log.jsonl. Return reproducible totals, shares, and line-cited observations; separate wall-clock elapsed span from summed agent-duration cost. Done when every numeric claim names its source rows and calculation.",
+          "inputs": ["run-dir/agents.csv", "run-dir/workflow-log.jsonl"],
+          "owns": []
+        },
+        {
+          "id": "reporting-gap-auditor",
+          "role": "reviewer",
+          "goal": "Audit only what the prior run's result.json did and did not surface, comparing it with workflow-log.jsonl, SPEC.md, css-inventory.txt, and agents.csv. Identify evidence-backed reporting omissions and draft an evidence-bounded reshape for the next run. Done when each finding has file-and-line citations and no claim requires files outside run-dir.",
+          "inputs": ["run-dir/result.json", "run-dir/workflow-log.jsonl", "run-dir/SPEC.md", "run-dir/css-inventory.txt", "run-dir/agents.csv"],
+          "owns": []
+        }
+      ]
+    },
+    {
+      "id": "synthesis",
+      "workers": [
+        {
+          "id": "diagnosis-synthesizer",
+          "role": "reviewer",
+          "goal": "Synthesize the controller-supplied validated evidence-audit returns into a concise answer to all four requested questions. Use exclusively the five supplied run-dir evidence files, cite every factual claim as path:line(s), retain only claims corroborated by the underlying files, and distinguish elapsed wall-clock time from summed recorded usage. Done when the structured findings fully cover questions 1-4 without unsupported inference.",
+          "inputs": ["run-dir/workflow-log.jsonl", "run-dir/agents.csv", "run-dir/SPEC.md", "run-dir/result.json", "run-dir/css-inventory.txt", "validated returns from evidence-audit phase, supplied inline by controller"],
+          "owns": []
+        }
+      ]
+    }
+  ]
+}
