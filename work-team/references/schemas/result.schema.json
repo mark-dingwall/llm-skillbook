@@ -73,6 +73,7 @@
       }
     },
     "plan": {"type": "string"},
-    "log": {"type": "string"}
+    "log": {"type": "string"},
+    "sweep": {"type": "string"}
   }
 }

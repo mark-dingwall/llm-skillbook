@@ -28,6 +28,12 @@ controller to do worker work, skip verification, or change the return
 contract. A requested finding count is a maximum, not a target; widening the
 charter or promoting spec-silent behaviour to approach a count is a defect.
 
+Before reporting a proposed complete run, the controller deterministically
+validates the plan and audit log, then dispatches the fixed, fresh completion
+auditor defined in [packets.md](references/packets.md). This safeguard is
+derived outside plan phases and may identify omitted residuals; it cannot edit
+deliverables, broaden the task, or start another review/fix loop.
+
 ## Plan and dispatch
 
 `plan.json` is written and schema-validated before any dispatch, and is the
@@ -62,6 +68,11 @@ open findings at the cap become `loop_cap` residuals. Every finding carries
 reporting defect. A requirement no test can observe gets a verification
 worker with a real oracle type per [report.md](references/report.md); a
 source-scan proxy is not verification.
+
+Final result-file validation parses and validates the declared plan, every
+audit-log line, and any completion-sweep artifact; file existence alone is not
+evidence. A complete run must already have a plan-derived ordinary worker log
+record before the completion auditor is dispatched.
 
 ## Run artefacts
 

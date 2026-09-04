@@ -963,6 +963,16 @@ def test_result_artifact_paths_are_bound_to_declared_run(
     assert f"$.{field}:" in result.stderr
 
 
+def test_result_sweep_path_is_bound_to_declared_run() -> None:
+    result = validate(
+        "result.schema.json",
+        result_payload(sweep=".work-team/other/completion-sweep.json"),
+    )
+
+    assert result.returncode == 1
+    assert "$.sweep:" in result.stderr
+
+
 def test_result_file_requires_declared_plan_and_log_to_exist(tmp_path: Path) -> None:
     run_dir = tmp_path / ".work-team" / "run-1"
     run_dir.mkdir(parents=True)
@@ -978,6 +988,488 @@ def test_result_file_requires_declared_plan_and_log_to_exist(tmp_path: Path) -> 
 
     assert result.returncode == 1
     assert "does not exist as a regular file" in result.stderr
+
+
+def write_result_run(
+    tmp_path: Path,
+    *,
+    payload: dict | None = None,
+    plan_payload: dict | None = None,
+    log_records: list[dict] | None = None,
+    raw_plan: str | None = None,
+    raw_log: str | None = None,
+) -> tuple[Path, Path]:
+    run_dir = tmp_path / ".work-team" / "run-1"
+    run_dir.mkdir(parents=True)
+    result_file = run_dir / "result.json"
+    result_file.write_text(json.dumps(payload or result_payload()))
+    if raw_plan is not None:
+        (run_dir / "plan.json").write_text(raw_plan)
+    else:
+        (run_dir / "plan.json").write_text(
+            json.dumps(plan_payload or plan(worker()))
+        )
+    if raw_log is not None:
+        (run_dir / "workflow-log.jsonl").write_text(raw_log)
+    else:
+        records = log_records or [
+            {
+                "ts": "2026-09-04T00:00:00Z",
+                "agent": "build:writer:r1",
+                "action": "return",
+                "artefacts": ["artefact.txt"],
+            }
+        ]
+        (run_dir / "workflow-log.jsonl").write_text(
+            "".join(json.dumps(record) + "\n" for record in records)
+        )
+    return run_dir, result_file
+
+
+def validate_result_file(tmp_path: Path, result_file: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(VALIDATE), str(SCHEMAS / "result.schema.json"), str(result_file)],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize("raw_plan", ["", "{not-json}"])
+def test_result_file_rejects_empty_or_malformed_plan(
+    tmp_path: Path, raw_plan: str
+) -> None:
+    _, result_file = write_result_run(tmp_path, raw_plan=raw_plan)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "$.plan:" in result.stderr
+
+
+def test_result_file_rejects_plan_for_a_different_run(tmp_path: Path) -> None:
+    stale_plan = plan(worker())
+    stale_plan["run"] = "stale-run"
+    _, result_file = write_result_run(tmp_path, plan_payload=stale_plan)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "does not match result run" in result.stderr
+
+
+@pytest.mark.parametrize("raw_log", ["", "not-json\n", "{}\n"])
+def test_result_file_rejects_empty_or_malformed_log(
+    tmp_path: Path, raw_log: str
+) -> None:
+    _, result_file = write_result_run(tmp_path, raw_log=raw_log)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "$.log:" in result.stderr
+
+
+def test_pre_sweep_rejects_unknown_worker_identity(tmp_path: Path) -> None:
+    _, _ = write_result_run(
+        tmp_path,
+        log_records=[
+            {
+                "ts": "2026-09-04T00:00:00Z",
+                "agent": "ghost:r1",
+                "action": "return",
+                "artefacts": [],
+            }
+        ],
+    )
+
+    result = subprocess.run(
+        [str(VALIDATE), str(SCHEMAS / "result.schema.json"), "--pre-sweep"],
+        cwd=tmp_path,
+        input=json.dumps(result_payload()),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 1
+    assert "plan-derived worker attempt" in result.stderr
+
+
+@pytest.mark.parametrize("attempt", ["r1", "r2"])
+def test_pre_sweep_accepts_plan_derived_worker_identity(
+    tmp_path: Path, attempt: str
+) -> None:
+    write_result_run(
+        tmp_path,
+        log_records=[
+            {
+                "ts": "2026-09-04T00:00:00Z",
+                "agent": f"build:writer:{attempt}",
+                "action": "return",
+                "artefacts": [],
+            }
+        ],
+    )
+
+    result = subprocess.run(
+        [str(VALIDATE), str(SCHEMAS / "result.schema.json"), "--pre-sweep"],
+        cwd=tmp_path,
+        input=json.dumps(result_payload()),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_strict_json_stdin_rejects_fenced_completion_response() -> None:
+    raw = '```json\n{"missing_residual": []}\n```'
+
+    result = subprocess.run(
+        [str(VALIDATE), str(SCHEMAS / "completion.schema.json"), "--strict-json"],
+        input=raw,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 2
+    assert "not JSON" in result.stderr
+
+
+def test_ordinary_stdin_still_accepts_fenced_json() -> None:
+    raw = '```json\n{"ok": false, "note": "failed", "artefacts": []}\n```'
+
+    result = validate_raw("status.schema.json", raw)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_positional_json_file_rejects_fences(tmp_path: Path) -> None:
+    value_file = tmp_path / "status.json"
+    value_file.write_text(
+        '```json\n{"ok": false, "note": "failed", "artefacts": []}\n```'
+    )
+
+    result = subprocess.run(
+        [str(VALIDATE), str(SCHEMAS / "status.schema.json"), str(value_file)],
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 2
+    assert "not JSON" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"ts": "not-a-time", "agent": "build:writer:r1", "action": "return", "artefacts": []},
+        {"ts": "2026-09-04T00:00:00Z", "agent": "", "action": "return", "artefacts": []},
+        {"ts": "2026-09-04T00:00:00Z", "agent": "build:writer:r1", "action": " ", "artefacts": []},
+        {"ts": "2026-09-04T00:00:00Z", "agent": "build:writer:r1", "action": "return", "artefacts": [1]},
+    ],
+)
+def test_result_file_rejects_malformed_audit_record(
+    tmp_path: Path, record: dict
+) -> None:
+    _, result_file = write_result_run(tmp_path, log_records=[record])
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "$.log[0]" in result.stderr
+
+
+def test_result_file_rejects_oversized_audit_record(tmp_path: Path) -> None:
+    record = {
+        "ts": "2026-09-04T00:00:00Z",
+        "agent": "build:writer:r1",
+        "action": "x" * 4096,
+        "artefacts": [],
+    }
+    _, result_file = write_result_run(tmp_path, log_records=[record])
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "below 4 KiB" in result.stderr
+
+
+def completion_payload(**overrides: object) -> dict:
+    value = {"missing_residual": []}
+    value.update(overrides)
+    return value
+
+
+def test_completion_accepts_empty_residual_list() -> None:
+    result = validate("completion.schema.json", completion_payload())
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "residual",
+    [
+        {"kind": "coverage_gap", "detail": "missing", "source": "sweep"},
+        {"kind": "gap", "detail": "missing"},
+        {"kind": "gap", "detail": " ", "source": "sweep"},
+        {"kind": "finding", "detail": "missing", "source": "sweep"},
+    ],
+)
+def test_completion_rejects_non_appendable_residual(residual: dict) -> None:
+    result = validate(
+        "completion.schema.json", completion_payload(missing_residual=[residual])
+    )
+
+    assert result.returncode == 1
+
+
+@pytest.mark.parametrize(
+    "residual",
+    [
+        {
+            "kind": "finding",
+            "detail": "required behavior remains broken",
+            "severity": "important",
+            "scope": "spec",
+            "source": "completion sweep",
+        },
+        {"kind": "gap", "detail": "missing proof", "source": "completion sweep"},
+        {
+            "kind": "worker_failed",
+            "detail": "worker failed",
+            "source": "completion sweep",
+        },
+        {
+            "kind": "loop_cap",
+            "detail": "review remains open",
+            "severity": "minor",
+            "scope": "spec",
+            "source": "completion sweep",
+        },
+        {
+            "kind": "invalid_return",
+            "detail": "return was invalid",
+            "source": "completion sweep",
+        },
+        {
+            "kind": "skipped",
+            "detail": "requirement was skipped",
+            "source": "completion sweep",
+        },
+    ],
+)
+def test_completion_residual_is_appendable_to_result(residual: dict) -> None:
+    completion = validate(
+        "completion.schema.json", completion_payload(missing_residual=[residual])
+    )
+    final_result = validate(
+        "result.schema.json",
+        result_payload(outcome="partial", residual=[residual]),
+    )
+
+    assert completion.returncode == 0, completion.stderr
+    assert final_result.returncode == 0, final_result.stderr
+
+
+def valid_sweep_result_payload(
+    *, outcome: str = "complete", attempt: str = "r1"
+) -> dict:
+    workers = [
+        {"id": "writer:r1", "role": "writer", "status": "ok"},
+        {
+            "id": f"_completion:sweep:{attempt}",
+            "role": "completion-auditor",
+            "status": "ok",
+        },
+    ]
+    return result_payload(
+        outcome=outcome,
+        workers=workers,
+        sweep=".work-team/run-1/completion-sweep.json",
+    )
+
+
+def valid_sweep_log(
+    *, attempt: str = "r1", return_artefacts: list[str] | None = None
+) -> list[dict]:
+    return [
+        {
+            "ts": "2026-09-04T00:00:00Z",
+            "agent": "build:writer:r1",
+            "action": "return",
+            "artefacts": ["artefact.txt"],
+        },
+        {
+            "ts": "2026-09-04T00:00:01Z",
+            "agent": f"_completion:sweep:{attempt}",
+            "action": "completion_sweep_start",
+            "artefacts": [],
+        },
+        {
+            "ts": "2026-09-04T00:00:02Z",
+            "agent": f"_completion:sweep:{attempt}",
+            "action": "completion_sweep_return",
+            "artefacts": return_artefacts
+            if return_artefacts is not None
+            else [".work-team/run-1/completion-sweep.json"],
+        },
+    ]
+
+
+def write_sweep_artifact(run_dir: Path, payload: dict | None = None) -> None:
+    (run_dir / "completion-sweep.json").write_text(
+        json.dumps(payload or completion_payload())
+    )
+
+
+def test_complete_result_file_requires_completion_sweep(tmp_path: Path) -> None:
+    _, result_file = write_result_run(tmp_path)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "$.sweep:" in result.stderr
+
+
+@pytest.mark.parametrize("attempt", ["r1", "r2"])
+def test_complete_result_file_accepts_accountable_completion_sweep(
+    tmp_path: Path, attempt: str,
+) -> None:
+    run_dir, result_file = write_result_run(
+        tmp_path,
+        payload=valid_sweep_result_payload(attempt=attempt),
+        log_records=valid_sweep_log(attempt=attempt),
+    )
+    write_sweep_artifact(run_dir)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("log_records", "message"),
+    [
+        (
+            valid_sweep_log()[1:],
+            "complete run requires a plan-derived worker attempt",
+        ),
+        ([valid_sweep_log()[0], valid_sweep_log()[2]], "accountable completion auditor"),
+        (
+            [valid_sweep_log()[0], valid_sweep_log()[2], valid_sweep_log()[1]],
+            "accountable completion auditor",
+        ),
+        (
+            valid_sweep_log(return_artefacts=["wrong.json"]),
+            "accountable completion auditor",
+        ),
+    ],
+)
+def test_result_file_rejects_unaccountable_completion_sweep(
+    tmp_path: Path, log_records: list[dict], message: str
+) -> None:
+    run_dir, result_file = write_result_run(
+        tmp_path,
+        payload=valid_sweep_result_payload(),
+        log_records=log_records,
+    )
+    write_sweep_artifact(run_dir)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert message in result.stderr
+
+
+@pytest.mark.parametrize("raw_sweep", [None, "{not-json}"])
+def test_result_file_rejects_missing_or_malformed_sweep_artifact(
+    tmp_path: Path, raw_sweep: str | None
+) -> None:
+    run_dir, result_file = write_result_run(
+        tmp_path,
+        payload=valid_sweep_result_payload(),
+        log_records=valid_sweep_log(),
+    )
+    if raw_sweep is not None:
+        (run_dir / "completion-sweep.json").write_text(raw_sweep)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "$.sweep:" in result.stderr
+
+
+def test_partial_result_with_sweep_requires_completion_worker_row(
+    tmp_path: Path,
+) -> None:
+    payload = valid_sweep_result_payload(outcome="partial")
+    payload["workers"] = payload["workers"][:-1]
+    run_dir, result_file = write_result_run(
+        tmp_path, payload=payload, log_records=valid_sweep_log()
+    )
+    write_sweep_artifact(run_dir)
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "accountable completion auditor" in result.stderr
+
+
+def test_partial_result_without_sweep_remains_valid(tmp_path: Path) -> None:
+    _, result_file = write_result_run(
+        tmp_path,
+        payload=result_payload(outcome="partial", verification=[], workers=[]),
+    )
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_partial_result_retains_accountable_sweep(tmp_path: Path) -> None:
+    residual = {
+        "kind": "gap",
+        "detail": "Requirement was not verified.",
+        "source": "completion sweep",
+    }
+    payload = valid_sweep_result_payload(outcome="partial")
+    payload["residual"] = [residual]
+    run_dir, result_file = write_result_run(
+        tmp_path, payload=payload, log_records=valid_sweep_log()
+    )
+    write_sweep_artifact(
+        run_dir, completion_payload(missing_residual=[residual])
+    )
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_result_file_rejects_sweep_residual_omitted_from_result(
+    tmp_path: Path,
+) -> None:
+    missing = {
+        "kind": "finding",
+        "detail": "A required behavior is still missing.",
+        "severity": "important",
+        "scope": "spec",
+        "source": "completion sweep",
+    }
+    run_dir, result_file = write_result_run(
+        tmp_path,
+        payload=valid_sweep_result_payload(),
+        log_records=valid_sweep_log(),
+    )
+    write_sweep_artifact(
+        run_dir, completion_payload(missing_residual=[missing])
+    )
+
+    result = validate_result_file(tmp_path, result_file)
+
+    assert result.returncode == 1
+    assert "missing_residual is absent from result.residual" in result.stderr
 
 
 def test_finding_residual_requires_structured_severity_and_scope() -> None:
@@ -1273,7 +1765,7 @@ def run_codex_eval(
             "#!/usr/bin/env bash\n"
             "mkdir -p .work-team/test-run\n"
             "printf '%s\\n' '{\"run\":\"test-run\",\"task\":\"test\",\"phases\":[{\"id\":\"build\",\"workers\":[{\"id\":\"writer\",\"role\":\"writer\",\"goal\":\"Write. Done when checked.\",\"inputs\":[],\"owns\":[\"artefact.txt\"],\"verify\":\"true\"}]}]}' > .work-team/test-run/plan.json\n"
-            "printf '%s\\n' '{\"ts\":\"2026-09-02T00:00:00Z\",\"agent\":\"writer\",\"action\":\"return\"}' > .work-team/test-run/workflow-log.jsonl\n"
+            "printf '%s\\n' '{\"ts\":\"2026-09-02T00:00:00Z\",\"agent\":\"build:writer:r1\",\"action\":\"return\",\"artefacts\":[]}' > .work-team/test-run/workflow-log.jsonl\n"
             "printf '%s\\n' '{\"run\":\"test-run\",\"outcome\":\"partial\",\"verification\":[],\"residual\":[{\"kind\":\"gap\",\"detail\":\"test harness\"}],\"workers\":[],\"plan\":\".work-team/test-run/plan.json\",\"log\":\".work-team/test-run/workflow-log.jsonl\"}' > .work-team/test-run/result.json\n"
             "marker=$(tail -n 1 .agents/skills/work-team/SKILL.md)\n"
             "printf '%s\\n' "
@@ -1343,7 +1835,7 @@ def test_eval_runner_uses_authoritative_codex_rollout_when_public_stream_omits_s
         "run = Path.cwd() / '.work-team/test-run'\n"
         "run.mkdir(parents=True)\n"
         "(run / 'plan.json').write_text(json.dumps({'run': 'test-run', 'task': 'test', 'phases': [{'id': 'build', 'workers': [{'id': 'writer', 'role': 'writer', 'goal': 'Write. Done when checked.', 'inputs': [], 'owns': ['artefact.txt'], 'verify': 'true'}]}]}))\n"
-        "(run / 'workflow-log.jsonl').write_text(json.dumps({'ts': '2026-09-02T00:00:00Z', 'agent': 'writer', 'action': 'return'}) + '\\n')\n"
+        "(run / 'workflow-log.jsonl').write_text(json.dumps({'ts': '2026-09-02T00:00:00Z', 'agent': 'build:writer:r1', 'action': 'return', 'artefacts': []}) + '\\n')\n"
         "(run / 'result.json').write_text(json.dumps({'run': 'test-run', 'outcome': 'partial', 'verification': [], 'residual': [{'kind': 'gap', 'detail': 'test harness'}], 'workers': [], 'plan': '.work-team/test-run/plan.json', 'log': '.work-team/test-run/workflow-log.jsonl'}))\n"
         "skill = Path.cwd() / '.agents/skills/work-team/SKILL.md'\n"
         "marker = skill.read_text().splitlines()[-1]\n"
@@ -1397,7 +1889,7 @@ def test_eval_runner_rejects_malformed_authoritative_codex_rollout(
         "run = Path.cwd() / '.work-team/test-run'\n"
         "run.mkdir(parents=True)\n"
         "(run / 'plan.json').write_text(json.dumps({'run': 'test-run', 'task': 'test', 'phases': [{'id': 'build', 'workers': [{'id': 'writer', 'role': 'writer', 'goal': 'Write. Done when checked.', 'inputs': [], 'owns': ['artefact.txt'], 'verify': 'true'}]}]}))\n"
-        "(run / 'workflow-log.jsonl').write_text(json.dumps({'ts': '2026-09-02T00:00:00Z', 'agent': 'writer', 'action': 'return'}) + '\\n')\n"
+        "(run / 'workflow-log.jsonl').write_text(json.dumps({'ts': '2026-09-02T00:00:00Z', 'agent': 'build:writer:r1', 'action': 'return', 'artefacts': []}) + '\\n')\n"
         "(run / 'result.json').write_text(json.dumps({'run': 'test-run', 'outcome': 'partial', 'verification': [], 'residual': [{'kind': 'gap', 'detail': 'test harness'}], 'workers': [], 'plan': '.work-team/test-run/plan.json', 'log': '.work-team/test-run/workflow-log.jsonl'}))\n"
         "skill = Path.cwd() / '.agents/skills/work-team/SKILL.md'\n"
         "marker = skill.read_text().splitlines()[-1]\n"
@@ -1739,7 +2231,7 @@ def test_eval_runner_preserves_distinct_audit_log_paths(tmp_path: Path) -> None:
         "printf two > a/b/workflow-log.jsonl\n"
         "mkdir -p .work-team/test-run\n"
         "printf '%s\\n' '{\"run\":\"test-run\",\"task\":\"test\",\"phases\":[{\"id\":\"build\",\"workers\":[{\"id\":\"writer\",\"role\":\"writer\",\"goal\":\"Write. Done when checked.\",\"inputs\":[],\"owns\":[\"artefact.txt\"],\"verify\":\"true\"}]}]}' > .work-team/test-run/plan.json\n"
-        "printf '%s\\n' '{\"ts\":\"2026-09-02T00:00:00Z\",\"agent\":\"writer\",\"action\":\"return\"}' > .work-team/test-run/workflow-log.jsonl\n"
+        "printf '%s\\n' '{\"ts\":\"2026-09-02T00:00:00Z\",\"agent\":\"build:writer:r1\",\"action\":\"return\",\"artefacts\":[]}' > .work-team/test-run/workflow-log.jsonl\n"
         "printf '%s\\n' '{\"run\":\"test-run\",\"outcome\":\"partial\",\"verification\":[],\"residual\":[{\"kind\":\"gap\",\"detail\":\"test harness\"}],\"workers\":[],\"plan\":\".work-team/test-run/plan.json\",\"log\":\".work-team/test-run/workflow-log.jsonl\"}' > .work-team/test-run/result.json\n"
         "marker=$(tail -n 1 .agents/skills/work-team/SKILL.md)\n"
         "printf '%s\\n' "
@@ -1811,7 +2303,7 @@ def test_eval_runner_kills_normal_exit_descendants_before_post_hash(
         "#!/usr/bin/env bash\n"
         "mkdir -p .work-team/test-run\n"
         "printf '%s\\n' '{\"run\":\"test-run\",\"task\":\"test\",\"phases\":[{\"id\":\"build\",\"workers\":[{\"id\":\"writer\",\"role\":\"writer\",\"goal\":\"Write. Done when checked.\",\"inputs\":[],\"owns\":[\"artefact.txt\"],\"verify\":\"true\"}]}]}' > .work-team/test-run/plan.json\n"
-        "printf '%s\\n' '{\"ts\":\"2026-09-02T00:00:00Z\",\"agent\":\"writer\",\"action\":\"return\"}' > .work-team/test-run/workflow-log.jsonl\n"
+        "printf '%s\\n' '{\"ts\":\"2026-09-02T00:00:00Z\",\"agent\":\"build:writer:r1\",\"action\":\"return\",\"artefacts\":[]}' > .work-team/test-run/workflow-log.jsonl\n"
         "printf '%s\\n' '{\"run\":\"test-run\",\"outcome\":\"partial\",\"verification\":[],\"residual\":[{\"kind\":\"gap\",\"detail\":\"test harness\"}],\"workers\":[],\"plan\":\".work-team/test-run/plan.json\",\"log\":\".work-team/test-run/workflow-log.jsonl\"}' > .work-team/test-run/result.json\n"
         "(trap '' TERM; sleep 1; printf '\\nlate mutation\\n' >> "
         ".agents/skills/work-team/SKILL.md) &\n"
@@ -2232,7 +2724,7 @@ def test_eval_runner_uses_python_stdlib_instead_of_shell_utilities(
         "run = Path.cwd() / '.work-team/test-run'\n"
         "run.mkdir(parents=True)\n"
         "(run / 'plan.json').write_text(json.dumps({'run': 'test-run', 'task': 'test', 'phases': [{'id': 'build', 'workers': [{'id': 'writer', 'role': 'writer', 'goal': 'Write. Done when checked.', 'inputs': [], 'owns': ['artefact.txt'], 'verify': 'true'}]}]}))\n"
-        "(run / 'workflow-log.jsonl').write_text(json.dumps({'ts': '2026-09-02T00:00:00Z', 'agent': 'writer', 'action': 'return'}) + '\\n')\n"
+        "(run / 'workflow-log.jsonl').write_text(json.dumps({'ts': '2026-09-02T00:00:00Z', 'agent': 'build:writer:r1', 'action': 'return', 'artefacts': []}) + '\\n')\n"
         "(run / 'result.json').write_text(json.dumps({'run': 'test-run', 'outcome': 'partial', 'verification': [], 'residual': [{'kind': 'gap', 'detail': 'test harness'}], 'workers': [], 'plan': '.work-team/test-run/plan.json', 'log': '.work-team/test-run/workflow-log.jsonl'}))\n"
         "skill = Path.cwd() / '.agents/skills/work-team/SKILL.md'\n"
         "marker = skill.read_text().splitlines()[-1]\n"

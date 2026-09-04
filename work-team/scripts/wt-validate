@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Validate a worker result against a JSON schema subset.
 usage: wt-validate <schema.json> [result.json] [--plan plan.json --phase id [--worker id]]
+       wt-validate completion.schema.json --strict-json < response.json
+       wt-validate result.schema.json --pre-sweep < proposed-result.json
        (reads the result from stdin if omitted)
 
 Supports: type, required, properties, items, enum, const, minimum, minLength,
@@ -8,13 +10,14 @@ pattern, minItems, contains, uniqueBy, repoRelativePath, runArtifactPaths,
 notRepoPathPrefix, forbiddenProperties, disjointNormalizedPathsBy,
 noConcurrentInputDependencies, candidateOwnedPaths, allOf, and if/then.
 Exit 0 = valid; exit 1 = invalid.
-A worker's final message may wrap JSON in ```json fences; they are stripped.
+Ordinary stdin may use ```json fences. Files and --strict-json stdin may not.
 """
 import json
 import argparse
 import posixpath
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 TYPES = {"object": dict, "array": list, "string": str, "integer": int,
@@ -137,10 +140,11 @@ def check_verifier_coverage(result, plan, phase_id, worker_id):
     return []
 
 
-def check_result_artifact_files(result):
+def check_result_artifacts(result, schemas_dir, final=False):
     if not isinstance(result, dict) or not isinstance(result.get("run"), str):
         return []
     errs = []
+    artifacts = {}
     for field in ("plan", "log"):
         raw = result.get(field)
         if not isinstance(raw, str):
@@ -154,6 +158,162 @@ def check_result_artifact_files(result):
             or not candidate.is_file()
         ):
             errs.append(f"$.{field}: declared run artifact does not exist as a regular file")
+        else:
+            artifacts[field] = candidate
+    plan = None
+    if "plan" in artifacts:
+        try:
+            plan = json.loads(artifacts["plan"].read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            errs.append(f"$.plan: invalid JSON artifact: {error}")
+        else:
+            try:
+                plan_schema = json.loads(
+                    (schemas_dir / "plan.schema.json").read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                errs.append(f"$.plan: cannot load plan schema: {error}")
+            else:
+                errs += check(plan, plan_schema, "$.plan")
+                if isinstance(plan, dict) and plan.get("run") != result["run"]:
+                    errs.append("$.plan.run: does not match result run")
+    records = []
+    if "log" in artifacts:
+        try:
+            raw_log = artifacts["log"].read_bytes()
+            text = raw_log.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            errs.append(f"$.log: invalid UTF-8 artifact: {error}")
+        else:
+            lines = text.splitlines(keepends=True)
+            if not lines:
+                errs.append("$.log: audit log is empty")
+            for index, line in enumerate(lines):
+                record_path = f"$.log[{index}]"
+                if len(line.encode("utf-8")) >= 4096:
+                    errs.append(f"{record_path}: audit record must be below 4 KiB")
+                if not line.strip():
+                    errs.append(f"{record_path}: empty audit record")
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as error:
+                    errs.append(f"{record_path}: invalid JSON: {error}")
+                    continue
+                if not isinstance(record, dict):
+                    errs.append(f"{record_path}: expected object")
+                    continue
+                ts = record.get("ts")
+                try:
+                    if not isinstance(ts, str):
+                        raise ValueError("expected string")
+                    datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+                except ValueError:
+                    errs.append(f"{record_path}.ts: expected a valid UTC timestamp")
+                for field in ("agent", "action"):
+                    value = record.get(field)
+                    if not isinstance(value, str) or not re.search(r"\S", value):
+                        errs.append(f"{record_path}.{field}: expected a nonblank string")
+                artefacts = record.get("artefacts")
+                if not isinstance(artefacts, list) or not all(
+                    isinstance(value, str) for value in artefacts
+                ):
+                    errs.append(f"{record_path}.artefacts: expected an array of strings")
+                records.append(record)
+    if result.get("outcome") == "complete" and isinstance(plan, dict):
+        allowed = set()
+        phases = plan.get("phases", [])
+        if isinstance(phases, list):
+            for phase in phases:
+                if not isinstance(phase, dict) or not isinstance(phase.get("id"), str):
+                    continue
+                workers = phase.get("workers", [])
+                if not isinstance(workers, list):
+                    continue
+                for worker in workers:
+                    if not isinstance(worker, dict) or not isinstance(worker.get("id"), str):
+                        continue
+                    for attempt in ("r1", "r2"):
+                        allowed.add(f"{phase['id']}:{worker['id']}:{attempt}")
+        if not any(record.get("agent") in allowed for record in records):
+            errs.append("$.log: complete run requires a plan-derived worker attempt")
+    if final:
+        expected_sweep = f".work-team/{result['run']}/completion-sweep.json"
+        raw_sweep = result.get("sweep")
+        if result.get("outcome") == "complete" and raw_sweep is None:
+            errs.append("$.sweep: complete run requires a completion sweep")
+        if raw_sweep is not None:
+            if raw_sweep != expected_sweep:
+                errs.append(
+                    f"$.sweep: expected declared run path {expected_sweep!r}"
+                )
+            sweep_path = Path.cwd() / raw_sweep if isinstance(raw_sweep, str) else None
+            sweep_resolved = safe_resolved_path(raw_sweep)
+            if (
+                sweep_path is None
+                or sweep_resolved is None
+                or not sweep_resolved.is_relative_to(Path.cwd().resolve())
+                or sweep_path.is_symlink()
+                or not sweep_path.is_file()
+            ):
+                errs.append(
+                    "$.sweep: declared run artifact does not exist as a regular file"
+                )
+            else:
+                try:
+                    sweep = json.loads(sweep_path.read_text(encoding="utf-8"))
+                    sweep_schema = json.loads(
+                        (schemas_dir / "completion.schema.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                    errs.append(f"$.sweep: invalid JSON artifact: {error}")
+                else:
+                    errs += check(sweep, sweep_schema, "$.sweep")
+                    reported = result.get("residual", [])
+                    remaining = list(reported) if isinstance(reported, list) else []
+                    for index, residual in enumerate(
+                        sweep.get("missing_residual", [])
+                        if isinstance(sweep, dict) else []
+                    ):
+                        try:
+                            remaining.remove(residual)
+                        except ValueError:
+                            errs.append(
+                                f"$.sweep.missing_residual[{index}]: "
+                                "missing_residual is absent from result.residual"
+                            )
+            successful_ids = {
+                worker.get("id")
+                for worker in result.get("workers", [])
+                if isinstance(worker, dict)
+                and worker.get("role") == "completion-auditor"
+                and worker.get("status") == "ok"
+                and worker.get("id") in (
+                    "_completion:sweep:r1", "_completion:sweep:r2"
+                )
+            }
+            accountable = False
+            for worker_id in successful_ids:
+                start_indexes = [
+                    index for index, record in enumerate(records)
+                    if record.get("agent") == worker_id
+                    and record.get("action") == "completion_sweep_start"
+                ]
+                return_indexes = [
+                    index for index, record in enumerate(records)
+                    if record.get("agent") == worker_id
+                    and record.get("action") == "completion_sweep_return"
+                    and expected_sweep in record.get("artefacts", [])
+                ]
+                if any(start < returned for start in start_indexes for returned in return_indexes):
+                    accountable = True
+                    break
+            if not accountable:
+                errs.append(
+                    "$.sweep: requires an accountable completion auditor"
+                )
     return errs
 
 
@@ -209,6 +369,10 @@ def check(v, s, path="$"):
                 "plan": f".work-team/{v['run']}/plan.json",
                 "log": f".work-team/{v['run']}/workflow-log.jsonl",
             }
+            if "sweep" in v:
+                expected["sweep"] = (
+                    f".work-team/{v['run']}/completion-sweep.json"
+                )
             for field, expected_path in expected.items():
                 if v.get(field) != expected_path:
                     errs.append(
@@ -387,11 +551,17 @@ def main():
     parser.add_argument("--plan")
     parser.add_argument("--phase")
     parser.add_argument("--worker")
+    parser.add_argument("--strict-json", action="store_true")
+    parser.add_argument("--pre-sweep", action="store_true")
     args = parser.parse_args()
     if bool(args.plan) != bool(args.phase):
         parser.error("--plan and --phase are required together")
     if args.worker and not args.plan:
         parser.error("--worker requires --plan and --phase")
+    if args.strict_json and args.result:
+        parser.error("--strict-json is only valid with stdin")
+    if args.pre_sweep and args.result:
+        parser.error("--pre-sweep is only valid with stdin")
     with open(args.schema, encoding="utf-8") as schema_file:
         schema = json.load(schema_file)
     if args.result:
@@ -403,8 +573,9 @@ def main():
         except UnicodeDecodeError as error:
             print(f"not UTF-8: {error}", file=sys.stderr)
             sys.exit(2)
-    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)```\s*", raw, re.S)
-    raw = m.group(1) if m else raw
+    if not args.result and not args.strict_json:
+        m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)```\s*", raw, re.S)
+        raw = m.group(1) if m else raw
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
@@ -412,8 +583,14 @@ def main():
         sys.exit(2)
     errs = check(data, schema)
     schema_name = Path(args.schema).name
-    if args.result and schema_name == "result.schema.json":
-        errs += check_result_artifact_files(data)
+    if args.pre_sweep and schema_name != "result.schema.json":
+        parser.error("--pre-sweep requires result.schema.json")
+    if (args.result or args.pre_sweep) and schema_name == "result.schema.json":
+        errs += check_result_artifacts(
+            data,
+            Path(args.schema).resolve().parent,
+            final=bool(args.result),
+        )
     if args.plan:
         try:
             with open(args.plan, encoding="utf-8") as plan_file:

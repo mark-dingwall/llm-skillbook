@@ -30,7 +30,7 @@ run failed or cost what it did, follow "Diagnose a run" in
 
 ```text
 Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bounded)
-      → next phase … → Verify by command → Report (result.json + report.md)
+      → next phase … → Verify by command → Completion sweep → Report
 ```
 
 1. **Frame.** Read the task and scout the repository inline (list files, run
@@ -64,11 +64,21 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
 6. **Verify.** Run the plan's verification commands from the controller and
    keep the exact output. A claim of completion without command output is a
    contract violation.
-7. **Report.** Write `result.json` and validate that file against
-   `schemas/result.schema.json` so its declared plan and log must exist
-   and `report.md` per [report.md](references/report.md). `residual` is
-   required; an empty array is a claim that nothing was dropped, so it must be
-   true.
+7. **Completion sweep.** Calculate the proposed result in memory. If it is
+   `complete`, validate it through `wt-validate result.schema.json
+   --pre-sweep`, then dispatch the derived completion-auditor packet defined
+   in [packets.md](references/packets.md). Validate its raw, unfenced response
+   with `completion.schema.json --strict-json` before persisting it at the
+   canonical sweep path. Append every returned residual verbatim and
+   recalculate the outcome. Invalid return handling is the normal one retry;
+   after two invalid attempts record `invalid_return` and report `partial`
+   without a `sweep` field. Do not dispatch the sweep for a proposed partial or
+   stopped result.
+8. **Report.** Write `result.json` only after the sweep decision and validate
+   that file against `schemas/result.schema.json` so its declared plan, log,
+   and any sweep must be valid and accountable. Write `report.md` per
+   [report.md](references/report.md). `residual` is required; an empty array is
+   a claim that nothing was dropped, so it must be true.
 
 ## Controller boundary
 

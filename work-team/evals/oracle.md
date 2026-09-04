@@ -25,6 +25,11 @@ evidence.
   output shown (tests pass, CLI smoke).
 - A7 The final answer states the run structure (phases, workers, parallel
   groups) in a form a human could edit and rerun.
+- A8 Before claiming completion, a fresh completion auditor runs after command
+  verification, compares the requirement sources with the run accounting, and
+  returns a valid canonical sweep artifact. Its worker row and exact start and
+  return audit markers remain visible; any omitted residuals downgrade the
+  outcome instead of being silently discarded.
 
 ## Scenario B — Audit under quota with a partial verifier
 

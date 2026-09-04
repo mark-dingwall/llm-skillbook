@@ -10,7 +10,8 @@ judge, its verdict is a verification entry too.
 
 Validate the written file from the repository root with `wt-validate
 <skill>/references/schemas/result.schema.json .work-team/<run>/result.json`.
-File validation also requires the declared canonical plan and log to exist.
+File validation parses and validates the declared canonical plan, every log
+record, and any completion sweep; it does not treat file existence as proof.
 
 ```json
 {
@@ -18,12 +19,15 @@ File validation also requires the declared canonical plan and log to exist.
   "outcome": "complete | partial | stopped",
   "verification": [{"command": "python3 -m pytest -q", "passed": true, "output": "20 passed in 0.12s", "summary": "20 passed"}],
   "residual": [
-    {"kind": "finding", "detail": "save() not atomic", "severity": "minor", "scope": "spec", "source": "reviewer:r1"},
-    {"kind": "loop_cap", "detail": "…", "severity": "important", "scope": "spec", "source": "impl loop"}
+    {"kind": "finding", "detail": "save() not atomic", "severity": "minor", "scope": "spec", "source": "reviewer:r1"}
   ],
-  "workers": [{"id": "implementer", "role": "implementer", "status": "ok"}],
+  "workers": [
+    {"id": "implementer", "role": "implementer", "status": "ok"},
+    {"id": "_completion:sweep:r1", "role": "completion-auditor", "status": "ok"}
+  ],
   "plan": ".work-team/run-1/plan.json",
-  "log": ".work-team/run-1/workflow-log.jsonl"
+  "log": ".work-team/run-1/workflow-log.jsonl",
+  "sweep": ".work-team/run-1/completion-sweep.json"
 }
 ```
 
@@ -37,6 +41,16 @@ and no `blocker`/`important` finding or capped finding remains; failed
 superseded attempts are recorded with worker status `retried` and do not
 independently block completion. A `failed` or `invalid` worker status is
 incompatible with `complete`.
+
+Calculate that outcome in memory before writing `result.json`. A proposed
+complete result must pass `wt-validate result.schema.json --pre-sweep` against
+the pre-sweep artifacts, including an existing log record from an attempt id
+derived from the validated plan. Only then run the completion auditor. Append
+its `missing_residual` rows verbatim, recalculate the outcome, and retain the
+canonical `sweep` path and successful auditor worker row even when the result
+becomes partial. A final complete result requires the valid sweep and its
+ordered, matching audit markers. Do not write `result.json` until this process
+is finished.
 
 ## report.md
 

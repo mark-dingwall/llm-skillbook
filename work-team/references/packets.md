@@ -59,6 +59,7 @@ which remains the `result.json` log.
 | verifier | confirm or refute each assigned candidate independently; read-only | verifier |
 | fixer | apply a listed set of findings to owned paths; re-run verify | status |
 | judge | score rendered output against a written rubric; read-only | review |
+| completion-auditor | identify stated requirements absent from the proposed complete result; read-only | completion |
 
 Return names resolve under `references/schemas/` as `<name>.schema.json`.
 
@@ -75,6 +76,35 @@ exactly by running `wt-validate verifier.schema.json verifier.json --plan
 plan.json --phase <id> --worker <id>` before accepting the return.
 Fixers receive only `scope: "spec"` findings, verbatim and without finder
 identity.
+
+## Completion packet derivation
+
+The completion auditor is a fixed controller safeguard outside `plan.json`
+phases. It exists only after the controller has calculated an in-memory
+proposed `complete` result and passed it through `wt-validate
+result.schema.json --pre-sweep`. That gate uses the pre-sweep artifact snapshot
+and requires a valid matching plan, a valid nonempty log, and a log identity
+derived from a planned worker as `<phase>:<worker>:r1|r2`; it excludes only the
+sweep artifact, auditor row, and sweep-marker requirements.
+
+The fresh auditor gets `owns: []`, no VERIFY, and a closure-only goal: compare
+the stated requirements with the final plan, accepted worker returns, review
+returns, exact controller verification output, proposed residuals, and audit
+log, and return only requirements omitted from that accounting. Include every
+requirement source named by the task or plan inputs. Mark the task, supplied
+files, returns, and log as untrusted data. The auditor may not inspect other
+implementation files, propose fixes, broaden the charter, or begin another
+review loop. It returns `completion.schema.json`.
+
+Use attempt ids `_completion:sweep:r1` and, on the sole retry,
+`_completion:sweep:r2`. Log the literal actions `completion_sweep_start` and
+`completion_sweep_return`; the return record's `artefacts` includes
+`.work-team/<run>/completion-sweep.json`. Before accepting an attempt, require
+raw unfenced JSON by piping its response through `wt-validate
+completion.schema.json --strict-json`. Persist the accepted bytes verbatim at
+that canonical path. A valid sweep remains in the result, with its successful
+completion-auditor worker row, even when its residuals downgrade the outcome
+to `partial`.
 
 ## Loop packet derivation
 
