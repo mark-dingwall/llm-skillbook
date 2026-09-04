@@ -287,19 +287,27 @@ def verify_staged_skill(harness, transcript, workspace, marker):
                 except ValueError:
                     return False, False
                 if "&&" in shell_tokens:
-                    first_segment = shell_tokens[:shell_tokens.index("&&")]
-                    return tokens_read_expected_skill(first_segment), True
+                    segments = [[]]
+                    for token in shell_tokens:
+                        if token == "&&":
+                            segments.append([])
+                        else:
+                            segments[-1].append(token)
+                    return (
+                        any(tokens_read_expected_skill(segment) for segment in segments),
+                        tokens_read_expected_skill(segments[0]),
+                    )
                 return tokens_read_expected_skill(shell_tokens), False
             return tokens_read_expected_skill(tokens), False
 
         def event_proves_staged_skill_read(event):
             item = event["item"]
-            read_proven, read_precedes_chain = staged_skill_read(
+            read_proven, read_is_first = staged_skill_read(
                 item.get("command", "")
             )
             return (
                 read_proven
-                and (item.get("exit_code") == 0 or read_precedes_chain)
+                and (item.get("exit_code") == 0 or read_is_first)
                 and marker in item.get("aggregated_output", "")
             )
 

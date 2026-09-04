@@ -2510,6 +2510,62 @@ def test_codex_staged_skill_proof_accepts_read_before_later_chained_failure(
     assert module["verify_staged_skill"]("codex", transcript, workspace, marker)
 
 
+def test_codex_staged_skill_proof_accepts_later_read_in_successful_chain(
+    tmp_path: Path,
+) -> None:
+    module = runpy.run_path(str(RUN_EVAL))
+    workspace = tmp_path / "workspace"
+    transcript = tmp_path / "stdout.jsonl"
+    marker = "<!-- eval-marker:test -->"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": (
+                        "/bin/bash -lc \"sed -n '1,20p' process/SKILL.md && "
+                        "sed -n '1,260p' .agents/skills/work-team/SKILL.md\""
+                    ),
+                    "aggregated_output": marker,
+                    "exit_code": 0,
+                },
+            }
+        ) + "\n"
+    )
+
+    assert module["verify_staged_skill"]("codex", transcript, workspace, marker)
+
+
+def test_codex_staged_skill_proof_rejects_later_read_in_failed_chain(
+    tmp_path: Path,
+) -> None:
+    module = runpy.run_path(str(RUN_EVAL))
+    workspace = tmp_path / "workspace"
+    transcript = tmp_path / "stdout.jsonl"
+    marker = "<!-- eval-marker:test -->"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": (
+                        "/bin/bash -lc \"false && sed -n '1,260p' "
+                        ".agents/skills/work-team/SKILL.md\""
+                    ),
+                    "aggregated_output": marker,
+                    "exit_code": 1,
+                },
+            }
+        ) + "\n"
+    )
+
+    assert not module["verify_staged_skill"](
+        "codex", transcript, workspace, marker
+    )
+
+
 def test_eval_runner_uses_requested_high_effort_for_both_harnesses(tmp_path: Path) -> None:
     module = runpy.run_path(str(RUN_EVAL))
 

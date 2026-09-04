@@ -45,6 +45,10 @@ role-derived inline schema. Writer, implementer, and fixer packets also require
 VERIFY. A packet missing a required part is not dispatched. Read-only return
 validation is the controller's gate; a reviewer, verifier, or judge does not
 self-certify its response with a `verify_output` field its schema cannot carry.
+The controller validates the harness's raw return rather than reconstructing
+it. In Claude Code, set `TASK_OUTPUT_FILE` to the Task notification's
+`output_file` and pipe that file to `wt-validate`; do not write an intermediate
+return file.
 If the task explicitly requires a second audit log, the packet repeats each
 `wt-log` call to that exact path. It never replaces the canonical run log,
 which remains the `result.json` log.
@@ -102,9 +106,13 @@ Use attempt ids `_completion:sweep:r1` and, on the sole retry,
 `.work-team/<run>/completion-sweep.json`. Before accepting an attempt, require
 raw unfenced JSON by piping its response through `wt-validate
 completion.schema.json --strict-json`. Persist the accepted bytes verbatim at
-that canonical path. A valid sweep remains in the result, with its successful
-completion-auditor worker row, even when its residuals downgrade the outcome
-to `partial`.
+that canonical path; do not hand-build a temporary object, retype the response,
+or serialize a parsed copy. In Claude Code, run `wt-validate
+completion.schema.json --strict-json < "$TASK_OUTPUT_FILE" && cp --
+"$TASK_OUTPUT_FILE" .work-team/$RUN/completion-sweep.json` using the Task
+notification's `output_file`; do not create an intermediate JSON file. A valid
+sweep remains in the result, with its successful completion-auditor worker row,
+even when its residuals downgrade the outcome to `partial`.
 
 ## Loop packet derivation
 

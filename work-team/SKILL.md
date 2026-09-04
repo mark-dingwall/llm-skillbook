@@ -49,7 +49,11 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    The primitive must return a worker id before waiting; without one, record
    `worker_failed` and never simulate the packet inline.
 4. **Ingest.** Pipe each worker's final message through `wt-validate` with the
-   packet's return schema. Invalid or empty → retry once with the same work
+   packet's return schema. Use the harness's raw return, never a retyped or
+   shortened copy. In Claude Code, set `TASK_OUTPUT_FILE` to the Task
+   notification's `output_file` and run `wt-validate <schema> <
+   "$TASK_OUTPUT_FILE"`; never write a replacement return file. Invalid or
+   empty → retry once with the same work
    packet and a fresh attempt id (`<phase>:<id>:r2`). The shared checkout may
    contain partial edits from the first attempt; the packet always requires the
    worker to establish and verify the complete goal state. Still invalid →
@@ -68,8 +72,12 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    `complete`, validate it through `wt-validate result.schema.json
    --pre-sweep`, then dispatch the derived completion-auditor packet defined
    in [packets.md](references/packets.md). Validate its raw, unfenced response
-   with `completion.schema.json --strict-json` before persisting it at the
-   canonical sweep path. Append every returned residual verbatim and
+   with `completion.schema.json --strict-json`, then persist those exact bytes
+   at the canonical sweep path without reconstructing or reserializing the
+   JSON. In Claude Code, use exactly `wt-validate completion.schema.json
+   --strict-json < "$TASK_OUTPUT_FILE" && cp -- "$TASK_OUTPUT_FILE"
+   .work-team/$RUN/completion-sweep.json`; never create an intermediate JSON
+   file. Append every returned residual verbatim and
    recalculate the outcome. Invalid return handling is the normal one retry;
    after two invalid attempts record `invalid_return` and report `partial`
    without a `sweep` field. Do not dispatch the sweep for a proposed partial or
