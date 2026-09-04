@@ -1,0 +1,84 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory: commands `add <text>`, `list`, `done <id>`; JSON-file persistence. Coordinate subagents through specification -> tests -> implementation -> review. Keep a shared audit trail workflow-log.jsonl in this directory: one JSON line per substantive worker action, carrying the worker's id.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md at the repository root specifying the `todo` CLI: commands `add <text>`, `list`, `done <id>`; JSON-file persistence (file name/location, schema for each todo item including id/text/done fields, id assignment scheme). Specify exact stdout format for `list` and `add`, exit codes for success and for error cases (e.g. `done` with an unknown id, `add` with no text), and behavior when the JSON file does not yet exist. Done when every command (add, list, done) has at least one Given/When/Then in SPEC.md.",
+          "inputs": ["Deliver a tiny Python CLI `todo`: commands `add <text>`, `list`, `done <id>`; JSON-file persistence."],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite test_todo.py at the repository root derived only from SPEC.md, invoking the CLI as a subprocess (e.g. `python3 todo.py ...`) against a temporary JSON storage file so tests do not depend on implementation internals. Cover add, list, and done including the error cases and exit codes SPEC.md defines. Done when the suite collects successfully and fails only because todo.py does not yet exist/implement the behavior.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement todo.py at the repository root (the `todo` CLI) so that it satisfies SPEC.md and makes test_todo.py pass, touching only owned paths. Done when `python3 -m pytest -q test_todo.py` is fully green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "tests-fix",
+      "workers": [
+        {
+          "id": "test-writer-fix",
+          "role": "fixer",
+          "goal": "Apply the impl:reviewer:r1 scope:spec finding assigned to test_todo.py: TestList.test_list_does_not_resort_by_id_or_done_status asserts id-sorted output, contradicting its own name and SPEC.md 2.2/3.2's insertion-order requirement. Correct the expected stdout in that test to reflect file (insertion) order, not id order, touching only owned paths.",
+          "inputs": ["SPEC.md", "test_todo.py", "impl:reviewer:r1 finding on test_todo.py (owner test-writer): TestList.test_list_does_not_resort_by_id_or_done_status expects id-sorted output at lines ~188-201, contradicting SPEC.md insertion-order requirement; fix the assertion to expect file order (id=2 line before id=1 line)."],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl-fix",
+      "workers": [
+        {
+          "id": "implementer-fix",
+          "role": "fixer",
+          "goal": "Apply the impl:reviewer:r1 scope:spec finding assigned to todo.py: cmd_list sorts items by id before printing, contradicting SPEC.md 2.2/3.2's insertion-order requirement. Remove the sort so list output preserves file/load order, touching only owned paths. Done when `python3 -m pytest -q test_todo.py` is fully green against the corrected test_todo.py.",
+          "inputs": ["SPEC.md", "test_todo.py", "impl:reviewer:r1 finding on todo.py (owner implementer): cmd_list uses sorted(items, key=lambda item: item['id']) at line ~125, contradicting SPEC.md insertion-order requirement; remove the sort and iterate items in load order."],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl-review2",
+      "workers": [
+        {
+          "id": "reviewer2",
+          "role": "reviewer",
+          "goal": "Confirm the two impl:reviewer:r1 scope:spec findings (list-order sort in todo.py; id-sorted assertion in test_todo.py) are resolved consistently with SPEC.md 2.2/3.2, and that no new scope:spec issue was introduced. Read SPEC.md, test_todo.py, and todo.py in full. Do not edit any file except appending to the run log with wt-log.",
+          "inputs": ["SPEC.md", "test_todo.py", "todo.py", "impl:reviewer:r1 findings and impl-fix/tests-fix fixer returns"],
+          "owns": []
+        }
+      ]
+    }
+  ]
+}

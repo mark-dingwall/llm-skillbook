@@ -1,0 +1,47 @@
+{"ts": "2026-09-04T08:37:23Z", "agent": "controller", "action": "frame_start", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6"]}
+{"ts": "2026-09-04T08:37:39Z", "agent": "controller", "action": "plan_written", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/.work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T08:38:04Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:38:42Z", "agent": "spec:spec-writer:r1", "action": "write", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:38:42Z", "agent": "spec:spec-writer:r1", "action": "verify", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:38:44Z", "agent": "spec:spec-writer:r1", "action": "return", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:39:06Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:40:10Z", "agent": "tests:test-writer:r1", "action": "wrote", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:40:28Z", "agent": "tests:test-writer:r1", "action": "verify:collect-only", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:40:28Z", "agent": "tests:test-writer:r1", "action": "verify:run-confirms-todo.py-missing", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:40:28Z", "agent": "tests:test-writer:r1", "action": "return", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:41:03Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:41:23Z", "agent": "impl:implementer:r1", "action": "write", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:42:07Z", "agent": "impl:implementer:r1", "action": "write", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:42:12Z", "agent": "impl:implementer:r1", "action": "verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:42:12Z", "agent": "impl:implementer:r1", "action": "done", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:42:57Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["SPEC.md,test_todo.py,todo.py"]}
+{"ts": "2026-09-04T08:43:56Z", "agent": "impl:reviewer:r1", "action": "read spec", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/SPEC.md"]}
+{"ts": "2026-09-04T08:43:56Z", "agent": "impl:reviewer:r1", "action": "read tests", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/test_todo.py"]}
+{"ts": "2026-09-04T08:43:56Z", "agent": "impl:reviewer:r1", "action": "read impl; found list re-sorts by id violating SPEC 2.2/3.2, and test asserts sorted order despite its name", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/todo.py"]}
+{"ts": "2026-09-04T08:43:59Z", "agent": "impl:reviewer:r1", "action": "verdict changes_required: list command re-sorts by id, violating SPEC 2.2/3.2 and its own test's name", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/todo.py,/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/test_todo.py,/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/SPEC.md"]}
+{"ts": "2026-09-04T08:45:16Z", "agent": "controller", "action": "loop_stopped_unmapped_finding", "artefacts": ["impl:reviewer:r1"]}
+{"ts": "2026-09-04T08:45:16Z", "agent": "controller", "action": "replan_cross_phase_fix", "artefacts": [".work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T08:45:46Z", "agent": "controller", "action": "replan_validated", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/.work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T08:46:02Z", "agent": "tests-fix:test-writer-fix:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:46:09Z", "agent": "tests-fix:test-writer-fix:r1", "action": "edit", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:46:13Z", "agent": "tests-fix:test-writer-fix:r1", "action": "verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:46:13Z", "agent": "tests-fix:test-writer-fix:r1", "action": "done", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:46:49Z", "agent": "impl-fix:implementer-fix:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:46:55Z", "agent": "impl-fix:implementer-fix:r1", "action": "write", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:46:59Z", "agent": "impl-fix:implementer-fix:r1", "action": "verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:46:59Z", "agent": "impl-fix:implementer-fix:r1", "action": "done", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:47:25Z", "agent": "impl-review2:reviewer2:r1", "action": "start review", "artefacts": ["SPEC.md,test_todo.py,todo.py"]}
+{"ts": "2026-09-04T08:47:29Z", "agent": "impl-review2:reviewer2:r1", "action": "read SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:47:34Z", "agent": "impl-review2:reviewer2:r1", "action": "read todo.py", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:48:11Z", "agent": "impl-review2:reviewer2:r1", "action": "read test_todo.py", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:48:56Z", "agent": "impl-review2:reviewer2:r1", "action": "reviewed findings A/B resolved; verdict pass", "artefacts": ["todo.py,test_todo.py"]}
+{"ts": "2026-09-04T08:50:29Z", "agent": "controller", "action": "canonical_log_established", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/.work-team/2026-09-04-todo-cli/workflow-log.jsonl"]}
+{"ts": "2026-09-04T08:51:12Z", "agent": "_completion:sweep:r1", "action": "start", "artefacts": ["audit"]}
+{"ts": "2026-09-04T08:52:23Z", "agent": "_completion:sweep:r1", "action": "read plan.json", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/.work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T08:52:23Z", "agent": "_completion:sweep:r1", "action": "read audit logs (both copies, confirmed identical)", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/.work-team/2026-09-04-todo-cli/workflow-log.jsonl", "/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/workflow-log.jsonl"]}
+{"ts": "2026-09-04T08:52:23Z", "agent": "_completion:sweep:r1", "action": "read SPEC.md", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/SPEC.md"]}
+{"ts": "2026-09-04T08:52:23Z", "agent": "_completion:sweep:r1", "action": "confirmed test_todo.py and todo.py exist (sizes only, no deep re-review)", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/test_todo.py", "/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/todo.py"]}
+{"ts": "2026-09-04T08:52:23Z", "agent": "_completion:sweep:r1", "action": "sweep complete: no omitted requirements found", "artefacts": ["audit"]}
+{"ts": "2026-09-04T08:52:31Z", "agent": "controller", "action": "completion_sweep_return", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-6/.work-team/2026-09-04-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T08:53:54Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_start", "artefacts": [".work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T08:53:54Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_return", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}

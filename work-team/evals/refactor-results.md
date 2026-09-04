@@ -226,11 +226,11 @@ checkout and is absent from both this worktree's HEAD and the PR base tree.
 ## Completion-integrity campaign (`20260904Tcompletion`)
 
 This campaign targets Scenario A's new A8 completion-sweep observable. The
-deterministic component suite passes 235 tests, including strict artifact
+deterministic component suite passes 237 tests, including strict artifact
 parsing, plan-bound worker identity, sweep accountability, and sweep/result
-residual reconciliation. The archived harness attempts are clean of reads from
-`evals/oracle.md`, `baseline-results.md`, and `scenarios.md`, but none is a
-behavioral pass:
+residual reconciliation. All accepted archives pass their checksum manifests,
+retain unchanged staged-payload snapshots, and are clean of reads from
+`evals/oracle.md`, `baseline-results.md`, and `scenarios.md`.
 
 - Claude attempt 1 exited 1 before doing task work. Its API retried ten times,
   then returned `Request timed out`; the transcript contains zero tokens, zero
@@ -241,8 +241,33 @@ behavioral pass:
   implementation, review, and scoped-fix worker records. It timed out after
   starting the second review, before final verification, result creation, or
   the completion sweep, so it cannot establish A8.
+- Codex attempt 3 is **PASS 8/8**. It completed the full workflow with eight
+  accountable workers, 14 passing tests, exact sweep markers, and an empty
+  canonical completion sweep. Its recorded runner exit 4 was a deterministic
+  staged-skill proof false negative: the successful shell chain read the staged
+  skill in its second `&&` segment. The corrected parser accepts any recognized
+  read segment only when the whole chain succeeds, while retaining the
+  first-segment-only rule for a failed chain; positive and negative regression
+  tests cover both cases.
+- Claude attempt 2 exercised the sweep and correctly downgraded to `partial`
+  after the retry found an important missing verification residual, but the
+  persisted sweep was not byte-identical to the accepted raw return.
+- Claude attempts 3 and 4 are valid proposed-partial/no-sweep evidence. They do
+  not exercise the positive A8 completion path.
+- Claude attempt 5 claimed complete and persisted byte-identical sweep content,
+  but the controller retyped ordinary worker returns and hand-built the sweep
+  JSON. Independent scoring therefore failed A4 and A8.
+- Claude attempt 6 repeated that defect after the contract named Task
+  notification `output_file` as the raw source. It scored A1-A3 and A5-A7 pass,
+  with A4 and A8 fail.
+- Claude attempt 7 used a contract with exact stdin-validation and direct-copy
+  command recipes. It still wrote replacement ordinary returns and constructed
+  both completion-attempt files instead of reading the Task notification
+  `output_file`; its complete result is not accepted as A4 or A8 evidence.
 
-Further Claude and Codex attempts were blocked because the harness sends the
-staged skill and Scenario A task content to external services. A fresh passing
-Scenario A run on both harnesses remains required before merge and requires
-explicit authorization for that egress.
+The MVP implementation and deterministic gates are green, and Codex has a
+current A1-A8 behavioral pass. Claude does not: repeated high-effort Sonnet
+runs ignored the raw-return provenance rule even after the ambiguity was
+removed. No broader runtime machinery was added merely to force that model
+behavior. A current dual-harness behavioral pass therefore remains outstanding
+before merge.

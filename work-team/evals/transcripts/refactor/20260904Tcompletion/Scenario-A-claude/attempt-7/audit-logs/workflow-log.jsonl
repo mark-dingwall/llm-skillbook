@@ -1,0 +1,20 @@
+{"ts": "2026-09-04T09:00:18Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T09:01:31Z", "agent": "spec:spec-writer:r1", "action": "wrote SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T09:01:38Z", "agent": "spec:spec-writer:r1", "action": "verify: test -s SPEC.md -> exit 0 (no stdout)", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T09:01:41Z", "agent": "spec:spec-writer:r1", "action": "returning result", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T09:02:10Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T09:02:47Z", "agent": "tests:test-writer:r1", "action": "wrote test_todo.py", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T09:02:55Z", "agent": "tests:test-writer:r1", "action": "verify: collect-only passed, 26 tests", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T09:02:55Z", "agent": "tests:test-writer:r1", "action": "return", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T09:03:22Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T09:03:39Z", "agent": "impl:implementer:r1", "action": "write todo.py", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T09:03:43Z", "agent": "impl:implementer:r1", "action": "verify pass 26/26", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T09:03:46Z", "agent": "impl:implementer:r1", "action": "return", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T09:04:13Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T09:05:48Z", "agent": "impl:reviewer:r1", "action": "review complete: pass, 4 adjacent findings (no spec violations)", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T09:07:17Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_start", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T09:08:39Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_return", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T09:08:51Z", "agent": "controller", "action": "completion_auditor_r1_invalid_return", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T09:08:51Z", "agent": "_completion:sweep:r2", "action": "completion_sweep_start", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T09:10:06Z", "agent": "_completion:sweep:r2", "action": "completion_sweep_return", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T09:10:38Z", "agent": "controller", "action": "result_written_and_validated", "artefacts": [".work-team/2026-09-04-todo-cli/result.json"]}

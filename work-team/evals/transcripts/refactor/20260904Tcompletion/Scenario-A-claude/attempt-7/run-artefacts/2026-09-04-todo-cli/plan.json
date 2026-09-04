@@ -1,0 +1,46 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in /tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-7 (add <text>, list, done <id>; JSON-file persistence) via phases: specification -> tests -> implementation -> review. Maintain workflow-log.jsonl (one JSON line per substantive worker action, with worker id) in that directory. Time budget ~15 minutes. Tech lead suggested skipping multi-agent coordination in favor of one agent; proceed with the coordinated team approach anyway per explicit user instruction.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md at the repository root specifying the `todo` CLI: subcommands `add <text>`, `list`, `done <id>`; JSON-file persistence (name the storage file, its exact JSON schema, and where it lives relative to cwd); exact stdout text for each command's success case; behavior and exit codes for error cases (no args, unknown `done <id>`, non-integer id). Done when every command has a Given/When/Then and the JSON storage schema is fully specified with an example.",
+          "inputs": ["<task text>"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite test_todo.py at the repository root, derived only from SPEC.md, that invokes todo.py as a subprocess (e.g. `sys.executable, 'todo.py', ...`) against an isolated working directory per test so runs do not share state. Cover add, list (empty and populated), done (success and error cases), and every error case SPEC.md defines. Done when the suite collects successfully via pytest's collector and fails only because todo.py does not yet exist or does not yet implement the behavior.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement todo.py at the repository root satisfying SPEC.md so that test_todo.py passes in full, touching only todo.py. Done when `python3 -m pytest -q test_todo.py` is fully green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}

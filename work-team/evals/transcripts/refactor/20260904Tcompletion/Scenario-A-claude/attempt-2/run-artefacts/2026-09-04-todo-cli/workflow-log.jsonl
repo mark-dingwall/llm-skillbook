@@ -1,0 +1,32 @@
+{"ts": "2026-09-04T07:30:08Z", "agent": "controller", "action": "frame_start", "artefacts": ["."]}
+{"ts": "2026-09-04T07:30:08Z", "agent": "controller", "action": "plan_written", "artefacts": [".work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T07:30:31Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:31:32Z", "agent": "spec:spec-writer:r1", "action": "wrote SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:31:39Z", "agent": "spec:spec-writer:r1", "action": "verify passed", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:31:39Z", "agent": "spec:spec-writer:r1", "action": "return", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:32:01Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:32:57Z", "agent": "tests:test-writer:r1", "action": "wrote test_todo.py", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:33:09Z", "agent": "tests:test-writer:r1", "action": "verified collect-only: 39 tests collected", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:33:09Z", "agent": "tests:test-writer:r1", "action": "done", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:33:37Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:34:06Z", "agent": "impl:implementer:r1", "action": "wrote todo.py", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:34:11Z", "agent": "impl:implementer:r1", "action": "verify pass 39/39", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:34:12Z", "agent": "impl:implementer:r1", "action": "return", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:34:37Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:35:26Z", "agent": "impl:reviewer:r1", "action": "inspected SPEC.md and todo.py", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:37:14Z", "agent": "impl:reviewer:r1", "action": "reviewed test_todo.py; reproduced unicode-stdout-encoding file-modified-on-error bug and concurrent-write lost-update bug via bash repros", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:37:16Z", "agent": "impl:reviewer:r1", "action": "review complete, returning verdict changes_required", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:38:00Z", "agent": "impl:fixer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:38:26Z", "agent": "impl:fixer:r1", "action": "read", "artefacts": ["todo.py,SPEC.md,test_todo.py"]}
+{"ts": "2026-09-04T07:39:13Z", "agent": "impl:fixer:r1", "action": "write", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:39:32Z", "agent": "impl:fixer:r1", "action": "verify", "artefacts": ["test_todo.py:39 passed"]}
+{"ts": "2026-09-04T07:39:35Z", "agent": "impl:fixer:r1", "action": "done", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:40:12Z", "agent": "impl:reviewer:r2", "action": "start review round 2", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:42:09Z", "agent": "impl:reviewer:r2", "action": "verified fix: ran pytest (39 passed) and manual repro under PYTHONIOENCODING=ascii/LC_ALL=C for add/list/done with unicode text, exit 0, tasks.json correctly persisted UTF-8", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:42:09Z", "agent": "impl:reviewer:r2", "action": "re-checked SPEC.md for concurrency/locking language: none found, confirms locking item remains adjacent not spec", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:42:09Z", "agent": "impl:reviewer:r2", "action": "reviewed full todo.py against SPEC.md scenario by scenario (validation, exit codes, ordering, corrupt-file handling); no new spec violations found; verdict pass", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:42:09Z", "agent": "impl:reviewer:r2", "action": "end review round 2, returning verdict", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:43:06Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_start", "artefacts": ["."]}
+{"ts": "2026-09-04T07:43:49Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_return", "artefacts": ["."]}
+{"ts": "2026-09-04T07:44:59Z", "agent": "_completion:sweep:r2", "action": "completion_sweep_start", "artefacts": ["."]}
+{"ts": "2026-09-04T07:46:07Z", "agent": "_completion:sweep:r2", "action": "completion_sweep_return", "artefacts": [".work-team/2026-09-04-todo-cli/completion-sweep.json"]}

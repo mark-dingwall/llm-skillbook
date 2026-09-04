@@ -1,0 +1,23 @@
+{
+  "run": "todo-cli-20260904",
+  "outcome": "complete",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "output": "", "summary": "exit 0"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "output": "test_todo.py::test_add_persists_joined_text_and_list_reads_it\ntest_todo.py::test_done_updates_only_target_and_does_not_reuse_ids\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args0-Error: todo text is required]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args1-Error: todo text is required]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args2-Error: a positive integer todo id is required]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args3-Error: a positive integer todo id is required]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args4-Error: a positive integer todo id is required]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args5-Error: a positive integer todo id is required]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args6-Error: usage: todo add <text> | todo list | todo done <id>]\ntest_todo.py::test_invalid_input_reports_exact_error_without_changing_state[args7-Error: usage: todo add <text> | todo list | todo done <id>]\ntest_todo.py::test_missing_list_does_not_create_state_file\ntest_todo.py::test_invalid_persisted_data_is_not_modified[args0]\ntest_todo.py::test_invalid_persisted_data_is_not_modified[args1]\ntest_todo.py::test_invalid_persisted_data_is_not_modified[args2]\n\n14 tests collected in 0.09s", "summary": "14 tests collected"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "output": "..............                                                           [100%]\n14 passed in 0.44s", "summary": "14 passed"}
+  ],
+  "residual": [],
+  "workers": [
+    {"id": "spec:spec-writer:r1", "role": "writer", "status": "ok", "summary": "SPEC.md written and nonempty."},
+    {"id": "tests:test-writer:r1", "role": "writer", "status": "ok", "summary": "14 black-box tests collected after a recorded red run."},
+    {"id": "implementation:implementer:r1", "role": "implementer", "status": "ok", "summary": "Initial CLI implementation passed 14 tests."},
+    {"id": "implementation:reviewer:r1", "role": "reviewer", "status": "ok", "summary": "Found Unicode invalid-ID defect and routed it."},
+    {"id": "implementation:fixer-implementer-r1:r1", "role": "fixer", "status": "ok", "summary": "Restricted IDs to ASCII digits."},
+    {"id": "implementation:reviewer:r2", "role": "reviewer", "status": "ok", "summary": "Found next_id collision integrity defect and routed it."},
+    {"id": "implementation:fixer-implementer-r2:r1", "role": "fixer", "status": "ok", "summary": "Rejected colliding next_id state before mutation."},
+    {"id": "_completion:sweep:r1", "role": "completion-auditor", "status": "ok", "summary": "No missing residuals."}
+  ],
+  "plan": ".work-team/todo-cli-20260904/plan.json",
+  "log": ".work-team/todo-cli-20260904/workflow-log.jsonl",
+  "sweep": ".work-team/todo-cli-20260904/completion-sweep.json"
+}

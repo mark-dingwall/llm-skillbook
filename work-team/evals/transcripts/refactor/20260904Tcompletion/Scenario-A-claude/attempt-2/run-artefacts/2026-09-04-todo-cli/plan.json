@@ -1,0 +1,46 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (add <text>, list, done <id>; JSON-file persistence) by coordinating subagents through specification -> tests -> implementation -> review.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md at the repo root specifying the `todo` CLI: `add <text>` appends a task, `list` prints all tasks with id/status/text, `done <id>` marks a task complete. Persistence is a JSON file (name it explicitly, e.g. tasks.json, stored in the repo root next to todo.py). Specify exact stdout format for each command, exit codes for success and error cases (e.g. done on missing id, add with no text), and the on-disk JSON schema. Done when every command has a Given/When/Then and the JSON schema is fully specified.",
+          "inputs": ["<task text verbatim above>"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite in test_todo.py derived only from SPEC.md, invoking todo.py as a subprocess (e.g. via `python3 todo.py ...` or `sys.executable`) against a temp working directory so tests do not depend on implementation internals. Cover add, list, done, and the error cases SPEC.md defines. Done when the suite collects successfully and fails only because todo.py does not exist yet.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Write todo.py at the repo root implementing the CLI exactly as SPEC.md defines, such that test_todo.py passes. Use only the Python standard library. Done when pytest is green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}

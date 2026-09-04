@@ -1,0 +1,25 @@
+{"ts": "2026-09-04T07:58:39Z", "agent": "controller", "action": "frame_start", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-3"]}
+{"ts": "2026-09-04T07:58:57Z", "agent": "controller", "action": "dispatch_spec-writer:r1", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:59:21Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:59:46Z", "agent": "spec:spec-writer:r1", "action": "wrote", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:59:51Z", "agent": "spec:spec-writer:r1", "action": "verified", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:59:54Z", "agent": "spec:spec-writer:r1", "action": "returning", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:00:07Z", "agent": "controller", "action": "dispatch_test-writer:r1", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:00:32Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-3/test_todo.py"]}
+{"ts": "2026-09-04T08:01:12Z", "agent": "tests:test-writer:r1", "action": "wrote", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-3/test_todo.py"]}
+{"ts": "2026-09-04T08:01:21Z", "agent": "tests:test-writer:r1", "action": "verified", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-3/test_todo.py"]}
+{"ts": "2026-09-04T08:01:25Z", "agent": "tests:test-writer:r1", "action": "return", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-3/test_todo.py"]}
+{"ts": "2026-09-04T08:01:47Z", "agent": "controller", "action": "dispatch_implementer:r1", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:02:01Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:02:14Z", "agent": "impl:implementer:r1", "action": "wrote todo.py", "artefacts": ["/tmp/tmp/evals/refactor-20260904Tcompletion-A-claude-attempt-3/todo.py"]}
+{"ts": "2026-09-04T08:02:20Z", "agent": "impl:implementer:r1", "action": "verify pass 18/18", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:02:20Z", "agent": "impl:implementer:r1", "action": "return", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:02:31Z", "agent": "controller", "action": "dispatch_reviewer:r1", "artefacts": ["todo.py", "SPEC.md", "test_todo.py"]}
+{"ts": "2026-09-04T08:02:49Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:04:24Z", "agent": "impl:reviewer:r1", "action": "review complete: pass with adjacent findings", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:05:29Z", "agent": "controller", "action": "ingest_review_impl:reviewer:r1_valid_pass_all_adjacent", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:05:29Z", "agent": "controller", "action": "loop_end_no_fixer_dispatched_verdict_pass", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:05:29Z", "agent": "controller", "action": "final_verify_spec", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:05:29Z", "agent": "controller", "action": "final_verify_tests_collect", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:05:29Z", "agent": "controller", "action": "final_verify_pytest", "artefacts": ["test_todo.py", "todo.py"]}
+{"ts": "2026-09-04T08:05:47Z", "agent": "controller", "action": "result_written_outcome_partial", "artefacts": [".work-team/2026-09-04T01-todo-cli/result.json"]}

@@ -1,0 +1,48 @@
+{
+  "run": "2026-09-04T01-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (add <text>, list, done <id>; JSON-file persistence) by coordinating subagents through specification -> tests -> implementation -> review.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md in the repository root specifying the `todo` CLI: the `add <text>`, `list`, and `done <id>` commands, the JSON storage file schema and its path, exact stdout text for each command (including the empty-list case and an error case for `done` with an unknown id), and exit codes. Done when every command has a Given/When/Then and the storage schema (fields, types, id assignment rule) is fully specified.",
+          "inputs": [
+            "Task: build a tiny Python CLI `todo` with commands add <text>, list, done <id>, using JSON-file persistence."
+          ],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite test_todo.py in the repository root derived only from SPEC.md, invoking the CLI as a subprocess (e.g. `python3 todo.py ...`) against a temporary storage file so tests are isolated from each other. Cover add, list (including empty), done on an existing id, and done on an unknown id. Done when the suite collects successfully and fails only because todo.py does not yet exist or is incomplete.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 1},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement todo.py in the repository root exactly matching SPEC.md so that test_todo.py passes, touching only owned paths. Done when pytest is fully green.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}
