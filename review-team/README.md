@@ -15,15 +15,18 @@ changes remote state.
 - `high` provides the standard independent review pipeline.
 - `xhigh` adds the gap-focused Sweep after initial verification.
 
+The deterministic report assembler requires Python 3.10 or newer.
+
 ## What a result means
 
 Only independently verified candidates become findings. An empty result means
 none survived verification; it does not certify that the change is safe.
 Every independently verified `CONFIRMED` or `PLAUSIBLE` survivor is surfaced,
-directly or through an explicit same-root-cause merge. Final reporting is
-exhaustive rather than numerically limited, while effort-level candidate
-ceilings still bound discovery. Reports favor terse prose without omitting the
-trigger, consequence, or verifier evidence.
+as a direct finding, through an LLM-inferred same-root-cause merge, or in an
+exact-duplicate fallback group. Final reporting is exhaustive rather than
+numerically limited, while effort-level candidate ceilings still bound
+discovery. Reports favor terse prose without omitting the trigger, consequence,
+or verifier evidence.
 
 ## Use the live contract
 

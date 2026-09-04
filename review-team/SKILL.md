@@ -39,7 +39,8 @@ Follow this topology without skipping barriers:
 ```text
 Scope capture → Find barrier → normalize and group → Verify
               → Sweep and Verify (xhigh only)
-      → deterministic base ordering → Synthesize or fallback → Report
+      → prepare report manifest → Synthesize or fallback
+      → finalize report manifest → Report
 ```
 
 1. Capture Scope in the controller: pin the repository and immutable content
@@ -55,8 +56,9 @@ Scope capture → Find barrier → normalize and group → Verify
    only when its complete response passes strict identity validation.
 5. At `xhigh`, dispatch the required gap-only Sweep with every prior
    adjudication, then independently verify its new candidates and replacements.
-6. Send only verified `CONFIRMED` and `PLAUSIBLE` survivors to optional
-   Synthesis. Assemble the complete report deterministically.
+6. Use `scripts/assemble_report.py prepare` to order verified `CONFIRMED` and
+   `PLAUSIBLE` survivors for optional Synthesis, then use its `finalize`
+   command to validate, backfill, and assemble the complete report.
 
 Use the level schedule in the report contract. Do not copy its role or cap
 values into another live file.
@@ -104,6 +106,10 @@ no usable decisions, use the labeled deterministic fallback in the report
 contract. Hide refuted details unless the initial invocation explicitly asks
 for them; when asked, append a compact refuted-candidate section after the
 ordinary report.
+
+Treat an assembler failure or malformed assembler output as a failed reporting
+contract and stop. Never reproduce its ordering, identity, backfill,
+deduplication, or partition logic through model inference.
 
 If subagent support, a second active slot, required independence, or required
 completeness is unavailable, stop. Never fall back to a single-agent review or
