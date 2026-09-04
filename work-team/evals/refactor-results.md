@@ -222,3 +222,27 @@ The final sixth-round holistic candidate claimed `.github/workflows/ci.yml`
 would run pytest without a declared dependency. It was refuted as out of
 scope: that path exists only as an untracked file in the separate main
 checkout and is absent from both this worktree's HEAD and the PR base tree.
+
+## Completion-integrity campaign (`20260904Tcompletion`)
+
+This campaign targets Scenario A's new A8 completion-sweep observable. The
+deterministic component suite passes 235 tests, including strict artifact
+parsing, plan-bound worker identity, sweep accountability, and sweep/result
+residual reconciliation. The archived harness attempts are clean of reads from
+`evals/oracle.md`, `baseline-results.md`, and `scenarios.md`, but none is a
+behavioral pass:
+
+- Claude attempt 1 exited 1 before doing task work. Its API retried ten times,
+  then returned `Request timed out`; the transcript contains zero tokens, zero
+  workers, and no final response.
+- Codex attempt 1 exited 1 during startup because the sandboxed app-server
+  client could not initialize on a read-only filesystem.
+- Codex attempt 2 ran for 900 seconds and produced genuine spec, tests,
+  implementation, review, and scoped-fix worker records. It timed out after
+  starting the second review, before final verification, result creation, or
+  the completion sweep, so it cannot establish A8.
+
+Further Claude and Codex attempts were blocked because the harness sends the
+staged skill and Scenario A task content to external services. A fresh passing
+Scenario A run on both harnesses remains required before merge and requires
+explicit authorization for that egress.

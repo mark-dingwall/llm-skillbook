@@ -1,0 +1,1 @@
+{"ok":true,"note":"Implemented todo CLI with JSON persistence and validation.","artefacts":["todo.py"],"verify_output":".......................                                                  [100%]\n23 passed in 0.58s\npytest exit=0"}

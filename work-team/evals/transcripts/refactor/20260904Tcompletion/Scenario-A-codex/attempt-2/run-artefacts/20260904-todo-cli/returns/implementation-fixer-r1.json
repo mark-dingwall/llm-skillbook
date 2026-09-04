@@ -1,0 +1,1 @@
+{"ok":true,"note":"Dangling todo.json symlinks now fail as invalid data without modification.","artefacts":["todo.py"],"verify_output":".......................                                                  [100%]\n23 passed in 0.56s\npytest exit=0"}

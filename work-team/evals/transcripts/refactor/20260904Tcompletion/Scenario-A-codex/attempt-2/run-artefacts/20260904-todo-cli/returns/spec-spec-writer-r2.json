@@ -1,0 +1,1 @@
+{"ok":true,"note":"SPEC.md is complete and satisfies the command acceptance-criteria requirement.","artefacts":["SPEC.md"],"verify_output":"test -s SPEC.md exit=0"}
