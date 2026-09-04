@@ -16,7 +16,7 @@ def test_every_verified_survivor_is_reported() -> None:
     assert "reportPolicy: allVerifiedSurvivors" in REPORT
     assert "scripts/assemble_report.py prepare" in SKILL
     assert "then use its `finalize`" in SKILL
-    assert "`reported` is the number of rendered primary\nfindings" in REPORT
+    assert "`reported` is the number of rendered primary" in REPORT
     assert "Never reproduce its ordering" in SKILL
 
     for obsolete in (
@@ -47,6 +47,10 @@ def test_semantic_merges_are_reasoned_while_accounting_is_deterministic() -> Non
     assert "one named code or test change would fix every claim in the merge" in REPORT
     assert "merge differently\nworded records" in REPORT
     assert "ASCII whitespace code points" in REPORT
+
+
+def test_semantic_merge_preserves_every_member_scenario() -> None:
+    assert "every member record's failure scenario" in " ".join(REPORT.split())
 
 
 def test_report_fields_favor_terse_evidence_complete_language() -> None:

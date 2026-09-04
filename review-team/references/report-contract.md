@@ -426,10 +426,11 @@ merging.
 The output contains `mode`, `reported`, and `findings[]`. Each finding carries
 `primaryCandidateId`, every accounted `candidateId`, and the complete original
 records; a semantic merge also carries its `sharedRootCause` and `singleFix`.
-The findings exactly partition survivor IDs. Render from those records without
-dropping any location or distinct verifier-evidence item. Label fallback output
-as deterministic fallback. `reported` is the number of rendered primary
-findings, not the survivor count.
+The findings exactly partition survivor IDs. For a semantic merge, render every
+member record's failure scenario with its affected location and retain every
+distinct verifier-evidence item. Label fallback output as deterministic
+fallback. `reported` is the number of rendered primary findings, not the
+survivor count.
 
 ## Report output
 
