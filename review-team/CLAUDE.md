@@ -32,8 +32,8 @@ Preserve the phase barriers:
 ```text
 Scope capture → complete Finder barrier → normalize and group
               → independent Verify → required xhigh Sweep and Verify
-              → ordered survivors → Synthesis or deterministic fallback
-              → report
+              → prepared survivors → Synthesis or deterministic fallback
+              → finalized report manifest → report
 ```
 
 Every worker is a fresh, isolated invocation with the smallest role package,
@@ -72,10 +72,12 @@ verify genuinely new Sweep candidates and any admissible replacement.
 ## Synthesis and reporting
 
 Only independently verified survivors may reach report assembly. Synthesis is
-an optional presentation step, never an evidence source. Validate its identity
-decisions, conservatively merge only an explicit shared root cause, and
-deterministically backfill usable verified material. If Synthesis is skipped,
-fails, or returns no usable decisions, use the labeled deterministic fallback.
+an optional presentation step, never an evidence source. It may infer a shared
+root cause only when one named code or test change fixes every merged claim.
+The shipped report assembler owns identity validation, base ordering, backfill,
+exact fallback deduplication, and exact-once survivor accounting. If Synthesis
+is skipped, fails, or returns no usable decisions, use the assembler's labeled
+deterministic fallback.
 
 Report findings before assessment and keep the result truthful about its
 coverage and verification. Do not expose refuted material unless requested at
@@ -83,14 +85,23 @@ invocation. When no candidates survive independent verification, say so
 without claiming the change is safe. An evidence-backed empty Finder or Sweep
 result is complete and valuable; do not pad output to meet a quota.
 
+Final reporting is exhaustive and has no numeric output limit. Account for
+every independently verified `CONFIRMED` or `PLAUSIBLE` survivor through a
+rendered primary, a valid same-root-cause merge, or a fallback exact-duplicate
+group. Preserve every distinct verifier-evidence item and favor terse,
+evidence-complete fields.
+
 ## Verification
 
-Review Team is instruction-only and has no separate runtime suite in this
-repository. After changing its entry points or links, run its documentation
-parameters from the repository root:
+Review Team uses a dependency-free Python assembler for deterministic report
+bookkeeping; LLM workers retain discovery, verification, and semantic-merge
+reasoning. Verify both executable behavior and instruction wiring, while the
+documentation parameters verify entry points and links:
 
 ```bash
 python3 -m pytest \
+  review-team/tests/test_report_assembler.py \
+  review-team/tests/test_reporting_contract.py \
   'tests/test_documentation.py::test_documentation_entrypoints[review-team]' \
   'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[review-team]' -q
 ```
