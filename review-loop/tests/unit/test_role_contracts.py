@@ -12,6 +12,7 @@ from pathlib import Path
 
 RESOURCES = Path(__file__).parents[2] / "review_loop" / "resources"
 SKILL = Path(__file__).parents[2] / "SKILL.md"
+DISPATCH = Path(__file__).parents[2] / "dispatch.md"
 
 NON_FIX_ROLE_FILES = [
     "evidence-discovery.md",
@@ -55,6 +56,39 @@ class NonFixRoleBoundaryTests(unittest.TestCase):
         for name in NON_FIX_ROLE_FILES:
             with self.subTest(role=name):
                 self.assertIn("delegate", _read(name).lower())
+
+
+class OrdinaryReviewRoleBoundaryTests(unittest.TestCase):
+    def test_review_judgment_must_not_be_delegated(self):
+        for name in ("holistic.md", "adversarial.md", "specialist.md"):
+            with self.subTest(role=name):
+                text = _read(name)
+                self.assertIn("Do not delegate review judgment", text)
+                self.assertNotIn("Do not delegate this review", text)
+
+
+class OrdinaryExecutionContractTests(unittest.TestCase):
+    def test_trusted_cli_auth_network_and_model_command_sandbox_are_disclosed(self):
+        """Reject a return to the false outer-mapping containment claim."""
+        text = " ".join(
+            DISPATCH.read_text(encoding="utf-8").split("## Multi-review containment", 1)[0].split()
+        )
+        self.assertIn(
+            "trusted Codex CLI process receives a fixed provider auth file and network access",
+            text,
+        )
+        self.assertIn("`--sandbox read-only`", text)
+        self.assertIn("model-generated shell commands", text)
+        self.assertIn(
+            "outer mapping alone does not make provider credentials secret from a compromised CLI process",
+            text,
+        )
+        self.assertIn(
+            "makes no claim whether model-generated shell commands can or cannot read the credential",
+            text,
+        )
+        self.assertNotIn("no host credentials, no network", text)
+        self.assertNotIn("fake outer-wrapper", text)
 
 
 class RoleFieldContractTests(unittest.TestCase):

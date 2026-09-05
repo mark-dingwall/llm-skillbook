@@ -1,5 +1,3 @@
-# Review dispatch
-
 request_id: {request_id}
 role: {role}
 charter_id: {charter_id}
@@ -20,7 +18,7 @@ You may use local read-only inspection tools only to read the mounted subject; d
 Lead your review with a `## Summary` section. Include exactly one fenced
 strict-JSON `review-record` code block containing `request_id`, `role`,
 `charter_id`, `target_seal`, `round_input_seal`, `scope_locator_ids`, and
-`source_findings`. It has no other fields. Every `source_findings` item has
+`source_findings`. It has no other fields. `source_findings` is an array. Every `source_findings` item has
 exactly this shape: {{"id":"unique nonempty ID","claim":"complete finding","severity":"Important","locator_ids":["one or more nonempty IDs"]}}.
 Set `severity` to exactly one of `Minor`, `Important`, or `Critical`.
 End with exactly one terminal line, and nothing after it: `REVIEW-STATUS: COMPLETE`, or
