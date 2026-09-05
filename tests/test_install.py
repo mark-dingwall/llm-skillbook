@@ -3,6 +3,7 @@
 Run: python3 -m pytest tests/test_install.py
 """
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -51,3 +52,80 @@ def test_force_overwrites_foreign(tmp_path):
     (dst / "SKILL.md").write_text("foreign")
     install.install("review-team", "codex", tmp_path, dev=False, force=True)
     assert (dst / install.MARKER).exists()
+
+
+def test_claude_work_team_install_preserves_settings_and_registers_hook_once(
+    tmp_path,
+):
+    settings_file = tmp_path / ".claude" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.write_text(
+        json.dumps(
+            {
+                "theme": "dark",
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": "check"}],
+                        }
+                    ]
+                },
+            }
+        )
+    )
+
+    install.install("work-team", "claude", tmp_path, dev=False, force=False)
+    install.install("work-team", "claude", tmp_path, dev=False, force=False)
+
+    settings = json.loads(settings_file.read_text())
+    assert settings["theme"] == "dark"
+    assert settings["hooks"]["PreToolUse"][0]["matcher"] == "Bash"
+    registrations = settings["hooks"]["SubagentStop"]
+    assert len(registrations) == 1
+    assert registrations[0]["matcher"] == "llm-skillbook-work-team-worker"
+    handler = registrations[0]["hooks"][0]
+    assert handler == {
+        "type": "command",
+        "command": str(
+            tmp_path / ".claude/skills/work-team/scripts/wt-capture-return"
+        ),
+        "args": [],
+    }
+    assert (tmp_path / ".claude/agents/llm-skillbook-work-team-worker.md").is_file()
+
+
+def test_claude_work_team_install_fails_before_writing_on_invalid_settings(tmp_path):
+    settings_file = tmp_path / ".claude" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.write_text("not json")
+
+    with pytest.raises(SystemExit, match="cannot update"):
+        install.install("work-team", "claude", tmp_path, dev=False, force=False)
+
+    assert settings_file.read_text() == "not json"
+    assert not (tmp_path / ".claude/skills/work-team").exists()
+
+
+def test_claude_work_team_install_rejects_conflicting_owned_matcher(tmp_path):
+    settings_file = tmp_path / ".claude" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SubagentStop": [
+                        {
+                            "matcher": "llm-skillbook-work-team-worker",
+                            "hooks": [{"type": "command", "command": "foreign"}],
+                        }
+                    ]
+                }
+            }
+        )
+    )
+
+    with pytest.raises(SystemExit, match="conflicting"):
+        install.install("work-team", "claude", tmp_path, dev=False, force=False)
+
+    assert not (tmp_path / ".claude/skills/work-team").exists()

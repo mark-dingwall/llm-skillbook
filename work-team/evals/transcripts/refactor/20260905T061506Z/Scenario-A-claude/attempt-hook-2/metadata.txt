@@ -1,0 +1,8 @@
+command=claude --model sonnet --effort high --output-format stream-json --verbose --setting-sources project --allowedTools Agent,Read,Write,Edit,Bash,Glob,Grep -p <prompt>
+workspace=/tmp/tmp/evals/refactor-20260905T061506Z-A-claude-attempt-hook-2
+harness=claude
+phase=refactor
+scenario=A
+start=2026-09-05T06:15:06Z
+end=2026-09-05T06:18:09Z
+exit=1

@@ -16,6 +16,11 @@ $work-team <task>          Codex
 Artefacts land in `.work-team/<run>/`: `plan.json`, `workflow-log.jsonl`,
 `result.json`, `report.md`. Edit `plan.json` and rerun to tune.
 
+On Claude Code, install through the repository plugin or `install.py`. Both
+register the narrowly matched return-capture hook required for validated
+worker returns; it ignores every other agent type and sessions without a
+`.work-team/` directory.
+
 ## What a result means
 
 `outcome: complete` means every verification command passed and no
@@ -30,7 +35,7 @@ workflow, the controller boundary, and failure policy. Consult the live
 [packet contract](references/packets.md), and
 [report and diagnosis contract](references/report.md) when running or changing
 the workflow. Scripts: `scripts/wt-log`, `scripts/wt-validate`,
-`scripts/wt-telemetry`.
+`scripts/wt-telemetry`, `scripts/wt-capture-return`.
 
 The [design records](docs/) and [evaluation evidence](evals/) are retained as
 historical provenance. They document earlier decisions and validation, but are

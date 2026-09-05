@@ -20,6 +20,8 @@ from pathlib import Path
 
 SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 PAYLOAD_ENTRIES = ("SKILL.md", "references", "scripts", "agents")
+CAPTURE_ENV = "LLM_SKILLBOOK_WORK_TEAM_CAPTURE"
+CLAUDE_WORKER = "llm-skillbook-work-team-worker"
 
 
 def utc_now():
@@ -97,6 +99,14 @@ def harness_command(harness, workspace, prompt):
     return display, command
 
 
+def harness_environment(harness):
+    env = os.environ.copy()
+    env.pop(CAPTURE_ENV, None)
+    if harness == "claude":
+        env[CAPTURE_ENV] = "1"
+    return env
+
+
 def require_safe_component(label, value):
     if not SAFE_COMPONENT.fullmatch(value):
         sys.exit(f"unsafe {label}: {value!r}")
@@ -156,6 +166,34 @@ def stage_filtered_skill(component, workspace, output):
             skill_file.write(f"\n{marker}\n")
         label = discovery.removeprefix(".")
         write_tree_hashes(destination, output / f"skill-payload-{label}.sha256")
+    claude_agents = workspace / ".claude" / "agents"
+    claude_agents.mkdir()
+    shutil.copy2(
+        component / "agents" / f"{CLAUDE_WORKER}.md",
+        claude_agents / f"{CLAUDE_WORKER}.md",
+    )
+    settings = {
+        "hooks": {
+            "SubagentStop": [
+                {
+                    "matcher": CLAUDE_WORKER,
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                "${CLAUDE_PROJECT_DIR}/.claude/skills/work-team/"
+                                "scripts/wt-capture-return"
+                            ),
+                            "args": ["--require-env"],
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    (workspace / ".claude" / "settings.json").write_text(
+        json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+    )
     return marker
 
 
@@ -211,7 +249,7 @@ def write_checksums(output):
     )
 
 
-def run_harness(command, workspace, stdout, stderr, timeout_seconds):
+def run_harness(command, workspace, stdout, stderr, timeout_seconds, env):
     try:
         process = subprocess.Popen(
             command,
@@ -221,6 +259,7 @@ def run_harness(command, workspace, stdout, stderr, timeout_seconds):
             stderr=stderr,
             text=True,
             start_new_session=True,
+            env=env,
         )
     except OSError as error:
         print(error, file=stderr)
@@ -483,7 +522,12 @@ def main():
         output / "stderr.txt"
     ).open("w") as stderr:
         exit_code = run_harness(
-            command, workspace, stdout, stderr, timeout_seconds
+            command,
+            workspace,
+            stdout,
+            stderr,
+            timeout_seconds,
+            harness_environment(harness),
         )
 
     codex_evidence_status = 1

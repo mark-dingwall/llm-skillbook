@@ -25,6 +25,8 @@ EXTRACT_CODEX_COLLABORATION = COMPONENT / "evals" / "extract-codex-collaboration
 INJECT_PARTIAL_VERIFIER = COMPONENT / "evals" / "inject-partial-verifier.py"
 TELEMETRY = COMPONENT / "scripts" / "wt-telemetry"
 WT_LOG = COMPONENT / "scripts" / "wt-log"
+CAPTURE_RETURN = COMPONENT / "scripts" / "wt-capture-return"
+CLAUDE_WORKER = "llm-skillbook-work-team-worker"
 
 
 def validate(schema: str, payload: dict) -> subprocess.CompletedProcess[str]:
@@ -43,6 +45,107 @@ def validate_raw(schema: str, payload: str) -> subprocess.CompletedProcess[str]:
         text=True,
         capture_output=True,
     )
+
+
+def run_capture(
+    workspace: Path,
+    payload: dict,
+    *,
+    require_env: bool = False,
+    enabled: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if enabled:
+        env["LLM_SKILLBOOK_WORK_TEAM_CAPTURE"] = "1"
+    return subprocess.run(
+        [str(CAPTURE_RETURN), *(["--require-env"] if require_env else [])],
+        cwd=workspace,
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+
+
+def capture_payload(**overrides: object) -> dict:
+    payload = {
+        "hook_event_name": "SubagentStop",
+        "agent_id": "agent-123",
+        "agent_type": CLAUDE_WORKER,
+        "last_assistant_message": '{"ok":true}',
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_capture_return_persists_exact_worker_message(tmp_path: Path) -> None:
+    (tmp_path / ".work-team").mkdir()
+    raw = '{"missing_residual": []}'
+
+    result = run_capture(tmp_path, capture_payload(last_assistant_message=raw))
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / ".work-team/returns/agent-123.txt").read_bytes() == raw.encode()
+
+
+def test_capture_return_is_inert_without_active_run(tmp_path: Path) -> None:
+    result = run_capture(tmp_path, capture_payload())
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".work-team").exists()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        capture_payload(agent_type="general-purpose"),
+        capture_payload(hook_event_name="Stop"),
+        capture_payload(agent_id="../outside"),
+    ],
+)
+def test_capture_return_ignores_unrelated_or_unsafe_events(
+    tmp_path: Path, payload: dict
+) -> None:
+    (tmp_path / ".work-team").mkdir()
+
+    result = run_capture(tmp_path, payload)
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".work-team/returns").exists()
+    assert not (tmp_path / "outside.txt").exists()
+
+
+def test_capture_return_eval_gate_requires_explicit_environment(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".work-team").mkdir()
+
+    disabled = run_capture(tmp_path, capture_payload(), require_env=True)
+    enabled = run_capture(
+        tmp_path,
+        capture_payload(agent_id="agent-456"),
+        require_env=True,
+        enabled=True,
+    )
+
+    assert disabled.returncode == 0, disabled.stderr
+    assert enabled.returncode == 0, enabled.stderr
+    assert not (tmp_path / ".work-team/returns/agent-123.txt").exists()
+    assert (tmp_path / ".work-team/returns/agent-456.txt").is_file()
+
+
+def test_capture_return_never_overwrites_existing_capture(tmp_path: Path) -> None:
+    returns = tmp_path / ".work-team/returns"
+    returns.mkdir(parents=True)
+    captured = returns / "agent-123.txt"
+    captured.write_text("original")
+
+    result = run_capture(
+        tmp_path, capture_payload(last_assistant_message="replacement")
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert captured.read_text() == "original"
 
 
 def worker(**overrides: object) -> dict:
@@ -2582,6 +2685,52 @@ def test_eval_runner_uses_requested_high_effort_for_both_harnesses(tmp_path: Pat
     ]
     assert 'model_reasoning_effort="high"' in codex_display
     assert 'model_reasoning_effort="high"' in codex_command
+
+
+def test_eval_runner_stages_scoped_claude_capture_hook(tmp_path: Path) -> None:
+    module = runpy.run_path(str(RUN_EVAL))
+    output = tmp_path / "output"
+    workspace = tmp_path / "workspace"
+    output.mkdir()
+    workspace.mkdir()
+
+    module["stage_filtered_skill"](COMPONENT, workspace, output)
+    settings = json.loads((workspace / ".claude/settings.json").read_text())
+
+    assert (
+        workspace / ".claude/agents/llm-skillbook-work-team-worker.md"
+    ).read_bytes() == (
+        COMPONENT / "agents/llm-skillbook-work-team-worker.md"
+    ).read_bytes()
+    assert settings == {
+        "hooks": {
+            "SubagentStop": [
+                {
+                    "matcher": CLAUDE_WORKER,
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                "${CLAUDE_PROJECT_DIR}/.claude/skills/work-team/"
+                                "scripts/wt-capture-return"
+                            ),
+                            "args": ["--require-env"],
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+
+def test_eval_runner_enables_capture_only_for_claude() -> None:
+    module = runpy.run_path(str(RUN_EVAL))
+
+    claude_env = module["harness_environment"]("claude")
+    codex_env = module["harness_environment"]("codex")
+
+    assert claude_env["LLM_SKILLBOOK_WORK_TEAM_CAPTURE"] == "1"
+    assert "LLM_SKILLBOOK_WORK_TEAM_CAPTURE" not in codex_env
 
 
 def test_eval_runner_codex_display_matches_prompt_argument_transport(tmp_path: Path) -> None:

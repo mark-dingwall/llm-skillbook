@@ -1,9 +1,9 @@
 # Worker packets
 
 A packet is the entire context a worker gets. It is built from `plan.json`
-and sent to a fresh subagent invocation (Claude Code Agent tool; Codex
-`spawn_agent`, `fork_turns: "none"`). No conversation history, no other
-workers' output unless listed in `inputs`.
+and sent to a fresh subagent invocation (Claude Code Agent tool using
+`llm-skillbook-work-team-worker`; Codex `spawn_agent`, `fork_turns: "none"`).
+No conversation history, no other workers' output unless listed in `inputs`.
 
 ## Template
 
@@ -46,9 +46,10 @@ VERIFY. A packet missing a required part is not dispatched. Read-only return
 validation is the controller's gate; a reviewer, verifier, or judge does not
 self-certify its response with a `verify_output` field its schema cannot carry.
 The controller validates the harness's raw return rather than reconstructing
-it. In Claude Code, set `TASK_OUTPUT_FILE` to the Task notification's
-`output_file` and pipe that file to `wt-validate`; do not write an intermediate
-return file.
+it. In Claude Code, the plugin or installed `SubagentStop` hook captures the
+final message at `.work-team/returns/<agentId>.txt`; pipe that file to
+`wt-validate`. If it is missing, stop and report the run because the capture
+hook is unavailable. Never substitute retyped Agent result text.
 If the task explicitly requires a second audit log, the packet repeats each
 `wt-log` call to that exact path. It never replaces the canonical run log,
 which remains the `result.json` log.
@@ -107,12 +108,14 @@ Use attempt ids `_completion:sweep:r1` and, on the sole retry,
 raw unfenced JSON by piping its response through `wt-validate
 completion.schema.json --strict-json`. Persist the accepted bytes verbatim at
 that canonical path; do not hand-build a temporary object, retype the response,
-or serialize a parsed copy. In Claude Code, run `wt-validate
-completion.schema.json --strict-json < "$TASK_OUTPUT_FILE" && cp --
-"$TASK_OUTPUT_FILE" .work-team/$RUN/completion-sweep.json` using the Task
-notification's `output_file`; do not create an intermediate JSON file. A valid
-sweep remains in the result, with its successful completion-auditor worker row,
-even when its residuals downgrade the outcome to `partial`.
+or serialize a parsed copy. In Claude Code, set `AGENT_ID` from the Agent
+result and run `wt-validate completion.schema.json --strict-json <
+".work-team/returns/$AGENT_ID.txt" && cp --
+".work-team/returns/$AGENT_ID.txt"
+.work-team/$RUN/completion-sweep.json`; do not create an intermediate JSON
+file. A valid sweep remains in the result, with its successful
+completion-auditor worker row, even when its residuals downgrade the outcome
+to `partial`.
 
 ## Loop packet derivation
 

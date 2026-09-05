@@ -44,16 +44,19 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    when the fan-out predicate holds. A requirement that no test can observe
    gets its own verification worker (see run-plan.md); never a prose reminder.
 3. **Dispatch.** Build each packet from [packets.md](references/packets.md) and
-   send it to a fresh subagent invocation — Claude Code's Agent tool, or Codex
-   `spawn_agent` with `fork_turns: "none"`. Never pass conversation history.
+   send it to a fresh subagent invocation — Claude Code's Agent tool with
+   agent type `llm-skillbook-work-team-worker`, or Codex `spawn_agent` with
+   `fork_turns: "none"`. Never pass conversation history.
    The primitive must return a worker id before waiting; without one, record
    `worker_failed` and never simulate the packet inline.
 4. **Ingest.** Pipe each worker's final message through `wt-validate` with the
    packet's return schema. Use the harness's raw return, never a retyped or
-   shortened copy. In Claude Code, set `TASK_OUTPUT_FILE` to the Task
-   notification's `output_file` and run `wt-validate <schema> <
-   "$TASK_OUTPUT_FILE"`; never write a replacement return file. Invalid or
-   empty → retry once with the same work
+   shortened copy. In Claude Code, the `SubagentStop` hook writes the message
+   to `.work-team/returns/<agentId>.txt`, where `<agentId>` is the id in the
+   Agent result. Run `wt-validate <schema> <
+   ".work-team/returns/$AGENT_ID.txt"`. If that file is missing, the capture
+   hook is unavailable: stop and report the run without substituting Agent
+   result text. Invalid or empty → retry once with the same work
    packet and a fresh attempt id (`<phase>:<id>:r2`). The shared checkout may
    contain partial edits from the first attempt; the packet always requires the
    worker to establish and verify the complete goal state. Still invalid →
@@ -75,7 +78,8 @@ Frame → Plan (plan.json) → Dispatch phase → Ingest (validate) → Loop (bo
    with `completion.schema.json --strict-json`, then persist those exact bytes
    at the canonical sweep path without reconstructing or reserializing the
    JSON. In Claude Code, use exactly `wt-validate completion.schema.json
-   --strict-json < "$TASK_OUTPUT_FILE" && cp -- "$TASK_OUTPUT_FILE"
+   --strict-json < ".work-team/returns/$AGENT_ID.txt" && cp --
+   ".work-team/returns/$AGENT_ID.txt"
    .work-team/$RUN/completion-sweep.json`; never create an intermediate JSON
    file. Append every returned residual verbatim and
    recalculate the outcome. Invalid return handling is the normal one retry;
