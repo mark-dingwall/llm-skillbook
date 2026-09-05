@@ -140,6 +140,13 @@ def _load_claude_settings(home: Path) -> tuple[Path, dict]:
                 not isinstance(handler, dict)
                 or not isinstance(handler.get("type"), str)
                 or not handler["type"]
+                or (
+                    handler["type"] == "command"
+                    and (
+                        not isinstance(handler.get("command"), str)
+                        or not handler["command"]
+                    )
+                )
                 for handler in handlers
             )
         ):

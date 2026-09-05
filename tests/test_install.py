@@ -149,6 +149,7 @@ def test_claude_work_team_install_rejects_dangling_settings_symlink(tmp_path):
         42,
         {"matcher": "Other", "hooks": "not-an-array"},
         {"matcher": "Other", "hooks": [{}]},
+        {"matcher": "Other", "hooks": [{"type": "command"}]},
     ],
 )
 def test_claude_work_team_install_rejects_malformed_subagent_hook(

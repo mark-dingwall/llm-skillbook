@@ -272,13 +272,15 @@ removed. No broader runtime machinery was added merely to force that model
 behavior. A current dual-harness behavioral pass therefore remains outstanding
 before merge.
 
-## Claude return-capture campaign (`20260905T061152Z`, `20260905T061506Z`)
+## Claude return-capture campaign (`20260905T061152Z`, `20260905T061506Z`,
+`20260905T063756Z`)
 
 The skill now uses a narrowly matched `SubagentStop` hook and a dedicated
 Claude worker type to capture final messages before the controller handles
-them. Both Scenario A attempts ended before inference because Claude exhausted
-ten API retries and returned `Request timed out`; each transcript records zero
-tokens and zero requested workers. Their initialization events do confirm that
-the isolated eval discovered `llm-skillbook-work-team-worker`. These attempts
-are provider-failure evidence only and do not establish A1-A8; a successful
-Claude Scenario A remains required.
+them. All three Scenario A attempts ended before inference because Claude
+exhausted ten API retries and returned `Request timed out`; each transcript
+records zero tokens and zero requested workers. Their initialization events do
+confirm that the isolated eval discovered
+`llm-skillbook-work-team-worker`. These attempts are provider-failure evidence
+only and do not establish A1-A8; a successful Claude Scenario A remains
+required.
