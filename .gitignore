@@ -9,3 +9,4 @@ review-loop/.sdd-history/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.work-team/
