@@ -129,3 +129,40 @@ def test_claude_work_team_install_rejects_conflicting_owned_matcher(tmp_path):
         install.install("work-team", "claude", tmp_path, dev=False, force=False)
 
     assert not (tmp_path / ".claude/skills/work-team").exists()
+
+
+def test_claude_work_team_install_rejects_dangling_settings_symlink(tmp_path):
+    settings_file = tmp_path / ".claude" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.symlink_to(tmp_path / "missing-settings.json")
+
+    with pytest.raises(SystemExit, match="regular file"):
+        install.install("work-team", "claude", tmp_path, dev=False, force=False)
+
+    assert settings_file.is_symlink()
+    assert not (tmp_path / ".claude/skills/work-team").exists()
+
+
+@pytest.mark.parametrize(
+    "registration",
+    [
+        42,
+        {"matcher": "Other", "hooks": "not-an-array"},
+        {"matcher": "Other", "hooks": [{}]},
+    ],
+)
+def test_claude_work_team_install_rejects_malformed_subagent_hook(
+    tmp_path, registration
+):
+    settings_file = tmp_path / ".claude" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.write_text(
+        json.dumps({"hooks": {"SubagentStop": [registration]}})
+    )
+    original = settings_file.read_bytes()
+
+    with pytest.raises(SystemExit, match="malformed"):
+        install.install("work-team", "claude", tmp_path, dev=False, force=False)
+
+    assert settings_file.read_bytes() == original
+    assert not (tmp_path / ".claude/skills/work-team").exists()

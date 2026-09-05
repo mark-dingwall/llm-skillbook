@@ -148,6 +148,31 @@ def test_capture_return_never_overwrites_existing_capture(tmp_path: Path) -> Non
     assert captured.read_text() == "original"
 
 
+def test_capture_return_records_each_distinct_worker(tmp_path: Path) -> None:
+    (tmp_path / ".work-team").mkdir()
+    first = run_capture(tmp_path, capture_payload(agent_id="agent-one"))
+
+    second = run_capture(tmp_path, capture_payload(agent_id="agent-two"))
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert (tmp_path / ".work-team/returns/agent-one.txt").is_file()
+    assert (tmp_path / ".work-team/returns/agent-two.txt").is_file()
+
+
+def test_capture_return_io_failure_does_not_interfere(tmp_path: Path) -> None:
+    run_dir = tmp_path / ".work-team"
+    run_dir.mkdir()
+    run_dir.chmod(0o500)
+    try:
+        result = run_capture(tmp_path, capture_payload())
+    finally:
+        run_dir.chmod(0o700)
+
+    assert result.returncode == 0, result.stderr
+    assert not (run_dir / "returns").exists()
+
+
 def worker(**overrides: object) -> dict:
     value = {
         "id": "writer",

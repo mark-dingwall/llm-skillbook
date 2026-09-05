@@ -45,22 +45,20 @@ def main() -> int:
         return 0
     returns = root / "returns"
     try:
-        returns.mkdir(mode=0o700)
-    except FileExistsError:
-        pass
-    if returns.is_symlink() or not returns.is_dir():
-        return 0
-
-    target = returns / f"{agent_id}.txt"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
+        returns.mkdir(mode=0o700, exist_ok=True)
+        if returns.is_symlink() or not returns.is_dir():
+            return 0
+        target = returns / f"{agent_id}.txt"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
         descriptor = os.open(target, flags, 0o600)
+        with os.fdopen(
+            descriptor, "w", encoding="utf-8", newline=""
+        ) as capture:
+            capture.write(message)
     except OSError:
         return 0
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as capture:
-        capture.write(message)
     return 0
 
 

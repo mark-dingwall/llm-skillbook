@@ -106,9 +106,11 @@ def _work_team_hook(home: Path) -> dict:
 
 def _load_claude_settings(home: Path) -> tuple[Path, dict]:
     path = home / ".claude" / "settings.json"
+    if path.is_symlink():
+        sys.exit(f"cannot update {path}: expected a regular file")
     if not path.exists():
         return path, {}
-    if path.is_symlink() or not path.is_file():
+    if not path.is_file():
         sys.exit(f"cannot update {path}: expected a regular file")
     try:
         settings = json.loads(path.read_text(encoding="utf-8"))
@@ -122,6 +124,28 @@ def _load_claude_settings(home: Path) -> tuple[Path, dict]:
     registrations = hooks.get("SubagentStop", [])
     if not isinstance(registrations, list):
         sys.exit(f"cannot update {path}: hooks.SubagentStop must be an array")
+    for registration in registrations:
+        handlers = (
+            registration.get("hooks") if isinstance(registration, dict) else None
+        )
+        matcher = (
+            registration.get("matcher") if isinstance(registration, dict) else None
+        )
+        if (
+            not isinstance(registration, dict)
+            or (matcher is not None and not isinstance(matcher, str))
+            or not isinstance(handlers, list)
+            or not handlers
+            or any(
+                not isinstance(handler, dict)
+                or not isinstance(handler.get("type"), str)
+                or not handler["type"]
+                for handler in handlers
+            )
+        ):
+            sys.exit(
+                f"cannot update {path}: malformed SubagentStop registration"
+            )
     expected = _work_team_hook(home)
     collisions = [
         row
