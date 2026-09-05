@@ -284,3 +284,9 @@ confirm that the isolated eval discovered
 `llm-skillbook-work-team-worker`. These attempts are provider-failure evidence
 only and do not establish A1-A8; a successful Claude Scenario A remains
 required.
+
+Codex attempt 1 (`20260905T064249Z`) also stopped before inference: the nested
+CLI could not initialize its app-server client on the host's read-only
+filesystem. It has no model output or workers and is retained only as harness
+failure evidence. The earlier `20260904Tcompletion` Codex attempt 3 remains the
+current A1-A8 pass; this increment does not change Codex dispatch or ingestion.
