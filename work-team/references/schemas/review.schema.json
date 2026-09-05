@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "forbiddenProperties": ["verify_output"],
+  "required": ["verdict", "findings"],
+  "allOf": [
+    {
+      "if": {"properties": {"verdict": {"const": "changes_required"}}},
+      "then": {
+        "properties": {
+          "findings": {
+            "minItems": 1,
+            "contains": {"properties": {"scope": {"const": "spec"}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"verdict": {"const": "pass"}}},
+      "then": {
+        "properties": {
+          "findings": {
+            "items": {"properties": {"scope": {"const": "adjacent"}}}
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "verdict": {"type": "string", "enum": ["pass", "changes_required"]},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "scope", "where", "owner", "path", "issue", "fix"],
+        "properties": {
+          "severity": {"type": "string", "enum": ["blocker", "important", "minor"]},
+          "scope": {"type": "string", "enum": ["spec", "adjacent"]},
+          "where": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "owner": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\Z"},
+          "path": {"type": "string", "repoRelativePath": true, "notRepoPathPrefix": ".work-team"},
+          "issue": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "fix": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "evidence": {"type": "string"}
+        }
+      }
+    }
+  }
+}

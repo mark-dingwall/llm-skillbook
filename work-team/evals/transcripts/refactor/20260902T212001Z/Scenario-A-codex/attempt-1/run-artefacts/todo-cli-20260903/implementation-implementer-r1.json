@@ -1,0 +1,1 @@
+{"ok":true,"note":"Implemented todo CLI per SPEC.md; acceptance tests pass.","artefacts":["todo"],"verify_output":".................................                                        [100%]\\n33 passed in 0.96s"}

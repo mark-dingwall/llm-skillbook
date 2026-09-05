@@ -1,0 +1,41 @@
+{"ts": "2026-09-01T07:17:00Z", "agent": "controller", "action": "frame", "artefacts": ["empty repository; no git metadata; todo CLI task scoped"]}
+{"ts": "2026-09-01T07:17:21Z", "agent": "controller", "action": "plan_validated", "artefacts": [".work-team/2026-09-01T-todo-cli/plan.json"]}
+{"ts": "2026-09-01T07:18:01Z", "agent": "spec:spec-writer:r1", "action": "started specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:19:21Z", "agent": "spec:spec-writer:r1", "action": "wrote specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:19:29Z", "agent": "spec:spec-writer:r1", "action": "verified test -s SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:19:34Z", "agent": "spec:spec-writer:r1", "action": "returning completed specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:19:47Z", "agent": "controller", "action": "ingested_spec", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:20:33Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:23:57Z", "agent": "tests:test-writer:r1", "action": "wrote black-box pytest suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:24:20Z", "agent": "tests:test-writer:r1", "action": "verified pytest collection: 90 tests", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:24:46Z", "agent": "tests:test-writer:r1", "action": "returning collection result", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:25:43Z", "agent": "controller", "action": "worker_stalled", "artefacts": ["tests:test-writer:r1"]}
+{"ts": "2026-09-01T07:26:06Z", "agent": "tests:test-writer:r2", "action": "started test authoring", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:28:21Z", "agent": "controller", "action": "test_phase_recovered", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:28:52Z", "agent": "implementation:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:29:06Z", "agent": "implementation:implementer:r1", "action": "verify red initial test run exit=1", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:31:05Z", "agent": "implementation:implementer:r1", "action": "wrote todo CLI implementation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:31:18Z", "agent": "implementation:implementer:r1", "action": "verify test suite exit=0", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:31:27Z", "agent": "implementation:implementer:r1", "action": "returning verified implementation", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-09-01T07:31:50Z", "agent": "controller", "action": "ingested_implementation", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-09-01T07:32:22Z", "agent": "implementation:reviewer:r1", "action": "started", "artefacts": ["SPEC.md", "test_todo.py", "todo.py"]}
+{"ts": "2026-09-01T07:33:14Z", "agent": "implementation:reviewer:r1", "action": "verified", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:34:30Z", "agent": "implementation:reviewer:r1", "action": "verified", "artefacts": ["todo.py:load_state-large-integer", "unhandled-ValueError"]}
+{"ts": "2026-09-01T07:34:53Z", "agent": "implementation:reviewer:r1", "action": "verified", "artefacts": ["todo.py:load_state-deep-json", "unhandled-RecursionError"]}
+{"ts": "2026-09-01T07:35:32Z", "agent": "implementation:reviewer:r1", "action": "returning", "artefacts": ["changes_required", "todo.py"]}
+{"ts": "2026-09-01T07:35:48Z", "agent": "controller", "action": "ingested_review", "artefacts": ["implementation:reviewer:r1"]}
+{"ts": "2026-09-01T07:36:26Z", "agent": "implementation:fixer:r1", "action": "started parser-error fix", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:37:12Z", "agent": "implementation:fixer:r1", "action": "ran parser reproduction probe", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:37:34Z", "agent": "implementation:fixer:r1", "action": "confirmed parser exceptions escape load_state", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:37:43Z", "agent": "implementation:fixer:r1", "action": "updated parser exception handling", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:37:57Z", "agent": "implementation:fixer:r1", "action": "ran required pytest verification", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:38:19Z", "agent": "implementation:fixer:r1", "action": "ran post-fix parser CLI probe", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:38:37Z", "agent": "implementation:fixer:r1", "action": "verified parser errors across state-reading commands", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:38:44Z", "agent": "implementation:fixer:r1", "action": "returning verified fix", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:39:02Z", "agent": "controller", "action": "ingested_fix", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-09-01T07:39:35Z", "agent": "implementation:reviewer:r2", "action": "started contract audit", "artefacts": ["SPEC.md", "test_todo.py", "todo.py"]}
+{"ts": "2026-09-01T07:40:06Z", "agent": "implementation:reviewer:r2", "action": "verified pytest: 90 passed in 4.24s", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:41:04Z", "agent": "implementation:reviewer:r2", "action": "returning pass; parser exception handling and contract audited", "artefacts": ["todo.py"]}
+{"ts": "2026-09-01T07:41:15Z", "agent": "controller", "action": "ingested_final_review", "artefacts": ["implementation:reviewer:r2"]}
+{"ts": "2026-09-01T07:41:20Z", "agent": "controller", "action": "final_verification", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T07:42:07Z", "agent": "controller", "action": "report_validated", "artefacts": [".work-team/2026-09-01T-todo-cli/result.json", ".work-team/2026-09-01T-todo-cli/report.md"]}

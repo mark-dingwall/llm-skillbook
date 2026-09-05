@@ -1,0 +1,26 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "outcome": "partial",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "output": "", "summary": "SPEC.md non-empty"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "output": "39 tests collected in 0.10s", "summary": "39 tests collected"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "output": "39 passed in 0.81s", "summary": "39 passed"}
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "todo.py's save_tasks() has no file locking or atomic rename; concurrent invocations can silently clobber each other's write. SPEC.md is silent on concurrency, so this was not sent to a fixer.", "severity": "minor", "scope": "adjacent", "source": "impl:reviewer:r2"},
+    {"kind": "gap", "detail": "plan.json's impl-phase implementer goal states 'Use only the Python standard library,' but no worker return, verification entry, or residual in result.json addresses this constraint -- the three verification commands only check SPEC.md non-emptiness and pytest results, none inspect todo.py's imports/dependencies, and neither reviewer round's summary mentions checking for third-party dependencies.", "source": "plan.json phase 'impl' worker 'implementer' goal text; result.json verification[] and workers[] entries"}
+  ],
+  "workers": [
+    {"id": "spec-writer", "role": "writer", "status": "ok", "summary": "Wrote SPEC.md with Given/When/Then per command and full JSON schema"},
+    {"id": "test-writer", "role": "writer", "status": "ok", "summary": "Wrote test_todo.py, 39 black-box subprocess tests derived from SPEC.md"},
+    {"id": "implementer", "role": "implementer", "status": "ok", "summary": "Wrote todo.py; 39/39 tests passed"},
+    {"id": "impl:reviewer:r1", "role": "reviewer", "status": "ok", "summary": "changes_required: stdout UnicodeEncodeError + write-before-confirm ordering bug (scope:spec); plus an adjacent locking finding"},
+    {"id": "impl:fixer:r1", "role": "fixer", "status": "ok", "summary": "Reconfigured UTF-8 streams and reordered cmd_add/cmd_done writes; 39/39 tests still passed"},
+    {"id": "impl:reviewer:r2", "role": "reviewer", "status": "ok", "summary": "pass; re-verified the round-1 fix independently, carried forward the adjacent locking finding as minor"},
+    {"id": "_completion:sweep:r1", "role": "completion-auditor", "status": "retried", "summary": "Valid JSON return (missing_residual: []) but its log entries used the wrong artefact path due to a controller packet defect; superseded by r2"},
+    {"id": "_completion:sweep:r2", "role": "completion-auditor", "status": "ok", "summary": "missing_residual: 1 gap (stdlib-only constraint never independently verified)"}
+  ],
+  "plan": ".work-team/2026-09-04-todo-cli/plan.json",
+  "log": ".work-team/2026-09-04-todo-cli/workflow-log.jsonl",
+  "sweep": ".work-team/2026-09-04-todo-cli/completion-sweep.json"
+}

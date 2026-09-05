@@ -1,0 +1,33 @@
+{"ts": "2026-09-04T06:57:49Z", "agent": "controller", "action": "frame", "artefacts": [".", ".work-team/20260904-todo-cli/plan.json"]}
+{"ts": "2026-09-04T06:58:29Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:00:18Z", "agent": "spec:spec-writer:r1", "action": "wrote specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:00:30Z", "agent": "spec:spec-writer:r1", "action": "verified test -s SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:00:30Z", "agent": "spec:spec-writer:r1", "action": "returning", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:00:42Z", "agent": "controller", "action": "invalid_return", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:01:16Z", "agent": "spec:spec-writer:r2", "action": "start: reviewed plan and existing specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:01:35Z", "agent": "spec:spec-writer:r2", "action": "verify: test -s SPEC.md passed", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:01:36Z", "agent": "spec:spec-writer:r2", "action": "return: specification complete", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:01:50Z", "agent": "controller", "action": "phase_verified", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:02:21Z", "agent": "tests:test-writer:r1", "action": "started specification-derived black-box tests", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:03:36Z", "agent": "tests:test-writer:r1", "action": "wrote black-box CLI tests", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:03:45Z", "agent": "tests:test-writer:r1", "action": "pytest collection passed", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:03:45Z", "agent": "tests:test-writer:r1", "action": "returning verified test suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:04:15Z", "agent": "controller", "action": "phase_verified", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:04:48Z", "agent": "implementation:implementer:r1", "action": "started implementation review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:04:58Z", "agent": "implementation:implementer:r1", "action": "observed baseline test failure", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:05:43Z", "agent": "implementation:implementer:r1", "action": "implemented todo CLI", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:05:44Z", "agent": "implementation:implementer:r1", "action": "ran requested verification", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:06:09Z", "agent": "implementation:implementer:r1", "action": "restricted IDs to ASCII decimal syntax", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:06:09Z", "agent": "implementation:implementer:r1", "action": "ran requested verification", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:06:18Z", "agent": "implementation:implementer:r1", "action": "returning verified implementation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:06:32Z", "agent": "controller", "action": "phase_verified", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:07:05Z", "agent": "implementation:reviewer:r1", "action": "started read-only audit", "artefacts": ["SPEC.md", "todo.py", "test_todo.py"]}
+{"ts": "2026-09-04T07:07:30Z", "agent": "implementation:reviewer:r1", "action": "inspected requirement coverage and edge cases", "artefacts": ["SPEC.md", "todo.py", "test_todo.py"]}
+{"ts": "2026-09-04T07:08:00Z", "agent": "implementation:reviewer:r1", "action": "returning changes-required review", "artefacts": ["todo.py", "SPEC.md"]}
+{"ts": "2026-09-04T07:08:17Z", "agent": "controller", "action": "review_ingested", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:08:55Z", "agent": "implementation:fixer:r1", "action": "started scoped dangling-symlink fix", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:10:19Z", "agent": "implementation:fixer:r1", "action": "updated missing-file branch to reject dangling symlinks", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:10:48Z", "agent": "implementation:fixer:r1", "action": "verified pytest test_todo.py passed", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:10:48Z", "agent": "implementation:fixer:r1", "action": "returning verified scoped fix", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:11:02Z", "agent": "controller", "action": "fix_verified", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:11:35Z", "agent": "implementation:reviewer:r2", "action": "review started", "artefacts": ["SPEC.md", "todo.py", "test_todo.py"]}

@@ -1,0 +1,39 @@
+{
+  "candidates": [
+    {
+      "id": "find:finder-remove:r1:F1",
+      "verdict": "confirmed",
+      "evidence": "SPEC.md line 3: 'Ledger.remove(sku, qty): raise ValueError if qty exceeds current stock.' stock.py lines 22-24: def remove(self, sku, qty): item = self.items[sku]; item.qty -= qty — no comparison of qty to item.qty and no raise of ValueError anywhere in the method or class."
+    },
+    {
+      "id": "find:finder-remove:r1:F2",
+      "verdict": "confirmed",
+      "evidence": "test_stock.py contains exactly one test, test_add_and_total (lines 4-8), which only calls l.add(...) and l.total_value_cents(). There is no call to l.remove(...) anywhere in the file, so neither the decrement path nor the ValueError-on-overdraw path (required by SPEC.md line 3) is exercised."
+    },
+    {
+      "id": "find:finder-remove:r1:F3",
+      "verdict": "confirmed",
+      "evidence": "stock.py line 23: item = self.items[sku] — a plain dict subscript that raises KeyError if sku is absent, with no try/except or membership check. SPEC.md's only remove()-related statement (line 3) covers the qty-exceeds-stock case and says nothing about an unknown sku, so this KeyError behavior is unspecified."
+    },
+    {
+      "id": "find:finder-lowstock:r1:F1",
+      "verdict": "confirmed",
+      "evidence": "SPEC.md line 4: 'Ledger.low_stock(threshold): SKUs with qty <= threshold.' stock.py line 30: return [i.sku for i in self.items.values() if i.qty < threshold] — uses strict '<' rather than '<=', so an item whose qty equals threshold is excluded, contradicting the spec."
+    },
+    {
+      "id": "find:finder-lowstock:r1:F2",
+      "verdict": "confirmed",
+      "evidence": "test_stock.py's sole test (test_add_and_total, lines 4-8) never calls l.low_stock(...). No other test function exists in the file, so low_stock() is entirely untested."
+    },
+    {
+      "id": "find:finder-total:r1:F1",
+      "verdict": "confirmed",
+      "evidence": "stock.py lines 16-20: on the existing-sku path the incoming price_cents argument is never assigned to item.price_cents, so the stale price from the first add is retained. SPEC.md never mentions what should happen to price on a repeat add for an existing sku, so this is unspecified/silent behavior."
+    },
+    {
+      "id": "find:finder-total:r1:F2",
+      "verdict": "confirmed",
+      "evidence": "test_stock.py lines 4-8 use a single sku ('a') only, and both add() calls pass the identical price_cents (150). No second sku is added (no multi-sku summation coverage) and no add() call with a differing price_cents for the same sku."
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "run": "20260904-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (`add <text>`, `list`, `done <id>`; JSON-file persistence) by coordinating subagents through specification → tests → implementation → review. Keep a shared audit trail `workflow-log.jsonl` in this directory: one JSON line per substantive worker action, carrying the worker's id.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md defining add <text>, list, and done <id>, their JSON persistence model, observable outputs, and errors. Done when every command has Given/When/Then acceptance criteria.",
+          "inputs": ["Task text in plan.json"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write black-box pytest tests derived solely from SPEC.md for the todo CLI. Done when the suite collects and exposes missing or non-conforming implementation.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "implementation",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement the todo CLI to satisfy SPEC.md and test_todo.py, with JSON-file persistence. Done when all tests in test_todo.py pass.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}

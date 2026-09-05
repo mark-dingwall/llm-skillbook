@@ -1,0 +1,18 @@
+{"ts": "2026-09-02T21:20:56Z", "agent": "controller", "action": "frame: build todo CLI via coordinated worker team", "artefacts": ["/tmp/tmp/evals/refactor-20260902T212001Z-A-claude-attempt-1"]}
+{"ts": "2026-09-02T21:21:31Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:22:01Z", "agent": "spec:spec-writer:r1", "action": "wrote SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:22:05Z", "agent": "spec:spec-writer:r1", "action": "verify: test -s SPEC.md -> exit 0", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:22:05Z", "agent": "spec:spec-writer:r1", "action": "return", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-02T21:22:31Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:22:54Z", "agent": "tests:test-writer:r1", "action": "wrote", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:24:01Z", "agent": "tests:test-writer:r1", "action": "wrote (added autouse fixture to fix coincidental passes)", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:24:01Z", "agent": "tests:test-writer:r1", "action": "verify: collect-only passed, 12 tests collected", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:24:04Z", "agent": "tests:test-writer:r1", "action": "done", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:24:41Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:25:06Z", "agent": "impl:implementer:r1", "action": "write", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:25:10Z", "agent": "impl:implementer:r1", "action": "verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-02T21:25:12Z", "agent": "impl:implementer:r1", "action": "return", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:25:44Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["SPEC.md,test_todo.py,todo.py"]}
+{"ts": "2026-09-02T21:27:41Z", "agent": "impl:reviewer:r1", "action": "finished review: pass, 2 adjacent findings", "artefacts": ["todo.py"]}
+{"ts": "2026-09-02T21:28:12Z", "agent": "controller", "action": "verify: SPEC.md non-empty -> OK; pytest --collect-only -> 12 collected; pytest -> 12 passed; manual smoke test -> add/list/done behave per SPEC.md", "artefacts": ["SPEC.md", "test_todo.py", "todo.py"]}
+{"ts": "2026-09-02T21:28:12Z", "agent": "controller", "action": "review verdict: pass, 0 spec findings, 2 adjacent findings (non-atomic write, missing OSError handling in save_todos) -- no fixer dispatched", "artefacts": ["todo.py"]}

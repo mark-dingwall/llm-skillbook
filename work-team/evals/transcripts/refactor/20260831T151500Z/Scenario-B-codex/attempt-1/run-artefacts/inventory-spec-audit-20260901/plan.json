@@ -1,0 +1,25 @@
+{
+  "run": "inventory-spec-audit-20260901",
+  "task": "Thoroughly audit audit-target against SPEC.md for correctness defects. Use parallel distinct finder angles, then fresh verifiers independently confirm or refute each candidate. Do not modify audit-target except workflow-log.jsonl.",
+  "phases": [
+    {
+      "id": "finders",
+      "barrier": true,
+      "workers": [
+        {"id":"finder-contracts","role":"reviewer","goal":"Audit direct Ledger contract compliance against SPEC.md, including remove and low_stock. Done when every candidate is tied to a stated requirement or the result is empty.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-csv","role":"reviewer","goal":"Audit CSV parsing and monetary-unit correctness against SPEC.md. Done when every candidate is tied to a stated CSV or cents requirement or the result is empty.","inputs":["audit-target/SPEC.md","audit-target/inventory/report.py","audit-target/inventory/stock.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-state","role":"reviewer","goal":"Trace Ledger state transitions and arithmetic invariants against SPEC.md, seeking independently demonstrable correctness defects. Done when every candidate is tied to a stated requirement or the result is empty.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-boundaries","role":"reviewer","goal":"Perform boundary-value analysis for every stated API requirement in SPEC.md. Done when each reported candidate has a concrete counterexample, or the result is empty.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"finder-traceability","role":"reviewer","goal":"Independently map every SPEC.md statement to implementation behavior and identify omitted or contradicted requirements. Done when all reported candidates are spec-traceable, or the result is empty.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py","audit-target/test_stock.py"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"}
+      ]
+    },
+    {
+      "id": "verification",
+      "barrier": true,
+      "workers": [
+        {"id":"verifier-batch-a","role":"verifier","goal":"Independently confirm or refute every assigned finder candidate using SPEC.md and executable counterexamples. Done when every assignment has an explicit verdict.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py","finder candidate packet supplied at dispatch"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"},
+        {"id":"verifier-batch-b","role":"verifier","goal":"Independently confirm or refute every assigned finder candidate using SPEC.md and executable counterexamples. Done when every assignment has an explicit verdict.","inputs":["audit-target/SPEC.md","audit-target/inventory/stock.py","audit-target/inventory/report.py","finder candidate packet supplied at dispatch"],"owns":[],"verify":"cd audit-target && python3 -m pytest -q","returns":"schemas/review.schema.json","group":"parallel"}
+      ]
+    }
+  ]
+}

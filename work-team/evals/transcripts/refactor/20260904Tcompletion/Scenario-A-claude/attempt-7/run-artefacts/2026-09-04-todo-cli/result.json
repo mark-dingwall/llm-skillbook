@@ -1,0 +1,21 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "outcome": "complete",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "output": "(no stdout; exit code 0)", "summary": "SPEC.md is non-empty"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "output": "26 tests collected in 0.10s", "summary": "26 tests collected"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "output": "26 passed in 0.56s", "summary": "26 passed"}
+  ],
+  "residual": [],
+  "workers": [
+    {"id": "spec-writer", "role": "writer", "status": "ok", "summary": "Wrote SPEC.md: commands, JSON schema, exact stdout/stderr, exit codes"},
+    {"id": "test-writer", "role": "writer", "status": "ok", "summary": "Wrote test_todo.py; 26 tests, black-box subprocess suite derived from SPEC.md"},
+    {"id": "implementer", "role": "implementer", "status": "ok", "summary": "Wrote todo.py; 26/26 tests pass"},
+    {"id": "reviewer", "role": "reviewer", "status": "ok", "summary": "verdict pass; 4 adjacent findings (robustness/atomicity notes), zero spec-scope findings"},
+    {"id": "_completion:sweep:r1", "role": "completion-auditor", "status": "retried", "summary": "Return had prose before the JSON object; failed --strict-json validation, superseded by r2"},
+    {"id": "_completion:sweep:r2", "role": "completion-auditor", "status": "ok", "summary": "missing_residual: [] — no task requirement found unaccounted for"}
+  ],
+  "plan": ".work-team/2026-09-04-todo-cli/plan.json",
+  "log": ".work-team/2026-09-04-todo-cli/workflow-log.jsonl",
+  "sweep": ".work-team/2026-09-04-todo-cli/completion-sweep.json"
+}

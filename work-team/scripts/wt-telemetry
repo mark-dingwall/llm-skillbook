@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Per-agent telemetry from a run's audit log (harness-neutral).
+usage: wt-telemetry <workflow-log.jsonl> [--csv out.csv]
+
+Prints a table: agent, entries, first, last, span_s. Roles are grouped by
+stripping a trailing -T<n> / -r<n> / :<n> suffix. Long spans and few entries
+per agent are the signals worth acting on (split the role; log more).
+"""
+import csv
+import json
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+
+if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--csv"):
+    sys.exit(__doc__)
+try:
+    log_path = Path(sys.argv[1]).resolve()
+    csv_path = Path(sys.argv[3]).resolve() if len(sys.argv) == 4 else None
+except (OSError, RuntimeError) as error:
+    sys.exit(f"cannot resolve telemetry path: {error}")
+if csv_path == log_path or (
+    csv_path is not None and csv_path.exists() and csv_path.samefile(log_path)
+):
+    sys.exit("CSV output must not overwrite the audit log")
+rows = {}
+for line in open(log_path, encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        e = json.loads(line)
+        if not isinstance(e, dict):
+            raise ValueError("record must be an object")
+        if not isinstance(e.get("ts"), str):
+            raise ValueError("ts must be a string")
+        if not isinstance(e.get("agent"), str) or not e["agent"]:
+            raise ValueError("agent must be a nonempty string")
+        ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
+        if ts.utcoffset() is None:
+            raise ValueError("ts must include a timezone offset")
+    except (json.JSONDecodeError, ValueError) as err:
+        print(f"skip malformed line: {err}", file=sys.stderr)
+        continue
+    r = rows.setdefault(e["agent"], {"n": 0, "first": ts, "last": ts})
+    r["n"] += 1
+    r["first"], r["last"] = min(r["first"], ts), max(r["last"], ts)
+
+out = [(a, r["n"], r["first"].isoformat(), r["last"].isoformat(),
+        int((r["last"] - r["first"]).total_seconds())) for a, r in rows.items()]
+out.sort(key=lambda x: -x[4])
+
+if csv_path is not None:
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["agent", "entries", "first", "last", "span_s"])
+        w.writerows(out)
+
+roles = {}
+for a, n, _, _, span in out:
+    role = re.sub(r"[-:](T\d+|r\d+|\d+)$", "", a)
+    g = roles.setdefault(role, {"agents": 0, "entries": 0, "max_span": 0})
+    g["agents"] += 1
+    g["entries"] += n
+    g["max_span"] = max(g["max_span"], span)
+
+total = sum(x[4] for x in out) or 1
+print(f"{'agent':32} {'entries':>7} {'span_s':>7}  share")
+for a, n, _, _, span in out[:15]:
+    print(f"{a:32} {n:7} {span:7}  {100*span/total:4.0f}%")
+print(f"\n{'role':28} {'agents':>6} {'entries':>7} {'max_span_s':>10}")
+for role, g in sorted(roles.items(), key=lambda kv: -kv[1]["max_span"]):
+    print(f"{role:28} {g['agents']:6} {g['entries']:7} {g['max_span']:10}")

@@ -1,0 +1,32 @@
+{
+  "run": "2026-09-02-inventory-audit",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "python3 -m pytest -q test_stock.py",
+      "passed": true,
+      "output": ".                                                                        [100%]\n1 passed in 0.12s",
+      "summary": "Existing test_stock.py suite passes but only covers the add()/total_value_cents happy path; it exercises none of the confirmed spec-scope defects (remove(), low_stock(), parse_csv_line())."
+    }
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "Ledger.remove(sku, qty) never raises ValueError when qty exceeds current stock; item.qty -= qty runs unconditionally (stock.py:22-24). Confirmed independently by finder-spec-clauses/verifier-a, finder-numeric-edges/verifier-a, finder-state-mutation/verifier-b.", "severity": "blocker", "scope": "spec", "source": "find:finder-spec-clauses:r1:F1;find:finder-numeric-edges:r1:F1;find:finder-state-mutation:r1:F1 -> verify:verifier-a:r1,verifier-b:r1"},
+    {"kind": "finding", "detail": "Ledger.low_stock(threshold) uses strict `qty < threshold` instead of the spec's inclusive `qty <= threshold` (stock.py:30), omitting SKUs exactly at threshold. Confirmed independently by finder-spec-clauses/verifier-a, finder-numeric-edges/verifier-a, finder-state-mutation/verifier-b.", "severity": "blocker", "scope": "spec", "source": "find:finder-spec-clauses:r1:F2;find:finder-numeric-edges:r1:F2;find:finder-state-mutation:r1:F2 -> verify:verifier-a:r1,verifier-b:r1"},
+    {"kind": "finding", "detail": "parse_csv_line(line) does int(price) with no dollars-to-cents conversion (report.py:12): a 100x unit error for whole-dollar strings, and a crash (ValueError) for the normal fractional-dollar case like '19.99'. This also means parse_csv_line and format_report are not inverses of each other. Confirmed independently by finder-spec-clauses/verifier-a, finder-numeric-edges/verifier-b, finder-io-format/verifier-c (x3 sub-variants).", "severity": "blocker", "scope": "spec", "source": "find:finder-spec-clauses:r1:F3;find:finder-numeric-edges:r1:F3;find:finder-io-format:r1:F1;find:finder-io-format:r1:F2;find:finder-io-format:r1:F3 -> verify:verifier-a:r1,verifier-b:r1,verifier-c:r1"},
+    {"kind": "finding", "detail": "Adjacent: remove() does self.items[sku] with no existence guard, raising a raw KeyError for a SKU never added (stock.py:23). SPEC.md is silent on missing-SKU behavior.", "severity": "minor", "scope": "adjacent", "source": "find:finder-state-mutation:r1:F3 -> verify:verifier-c:r1"},
+    {"kind": "finding", "detail": "Adjacent: add() performs no validation on qty, so a negative qty silently corrupts ledger state (stock.py:16-20). SPEC.md states no requirement here.", "severity": "minor", "scope": "adjacent", "source": "find:finder-state-mutation:r1:F4 -> verify:verifier-c:r1"},
+    {"kind": "finding", "detail": "Adjacent: once remove()'s missing guard lets qty go negative, total_value_cents() sums the negative contribution unguarded (stock.py:26-27).", "severity": "minor", "scope": "adjacent", "source": "find:finder-numeric-edges:r1:F4 -> verify:verifier-b:r1"},
+    {"kind": "finding", "detail": "Adjacent: format_report converts cents to dollars via float division (price_cents / 100) rather than integer-safe formatting (report.py:5-6). Not spec-mandated.", "severity": "minor", "scope": "adjacent", "source": "find:finder-numeric-edges:r1:F5 -> verify:verifier-b:r1"}
+  ],
+  "workers": [
+    {"id": "finder-spec-clauses", "role": "reviewer", "status": "ok", "summary": "changes_required; 3 spec-scope findings (remove, low_stock, parse_csv_line), all later confirmed"},
+    {"id": "finder-numeric-edges", "role": "reviewer", "status": "ok", "summary": "changes_required; 3 spec-scope + 2 adjacent findings, all later confirmed"},
+    {"id": "finder-state-mutation", "role": "reviewer", "status": "ok", "summary": "changes_required; 2 spec-scope + 2 adjacent findings, all later confirmed"},
+    {"id": "finder-io-format", "role": "reviewer", "status": "ok", "summary": "changes_required; 3 spec-scope findings (all on parse_csv_line/format_report), all later confirmed"},
+    {"id": "verifier-a", "role": "verifier", "status": "ok", "summary": "5/5 assigned candidates confirmed, exact id-set match"},
+    {"id": "verifier-b", "role": "verifier", "status": "ok", "summary": "5/5 assigned candidates confirmed, exact id-set match"},
+    {"id": "verifier-c", "role": "verifier", "status": "ok", "summary": "5/5 assigned candidates confirmed, exact id-set match"}
+  ],
+  "plan": ".work-team/2026-09-02-inventory-audit/plan.json",
+  "log": ".work-team/2026-09-02-inventory-audit/workflow-log.jsonl"
+}

@@ -1,0 +1,3 @@
+Reading additional input from stdin...
+[2m2026-08-31T15:05:18.299133Z[0m [31mERROR[0m [2mcodex_core::tools::router[0m[2m:[0m [3merror[0m[2m=[0mapply_patch verification failed: invalid hunk at line 135, 'todo 2.` to standard output, and exits `0`.' is not a valid hunk header. Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'
+[2m2026-08-31T15:19:00.639784Z[0m [31mERROR[0m [2mcodex_core::tools::router[0m[2m:[0m [3merror[0m[2m=[0magent_name must use only lowercase letters, digits, and underscores

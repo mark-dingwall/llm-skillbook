@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "runArtifactPaths": true,
+  "required": ["run", "outcome", "verification", "residual", "workers", "plan", "log"],
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "complete"}}},
+      "then": {
+        "properties": {
+          "verification": {
+            "minItems": 1,
+            "items": {"properties": {"passed": {"const": true}}}
+          },
+          "residual": {
+            "items": {
+              "properties": {
+                "kind": {"const": "finding"}
+              },
+              "allOf": [
+                {
+                  "if": {"properties": {"kind": {"enum": ["finding", "loop_cap"]}}},
+                  "then": {"properties": {"severity": {"enum": ["minor"]}}}
+                }
+              ]
+            }
+          },
+          "workers": {
+            "minItems": 1,
+            "items": {"properties": {"status": {"enum": ["ok", "retried"]}}}
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "run": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\Z"},
+    "outcome": {"type": "string", "enum": ["complete", "partial", "stopped"]},
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["command", "passed", "output"],
+        "properties": {"command": {"type": "string", "pattern": "\\S"}, "passed": {"type": "boolean"}, "output": {"type": "string"}, "summary": {"type": "string"}}
+      }
+    },
+    "residual": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["kind", "detail"],
+        "allOf": [
+          {
+            "if": {"properties": {"kind": {"enum": ["finding", "loop_cap"]}}},
+            "then": {"required": ["severity", "scope"]}
+          }
+        ],
+        "properties": {
+          "kind": {"type": "string", "enum": ["finding", "gap", "worker_failed", "loop_cap", "invalid_return", "skipped"]},
+          "detail": {"type": "string"},
+          "severity": {"type": "string", "enum": ["blocker", "important", "minor"]},
+          "scope": {"type": "string", "enum": ["spec", "adjacent"]},
+          "source": {"type": "string"}
+        }
+      }
+    },
+    "workers": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "role", "status"],
+        "properties": {
+          "id": {"type": "string"}, "role": {"type": "string"},
+          "status": {"type": "string", "enum": ["ok", "failed", "retried", "invalid"]},
+          "summary": {"type": "string"}
+        }
+      }
+    },
+    "plan": {"type": "string"},
+    "log": {"type": "string"},
+    "sweep": {"type": "string"}
+  }
+}

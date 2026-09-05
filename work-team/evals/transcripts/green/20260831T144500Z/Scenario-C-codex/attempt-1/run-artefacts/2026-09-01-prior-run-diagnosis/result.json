@@ -1,0 +1,21 @@
+{
+  "run": "2026-09-01-prior-run-diagnosis",
+  "outcome": "partial",
+  "verification": [
+    {"command": "test -s run-dir/SPEC.md && test -s run-dir/css-inventory.txt && test -s run-dir/result.json && test -s run-dir/workflow-log.jsonl && test -s run-dir/agents.csv", "passed": true, "summary": "All five supplied evidence files are non-empty."},
+    {"command": "/home/mark/.codex/skills/work-team/scripts/wt-telemetry run-dir/workflow-log.jsonl", "passed": true, "summary": "Telemetry parsed the prior workflow log; total orchestrator span is 7,877 seconds and final-fixer span is 2,067 seconds."}
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "Prior result reports residual:null despite final log entries for unresolved bed-reorder animation, overdue CSS, and unused renumber() code.", "source": "run-dir/result.json:1; run-dir/workflow-log.jsonl:345-363"},
+    {"kind": "gap", "detail": "No post-final-fix visual assertion or visual re-review is recorded for the themed UI and animations.", "source": "run-dir/SPEC.md:168-187; run-dir/workflow-log.jsonl:343-363; run-dir/result.json:1"},
+    {"kind": "gap", "detail": "Exact monetary cost cannot be derived from the supplied CSV because it contains token counters but no model or pricing fields.", "source": "run-dir/agents.csv:1"}
+  ],
+  "workers": [
+    {"id": "coverage-auditor", "role": "verifier", "status": "ok", "summary": "Found unverified visual animation and reduced-motion requirements."},
+    {"id": "telemetry-auditor", "role": "verifier", "status": "ok", "summary": "Quantified elapsed-time and token-counter concentration; identified missing currency inputs."},
+    {"id": "reporting-auditor", "role": "verifier", "status": "ok", "summary": "Found residual and verification reporting omissions."},
+    {"id": "reshaping-auditor", "role": "verifier", "status": "ok", "summary": "Specified evidence-tethered next-run verification and ordering boundaries."}
+  ],
+  "plan": ".work-team/2026-09-01-prior-run-diagnosis/plan.json",
+  "log": ".work-team/2026-09-01-prior-run-diagnosis/workflow-log.jsonl"
+}

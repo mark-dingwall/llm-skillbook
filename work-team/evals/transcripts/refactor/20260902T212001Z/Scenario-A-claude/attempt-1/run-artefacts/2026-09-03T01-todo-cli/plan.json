@@ -1,0 +1,46 @@
+{
+  "run": "2026-09-03T01-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (add <text>, list, done <id>; JSON-file persistence) by coordinating subagents through specification -> tests -> implementation -> review. Maintain a shared audit trail workflow-log.jsonl in this directory: one JSON line per substantive worker action, carrying the worker's id.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md at the repository root specifying the `todo` CLI: subcommands `add <text>` (append a new todo, print its assigned integer id), `list` (print all todos with id, done/pending status marker, and text; state exact output format and behavior when empty), `done <id>` (mark the todo with that id as done; state behavior for a missing id). State the JSON storage file name/path, its exact JSON schema (list of objects with id, text, done fields), and exit codes for success and for error cases (e.g. done on a nonexistent id, malformed args). Done when every command has a Given/When/Then covering the normal case and at least one edge case.",
+          "inputs": ["<task text verbatim, given in GOAL>"],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite at the repository root, test_todo.py, derived ONLY from SPEC.md (do not read or assume any implementation). Tests must invoke the CLI as a subprocess (e.g. `python3 todo.py ...` or `python3 -m todo ...`, matching whatever entry point SPEC.md specifies) against a temporary/isolated JSON storage file (use a tmp_path fixture or equivalent so tests do not pollute the repo's real storage file), and assert on stdout, exit codes, and the resulting JSON file contents per SPEC.md. Cover: add, list (including empty list), done on an existing id, and done on a missing id. Done when the suite collects successfully and every test fails (not errors out) because todo.py does not yet exist or is a stub.",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": { "review": "reviewer", "fix": "fixer", "max_rounds": 2 },
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement todo.py at the repository root per SPEC.md so that all tests in test_todo.py pass, using only Python 3 standard library, with JSON-file persistence as specified. Touch only owned paths. Done when `python3 -m pytest -q test_todo.py` is fully green with no failures or errors.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "run": "spec-audit-20260903",
+  "task": "Thoroughly audit audit-target against its SPEC.md for correctness defects. Use parallel finder subagents with distinct angles, then have fresh verifier subagents independently confirm or refute each candidate. The client expects deep, evidence-backed coverage. Log all worker actions to audit-target/workflow-log.jsonl. For the first verifier return, preserve the raw complete JSON, fault-inject a partial copy with .eval-tools/inject-partial-verifier.py, submit only that partial copy to the normal contextual validation gate, and apply the incomplete-return policy including a fresh whole-group retry. Do not modify any audit-target file other than the log. Return findings, verdicts/evidence, angles, empty angles, drops/unverified, and worker ids.",
+  "phases": [
+    {
+      "id": "find",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "finder-state",
+          "role": "reviewer",
+          "goal": "Audit stated inventory state, mutation, validation, and exception requirements in SPEC.md against the implementation. Return only distinct evidence-backed candidates or an evidence-backed empty result. Done when every applicable state/mutation requirement has been checked.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "wave-1"
+        },
+        {
+          "id": "finder-report",
+          "role": "reviewer",
+          "goal": "Audit stated reporting, ordering, formatting, and public API requirements in SPEC.md against the implementation. Return only distinct evidence-backed candidates or an evidence-backed empty result. Done when every applicable reporting/API requirement has been checked.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/report.py", "audit-target/inventory/__init__.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "wave-1"
+        },
+        {
+          "id": "finder-contract",
+          "role": "reviewer",
+          "goal": "Independently trace every explicit SPEC.md requirement through all inventory modules, looking for boundary cases, return values, failure modes, and inter-module contract violations. Return only distinct evidence-backed candidates or an evidence-backed empty result. Done when all explicit requirements have a code-level disposition.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/__init__.py", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "wave-1"
+        },
+        {
+          "id": "finder-adversarial",
+          "role": "reviewer",
+          "goal": "Perform an adversarial black-box audit against SPEC.md: derive edge cases and compare them with implementation behavior, using focused read-only test commands where useful. Return only distinct evidence-backed candidates or an evidence-backed empty result. Done when high-risk edge cases for every stated behavior have been probed.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/__init__.py", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "wave-2"
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "verifier-stock",
+          "role": "verifier",
+          "goal": "Independently confirm or refute each assigned stock-behavior candidate against only the stated specification and the current implementation. Done when every assigned candidate has one evidence-backed verdict.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "verification-wave-1",
+          "candidates": [
+            {"id": "find:finder-state:r1:F1", "owner": "finder-state", "path": "audit-target/inventory/stock.py", "issue": "Ledger.remove permits removal above current stock, producing a negative quantity rather than raising ValueError."},
+            {"id": "find:finder-state:r1:F2", "owner": "finder-state", "path": "audit-target/inventory/stock.py", "issue": "Ledger.low_stock excludes an item whose quantity equals the threshold despite the specified <= condition."}
+          ]
+        },
+        {
+          "id": "verifier-csv",
+          "role": "verifier",
+          "goal": "Independently confirm or refute the assigned CSV-to-cents candidate against only the stated specification and the current implementation. Done when the assigned candidate has one evidence-backed verdict.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "verification-wave-1",
+          "candidates": [
+            {"id": "find:finder-report:r1:F1", "owner": "finder-report", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line does not parse stated dollar-denominated CSV prices into ledger cents."}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+./run-dir/agents.csv
+./run-dir/css-inventory.txt
+./run-dir/result.json
+./run-dir/SPEC.md
+./run-dir/workflow-log.jsonl
+./.work-team/2026-09-01-prior-run-diagnosis/coverage-auditor.json
+./.work-team/2026-09-01-prior-run-diagnosis/plan.json
+./.work-team/2026-09-01-prior-run-diagnosis/reporting-auditor.json
+./.work-team/2026-09-01-prior-run-diagnosis/report.md
+./.work-team/2026-09-01-prior-run-diagnosis/reshaping-auditor.json
+./.work-team/2026-09-01-prior-run-diagnosis/result.json
+./.work-team/2026-09-01-prior-run-diagnosis/telemetry-auditor.json
+./.work-team/2026-09-01-prior-run-diagnosis/workflow-log.jsonl

@@ -1,0 +1,23 @@
+{
+  "run": "todo-cli-run",
+  "outcome": "partial",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "output": "", "summary": "exit status 0; no stdout"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "output": "35 tests collected in 0.10s", "summary": "35 tests collected"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "output": "...................................                                      [100%]\n35 passed in 1.05s", "summary": "35 passed"}
+  ],
+  "residual": [
+    {"kind": "invalid_return", "detail": "Both reviewer attempts logged a spec finding but returned a pass with no structured finding, so no finding could be safely routed to a fixer.", "source": "implementation:reviewer:r1,r2"},
+    {"kind": "loop_cap", "detail": "The two-round implementation review cap was reached with the audit-log claim that oversized integer IDs crash unresolved.", "severity": "important", "scope": "spec", "source": "implementation loop"}
+  ],
+  "workers": [
+    {"id": "spec-writer:r1", "role": "writer", "status": "retried", "summary": "Schema-invalid empty verification output; superseded by r2."},
+    {"id": "spec-writer:r2", "role": "writer", "status": "ok", "summary": "Wrote SPEC.md."},
+    {"id": "test-writer:r1", "role": "writer", "status": "ok", "summary": "Wrote and collected 35 black-box tests."},
+    {"id": "implementer:r1", "role": "implementer", "status": "ok", "summary": "Implemented todo.py; 35 tests passed."},
+    {"id": "reviewer:r1", "role": "reviewer", "status": "invalid", "summary": "Structured pass contradicted its audit log claiming one finding."},
+    {"id": "reviewer:r2", "role": "reviewer", "status": "invalid", "summary": "Structured pass contradicted its audit log claiming oversized IDs crash."}
+  ],
+  "plan": ".work-team/todo-cli-run/plan.json",
+  "log": ".work-team/todo-cli-run/workflow-log.jsonl"
+}

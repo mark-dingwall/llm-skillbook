@@ -1,7 +1,7 @@
 # llm-skillbook
 
-llm-skillbook packages code-review and feature-delivery workflows for Claude
-Code and OpenAI Codex. Choose the smallest workflow that matches the job:
+llm-skillbook packages code-review, feature-delivery, and team-orchestration
+workflows for Claude Code and OpenAI Codex. Choose the smallest workflow that matches the job:
 
 | Workflow | Use it for |
 |---|---|
@@ -9,6 +9,7 @@ Code and OpenAI Codex. Choose the smallest workflow that matches the job:
 | [multi-review](multi-review/README.md) | Collecting parallel reviews from configured AI tools and assembling one report |
 | [review-loop](review-loop/README.md) | Running a fail-closed, ledger-backed review process through an external host/controller |
 | [review-team](review-team/README.md) | Getting a high-confidence, read-only review from independent workers |
+| [work-team](work-team/README.md) | Delivering a task through a planned, audited team of fresh subagents with a verifiable result |
 
 Each component README explains its operating boundary and the useful next
 action. Start there before invoking a workflow.
@@ -47,7 +48,10 @@ edit-in-place development. Skill-directory installs refuse to replace a
 destination the installer did not create unless you pass `--force`. Claude
 installs also copy agent files by name, and those individual files do not have
 that ownership guard; inspect same-named files in the destination before
-installing.
+installing. Installing `work-team` for Claude also adds its exact-agent return
+capture hook to `~/.claude/settings.json`; unrelated settings and hooks are
+preserved, and a malformed or conflicting hook configuration is rejected
+without installing the skill.
 
 ## Prerequisites and safety
 

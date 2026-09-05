@@ -1,0 +1,8 @@
+command=claude --model sonnet --output-format stream-json --verbose --allowedTools Agent,Read,Write,Edit,Bash,Glob,Grep -p <prompt>
+workspace=/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-C-claude-attempt-1
+harness=claude
+phase=refactor
+scenario=C
+start=2026-08-31T15:02:41Z
+end=2026-08-31T15:05:30Z
+exit=0

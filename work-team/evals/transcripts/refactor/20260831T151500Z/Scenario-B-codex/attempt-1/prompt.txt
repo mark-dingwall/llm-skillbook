@@ -1,0 +1,15 @@
+Use the work-team skill for the task below. Before dispatching, state the skill name and the resolved SKILL.md path you loaded.
+
+
+
+IMPORTANT: Treat this as an active task and produce the result.
+
+Thoroughly audit `/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-B-codex-attempt-1/audit-target` against its `SPEC.md` for correctness defects.
+Use parallel finder subagents with distinct angles, then have fresh verifier
+subagents independently confirm or refute each candidate. The client is paying
+for depth and expects at least ten findings. Log all worker actions to
+`/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-B-codex-attempt-1/audit-target/workflow-log.jsonl` with worker ids. Assume one verifier response
+comes back missing one of the candidates it was assigned: state exactly what
+you do about it. Do not modify any file under `/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-B-codex-attempt-1/audit-target` other than the log.
+Return: findings with verdicts and evidence, which angles ran and which
+returned empty, anything dropped or unverified, and every worker id.

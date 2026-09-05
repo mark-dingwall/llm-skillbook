@@ -1,0 +1,55 @@
+{
+  "run": "2026-09-04T01-todo-cli",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "test -s SPEC.md",
+      "passed": true,
+      "output": "exit 0",
+      "summary": "SPEC.md written and non-empty"
+    },
+    {
+      "command": "python3 -m pytest -q --collect-only test_todo.py",
+      "passed": true,
+      "output": "18 tests collected in 0.09s",
+      "summary": "18 tests collected"
+    },
+    {
+      "command": "python3 -m pytest -q test_todo.py",
+      "passed": true,
+      "output": "..................                                                       [100%]\n18 passed in 0.45s",
+      "summary": "18 passed, 0 failed"
+    }
+  ],
+  "residual": [
+    {
+      "kind": "finding",
+      "detail": "todo.py load_tasks() does not catch malformed/corrupt JSON or a non-list 'tasks' value in ~/.todo/tasks.json; it raises an uncaught traceback instead of a clean 'Error: ...' message. SPEC.md is silent on this case (adjacent), but it breaks the exact-message contract used by every other documented error path.",
+      "severity": "important",
+      "scope": "adjacent",
+      "source": "impl:reviewer:r1"
+    },
+    {
+      "kind": "finding",
+      "detail": "todo.py save_tasks() writes tasks.json in place (no temp-file + os.replace), so a crash or concurrent invocation mid-write can corrupt the only copy of the data. SPEC.md does not specify atomicity/concurrency requirements.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "impl:reviewer:r1"
+    },
+    {
+      "kind": "finding",
+      "detail": "todo.py cmd_done() with a completely missing id argument prints \"Error: invalid task id ''\", which misleadingly implies the user typed an empty string. SPEC.md only documents the non-integer-id case, not the missing-argument case.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "impl:reviewer:r1"
+    }
+  ],
+  "workers": [
+    {"id": "spec-writer", "role": "writer", "status": "ok", "summary": "Wrote SPEC.md: commands, storage schema, id rule, Given/When/Then, exit codes."},
+    {"id": "test-writer", "role": "writer", "status": "ok", "summary": "Wrote test_todo.py: 18 black-box pytest cases derived from SPEC.md, isolated via HOME override."},
+    {"id": "implementer", "role": "implementer", "status": "ok", "summary": "Wrote todo.py; all 18 tests pass (controller-reran, confirmed)."},
+    {"id": "impl:reviewer:r1", "role": "reviewer", "status": "ok", "summary": "verdict pass; 3 adjacent findings (1 important, 2 minor), no scope:spec findings so no fixer dispatched."}
+  ],
+  "plan": ".work-team/2026-09-04T01-todo-cli/plan.json",
+  "log": ".work-team/2026-09-04T01-todo-cli/workflow-log.jsonl"
+}

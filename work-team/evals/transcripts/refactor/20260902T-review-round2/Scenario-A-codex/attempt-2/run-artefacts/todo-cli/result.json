@@ -1,0 +1,21 @@
+{
+  "run": "todo-cli",
+  "outcome": "complete",
+  "verification": [
+    {"command": "test -s SPEC.md", "passed": true, "output": "", "summary": "SPEC.md is non-empty"},
+    {"command": "python3 -m pytest -q --collect-only test_todo.py", "passed": true, "output": "42 tests collected in 0.12s", "summary": "42 tests collected"},
+    {"command": "python3 -m pytest -q test_todo.py", "passed": true, "output": "..........................................                               [100%]\n42 passed in 1.72s", "summary": "42 passed"}
+  ],
+  "residual": [],
+  "workers": [
+    {"id": "spec-writer:r1", "role": "writer", "status": "invalid", "summary": "Returned invalid status JSON; superseded by retry."},
+    {"id": "spec-writer:r2", "role": "writer", "status": "ok", "summary": "Produced SPEC.md."},
+    {"id": "test-writer:r1", "role": "writer", "status": "ok", "summary": "Produced 42 black-box tests."},
+    {"id": "implementer:r1", "role": "implementer", "status": "ok", "summary": "Produced todo.py; 42 tests passed."},
+    {"id": "implementation-reviewer:r1", "role": "reviewer", "status": "ok", "summary": "Found one important spec issue."},
+    {"id": "implementation-fixer:r1", "role": "fixer", "status": "ok", "summary": "Fixed long numeric ID handling; 42 tests passed."},
+    {"id": "implementation-reviewer:r2", "role": "reviewer", "status": "ok", "summary": "Passed re-review with no findings."}
+  ],
+  "plan": ".work-team/todo-cli/plan.json",
+  "log": ".work-team/todo-cli/workflow-log.jsonl"
+}

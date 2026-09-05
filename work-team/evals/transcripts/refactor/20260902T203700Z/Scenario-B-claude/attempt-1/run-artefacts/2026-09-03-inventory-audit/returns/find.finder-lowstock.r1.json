@@ -1,0 +1,25 @@
+{
+  "verdict": "changes_required",
+  "findings": [
+    {
+      "severity": "blocker",
+      "scope": "spec",
+      "where": "Ledger.low_stock",
+      "owner": "finder-lowstock",
+      "path": "audit-target/inventory/stock.py",
+      "issue": "low_stock uses strict less-than (qty < threshold) instead of the spec's <= comparison, so an item exactly at the threshold qty is not reported as low stock.",
+      "fix": "Change the comparison to `i.qty <= threshold`.",
+      "evidence": "SPEC.md: \"`Ledger.low_stock(threshold)`: SKUs with `qty <= threshold`.\" | stock.py line 30: \"return [i.sku for i in self.items.values() if i.qty < threshold]\""
+    },
+    {
+      "severity": "important",
+      "scope": "adjacent",
+      "where": "Ledger.low_stock",
+      "owner": "finder-lowstock",
+      "path": "audit-target/test_stock.py",
+      "issue": "test_stock.py contains no test at all for low_stock(), so the operator bug (and any future regression) is not caught by the test suite; the only test present covers add/total_value_cents.",
+      "fix": "Add a test asserting that an item with qty == threshold is included in low_stock's result, plus a case for qty above/below threshold.",
+      "evidence": "SPEC.md: \"`Ledger.low_stock(threshold)`: SKUs with `qty <= threshold`.\" | test_stock.py only defines test_add_and_total (lines 4-8); no test references low_stock."
+    }
+  ]
+}

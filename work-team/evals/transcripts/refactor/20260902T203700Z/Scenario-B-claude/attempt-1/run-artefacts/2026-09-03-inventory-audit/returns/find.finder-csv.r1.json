@@ -1,0 +1,25 @@
+{
+  "verdict": "changes_required",
+  "findings": [
+    {
+      "severity": "blocker",
+      "scope": "spec",
+      "where": "parse_csv_line",
+      "owner": "finder-csv",
+      "path": "audit-target/inventory/report.py",
+      "issue": "parse_csv_line reads the CSV price field as dollars but casts it straight to int without converting to cents, so it neither multiplies by 100 nor parses decimal dollar amounts. Any price with cents (e.g. \"19.99\") raises ValueError, and whole-dollar prices (e.g. \"19\") are stored as 19 instead of 1900 cents, silently corrupting downstream totals if this value is ever fed to Ledger.add.",
+      "fix": "Parse price as a float/Decimal and convert to cents, e.g. `int(round(float(price) * 100))`, matching Ledger.add's price_cents contract.",
+      "evidence": "SPEC.md:5 \"CSV rows are `sku,qty,price_dollars`; the ledger stores cents.\" vs report.py:10-12 \"def parse_csv_line(line: str):\\n    sku, qty, price = line.split(\\\",\\\")\\n    return sku.strip(), int(qty), int(price)\""
+    },
+    {
+      "severity": "important",
+      "scope": "adjacent",
+      "where": "parse_csv_line",
+      "owner": "finder-csv",
+      "path": "audit-target/test_stock.py",
+      "issue": "test_stock.py has no test at all for parse_csv_line, so neither the intended dollars-to-cents conversion nor its current (incorrect) int(price) behavior is covered by any test.",
+      "fix": "Add a test asserting parse_csv_line(\"sku1,5,19.99\") == (\"sku1\", 5, 1999) once the conversion is fixed.",
+      "evidence": "test_stock.py:1-8 only defines test_add_and_total, which calls Ledger.add directly and never imports or calls report.parse_csv_line."
+    }
+  ]
+}

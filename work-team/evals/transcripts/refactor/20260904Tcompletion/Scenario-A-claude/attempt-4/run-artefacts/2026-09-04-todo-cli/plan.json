@@ -1,0 +1,48 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "task": "Deliver a tiny Python CLI `todo` in this directory (`add <text>`, `list`, `done <id>`; JSON-file persistence) by coordinating subagents through specification -> tests -> implementation -> review. Keep a shared audit trail `workflow-log.jsonl` in this directory: one JSON line per substantive worker action, carrying the worker's id.",
+  "phases": [
+    {
+      "id": "spec",
+      "workers": [
+        {
+          "id": "spec-writer",
+          "role": "writer",
+          "goal": "Write SPEC.md at the repository root documenting the `todo` CLI invoked as `python3 todo.py <command> ...`: subcommands `add <text>` (appends a task, assigns it an integer id), `list` (prints all tasks with id, done state, and text), and `done <id>` (marks a task complete by id). Specify the JSON persistence file name/location and its exact schema, the exact stdout format for each command (including an empty list), exit codes for success and for error cases (missing argument, non-integer or unknown id passed to `done`). Done when every command has at least one Given/When/Then scenario covering both its normal case and its edge/error cases.",
+          "inputs": [
+            "Task text: Deliver a tiny Python CLI `todo` (add <text>, list, done <id>) with JSON-file persistence."
+          ],
+          "owns": ["SPEC.md"],
+          "verify": "test -s SPEC.md"
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "workers": [
+        {
+          "id": "test-writer",
+          "role": "writer",
+          "goal": "Write a black-box pytest suite `test_todo.py` at the repository root, derived only from SPEC.md, that invokes `todo.py` as a subprocess (e.g. via `subprocess.run([sys.executable, \"todo.py\", ...], cwd=tmp_path, ...)`) against an isolated per-test JSON data file, covering `add`, `list`, `done`, and the edge/error cases SPEC.md specifies. Done when the suite collects successfully via pytest's collector (it may fail at run time since todo.py does not exist yet).",
+          "inputs": ["SPEC.md"],
+          "owns": ["test_todo.py"],
+          "verify": "python3 -m pytest -q --collect-only test_todo.py"
+        }
+      ]
+    },
+    {
+      "id": "impl",
+      "loop": {"review": "reviewer", "fix": "fixer", "max_rounds": 2},
+      "workers": [
+        {
+          "id": "implementer",
+          "role": "implementer",
+          "goal": "Implement `todo.py` at the repository root exactly per SPEC.md (commands `add <text>`, `list`, `done <id>`; JSON-file persistence) so that the full `test_todo.py` suite passes, touching only `todo.py`. Done when pytest reports all tests passing.",
+          "inputs": ["SPEC.md", "test_todo.py"],
+          "owns": ["todo.py"],
+          "verify": "python3 -m pytest -q test_todo.py"
+        }
+      ]
+    }
+  ]
+}

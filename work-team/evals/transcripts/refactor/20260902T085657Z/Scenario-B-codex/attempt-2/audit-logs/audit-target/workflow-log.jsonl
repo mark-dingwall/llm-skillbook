@@ -1,0 +1,29 @@
+{"ts": "2026-09-02T09:09:13Z", "agent": "controller", "action": "frame", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory", "audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:09:13Z", "agent": "controller", "action": "verification", "artefacts": ["python3 -m pytest -q audit-target"]}
+{"ts": "2026-09-02T09:09:37Z", "agent": "controller", "action": "plan_validated", "artefacts": [".work-team/inventory-spec-audit/plan.json"]}
+{"ts": "2026-09-02T09:10:01Z", "agent": "find:finder-removal:r1", "action": "start audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:10:21Z", "agent": "find:finder-removal:r1", "action": "verification attempted (invalid path)", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:10:23Z", "agent": "find:finder-threshold:r1", "action": "start threshold and SKU semantic audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:10:29Z", "agent": "find:finder-removal:r1", "action": "verification passed", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:10:29Z", "agent": "find:finder-removal:r1", "action": "return findings", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:10:39Z", "agent": "find:finder-threshold:r1", "action": "run tests for behavioral evidence", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:10:39Z", "agent": "find:finder-threshold:r1", "action": "verified test result exit=0", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:10:42Z", "agent": "find:finder-csv-value:r1", "action": "start audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:10:44Z", "agent": "controller", "action": "ingested", "artefacts": ["find:finder-removal:r1"]}
+{"ts": "2026-09-02T09:10:46Z", "agent": "find:finder-threshold:r1", "action": "return threshold finding", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:11:00Z", "agent": "controller", "action": "ingested", "artefacts": ["find:finder-threshold:r1"]}
+{"ts": "2026-09-02T09:11:03Z", "agent": "find:finder-csv-value:r1", "action": "verified pytest passed; inspected conversion", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:11:12Z", "agent": "find:finder-csv-value:r1", "action": "returning one spec finding", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:11:45Z", "agent": "controller", "action": "verifier_plan_validated", "artefacts": [".work-team/inventory-spec-audit/plan.json"]}
+{"ts": "2026-09-02T09:12:11Z", "agent": "verify:verifier-state-boundaries:r1", "action": "started F1 verification", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:12:18Z", "agent": "verify:verifier-state-boundaries:r1", "action": "verified F1; returning drill partial", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:12:29Z", "agent": "verify:verifier-csv-value:r1", "action": "started CSV price conversion verification", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:12:30Z", "agent": "controller", "action": "incomplete_verifier_discarded", "artefacts": ["verify:verifier-state-boundaries:r1", "missing verify:verifier-state-boundaries:r1:F2"]}
+{"ts": "2026-09-02T09:12:38Z", "agent": "verify:verifier-csv-value:r1", "action": "confirmed price_dollars parser defect", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:12:47Z", "agent": "verify:verifier-csv-value:r1", "action": "confirmed price_dollars parser defect", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:12:54Z", "agent": "verify:verifier-state-boundaries:r2", "action": "started", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:12:57Z", "agent": "controller", "action": "ingested", "artefacts": ["verify:verifier-csv-value:r1"]}
+{"ts": "2026-09-02T09:13:01Z", "agent": "verify:verifier-state-boundaries:r2", "action": "returned", "artefacts": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:13:20Z", "agent": "controller", "action": "ingested", "artefacts": ["verify:verifier-state-boundaries:r2"]}
+{"ts": "2026-09-02T09:13:21Z", "agent": "controller", "action": "verification_final", "artefacts": ["python3 -m pytest -q audit-target"]}
+{"ts": "2026-09-02T09:14:06Z", "agent": "controller", "action": "report_validated", "artefacts": [".work-team/inventory-spec-audit/result.json", ".work-team/inventory-spec-audit/report.md"]}

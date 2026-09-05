@@ -1,0 +1,34 @@
+{
+  "rollout_sha256": "9739ac4b95d7ca337d4c4aae3b5d3322dc9f30be4de74dba8219adf53eabc4ad",
+  "root_thread_id": "01a06405-e1a0-7900-b5c6-bc3d1ac8e10c",
+  "workers": [
+    {
+      "completed_ordinal": 137,
+      "path": "/root/visual_gap_auditor",
+      "return_ordinal": 142,
+      "started_ordinal": 76,
+      "thread_id": "01a06408-e762-7641-8ef2-d09cfeba43a9"
+    },
+    {
+      "completed_ordinal": 152,
+      "path": "/root/telemetry_auditor",
+      "return_ordinal": 157,
+      "started_ordinal": 81,
+      "thread_id": "01a06409-9a29-7772-9ac3-a39b553a3158"
+    },
+    {
+      "completed_ordinal": 167,
+      "path": "/root/reporting_gap_auditor",
+      "return_ordinal": 172,
+      "started_ordinal": 86,
+      "thread_id": "01a0640a-4d5a-77c0-93b0-698eef70fd23"
+    },
+    {
+      "completed_ordinal": 232,
+      "path": "/root/diagnosis_synthesizer",
+      "return_ordinal": 237,
+      "started_ordinal": 190,
+      "thread_id": "01a0640e-7708-7a41-82c9-c486dca7cf6d"
+    }
+  ]
+}

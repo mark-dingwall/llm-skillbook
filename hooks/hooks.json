@@ -1,0 +1,17 @@
+{
+  "description": "Capture exact work-team worker returns for deterministic validation.",
+  "hooks": {
+    "SubagentStop": [
+      {
+        "matcher": "llm-skillbook-work-team-worker",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/work-team/scripts/wt-capture-return",
+            "args": []
+          }
+        ]
+      }
+    ]
+  }
+}

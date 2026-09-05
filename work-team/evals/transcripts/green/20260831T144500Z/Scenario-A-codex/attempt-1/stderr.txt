@@ -1,0 +1,11 @@
+Reading additional input from stdin...
+[2m2026-08-31T14:46:16.984795Z[0m [31mERROR[0m [2mcodex_core::tools::router[0m[2m:[0m [3merror[0m[2m=[0mapply_patch verification failed: Failed to find expected lines in /home/mark/.claude/jobs/1fc6d338/tmp/evals/green-20260831T144500Z-A-codex-attempt-1/test_todo.py:
+        commands = [("list",), ("add", "new"), ("done", "1")]
+
+        for contents in invalid_documents:
+            for arguments in commands:
+                with self.subTest(contents=contents, arguments=arguments):
+                    self.database_path().write_bytes(contents)
+                    result = self.run_todo(*arguments)
+                    self.assert_error(result, 1, "Error: invalid data in .todo.json\\n")
+                    self.assertEqual(self.database_path().read_bytes(), contents)

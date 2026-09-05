@@ -1,0 +1,46 @@
+{"ts": "2026-09-02T09:35:48Z", "agent": "find:finder-spec-clauses:r1", "action": "start audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:35:56Z", "agent": "find:finder-numeric-edges:r1", "action": "start audit", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:35:58Z", "agent": "find:finder-spec-clauses:r1", "action": "read spec", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:35:58Z", "agent": "find:finder-spec-clauses:r1", "action": "read stock.py", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:35:58Z", "agent": "find:finder-spec-clauses:r1", "action": "read report.py", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:35:58Z", "agent": "find:finder-spec-clauses:r1", "action": "finish audit, return findings", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:04Z", "agent": "find:finder-state-mutation:r1", "action": "start audit", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:19Z", "agent": "find:finder-state-mutation:r1", "action": "read SPEC.md", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:36:19Z", "agent": "find:finder-state-mutation:r1", "action": "read stock.py", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:19Z", "agent": "find:finder-state-mutation:r1", "action": "done audit, returning findings", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:20Z", "agent": "find:finder-numeric-edges:r1", "action": "read stock.py", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:20Z", "agent": "find:finder-numeric-edges:r1", "action": "read report.py", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:36:20Z", "agent": "find:finder-numeric-edges:r1", "action": "read test_stock.py for contract confirmation", "artefacts": ["audit-target/test_stock.py"]}
+{"ts": "2026-09-02T09:36:20Z", "agent": "find:finder-numeric-edges:r1", "action": "finish audit, return findings", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:36:55Z", "agent": "find:finder-io-format:r1", "action": "start audit", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:37:04Z", "agent": "find:finder-io-format:r1", "action": "read SPEC.md", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:37:04Z", "agent": "find:finder-io-format:r1", "action": "read report.py", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:37:12Z", "agent": "find:finder-io-format:r1", "action": "read stock.py", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:37:16Z", "agent": "find:finder-io-format:r1", "action": "finish audit", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:38:45Z", "agent": "verify:verifier-a:r1", "action": "start verification", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "read file", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "read file", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "evaluated candidate F1", "artefacts": ["find:finder-spec-clauses:r1:F1"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "evaluated candidate F2", "artefacts": ["find:finder-spec-clauses:r1:F2"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "evaluated candidate F3", "artefacts": ["find:finder-spec-clauses:r1:F3"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "evaluated candidate F1", "artefacts": ["find:finder-numeric-edges:r1:F1"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "evaluated candidate F2", "artefacts": ["find:finder-numeric-edges:r1:F2"]}
+{"ts": "2026-09-02T09:38:54Z", "agent": "verify:verifier-a:r1", "action": "returning verdicts", "artefacts": ["workflow-log.jsonl"]}
+{"ts": "2026-09-02T09:38:55Z", "agent": "verify:verifier-b:r1", "action": "start verification", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:39:04Z", "agent": "verify:verifier-c:r1", "action": "start verification", "artefacts": ["audit-target/SPEC.md"]}
+{"ts": "2026-09-02T09:39:06Z", "agent": "verify:verifier-b:r1", "action": "read file", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:39:06Z", "agent": "verify:verifier-b:r1", "action": "read file", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:06Z", "agent": "verify:verifier-b:r1", "action": "evaluated candidate", "artefacts": ["F3"]}
+{"ts": "2026-09-02T09:39:06Z", "agent": "verify:verifier-b:r1", "action": "evaluated candidate", "artefacts": ["F4"]}
+{"ts": "2026-09-02T09:39:06Z", "agent": "verify:verifier-b:r1", "action": "evaluated candidate", "artefacts": ["F5"]}
+{"ts": "2026-09-02T09:39:06Z", "agent": "verify:verifier-b:r1", "action": "evaluated candidate", "artefacts": ["F1"]}
+{"ts": "2026-09-02T09:39:07Z", "agent": "verify:verifier-b:r1", "action": "evaluated candidate", "artefacts": ["F2"]}
+{"ts": "2026-09-02T09:39:07Z", "agent": "verify:verifier-b:r1", "action": "returning results", "artefacts": ["final"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "read stock.py", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "read report.py", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "evaluated F3 stock (remove KeyError)", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "evaluated F4 stock (add no qty validation)", "artefacts": ["audit-target/inventory/stock.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "evaluated F1 report (no cents conversion)", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "evaluated F2 report (int fails on fractional)", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "evaluated F3 report (not inverse of format_report)", "artefacts": ["audit-target/inventory/report.py"]}
+{"ts": "2026-09-02T09:39:18Z", "agent": "verify:verifier-c:r1", "action": "done verification, returning results", "artefacts": ["audit-target/inventory/report.py"]}

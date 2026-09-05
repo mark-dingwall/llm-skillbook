@@ -1,0 +1,80 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "outcome": "partial",
+  "verification": [
+    {
+      "command": "test -s SPEC.md",
+      "passed": true,
+      "output": "exit code 0, no stdout",
+      "summary": "SPEC.md exists and is non-empty"
+    },
+    {
+      "command": "python3 -m pytest -q --collect-only test_todo.py",
+      "passed": true,
+      "output": "20 tests collected in 0.14s",
+      "summary": "20 tests collected, no collection errors"
+    },
+    {
+      "command": "python3 -m pytest -q test_todo.py",
+      "passed": true,
+      "output": "....................                                                     [100%]\n20 passed in 0.60s",
+      "summary": "20 passed, 0 failed"
+    }
+  ],
+  "residual": [
+    {
+      "kind": "finding",
+      "detail": "save_tasks() in todo.py writes todo.json non-atomically (open('w') + json.dump directly onto the target file). A crash/kill/full-disk mid-write truncates or corrupts todo.json with no recovery path. SPEC.md does not require atomicity, so this is scope:adjacent, not a spec violation, and per the review/fix loop policy only scope:spec findings are routed to a fixer -- it was reported, not fixed.",
+      "severity": "important",
+      "scope": "adjacent",
+      "source": "reviewer:impl:reviewer:r1v2"
+    },
+    {
+      "kind": "finding",
+      "detail": "load_tasks() in todo.py calls json.load() with no exception handling; a malformed todo.json crashes with a raw traceback instead of a clean stderr message + exit 1. SPEC.md is silent on malformed-file behavior, so this is scope:adjacent and, per policy, left unresolved rather than routed to a fixer.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "reviewer:impl:reviewer:r1v2"
+    }
+  ],
+  "workers": [
+    {
+      "id": "spec-writer",
+      "role": "writer",
+      "status": "ok",
+      "summary": "Wrote SPEC.md (commands, todo.json schema, exact stdout/exit codes, Given/When/Then per command). verify: test -s SPEC.md exit 0."
+    },
+    {
+      "id": "test-writer",
+      "role": "writer",
+      "status": "ok",
+      "summary": "Wrote test_todo.py, 20 black-box subprocess tests derived from SPEC.md. verify: 20 tests collected, no errors."
+    },
+    {
+      "id": "impl:implementer:r1",
+      "role": "implementer",
+      "status": "retried",
+      "summary": "Implemented todo.py correctly (20/20 passing verified independently) but returned prose wrapped around the JSON, failing the machine-read return contract; discarded per invalid_return policy and superseded by r2."
+    },
+    {
+      "id": "impl:implementer:r2",
+      "role": "implementer",
+      "status": "ok",
+      "summary": "Re-verified existing todo.py against SPEC.md/test_todo.py, no edits needed. verify: 20 passed in 0.56s (controller reran: 20 passed)."
+    },
+    {
+      "id": "impl:reviewer:r1",
+      "role": "reviewer",
+      "status": "retried",
+      "summary": "Performed a correct review (verdict pass, 3 adjacent findings) but returned prose wrapped around the JSON, failing the machine-read return contract; discarded and superseded by r1v2."
+    },
+    {
+      "id": "impl:reviewer:r1v2",
+      "role": "reviewer",
+      "status": "ok",
+      "summary": "Verdict: pass. 2 adjacent findings (non-atomic todo.json write, important; unhandled malformed-JSON read, minor). No scope:spec findings, so no fixer round was dispatched."
+    }
+  ],
+  "plan": ".work-team/2026-09-04-todo-cli/plan.json",
+  "log": ".work-team/2026-09-04-todo-cli/workflow-log.jsonl"
+}

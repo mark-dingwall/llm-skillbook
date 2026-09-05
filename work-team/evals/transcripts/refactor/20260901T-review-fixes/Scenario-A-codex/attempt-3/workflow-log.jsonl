@@ -1,0 +1,18 @@
+{"ts": "2026-09-01T07:54:09Z", "agent": "controller", "action": "frame", "artefacts": ["repository_scanned"]}
+{"ts": "2026-09-01T07:54:28Z", "agent": "controller", "action": "plan_validated", "artefacts": [".work-team/2026-09-01T02-todo-cli/plan.json"]}
+{"ts": "2026-09-01T07:55:00Z", "agent": "specification:spec-writer:r1", "action": "start specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:57:04Z", "agent": "specification:spec-writer:r1", "action": "wrote CLI specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:57:16Z", "agent": "specification:spec-writer:r1", "action": "verified specification nonempty", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:57:38Z", "agent": "specification:spec-writer:r1", "action": "clarified persistence errors", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:57:46Z", "agent": "specification:spec-writer:r1", "action": "reverified specification nonempty", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:57:51Z", "agent": "specification:spec-writer:r1", "action": "returning completed specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:58:00Z", "agent": "controller", "action": "worker_result_ingested", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-01T07:58:13Z", "agent": "controller", "action": "plan_revalidated", "artefacts": ["launcher_ownership_added"]}
+{"ts": "2026-09-01T07:58:36Z", "agent": "controller", "action": "packet_error_retry", "artefacts": ["tests:test-writer:r1"]}
+{"ts": "2026-09-01T07:59:03Z", "agent": "tests:test-writer:r2", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T08:02:03Z", "agent": "tests:test-writer:r2", "action": "wrote black-box acceptance suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T08:02:12Z", "agent": "tests:test-writer:r2", "action": "verified pytest collection (62 tests)", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T08:02:19Z", "agent": "tests:test-writer:r2", "action": "returning verified test suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T08:02:58Z", "agent": "controller", "action": "worker_result_ingested", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-01T08:03:16Z", "agent": "controller", "action": "packet_error_retry", "artefacts": ["implementation:implementer:r1"]}
+{"ts": "2026-09-01T08:03:48Z", "agent": "implementation:implementer:r2", "action": "started implementation", "artefacts": ["todo.py", "todo"]}

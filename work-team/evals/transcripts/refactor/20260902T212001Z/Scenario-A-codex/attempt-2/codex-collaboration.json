@@ -1,0 +1,48 @@
+{
+  "rollout_sha256": "4cee5537bf4d24efa07e7c99c8c781b45018d053b7bf2015b8bdec8dd6f69923",
+  "root_thread_id": "01a0640c-a6ee-7d83-aa3e-36a4299d4cd5",
+  "workers": [
+    {
+      "completed_ordinal": 64,
+      "path": "/root/spec_writer",
+      "return_ordinal": 69,
+      "started_ordinal": 57,
+      "thread_id": "01a0640d-a68e-7fd0-98c3-26108d767404"
+    },
+    {
+      "completed_ordinal": 84,
+      "path": "/root/spec_writer_retry",
+      "return_ordinal": 89,
+      "started_ordinal": 79,
+      "thread_id": "01a0640f-0aba-7ca3-819b-517ad734fdd3"
+    },
+    {
+      "completed_ordinal": 104,
+      "path": "/root/test_writer",
+      "return_ordinal": 109,
+      "started_ordinal": 99,
+      "thread_id": "01a06411-6da7-7ae3-bae7-dd9fc6e2edc6"
+    },
+    {
+      "completed_ordinal": 144,
+      "path": "/root/implementer",
+      "return_ordinal": 149,
+      "started_ordinal": 139,
+      "thread_id": "01a06414-6af8-7dd2-b9a8-8f4e439effd6"
+    },
+    {
+      "completed_ordinal": 164,
+      "path": "/root/reviewer",
+      "return_ordinal": 169,
+      "started_ordinal": 159,
+      "thread_id": "01a06416-0f37-7511-85e5-a033d9d84c58"
+    },
+    {
+      "completed_ordinal": 236,
+      "path": "/root/reviewer_audit",
+      "return_ordinal": 241,
+      "started_ordinal": 231,
+      "thread_id": "01a06419-0fc8-79f0-bbaf-551ef3949f9f"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{"ts": "2026-09-04T08:22:23Z", "agent": "spec:spec-writer:r1", "action": "start task", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:22:59Z", "agent": "spec:spec-writer:r1", "action": "wrote SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:23:03Z", "agent": "spec:spec-writer:r1", "action": "verified SPEC.md non-empty", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:23:04Z", "agent": "spec:spec-writer:r1", "action": "task complete, returning", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:23:33Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:24:57Z", "agent": "tests:test-writer:r1", "action": "wrote test_todo.py", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:25:05Z", "agent": "tests:test-writer:r1", "action": "verified collect-only ok", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:25:08Z", "agent": "tests:test-writer:r1", "action": "return", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:25:37Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:26:06Z", "agent": "impl:implementer:r1", "action": "write todo.py", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:26:11Z", "agent": "impl:implementer:r1", "action": "verify: pytest 16 passed", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:26:14Z", "agent": "impl:implementer:r1", "action": "return", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:26:42Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:28:38Z", "agent": "impl:reviewer:r1", "action": "reviewed todo.py against SPEC.md and tests; verdict=pass", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:29:53Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_start", "artefacts": [".work-team/2026-09-04T01-todo-cli/completion-sweep.json"]}
+{"ts": "2026-09-04T08:30:21Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_return", "artefacts": [".work-team/2026-09-04T01-todo-cli/completion-sweep.json"]}

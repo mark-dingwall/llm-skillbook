@@ -1,0 +1,27 @@
+{
+  "run": "2026-09-01T01-inventory-spec-audit",
+  "outcome": "partial",
+  "verification": [
+    {"command": "cd audit-target && python3 -m pytest -q", "passed": true, "summary": "1 passed in 0.15s (only covers add()/total_value_cents(); does not exercise the confirmed defects)"}
+  ],
+  "residual": [
+    {"kind": "finding", "detail": "BLOCKER, CONFIRMED x3: Ledger.remove() never raises ValueError when qty exceeds current stock (SPEC.md:3); item.qty -= qty runs unconditionally and goes negative. inventory/stock.py:22-24.", "source": "finder-spec-line, finder-data-types, finder-state-edge; verified by verifier-of-spec-line, verifier-of-data-types, verifier-of-state-edge"},
+    {"kind": "finding", "detail": "BLOCKER, CONFIRMED x3: Ledger.low_stock(threshold) uses strict `<` instead of `<=` (SPEC.md:4), excluding SKUs exactly at the threshold. inventory/stock.py:29-30.", "source": "finder-spec-line, finder-data-types, finder-state-edge; verified by verifier-of-spec-line, verifier-of-data-types, verifier-of-state-edge"},
+    {"kind": "finding", "detail": "BLOCKER, CONFIRMED x2: parse_csv_line() does int(price) with no dollars->cents conversion (SPEC.md:5); crashes on any fractional dollar string (e.g. '12.50') and silently mis-scales integer dollar strings by 100x. inventory/report.py:10-12.", "source": "finder-spec-line, finder-data-types; verified by verifier-of-spec-line, verifier-of-data-types"},
+    {"kind": "finding", "detail": "IMPORTANT, CONFIRMED: test_stock.py has exactly one test, covering only add()/total_value_cents(); none of the three confirmed defects above are covered by any test, which is how they went unnoticed.", "source": "finder-data-types; verified by verifier-of-data-types"},
+    {"kind": "finding", "detail": "MINOR, CONFIRMED but out of SPEC.md's scope (robustness only): Ledger.remove() on an unknown sku raises an unguarded KeyError instead of a clear error. SPEC.md does not define this case.", "source": "finder-state-edge; verified by verifier-of-state-edge"},
+    {"kind": "finding", "detail": "MINOR, CONFIRMED but out of SPEC.md's scope (robustness only): Ledger.remove() with a negative qty increases stock instead of decreasing it (item.qty -= negative_qty). SPEC.md's remove() clause only constrains the 'qty exceeds stock' case.", "source": "finder-state-edge; verified by verifier-of-state-edge"},
+    {"kind": "finding", "detail": "MINOR, CONFIRMED but out of SPEC.md's scope (robustness only): Ledger.add() accepts qty=0 or negative qty with no validation. SPEC.md places no constraint on add()'s qty.", "source": "finder-state-edge; verified by verifier-of-state-edge"},
+    {"kind": "gap", "detail": "SPEC.md does not say what should happen to price_cents when add() is called again for an sku already present with a different price; current code silently keeps the original price. Confirmed as current behavior; flagged as a spec ambiguity, not a code defect, until SPEC.md is amended.", "source": "finder-state-edge; verified by verifier-of-state-edge"}
+  ],
+  "workers": [
+    {"id": "finder-spec-line", "role": "reviewer", "status": "ok", "summary": "3 findings (blocker x3): remove ValueError, low_stock <=, parse_csv_line cents"},
+    {"id": "finder-data-types", "role": "reviewer", "status": "ok", "summary": "4 findings (blocker x2, important x2): parse_csv_line, remove, low_stock, test coverage gap"},
+    {"id": "finder-state-edge", "role": "reviewer", "status": "ok", "summary": "7 findings (blocker x2, minor x5): remove, low_stock, plus 5 edge-case/robustness notes explicitly marked non-spec"},
+    {"id": "verifier-of-spec-line", "role": "verifier", "status": "ok", "summary": "3/3 assigned candidates addressed, all CONFIRMED, full coverage on first attempt"},
+    {"id": "verifier-of-data-types", "role": "verifier", "status": "ok", "summary": "4/4 assigned candidates addressed, all CONFIRMED, full coverage on first attempt"},
+    {"id": "verifier-of-state-edge", "role": "verifier", "status": "ok", "summary": "7/7 assigned candidates addressed (6 CONFIRMED, 1 REFUTED), full coverage on first attempt"}
+  ],
+  "plan": ".work-team/2026-09-01T01-inventory-spec-audit/plan.json",
+  "log": "audit-target/workflow-log.jsonl"
+}

@@ -1,0 +1,7 @@
+./SPEC.md
+./test_todo.py
+./todo.py
+./workflow-log.jsonl
+./.work-team/2026-09-01-todo-cli/plan.json
+./.work-team/2026-09-01-todo-cli/report.md
+./.work-team/2026-09-01-todo-cli/result.json

@@ -1,0 +1,93 @@
+{
+  "run": "2026-09-04-todo-cli",
+  "outcome": "complete",
+  "verification": [
+    {
+      "command": "test -s SPEC.md",
+      "passed": true,
+      "output": "",
+      "summary": "SPEC.md exists and is non-empty (286 lines); test -s produces no stdout on success"
+    },
+    {
+      "command": "python3 -m pytest -q --collect-only test_todo.py",
+      "passed": true,
+      "output": "54 tests collected in 0.17s",
+      "summary": "54 tests collected"
+    },
+    {
+      "command": "python3 -m pytest -q test_todo.py",
+      "passed": true,
+      "output": "......................................................                   [100%]\n54 passed in 1.55s",
+      "summary": "54 passed"
+    }
+  ],
+  "residual": [
+    {
+      "kind": "finding",
+      "detail": "save_items() writes todo.json in place without a temp-file+rename; a crash mid-write can corrupt the only data file. SPEC.md does not require atomicity.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "impl:reviewer:r1"
+    },
+    {
+      "kind": "finding",
+      "detail": "Load-time validation does not enforce id positivity or reject unknown extra fields per SPEC.md 2.2's item-schema description.",
+      "severity": "minor",
+      "scope": "adjacent",
+      "source": "impl-review2:reviewer2:r1"
+    }
+  ],
+  "workers": [
+    {
+      "id": "spec-writer",
+      "role": "writer",
+      "status": "ok",
+      "summary": "Wrote SPEC.md (286 lines) covering add/list/done with Given/When/Then, storage schema, exit codes."
+    },
+    {
+      "id": "test-writer",
+      "role": "writer",
+      "status": "ok",
+      "summary": "Wrote black-box test_todo.py (54 tests) from SPEC.md, subprocess-driven."
+    },
+    {
+      "id": "implementer",
+      "role": "implementer",
+      "status": "ok",
+      "summary": "Implemented todo.py; made all 54 tests pass; flagged own spec/test-order conflict, resolved in review."
+    },
+    {
+      "id": "reviewer",
+      "role": "reviewer",
+      "status": "ok",
+      "summary": "changes_required: 2 spec findings (list-order sort in todo.py; contradictory test assertion) + 1 adjacent (non-atomic save)."
+    },
+    {
+      "id": "test-writer-fix",
+      "role": "fixer",
+      "status": "ok",
+      "summary": "Corrected id-sorted assertion to file/insertion order in test_todo.py."
+    },
+    {
+      "id": "implementer-fix",
+      "role": "fixer",
+      "status": "ok",
+      "summary": "Removed sorted() call in cmd_list; list now preserves file order."
+    },
+    {
+      "id": "reviewer2",
+      "role": "reviewer",
+      "status": "ok",
+      "summary": "pass, with 1 adjacent finding (load-time validation gaps for id positivity/extra fields)."
+    },
+    {
+      "id": "_completion:sweep:r1",
+      "role": "completion-auditor",
+      "status": "ok",
+      "summary": "missing_residual: [] (no omitted requirements)"
+    }
+  ],
+  "plan": ".work-team/2026-09-04-todo-cli/plan.json",
+  "log": ".work-team/2026-09-04-todo-cli/workflow-log.jsonl",
+  "sweep": ".work-team/2026-09-04-todo-cli/completion-sweep.json"
+}

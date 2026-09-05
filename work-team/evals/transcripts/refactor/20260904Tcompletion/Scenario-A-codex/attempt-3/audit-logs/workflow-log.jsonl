@@ -1,0 +1,49 @@
+{"ts": "2026-09-04T07:30:23Z", "agent": "controller", "action": "frame_started", "artefacts": ["."]}
+{"ts": "2026-09-04T07:30:49Z", "agent": "controller", "action": "plan_validated", "artefacts": [".work-team/todo-cli-20260904/plan.json"]}
+{"ts": "2026-09-04T07:31:30Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:32:45Z", "agent": "spec:spec-writer:r1", "action": "wrote specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:32:58Z", "agent": "spec:spec-writer:r1", "action": "verified nonempty", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:32:58Z", "agent": "spec:spec-writer:r1", "action": "return", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:33:12Z", "agent": "controller", "action": "worker_ingested", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:34:03Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T07:35:01Z", "agent": "tests:test-writer:r1", "action": "wrote", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:35:16Z", "agent": "tests:test-writer:r1", "action": "preimplementation_verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:35:16Z", "agent": "tests:test-writer:r1", "action": "collection_verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:35:23Z", "agent": "tests:test-writer:r1", "action": "return", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:35:48Z", "agent": "controller", "action": "worker_ingested", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:36:34Z", "agent": "implementation:implementer:r1", "action": "start implementation", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:36:50Z", "agent": "implementation:implementer:r1", "action": "verified initial failing test suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:37:36Z", "agent": "implementation:implementer:r1", "action": "wrote CLI implementation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:37:37Z", "agent": "implementation:implementer:r1", "action": "wrote executable wrapper", "artefacts": ["todo"]}
+{"ts": "2026-09-04T07:37:37Z", "agent": "implementation:implementer:r1", "action": "verified complete test suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:37:49Z", "agent": "implementation:implementer:r1", "action": "returning verified implementation", "artefacts": ["todo.py", "todo", "test_todo.py"]}
+{"ts": "2026-09-04T07:38:02Z", "agent": "controller", "action": "worker_ingested", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:38:47Z", "agent": "implementation:reviewer:r1", "action": "started specification review", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-09-04T07:39:13Z", "agent": "implementation:reviewer:r1", "action": "inspected specification source wrapper and contract tests", "artefacts": ["SPEC.md", "todo.py", "todo", "test_todo.py"]}
+{"ts": "2026-09-04T07:39:28Z", "agent": "implementation:reviewer:r1", "action": "reproduced invalid Unicode id failure and audited input validation", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:39:38Z", "agent": "implementation:reviewer:r1", "action": "completed review; one spec input-validation defect found", "artefacts": ["todo.py", "SPEC.md"]}
+{"ts": "2026-09-04T07:39:59Z", "agent": "controller", "action": "review_ingested", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:40:38Z", "agent": "implementation:fixer-implementer-r1:r1", "action": "started scoped validation fix", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:40:53Z", "agent": "implementation:fixer-implementer-r1:r1", "action": "wrote ASCII ID validation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:41:05Z", "agent": "implementation:fixer-implementer-r1:r1", "action": "verified test suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:41:05Z", "agent": "implementation:fixer-implementer-r1:r1", "action": "returning completed fix", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:41:25Z", "agent": "controller", "action": "fixer_ingested", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:42:11Z", "agent": "implementation:reviewer:r2", "action": "started read-only review", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-09-04T07:43:02Z", "agent": "implementation:reviewer:r2", "action": "inspected specification implementation and tests", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-09-04T07:43:24Z", "agent": "implementation:reviewer:r2", "action": "retested Unicode and next-id collision cases", "artefacts": ["todo.py", "todo", "SPEC.md"]}
+{"ts": "2026-09-04T07:43:24Z", "agent": "implementation:reviewer:r2", "action": "completed test-backed spec audit", "artefacts": ["test_todo.py", "todo.py", "todo", "SPEC.md"]}
+{"ts": "2026-09-04T07:43:56Z", "agent": "controller", "action": "review_ingested", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:44:43Z", "agent": "implementation:fixer-implementer-r2:r1", "action": "start scoped validation fix", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-09-04T07:45:10Z", "agent": "implementation:fixer-implementer-r2:r1", "action": "verify reproduced next_id collision", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:45:26Z", "agent": "implementation:fixer-implementer-r2:r1", "action": "wrote next_id collision validation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:45:41Z", "agent": "implementation:fixer-implementer-r2:r1", "action": "verify collision rejection and nonmutation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T07:45:50Z", "agent": "implementation:fixer-implementer-r2:r1", "action": "verify specified pytest suite", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T07:45:59Z", "agent": "implementation:fixer-implementer-r2:r1", "action": "return scoped fix and verification evidence", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-09-04T07:46:32Z", "agent": "controller", "action": "phase_verification", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-09-04T07:47:24Z", "agent": "controller", "action": "pre_sweep_validated", "artefacts": [".work-team/todo-cli-20260904/proposed-result.json"]}
+{"ts": "2026-09-04T07:48:11Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_start", "artefacts": [".work-team/todo-cli-20260904/completion-sweep.json"]}
+{"ts": "2026-09-04T07:48:20Z", "agent": "_completion:sweep:r1", "action": "account_requirements", "artefacts": [".work-team/todo-cli-20260904/plan.json", ".work-team/todo-cli-20260904/proposed-result.json"]}
+{"ts": "2026-09-04T07:48:30Z", "agent": "_completion:sweep:r1", "action": "inspect_audit_trail", "artefacts": [".work-team/todo-cli-20260904/workflow-log.jsonl", "workflow-log.jsonl"]}
+{"ts": "2026-09-04T07:48:53Z", "agent": "_completion:sweep:r1", "action": "reconcile_worker_and_verification_evidence", "artefacts": [".work-team/todo-cli-20260904/proposed-result.json", ".work-team/todo-cli-20260904/workflow-log.jsonl", "workflow-log.jsonl"]}
+{"ts": "2026-09-04T07:48:53Z", "agent": "_completion:sweep:r1", "action": "completion_sweep_return", "artefacts": [".work-team/todo-cli-20260904/completion-sweep.json"]}
+{"ts": "2026-09-04T07:51:40Z", "agent": "controller", "action": "report_written", "artefacts": [".work-team/todo-cli-20260904/report.md"]}

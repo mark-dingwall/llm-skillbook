@@ -1,0 +1,31 @@
+{"ts": "2026-09-04T08:10:24Z", "agent": "controller", "action": "frame_and_plan", "artefacts": [".work-team/2026-09-04-todo-cli/plan.json"]}
+{"ts": "2026-09-04T08:10:43Z", "agent": "spec:spec-writer:r1", "action": "start", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:11:16Z", "agent": "spec:spec-writer:r1", "action": "wrote SPEC.md", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:11:21Z", "agent": "spec:spec-writer:r1", "action": "verify test -s SPEC.md exit 0", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:11:21Z", "agent": "spec:spec-writer:r1", "action": "return", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:11:37Z", "agent": "controller", "action": "dispatch tests phase", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:11:53Z", "agent": "tests:test-writer:r1", "action": "start", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:12:24Z", "agent": "tests:test-writer:r1", "action": "write", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:12:28Z", "agent": "tests:test-writer:r1", "action": "verify", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:12:31Z", "agent": "tests:test-writer:r1", "action": "return", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:12:52Z", "agent": "controller", "action": "dispatch impl phase", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:13:06Z", "agent": "impl:implementer:r1", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:13:17Z", "agent": "impl:implementer:r1", "action": "wrote file", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:13:21Z", "agent": "impl:implementer:r1", "action": "verify run: 20 passed", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:13:22Z", "agent": "impl:implementer:r1", "action": "return", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:13:50Z", "agent": "controller", "action": "invalid_return retry impl:implementer:r1 (prose-wrapped JSON)", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:14:06Z", "agent": "impl:implementer:r2", "action": "start", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:14:19Z", "agent": "impl:implementer:r2", "action": "verify: reviewed existing todo.py against SPEC.md, no edits needed", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:14:23Z", "agent": "impl:implementer:r2", "action": "done: 20 passed", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:14:38Z", "agent": "controller", "action": "dispatch impl review loop round1", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:15:08Z", "agent": "impl:reviewer:r1", "action": "start review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:16:29Z", "agent": "impl:reviewer:r1", "action": "finished review: pass, no spec violations found", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:16:58Z", "agent": "controller", "action": "invalid_return retry impl:reviewer:r1 (prose-wrapped JSON)", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:17:22Z", "agent": "impl:reviewer:r1v2", "action": "start review", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:18:00Z", "agent": "impl:reviewer:r1v2", "action": "read spec", "artefacts": ["SPEC.md"]}
+{"ts": "2026-09-04T08:18:00Z", "agent": "impl:reviewer:r1v2", "action": "read tests", "artefacts": ["test_todo.py"]}
+{"ts": "2026-09-04T08:18:00Z", "agent": "impl:reviewer:r1v2", "action": "read implementation", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:18:03Z", "agent": "impl:reviewer:r1v2", "action": "finished review, returning verdict", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:19:23Z", "agent": "controller", "action": "review round1 verdict=pass 2 adjacent findings (1 important,1 minor); no scope:spec findings so no fixer dispatched; outcome computed=partial due to unresolved important adjacent finding", "artefacts": ["todo.py"]}
+{"ts": "2026-09-04T08:19:47Z", "agent": "controller", "action": "wrote and validated result.json outcome=partial", "artefacts": [".work-team/2026-09-04-todo-cli/result.json"]}
+{"ts": "2026-09-04T08:20:17Z", "agent": "controller", "action": "wrote report.md; run complete (outcome=partial)", "artefacts": [".work-team/2026-09-04-todo-cli/report.md"]}

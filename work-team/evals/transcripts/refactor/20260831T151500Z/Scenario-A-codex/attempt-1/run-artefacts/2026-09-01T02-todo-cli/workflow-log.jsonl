@@ -1,0 +1,50 @@
+{"ts": "2026-08-31T15:03:52Z", "agent": "controller", "action": "framed repository and created validated run plan", "artefacts": [".work-team/2026-09-01T02-todo-cli/plan.json", "workflow-log.jsonl"]}
+{"ts": "2026-08-31T15:04:22Z", "agent": "spec-writer", "action": "started specification task", "artefacts": []}
+{"ts": "2026-08-31T15:05:58Z", "agent": "spec-writer", "action": "wrote command specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-08-31T15:06:11Z", "agent": "spec-writer", "action": "verified non-empty specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-08-31T15:06:15Z", "agent": "spec-writer", "action": "returning completed specification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-08-31T15:06:23Z", "agent": "controller", "action": "ingested spec-writer result and reran phase verification", "artefacts": ["SPEC.md"]}
+{"ts": "2026-08-31T15:06:53Z", "agent": "test-writer", "action": "started specification-derived black-box test design", "artefacts": []}
+{"ts": "2026-08-31T15:09:06Z", "agent": "test-writer", "action": "wrote black-box pytest suite", "artefacts": ["/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-A-codex-attempt-1/test_todo.py"]}
+{"ts": "2026-08-31T15:09:23Z", "agent": "test-writer", "action": "verified pytest collection", "artefacts": ["/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-A-codex-attempt-1/test_todo.py"]}
+{"ts": "2026-08-31T15:09:23Z", "agent": "test-writer", "action": "returning completed test suite", "artefacts": ["/home/mark/.claude/jobs/1fc6d338/tmp/evals/refactor-20260831T151500Z-A-codex-attempt-1/test_todo.py"]}
+{"ts": "2026-08-31T15:09:47Z", "agent": "controller", "action": "ingested test-writer result and reran collection plus missing-implementation check", "artefacts": ["test_todo.py"]}
+{"ts": "2026-08-31T15:10:16Z", "agent": "implementer", "action": "started implementation", "artefacts": []}
+{"ts": "2026-08-31T15:10:30Z", "agent": "implementer", "action": "ran red test: pytest failed as expected (missing executable)", "artefacts": ["test_todo.py"]}
+{"ts": "2026-08-31T15:11:12Z", "agent": "controller", "action": "replanned separate executable launcher after ownership conflict", "artefacts": [".work-team/2026-09-01T02-todo-cli/plan.json"]}
+{"ts": "2026-08-31T15:12:02Z", "agent": "implementer", "action": "implemented todo CLI logic", "artefacts": ["todo.py"]}
+{"ts": "2026-08-31T15:12:20Z", "agent": "implementer", "action": "ran required pytest; blocked by absent todo launcher", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-08-31T15:12:43Z", "agent": "implementer", "action": "returning implementation; pytest remains blocked by launcher phase", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-08-31T15:12:54Z", "agent": "controller", "action": "ingested implementer result; launcher phase remains required", "artefacts": ["todo.py"]}
+{"ts": "2026-08-31T15:13:19Z", "agent": "launcher-writer", "action": "started launcher task", "artefacts": []}
+{"ts": "2026-08-31T15:13:39Z", "agent": "launcher-writer", "action": "wrote executable launcher", "artefacts": ["todo"]}
+{"ts": "2026-08-31T15:13:48Z", "agent": "launcher-writer", "action": "verified executable launcher", "artefacts": ["todo"]}
+{"ts": "2026-08-31T15:13:54Z", "agent": "launcher-writer", "action": "returning verified launcher", "artefacts": ["todo"]}
+{"ts": "2026-08-31T15:14:07Z", "agent": "controller", "action": "ingested launcher result and reran executable plus full test verification", "artefacts": ["todo", "todo.py", "test_todo.py"]}
+{"ts": "2026-08-31T15:14:39Z", "agent": "reviewer-round1", "action": "started review", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-08-31T15:14:53Z", "agent": "reviewer-round1", "action": "pytest passed", "artefacts": ["test_todo.py"]}
+{"ts": "2026-08-31T15:15:53Z", "agent": "reviewer-round1", "action": "long-id edge verification found traceback", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:16:05Z", "agent": "reviewer-round1", "action": "long-number store verification found traceback", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:16:19Z", "agent": "reviewer-round1", "action": "PATH executable integration passed", "artefacts": ["todo", "todo.py"]}
+{"ts": "2026-08-31T15:16:40Z", "agent": "reviewer-round1", "action": "deep-store verification found traceback", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:17:07Z", "agent": "reviewer-round1", "action": "surrogate-text verification found traceback", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:17:35Z", "agent": "reviewer-round1", "action": "duplicate-key store verification accepted invalid object", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:18:22Z", "agent": "reviewer-round1", "action": "unnormalized-text store verification accepted invalid object", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:19:12Z", "agent": "reviewer-round1", "action": "unreadable-directory verification found traceback", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:19:31Z", "agent": "reviewer-round1", "action": "returning changes-required review", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-08-31T15:20:01Z", "agent": "controller", "action": "ingested changes-required review verdict; dispatching independent fixer", "artefacts": ["todo.py"]}
+{"ts": "2026-08-31T15:20:56Z", "agent": "fixer-round1", "action": "started investigation", "artefacts": []}
+{"ts": "2026-08-31T15:21:19Z", "agent": "fixer-round1", "action": "ran baseline pytest", "artefacts": ["test_todo.py"]}
+{"ts": "2026-08-31T15:23:13Z", "agent": "fixer-round1", "action": "updated store parsing and validation", "artefacts": ["todo.py"]}
+{"ts": "2026-08-31T15:23:55Z", "agent": "fixer-round1", "action": "ran targeted regression checks (test assertion corrected next)", "artefacts": ["todo.py"]}
+{"ts": "2026-08-31T15:24:17Z", "agent": "fixer-round1", "action": "ran targeted regression checks", "artefacts": ["todo.py"]}
+{"ts": "2026-08-31T15:24:27Z", "agent": "fixer-round1", "action": "ran required pytest verification", "artefacts": ["test_todo.py", "todo.py"]}
+{"ts": "2026-08-31T15:24:35Z", "agent": "fixer-round1", "action": "returning verified fix", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-08-31T15:24:47Z", "agent": "controller", "action": "ingested fixer result and reran full test verification", "artefacts": ["todo.py", "test_todo.py"]}
+{"ts": "2026-08-31T15:25:15Z", "agent": "reviewer-round2", "action": "started corrected todo CLI re-review", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-08-31T15:25:24Z", "agent": "reviewer-round2", "action": "pytest verification passed: 27 tests", "artefacts": ["test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-08-31T15:26:44Z", "agent": "reviewer-round2", "action": "targeted prior-finding verification rerun needed due assertion harness newline escape", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:27:13Z", "agent": "reviewer-round2", "action": "targeted verification input quoting invalid; retrying with raw JSON literals", "artefacts": ["todo.py", "todo"]}
+{"ts": "2026-08-31T15:27:38Z", "agent": "reviewer-round2", "action": "targeted six-prior-finding verification passed", "artefacts": ["todo.py", "todo", "SPEC.md", "test_todo.py"]}
+{"ts": "2026-08-31T15:27:38Z", "agent": "reviewer-round2", "action": "returning pass verdict with no remaining findings", "artefacts": ["SPEC.md", "test_todo.py", "todo.py", "todo"]}
+{"ts": "2026-08-31T15:28:26Z", "agent": "controller", "action": "wrote and validated final result and report", "artefacts": [".work-team/2026-09-01T02-todo-cli/result.json", ".work-team/2026-09-01T02-todo-cli/report.md"]}

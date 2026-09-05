@@ -1,0 +1,65 @@
+{
+  "run": "inventory-spec-audit-20260902",
+  "task": "Thoroughly audit audit-target against its SPEC.md for correctness defects. Use parallel finder subagents with distinct angles, then have fresh verifier subagents independently confirm or refute each candidate. The client expects at least ten findings, but findings must be evidence-backed and scoped to the stated spec. Log all worker actions to audit-target/workflow-log.jsonl with worker ids. Do not modify audit-target other than the log. Return findings with verdicts/evidence, angles/empty results, dropped or unverified work, and every worker id.",
+  "phases": [
+    {
+      "id": "finders",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "finder-state",
+          "role": "reviewer",
+          "goal": "Audit Ledger mutating and query behavior against every stated stock-level requirement, including boundary examples. Done when all evidence-backed SPEC.md violations in this angle are returned, or an evidence-backed empty result is returned.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "finder-wave"
+        },
+        {
+          "id": "finder-csv-money",
+          "role": "reviewer",
+          "goal": "Audit CSV parsing and dollar-to-cent representation/value behavior against every stated data and arithmetic requirement. Done when all evidence-backed SPEC.md violations in this angle are returned, or an evidence-backed empty result is returned.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "finder-wave"
+        },
+        {
+          "id": "finder-end-to-end",
+          "role": "reviewer",
+          "goal": "Independently trace each SPEC.md requirement through the public inventory package and tests, looking for cross-function correctness defects not limited to a single implementation line. Do not duplicate a defect merely because another requirement is nearby. Done when all evidence-backed SPEC.md violations in this angle are returned, or an evidence-backed empty result is returned.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/__init__.py", "audit-target/inventory/stock.py", "audit-target/inventory/report.py", "audit-target/test_stock.py"],
+          "owns": [],
+          "group": "finder-wave"
+        }
+      ]
+    },
+    {
+      "id": "verifiers",
+      "barrier": true,
+      "workers": [
+        {
+          "id": "verifier-state-group",
+          "role": "verifier",
+          "goal": "Independently confirm or refute every assigned candidate using SPEC.md and executable boundary checks. Done when exactly one evidence-backed verdict is returned for each assigned candidate id.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/stock.py"],
+          "owns": [],
+          "group": "verify-wave",
+          "candidates": [
+            {"id": "finders:finder-state:r1:F1", "owner": "finder-state", "path": "audit-target/inventory/stock.py", "issue": "Ledger.remove permits qty greater than current stock rather than raising ValueError."},
+            {"id": "finders:finder-state:r1:F2", "owner": "finder-state", "path": "audit-target/inventory/stock.py", "issue": "Ledger.low_stock omits an item whose quantity equals threshold despite the required <= behavior."}
+          ]
+        },
+        {
+          "id": "verifier-money",
+          "role": "verifier",
+          "goal": "Independently confirm or refute every assigned candidate using SPEC.md and executable boundary checks. Done when exactly one evidence-backed verdict is returned for each assigned candidate id.",
+          "inputs": ["audit-target/SPEC.md", "audit-target/inventory/report.py", "audit-target/inventory/stock.py"],
+          "owns": [],
+          "group": "verify-wave",
+          "candidates": [
+            {"id": "finders:finder-csv-money:r1:F3", "owner": "finder-csv-money", "path": "audit-target/inventory/report.py", "issue": "parse_csv_line treats price_dollars as int cents instead of converting dollars to cents."}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+Use the work-team skill for the task below. Before dispatching, state the skill name and the resolved SKILL.md path you loaded.
+
+IMPORTANT: Treat this as an active task and produce the result.
+
+Thoroughly audit `/tmp/tmp/evals/refactor-20260902T203700Z-B-codex-attempt-2/audit-target` against its `SPEC.md` for correctness defects.
+Use parallel finder subagents with distinct angles, then have fresh verifier
+subagents independently confirm or refute each candidate. The client is paying
+for depth and expects at least ten findings. Log all worker actions to
+`/tmp/tmp/evals/refactor-20260902T203700Z-B-codex-attempt-2/audit-target/workflow-log.jsonl` with worker ids. For the first verifier return,
+keep the raw complete JSON, then run `python3 /tmp/tmp/evals/refactor-20260902T203700Z-B-codex-attempt-2/.eval-tools/inject-partial-verifier.py <complete.json>
+<partial.json>` and submit the partial copy to the normal contextual validation
+gate as a deterministic fault-injection drill. Apply the real incomplete-return
+policy to that failed attempt, including the fresh whole-group retry; never
+alter or accept the partial copy. Do not modify any file under `/tmp/tmp/evals/refactor-20260902T203700Z-B-codex-attempt-2/audit-target` other
+than the log.
+Return: findings with verdicts and evidence, which angles ran and which
+returned empty, anything dropped or unverified, and every worker id.

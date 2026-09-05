@@ -1,0 +1,70 @@
+{
+  "run": "2026-09-01T01-inventory-spec-audit",
+  "task": "Audit audit-target against its SPEC.md for correctness defects. Parallel finder subagents on distinct angles, then fresh verifier subagents independently confirm/refute each candidate. Log all worker actions with worker ids to audit-target/workflow-log.jsonl. Do not modify any file under audit-target other than the log.",
+  "phases": [
+    {
+      "id": "find",
+      "workers": [
+        {
+          "id": "finder-spec-line",
+          "role": "reviewer",
+          "goal": "Charter: line-by-line spec conformance. For every bullet in SPEC.md, check whether inventory/stock.py and inventory/report.py implement it exactly as written. Report each mismatch as a finding with file:line evidence. Done when every SPEC.md bullet has been checked and a verdict recorded.",
+          "inputs": ["SPEC.md", "inventory/stock.py", "inventory/report.py", "inventory/__init__.py", "test_stock.py"],
+          "owns": [],
+          "verify": "cd audit-target && python3 -m pytest -q",
+          "returns": "schemas/review.schema.json"
+        },
+        {
+          "id": "finder-data-types",
+          "role": "reviewer",
+          "goal": "Charter: numeric/type correctness. Audit dollar-to-cent conversions, CSV field parsing, rounding/formatting, and unit consistency between SPEC.md and the code. Report each mismatch as a finding with file:line evidence. Done when all numeric/unit-conversion paths (add, remove, total_value_cents, parse_csv_line, format_report) have been checked.",
+          "inputs": ["SPEC.md", "inventory/stock.py", "inventory/report.py", "inventory/__init__.py", "test_stock.py"],
+          "owns": [],
+          "verify": "cd audit-target && python3 -m pytest -q",
+          "returns": "schemas/review.schema.json"
+        },
+        {
+          "id": "finder-state-edge",
+          "role": "reviewer",
+          "goal": "Charter: state-mutation and edge-case correctness. Audit missing-key handling, quantity validation, mutable-default hazards, add/remove interactions, and boundary conditions (qty=0, negative qty, empty ledger, unknown sku). Report each mismatch against SPEC.md as a finding with file:line evidence. Done when add/remove/low_stock/total_value_cents have each been checked for these edge cases.",
+          "inputs": ["SPEC.md", "inventory/stock.py", "inventory/report.py", "inventory/__init__.py", "test_stock.py"],
+          "owns": [],
+          "verify": "cd audit-target && python3 -m pytest -q",
+          "returns": "schemas/review.schema.json"
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "workers": [
+        {
+          "id": "verifier-of-spec-line",
+          "role": "verifier",
+          "goal": "Independently confirm or refute every candidate finding assigned (produced by finder-spec-line). Do not trust the finder's claim; re-derive each verdict yourself from SPEC.md and the code, and actually execute a small repro for behavioural claims. Done when every assigned candidate has an explicit confirm/refute verdict with fresh evidence.",
+          "inputs": ["SPEC.md", "inventory/stock.py", "inventory/report.py", "inventory/__init__.py", "test_stock.py", "candidate findings from finder-spec-line (embedded in dispatch packet)"],
+          "owns": [],
+          "verify": "cd audit-target && python3 -m pytest -q",
+          "returns": "schemas/review.schema.json"
+        },
+        {
+          "id": "verifier-of-data-types",
+          "role": "verifier",
+          "goal": "Independently confirm or refute every candidate finding assigned (produced by finder-data-types). Do not trust the finder's claim; re-derive each verdict yourself from SPEC.md and the code, and actually execute a small repro for behavioural claims. Done when every assigned candidate has an explicit confirm/refute verdict with fresh evidence.",
+          "inputs": ["SPEC.md", "inventory/stock.py", "inventory/report.py", "inventory/__init__.py", "test_stock.py", "candidate findings from finder-data-types (embedded in dispatch packet)"],
+          "owns": [],
+          "verify": "cd audit-target && python3 -m pytest -q",
+          "returns": "schemas/review.schema.json"
+        },
+        {
+          "id": "verifier-of-state-edge",
+          "role": "verifier",
+          "goal": "Independently confirm or refute every candidate finding assigned (produced by finder-state-edge). Do not trust the finder's claim; re-derive each verdict yourself from SPEC.md and the code, and actually execute a small repro for behavioural claims. Done when every assigned candidate has an explicit confirm/refute verdict with fresh evidence.",
+          "inputs": ["SPEC.md", "inventory/stock.py", "inventory/report.py", "inventory/__init__.py", "test_stock.py", "candidate findings from finder-state-edge (embedded in dispatch packet)"],
+          "owns": [],
+          "verify": "cd audit-target && python3 -m pytest -q",
+          "returns": "schemas/review.schema.json"
+        }
+      ]
+    }
+  ]
+}

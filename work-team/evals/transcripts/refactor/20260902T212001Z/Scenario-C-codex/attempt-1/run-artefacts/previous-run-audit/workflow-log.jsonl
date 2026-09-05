@@ -1,0 +1,2 @@
+{"ts": "2026-09-02T21:22:13Z", "agent": "controller", "action": "frame", "artefacts": ["run-dir"]}
+{"ts": "2026-09-02T21:22:36Z", "agent": "controller", "action": "plan_validated", "artefacts": [".work-team/previous-run-audit/plan.json"]}

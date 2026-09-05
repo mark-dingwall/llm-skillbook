@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Capture the exact final message from a work-team Claude subagent."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+
+WORKER_TYPE = "llm-skillbook-work-team-worker"
+SAFE_AGENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+ENABLE_ENV = "LLM_SKILLBOOK_WORK_TEAM_CAPTURE"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--require-env", action="store_true")
+    try:
+        args = parser.parse_args()
+        event = json.load(sys.stdin)
+    except (SystemExit, json.JSONDecodeError, UnicodeDecodeError):
+        return 0
+
+    if args.require_env and os.environ.get(ENABLE_ENV) != "1":
+        return 0
+    if not isinstance(event, dict):
+        return 0
+    agent_id = event.get("agent_id")
+    message = event.get("last_assistant_message")
+    if (
+        event.get("hook_event_name") != "SubagentStop"
+        or event.get("agent_type") != WORKER_TYPE
+        or not isinstance(agent_id, str)
+        or SAFE_AGENT_ID.fullmatch(agent_id) is None
+        or not isinstance(message, str)
+    ):
+        return 0
+
+    root = Path.cwd() / ".work-team"
+    if root.is_symlink() or not root.is_dir():
+        return 0
+    returns = root / "returns"
+    try:
+        returns.mkdir(mode=0o700, exist_ok=True)
+        if returns.is_symlink() or not returns.is_dir():
+            return 0
+        target = returns / f"{agent_id}.txt"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(target, flags, 0o600)
+        with os.fdopen(
+            descriptor, "w", encoding="utf-8", newline=""
+        ) as capture:
+            capture.write(message)
+    except OSError:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
