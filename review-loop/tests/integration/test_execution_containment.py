@@ -13,7 +13,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +28,7 @@ from review_loop.execution import (
 from review_loop.seals import GitPolicy, SealEntry, seal_target
 
 FAKE_REVIEWER = Path(__file__).resolve().parent / "fixtures" / "fake_reviewer.py"
+BWRAP_VISIBLE_PYTHON = Path("/usr/bin/python3")
 
 BWRAP = shutil.which("bwrap")
 
@@ -64,7 +64,9 @@ class ContainmentTests(unittest.TestCase):
 
         self.host = CodexHostPaths(
             bwrap=Path(BWRAP),
-            node=Path(sys.executable),  # stand-in "runtime" -- the system Python
+            # The real mapping binds only /usr, so the fixture runtime must
+            # be a system interpreter visible inside that unchanged mapping.
+            node=BWRAP_VISIBLE_PYTHON,
             codex_package_root=FAKE_REVIEWER.parent,
             codex_entry=FAKE_REVIEWER,
             auth_file=self.auth_file,
@@ -283,7 +285,7 @@ class CodexRealBinaryPreflightTests(unittest.TestCase):
         host = resolve_codex_host_paths()
         broken = CodexHostPaths(
             bwrap=host.bwrap,
-            node=Path(sys.executable),
+            node=BWRAP_VISIBLE_PYTHON,
             codex_package_root=FAKE_REVIEWER.parent,
             codex_entry=FAKE_REVIEWER.parent / "incomplete_help_reviewer.py",
             auth_file=host.auth_file,
