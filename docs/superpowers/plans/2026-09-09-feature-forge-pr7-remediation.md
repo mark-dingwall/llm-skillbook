@@ -55,12 +55,50 @@
 | Producer | Consumer | Contract handed forward | Shared surface/ruling |
 | --- | --- | --- | --- |
 | Task 1 | Tasks 2–7 | Tested merge commit containing current PR #8 and PR #9 state | Later tasks never reopen Review Loop conflict resolutions except to fix a demonstrated integration defect |
-| Task 2 | Task 6 | Immutable scenario files, scorer interface, installed-payload digest, and baseline observations | Task 6 reruns exact inputs; it does not rewrite the baseline or scorer to improve GREEN results |
+| Task 2 | Tasks 5–6 | Immutable scenario files (including delegated and inline drift variants), scorer interface, installed-payload digest, and baseline observations | Task 5 changes the live Stage 9 contract while consuming the frozen tests; Task 6 reruns exact inputs and never rewrites the baseline or scorer |
 | Task 3 | Task 4 | Unchanged public checker CLI/result contract plus `repository()`, `linked_worktree()`, `worktrees()`, and `audit_current_head()` signatures | Task 4 adds the shared path-error boundary and may harden internals but may not change these signatures or lifecycle semantics |
 | Task 3 | Task 5 | `REVIEW_STAGE_RULES`, `required_frozen_authorities()`, checked `mode`, and exact head compatibility rules | Task 5 adds receipt semantics without reopening status/stage/next-action decisions |
 | Task 4 | Task 5 | Final safe path observation and repository-scoped inventory helpers | Task 5 uses the helpers for receipt paths and never adds a second path-validation stack |
 | Task 5 | Task 6 | Exact receipt fields, stable-ID formula, all-findings return rule, and pre/post-task identities contract | Task 6 may shorten wording but may not alter these semantics |
 | Task 6 | Task 7 | Final installed payload, GREEN evidence, seven-shape rubric table, and any explicitly unresolved qualification item | Task 7 verifies; it adds no production behavior |
+
+## Controller-Owned Post-Task Gate
+
+This section is not an implementation task and is deliberately placed before
+the numbered task headings so `task-brief` cannot include it in any worker
+brief. The SDD controller performs it only after Task 7's implementer has
+reported, Task 7's task review is approved, and all seven task completion lines
+are in the SDD ledger.
+
+- [ ] **Controller Step 1: Run the mandatory SDD whole-branch review**
+
+Use `superpowers:requesting-code-review` on the most capable available model with a review package covering `origin/main...HEAD`. Point the reviewer to the approved specification, this plan, the SDD ledger's deferred/parked findings, and the qualification record. Fix any Critical/Important issue through the SDD final one-wave fix/re-review procedure; do not let the controller edit fixes directly.
+
+- [ ] **Controller Step 2: Refresh evidence after any final-review fix**
+
+If the final review produces a fix commit, the single final-fix implementer
+runs every focused test covering the fix plus the complete Feature Forge,
+Review Loop, documentation, installer, plugin-agent, and root gates from Task
+7. It updates the qualification record in that same fix commit with the exact
+commands/results and fixed production `HEAD`. The scoped re-review then judges
+that one fix range. After the fix commit, the controller reruns the exact
+documentation gate, `git diff --check origin/main...HEAD`, and status.
+
+If there is no fix, the Task 7 evidence remains current for production files;
+the controller still checks the evidence-only commit with the documentation,
+diff, and status gates before proceeding.
+
+- [ ] **Controller Step 3: Verify once more, then push without merging**
+
+After `superpowers:verification-before-completion` confirms the post-review `HEAD` and clean worktree, run:
+
+```bash
+git push origin HEAD:feature-forge-mvp
+```
+
+Then verify PR #7 points at the pushed head and report its checks. The user has
+explicitly authorized the commit and push operations required by this plan.
+Do not merge PR #7.
 
 ---
 
@@ -104,10 +142,11 @@ Expected: the only textual conflicts are the four Review Loop paths listed in th
 Run:
 
 ```bash
-git merge --no-ff origin/main
+git merge --no-ff --no-commit origin/main
 ```
 
-Expected: Git pauses on the predicted conflicts or creates a merge commit if upstream has already resolved them. Do not use `git rebase`, `git reset`, or a force option.
+Expected: Git pauses on the predicted conflicts or stages a conflict-free merge
+without committing it. Do not use `git rebase`, `git reset`, or a force option.
 
 - [ ] **Step 4: Resolve each conflict against the live PR #8 contract**
 
@@ -162,8 +201,8 @@ Expected: exactly two parent IDs and a merge subject naming `origin/main`.
 
 **Interfaces:**
 - Consumes: Task 1's merge commit and exact installed Feature Forge payload; no remediation instruction or checker edit.
-- Produces: immutable scenario bytes plus `prepare`/`score` commands, one payload digest, six fresh baseline observations (one Codex and one Claude run per scenario), manual rubric judgments, and no behavior guidance.
-- `python3 feature-forge/tests/behavior/remediation_pressure.py prepare --scenario NAME --root DIR --host HOST` accepts `NAME` in `worker-packet | residual-minor | post-task-plan-drift` and `HOST` in `codex | claude`, creates one disposable fixture, and prints a JSON object with `repo`, `prompt`, `response`, `baseline_head`, `payload_digest`, and `scenario`.
+- Produces: immutable scenario bytes plus `prepare`/`score`/`campaign` commands, one payload digest, eight fresh baseline observations (one required Codex and one corroborating Claude run for worker packet, residual Minor, delegated drift, and inline drift), manual rubric judgments, and no behavior guidance.
+- `python3 feature-forge/tests/behavior/remediation_pressure.py prepare --scenario NAME --root DIR --host HOST [--execution-mode MODE]` accepts `NAME` in `worker-packet | residual-minor | post-task-plan-drift`, `HOST` in `codex | claude`, and requires `MODE` in `delegated | inline` only for plan drift. It creates one disposable fixture and prints a JSON object with `repo`, `prompt`, `response`, `baseline_head`, `payload_digest`, `scenario`, and nullable `execution_mode`.
 - `python3 feature-forge/tests/behavior/remediation_pressure.py score --root DIR` prints one JSON verdict with `scenario`, `passed`, `failures`, `head_preserved`, and `protected_paths_preserved`; only deterministic predicates contribute to `passed`.
 - `python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase PHASE --host HOST` accepts `PHASE` in `baseline | green`, creates one fresh temporary fixture per scenario, invokes the pinned host, scores each result, and prints a JSON array containing all paths and verdicts. It never deletes the fixtures.
 
@@ -197,17 +236,18 @@ Store exact fixture facts in `cases.json`; do not generate requirements with an 
   "post-task-plan-drift": {
     "stage": 9,
     "task_id": "W-2",
+    "execution_modes": ["delegated", "inline"],
     "frozen_plan": "docs/superpowers/plans/2026-09-09-alpha.md",
     "expected_next_action": "reconcile or correct docs/superpowers/plans/2026-09-09-alpha.md"
   }
 }
 ```
 
-The worker prompt asks for only the dispatch packet. The residual-Minor prompt asks for only the proposed strict receipt plus resulting head after the supplied public TRIAGE return. The drift prompt asks the controller to process a completed task return after the fixture modifies the frozen plan bytes and before that return is recorded complete. Each prompt requires use of the installed Feature Forge skill and forbids editing the fixture inputs.
+The worker prompt asks for only the dispatch packet. The residual-Minor prompt asks for only the proposed strict receipt plus resulting head after the supplied public TRIAGE return. Each drift fixture selects exactly one execution mode and asks the controller to process a completed task return after the fixture modifies the frozen plan bytes and before that return is recorded complete. Each prompt requires use of the installed Feature Forge skill and forbids editing the fixture inputs.
 
 - [ ] **Step 2: Write failing scorer tests before the harness**
 
-Add tests that name the production behavior which will make each fail:
+Begin with black-box subprocess tests against the not-yet-created script so pytest reaches an assertion and reports the missing successful command as a failure rather than failing collection. Add tests that name the production behavior which will make each fail:
 
 ```python
 def test_worker_packet_score_requires_every_interface_and_boundary(tmp_path: Path) -> None:
@@ -224,12 +264,12 @@ def test_residual_minor_score_rejects_pass_and_missing_inventory(tmp_path: Path)
     assert score(root)["failures"] == ["all-findings-actionable", "raw-report-inventory"]
 
 def test_post_task_drift_score_rejects_completion_or_forward_mutation(tmp_path: Path) -> None:
-    root = prepared_fixture(tmp_path, "post-task-plan-drift")
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode="delegated")
     mark_task_complete_and_commit(root)
     assert score(root)["failures"] == ["head-advanced", "task-return-recorded"]
 ```
 
-Test helpers may build deliberately invalid subject outputs, but the scorer must inspect real files, exact JSON fields, Git `HEAD`, protected byte digests, and required string anchors. It must not assign a semantic rubric verdict.
+Mirror the drift rejection for `execution_mode="inline"`. For every scenario add one complete conforming output that scores pass and one no-op or partial output that scores fail for the expected reason. The scorer must recompute the installed-payload digest, require exact scenario-specific Git-status allowlists, reject any unexpected repository mutation, and verify protected bytes and `HEAD`; response-only cases require a clean repository. Test helpers may build deliberately invalid subject outputs, but the scorer must inspect real files, exact JSON fields, Git state, and required string anchors. It must not assign a semantic rubric verdict.
 
 - [ ] **Step 3: Run RED, implement the compact test-only harness, and run GREEN**
 
@@ -239,7 +279,7 @@ Run before creating `remediation_pressure.py`:
 python3 -m pytest feature-forge/tests/test_remediation_pressure.py -q
 ```
 
-Expected RED: collection/import fails because the harness is absent. Implement only the two commands and fixture/scoring helpers with Python standard library and the repository installer. Then rerun the same command; expected GREEN: PASS with pristine output.
+Expected RED: pytest runs and fails an assertion because invoking the absent harness does not return success. Implement only the three commands and fixture/scoring helpers with Python standard library and the repository installer. Then rerun the same command; expected GREEN: PASS with pristine output.
 
 - [ ] **Step 4: Prove preparation pins inputs and does not expose the oracle**
 
@@ -253,6 +293,8 @@ assert set(metadata["protected_paths"]) == {
     "docs/superpowers/specs/2026-09-09-alpha-design.md",
     "docs/superpowers/plans/2026-09-09-alpha.md",
 }
+assert score(root)["payload_digest_preserved"] is True
+assert score(root)["unexpected_status_paths"] == []
 ```
 
 For the drift case, the clean seed must pass current `ff-check audit`; preparation then changes only the frozen plan bytes. For the response-only cases, redirect host output to the response path outside the disposable repository.
@@ -274,14 +316,16 @@ CLAUDE_ARGV = [
 ]
 ```
 
-Pass the committed prompt bytes on stdin, capture stdout at the metadata response path and stderr beside it, and set a 600-second subprocess timeout. Do not set process `HOME`, `CODEX_HOME`, or a fallback model. Run the two complete baseline campaigns:
+Pass the committed prompt bytes on stdin, capture stdout at the metadata response path and stderr beside it, set `cwd=str(metadata["repo"])` for both hosts, and set a 600-second subprocess timeout. Add a harness test proving each host subprocess observes the fixture repository and discovers the copied skill beneath that fixture, never the remediation worktree. Do not set process `HOME`, `CODEX_HOME`, or a fallback model.
+
+Declare Codex `gpt-5.6-terra` at medium effort the required capable qualification host before observing any result. Claude `sonnet` at medium effort is corroborating: unavailability does not block, but an executed deterministic or rubric failure remains a real gap and cannot be erased by the Codex result. Record the requested alias and any concrete resolved model ID the CLI exposes; never claim the floating alias itself is an exact model ID. Run the two complete baseline campaigns:
 
 ```bash
 python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase baseline --host codex
 python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase baseline --host claude
 ```
 
-Score each fixture after the host exits. An unavailable host/model is recorded as unavailable, never passed.
+Score each fixture after the host exits. Required-host failure or unavailability blocks qualification. Corroborating-host unavailability is recorded; a corroborating-host failure is classified and remediated like any other observed gap.
 
 - [ ] **Step 6: Record the baseline without prescribing fixes**
 
@@ -316,14 +360,15 @@ git commit -m "test: record Feature Forge remediation baseline"
 - Modify: `feature-forge/tests/test_ff_check_audit.py`
 - Modify: `feature-forge/tests/test_ff_check_identities.py`
 - Modify: `feature-forge/tests/test_ff_check_runs.py`
+- Modify for head-schema compatibility only: `feature-forge/tests/integration/test_review_loop_boundary.py`
 
 **Interfaces:**
 - Consumes: Task 2's immutable baseline; existing four-command checker CLI and literal `FF-CHECK v1` output contract.
-- Produces: `mode` in `HEAD_KEYS`; `AUTOMATION_MODES = frozenset({"interactive", "supervised", "unattended"})`; `REVIEW_STAGE_RULES`; `required_frozen_authorities(stage_id: int) -> tuple[str, ...]`; `head_transition_invariant(data: dict[str, object]) -> bool`; unchanged signatures for `repository`, `linked_worktree`, `worktrees`, and `audit_current_head`.
+- Produces: `mode` in `HEAD_KEYS`; `AUTOMATION_MODES = frozenset({"interactive", "supervised", "unattended"})`; `mode_error(data: dict[str, object]) -> str | None`; `base_identity_result(repo: Path, value: object) -> Result`; `REVIEW_STAGE_RULES`; `required_frozen_authorities(stage_id: int) -> tuple[str, ...]`; `head_transition_invariant(data: dict[str, object]) -> bool`; unchanged signatures for `repository`, `linked_worktree`, `worktrees`, and `audit_current_head`.
 
 - [ ] **Step 1: Add `mode` schema tests and update only test fixtures**
 
-First change the canonical `head()` fixture and every literal valid head to contain `"mode": "supervised"`. Add failing tests proving the template and checker require the exact enum:
+First change the canonical `head()` fixture, the integration boundary's local `HEAD_KEYS`/`BoundaryFixture._head()`, and every other literal valid head to contain `"mode": "supervised"`. Add failing tests proving the template and all three head-consuming commands require the exact enum:
 
 ```python
 assert head["mode"] == "supervised"
@@ -343,23 +388,26 @@ def test_audit_rejects_missing_or_unsupported_mode(tmp_path: Path, value: object
     assert_result(invoke(repo, directory), "unverifiable", 2)
 ```
 
+Repeat the missing/unsupported matrix through black-box `runs` and `identities` invocations. `mode_error()` is the one shared enum predicate; `run_head_error()`, `audit_head_shape()`, and `identities()` all call it rather than maintaining three lists.
+
 Run RED:
 
 ```bash
 python3 -m pytest feature-forge/tests/test_ledger_schema.py \
   feature-forge/tests/test_ff_check_audit.py \
-  feature-forge/tests/test_ff_check_runs.py -q
+  feature-forge/tests/test_ff_check_runs.py \
+  feature-forge/tests/test_ff_check_identities.py -q
 ```
 
 Expected: failures identify the absent template/checker field, not malformed fixtures.
 
 - [ ] **Step 2: Implement checked mode and synchronize the workflow contract**
 
-Add `mode` to `HEAD_KEYS`, validate it in both `run_head_error()` and `audit_head_shape()`, and add the template default. In `workflow.md`, state that human evidence explains authority but never substitutes for the checked enum. Rerun the Step 1 command; expected: PASS.
+Add `mode` to `HEAD_KEYS`, implement the shared `mode_error()` call in `run_head_error()`, `audit_head_shape()`, and `identities()`, and add the template default. In `workflow.md`, state that human evidence explains authority but never substitutes for the checked enum. Rerun the Step 1 command; expected: PASS.
 
 - [ ] **Step 3: Add the base-ancestry regression before implementation**
 
-Create a real same-repository commit that resolves but is not an ancestor of the fixture's current `HEAD`, store it in `base_identity`, and assert:
+Create a real same-repository commit that resolves but is not an ancestor of the fixture's current `HEAD`, store it in `base_identity`, and assert the same result through `identities`, `audit`, and a `runs` invocation over the matching resumable ledger:
 
 ```python
 result = check("identities", "--repo", str(repo), "--run", str(directory))
@@ -367,18 +415,23 @@ assert_result(result, "fail", 1)
 assert result.stderr.splitlines() == ["base-identity=not-ancestor"]
 ```
 
-Also wrap `git merge-base --is-ancestor` to exit by signal and expect `unverifiable` with `base-identity=ancestry-unavailable`. Run the two new tests RED and confirm the unrelated resolvable commit is currently accepted.
+Also wrap `git merge-base --is-ancestor` to exit by signal and expect `unverifiable` with `base-identity=ancestry-unavailable` through all three paths. Run the new tests RED and confirm the unrelated resolvable commit is currently accepted.
 
 - [ ] **Step 4: Enforce ancestry with Git and rerun GREEN**
 
-After `commit_identity()` returns `valid`, call:
+Implement one shared `base_identity_result()` and call it from both `canonical_identity_claims()` and `identities()`:
 
 ```python
-ancestry = git_status(repo, "merge-base", "--is-ancestor", str(data["base_identity"]), "HEAD")
-if ancestry not in {0, 1}:
-    return result("unverifiable", "base-identity=ancestry-unavailable")
-if ancestry == 1:
-    return result("fail", "base-identity=not-ancestor")
+def base_identity_result(repo: Path, value: object) -> Result:
+    identity = commit_identity(repo, value)
+    if identity == "noncanonical":
+        return result("fail", "base-identity=noncanonical")
+    if identity == "unverifiable":
+        return result("unverifiable", "base-identity=unresolvable")
+    ancestry = git_status(repo, "merge-base", "--is-ancestor", str(value), "HEAD")
+    if ancestry not in {0, 1}:
+        return result("unverifiable", "base-identity=ancestry-unavailable")
+    return result("pass") if ancestry == 0 else result("fail", "base-identity=not-ancestor")
 ```
 
 Do not claim this reconstructs the historical fork point. Run the new tests and the complete identities file; expected: PASS.
@@ -414,25 +467,30 @@ def required_frozen_authorities(stage_id: int) -> tuple[str, ...]:
     return ()
 ```
 
-Add table-driven positive cases for:
+Add table-driven positive cases for these exact compatibility classes:
 
 ```text
-not_started: initial stages 1–5 before the first dispatch
-review_active: specification/5, plan/8, implementation/10
-review_active blocked overlay: same kind/stage with overall and stage blocked
-changes_required: specification/3 and /4, plan/7, implementation/9
-pass retained: every stage in each retained_pass set
-returned blocked: each kind at its dispatch stage with either pre-dispatch null tuple or complete returned tuple
-status active: current stage active or complete with nonempty next_action
-status blocked: current stage blocked or invalidated with nonempty next_action
-terminal: only status complete + Stage 14 complete + null next_action
+not_started before first dispatch: stages 1–5 with active/(active or complete),
+                                  or blocked/blocked
+review_active dispatch: owning stage with active/active
+review_active recovery overlay: owning stage with blocked/blocked
+changes_required correction: correction stage with active/(active or complete),
+                             or blocked/blocked
+pass at owning review return: owning stage with active/complete
+pass retained downstream: retained-pass stage with active/(active or complete),
+                          or blocked/blocked
+pre-dispatch or returned blocked review: owning stage with blocked/blocked only
+authority-governed invalidation: blocked/invalidated with a freshly reset
+                                  not_started review; replacement-root evidence
+                                  remains required in transition history
+terminal: implementation pass with complete/Stage 14 complete/null next_action
 ```
 
-For ordinary same-kind re-review, add a fixture transition that retains `kind`, `root_identity`, `round`, `previous_open_finding_ids`, and `open_finding_ids` while changing `dispatch_id`, `run_ref`, `target_seal`, and `evidence_path`. Test the transition helper/integration fixture rather than pretending one current head proves its predecessor.
+For ordinary same-kind re-review, test three individual checker-visible heads rather than inventing a production transition helper: (1) returned `changes_required` at the correction stage; (2) blocked pre-dispatch reservation at the owning review stage, retaining `kind`, `root_identity`, `round`, `previous_open_finding_ids`, and `open_finding_ids` while clearing dispatch/run/seal/evidence and `reviewed_commit`; and (3) populated `review_active` with those retained fields plus fresh dispatch/run/seal/evidence identities and null `reviewed_commit`. State explicitly that `audit` validates each current head but cannot prove their historical succession; Task 5's public boundary fixture and Task 6 behavior evidence cover controller transition conformance.
 
 - [ ] **Step 6: Add rejection cases for every incompatible pair**
 
-Generate negative cases by moving each accepted review shape one stage outside its set and by pairing status/stage states incorrectly. Include Stage 7/8 without frozen specification, Stage 9+ without either frozen authority, empty/whitespace-only `next_action`, nonterminal null, terminal nonnull, and current stage `pending`. Expected failures are `review=inconsistent`, `status-stage=inconsistent`, `frozen=incomplete`, or `terminal=inconsistent`, never a traceback.
+Generate negative cases by moving each accepted review shape one stage outside its set and by crossing the right stage ID with the wrong stage/status state: `review_active` plus stage complete, review `blocked` plus overall active, correction plus an owning review stage, pass plus an earlier stage, and any current stage `pending`. Include Stage 7/8 without frozen specification, Stage 9+ without either frozen authority, empty/whitespace-only `next_action`, nonterminal null, and terminal nonnull. Expected failures are `review=inconsistent`, `status-stage=inconsistent`, `frozen=incomplete`, or `terminal=inconsistent`, never a traceback.
 
 Run the new lifecycle tests RED. Confirm at least a wrong-stage `review_active`, a Stage 4 specification correction, and Stage 7 missing frozen specification demonstrate current behavior gaps; a test that passes before implementation must be recorded as already covered, not weakened.
 
@@ -455,7 +513,7 @@ def head_transition_invariant(data: dict[str, object]) -> bool:
     )
 ```
 
-Keep `next_action` semantic meaning controller-owned. Extend `review_state_invariant` or add `review_stage_invariant(stage, review)` to apply only the explicit sets above. Do not parse verbs, stage names, or paths from `next_action`. Apply `required_frozen_authorities()` in `audit_current_head()`.
+Keep `next_action` semantic meaning controller-owned. Add `review_stage_invariant(status, stage, review)` to apply the exact compatibility classes above, including stage state and overall status rather than only stage ID. Do not parse verbs, stage names, or paths from `next_action`. Apply `required_frozen_authorities()` in `audit_current_head()`.
 
 - [ ] **Step 8: Run the focused state/identity suites and commit**
 
@@ -468,6 +526,8 @@ python3 -m pytest feature-forge/tests/test_ledger_schema.py \
   feature-forge/tests/test_ff_check_runs.py -q
 python3 -m py_compile feature-forge/scripts/ff-check
 git diff --check
+cd review-loop
+uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q
 ```
 
 Expected: PASS with pristine output. Then:
@@ -478,7 +538,8 @@ git add feature-forge/assets/ledger-template.md \
   feature-forge/tests/conftest.py feature-forge/tests/test_ledger_schema.py \
   feature-forge/tests/test_ff_check_audit.py \
   feature-forge/tests/test_ff_check_identities.py \
-  feature-forge/tests/test_ff_check_runs.py
+  feature-forge/tests/test_ff_check_runs.py \
+  feature-forge/tests/integration/test_review_loop_boundary.py
 git commit -m "fix: enforce Feature Forge head lifecycle"
 ```
 
@@ -494,13 +555,28 @@ git commit -m "fix: enforce Feature Forge head lifecycle"
 
 **Interfaces:**
 - Consumes: Task 3's unchanged CLI/result contract and function signatures.
-- Produces: `PATH_OBSERVATION_ERRORS = (OSError, RuntimeError, UnicodeError, ValueError)`; `common_git_directory(repo: Path) -> Path | None`; repository-filtered `worktrees(repo: Path) -> list[tuple[str, str | None]] | None`; no uncaught user/ledger-derived path resolution.
+- Produces: `PATH_OBSERVATION_ERRORS = (OSError, RuntimeError, UnicodeError, ValueError)`; `canonical_run_observation(repo: Path, argument: str) -> tuple[Path | None, str | None]`; `common_git_directory(repo: Path) -> Path | None`; repository-filtered `worktrees(repo: Path) -> list[tuple[str, str | None]] | None`; no uncaught user/ledger-derived path resolution.
 
 - [ ] **Step 1: Add parametrized no-traceback path regressions**
 
 Load the extensionless checker for focused helper tests with `runpy.run_path(str(CHECKER))`, monkeypatch `Path.resolve`, and make the shared resolver raise each member of `PATH_OBSERVATION_ERRORS`. Separately use a real symlink loop at each externally reachable user/ledger-derived site: repository root, linked/common Git directory, worktree inventory path, canonical run, frozen path, receipt path, and reviewed-snapshot walk. Every CLI assertion must prove exactly one stdout result line, exit 1 or 2 according to fail/unverifiable ownership, sorted stderr diagnostics, and absence of `Traceback` on either stream.
 
 Run only the new cases RED and confirm a real symlink-loop `RuntimeError` currently escapes at least one resolution site. The focused resolver test supplies portable coverage for `UnicodeError`, which cannot be induced reliably from a filesystem name on every supported host.
+
+Use this classification table as the test oracle:
+
+| Site | Input class | Result | Stable diagnostic |
+| --- | --- | --- | --- |
+| `--repo` | Git cannot observe/resolve repository root | `unverifiable` | `repository=unavailable` |
+| `--run` | lexically outside, wrong depth/name, or redirected claim | `fail` | `run=noncanonical` |
+| `--run` | canonical lexical claim whose resolution cannot be observed | `unverifiable` | `run=unavailable` |
+| ledger `worktree`/frozen path | wrong, escaping, or Git-metadata-directed claim | `fail` | existing `worktree=wrong-run` or `frozen=<kind>:wrong-path` |
+| ledger `worktree`/frozen path | otherwise valid claim whose current path cannot be observed | `unverifiable` | existing `worktree=unavailable` or `frozen=<kind>:unavailable` |
+| worktree inventory candidate | top-level/common-Git-dir identity cannot be observed | `unverifiable` | `git-inventory=unavailable` |
+| derived receipt path | symlink/non-directory ancestor or unreadable regular file | `unverifiable` | existing `receipt=unavailable`, `receipt=missing`, or `receipt=unreadable` according to entry state |
+| implementation subject walk | lstat/read/resolve observation failure | `unverifiable` | `snapshot=unavailable` or the existing source-unavailable diagnostic |
+
+Wrong types, unknown schema versions, and unknown keys remain unsupported-head/receipt `unverifiable` cases; the table changes only path claims and path observations. Tests assert one exact diagnostic per case rather than accepting either exit 1 or 2.
 
 - [ ] **Step 2: Centralize the exception tuple without changing classifications**
 
@@ -517,6 +593,13 @@ def resolve_observed_path(path: Path) -> Path | None:
 ```
 
 Use it, or catch the exact tuple locally where `None` has a different existing meaning. Malformed claims remain `fail`; host observations that cannot be established remain `unverifiable`. Do not collapse all errors into one classification merely to share a helper. Rerun the new cases GREEN.
+
+Replace the ambiguous `canonical_run()` return at CLI boundaries with
+`canonical_run_observation()`. Its second tuple member is null on success,
+`"noncanonical"` for a lexically invalid or redirected claim, and
+`"unavailable"` when a canonical lexical claim cannot currently be observed.
+The command handlers translate those outcomes through the Step 1 table; they
+must not infer classification from a bare `None`.
 
 - [ ] **Step 3: Add two-repository worktree regressions before implementation**
 
@@ -581,12 +664,47 @@ git commit -m "fix: scope Feature Forge path observations"
 - Modify: `feature-forge/tests/test_ff_check_audit.py`
 - Modify: `feature-forge/tests/test_ff_check_reviewed_snapshot.py`
 - Modify: `feature-forge/tests/integration/test_review_loop_boundary.py`
+- Modify: `tests/test_install.py`
 
 **Interfaces:**
 - Consumes: Tasks 3–4 checker/path interfaces and Task 2 baseline; Review Loop public return state through `run_triage`.
-- Produces: exact expanded `RECEIPT_KEYS`; `CHARTER_BY_KIND`; `STABLE_MAPPING_KEYS`; `allocated_finding_id(dispatch_id: str, triage_finding_id: str) -> str`; `receipt_result_invariant(payload, review) -> bool`; all-TRIAGE-finding mapping; controller provenance checks; pre/post-task identities for delegated and inline execution.
+- Produces: exactly four public checker commands; exact expanded `RECEIPT_KEYS`; `CHARTER_BY_KIND`; `STABLE_MAPPING_KEYS`; `allocated_finding_id(dispatch_id: str, triage_finding_id: str) -> str`; installed pure `apply_stable_id_decisions(payload: object) -> dict[str, object]`; `receipt_result_invariant(payload, review) -> bool`; all-TRIAGE-finding mapping; controller provenance checks; pre/post-task identities for delegated and inline execution.
 
-- [ ] **Step 1: Add the exact receipt shape and charter tests RED**
+- [ ] **Step 1: Restore the authoritative four-command checker boundary**
+
+The unaffected checked-skill MVP specification accepts exactly `runs`,
+`identities`, `reviewed-snapshot`, and `audit`, but the live PR branch exposes a
+fifth `implementation-snapshot` command. Add failing parser/install tests for
+the exact four-name help set. Change implementation receipt source identity
+back to the original contract, using the already validated ledger value:
+
+```python
+{
+    "kind": "reviewed_commit",
+    "path": None,
+    "value": review["reviewed_commit"],
+}
+```
+
+The checker first establishes that this value is the current implementation
+review's nonempty, valid commit and an ancestor of `HEAD`. Tests obtain it from
+the disposable repository. Remove the public `implementation-snapshot` parser
+branch and its direct tests/instruction calls. Keep the internal whole-tree
+digest code only if an existing `reviewed-snapshot` predicate still uses it;
+otherwise remove it. `reviewed-snapshot` continues to enforce the reviewed
+commit, current frozen identities, canonical receipt, committed-path
+allowlist, dirty-path allowlist, and tracked mode checks. This is a correction
+to an already-live authority mismatch, not a fifth remediation command.
+
+Run RED before implementation, then GREEN:
+
+```bash
+python3 -m pytest tests/test_install.py \
+  feature-forge/tests/test_ff_check_reviewed_snapshot.py \
+  feature-forge/tests/test_ff_check_audit.py -q
+```
+
+- [ ] **Step 2: Add the exact receipt shape and charter tests RED**
 
 Set:
 
@@ -607,7 +725,7 @@ STABLE_MAPPING_KEYS = {"triage_finding_id", "feature_forge_finding_id"}
 
 Update test receipt builders only after adding failing assertions for missing/extra fields, mismatched charter, empty criterion, unsorted/duplicate report or TRIAGE IDs, malformed mapping objects, duplicate TRIAGE sources, duplicate Feature Forge destinations, unknown sources, and mapped/actionable set disagreement. Run the new tests RED; they must fail because current `strict_receipt()` accepts the old shape.
 
-- [ ] **Step 2: Define and test the deterministic new-ID formula**
+- [ ] **Step 3: Define and test the deterministic new-ID formula**
 
 Use one canonical, portable formula:
 
@@ -621,11 +739,11 @@ def allocated_finding_id(dispatch_id: str, triage_finding_id: str) -> str:
     return "FF-" + hashlib.sha256(framed).hexdigest()
 ```
 
-For each mapping destination, the checker accepts either one ID from the ledger's `previous_open_finding_ids` or exactly `allocated_finding_id(payload["dispatch_id"], triage_id)`. It rejects a reused prior ID more than once, a derived ID colliding with any prior ID, any other unknown destination, and duplicate destinations. This is how deterministic code owns allocation without adding a fifth command or another state artifact; the LLM returns only `prior-id | new` decisions and never fabricates final IDs.
+For each mapping destination, the checker accepts either one ID from the ledger's `previous_open_finding_ids` or exactly `allocated_finding_id(payload["dispatch_id"], triage_id)`. It rejects a reused prior ID more than once, a derived ID colliding with any prior ID, any other unknown destination, and duplicate destinations.
 
 Add fixed-vector tests for ASCII and Unicode TRIAGE IDs and a two-finding test proving two `new` decisions cannot collapse. Run RED before adding the helper, then GREEN.
 
-- [ ] **Step 3: Add result/round/set consistency tests RED**
+- [ ] **Step 4: Add result/round/set consistency tests RED**
 
 Cover exactly:
 
@@ -648,13 +766,13 @@ increment `round`; then evaluate the cap (`round >= 3`) and exact repeated-set
 predicate. The final receipt/head result is `blocked` when either predicate is
 true and `changes_required` otherwise. A pass does not increment `round`.
 
-- [ ] **Step 4: Implement strict internal receipt validation**
+- [ ] **Step 5: Implement strict internal receipt validation**
 
-Extend `strict_receipt()` for exact shapes and local types. Implement `receipt_result_invariant(payload, review)` for the Step 3 matrix and call it from `audit_receipt()`. Keep provenance claims bounded: `ff-check` validates agreement among the receipt and current ledger only; it does not open the external Review Loop run or claim independent provenance.
+Extend `strict_receipt()` for exact shapes and local types. Implement `receipt_result_invariant(payload, review)` for the Step 4 matrix and call it from `audit_receipt()`. Keep provenance claims bounded: `ff-check` validates agreement among the receipt and current ledger only; it does not open the external Review Loop run or claim independent provenance.
 
-Rerun Steps 1–3 GREEN, then run all of `test_ff_check_audit.py` and `test_ff_check_reviewed_snapshot.py`.
+Rerun Steps 2–4 GREEN, then run all of `test_ff_check_audit.py` and `test_ff_check_reviewed_snapshot.py`.
 
-- [ ] **Step 5: Upgrade the public Review Loop boundary fixture from real returned state**
+- [ ] **Step 6: Upgrade the public Review Loop boundary fixture from real returned state**
 
 In the integration fixture, derive evidence with helpers equivalent to:
 
@@ -681,7 +799,75 @@ def _triage_evidence(round1, outcome) -> tuple[list[str], str, list[str]]:
 
 Use the public `Round1Outcome.raw_reports` inventory retained by the caller; do not reconstruct report IDs by scanning files. Preserve zero-finding report IDs.
 
-- [ ] **Step 6: Replace severity filtering with all-finding mapping**
+- [ ] **Step 7: Make the semantic mapper executable from installed code**
+
+The mapping judgment input must contain the evidence needed to compare meaning:
+
+```json
+{
+  "dispatch_id": "specification-2",
+  "materially_same_criterion": "same grounded discrepancy against the same requirement, correctness condition, repository contract, or verification result, with no material change in the required correction",
+  "prior_findings": [
+    {
+      "feature_forge_finding_id": "FF-prior",
+      "triage_finding": {"id": "prior-triage-id", "sources": [{"report_id": "prior-report", "finding_id": "prior-finding", "claim": "REQ-007 has no acceptance check", "severity": "Minor", "locators": ["REQ-007"]}], "source_ids": ["prior-report:prior-finding"], "reported_severity": "Minor", "current_severity": "Minor", "factual": "CONFIRMED", "state": "OPEN", "evidence_locators": ["REQ-007"], "target_seal": "prior-seal"}
+    }
+  ],
+  "current_findings": [
+    {"id": "current-triage-id", "sources": [{"report_id": "current-report", "finding_id": "current-finding", "claim": "REQ-007 lacks an acceptance check", "severity": "Minor", "locators": ["REQ-007"]}], "source_ids": ["current-report:current-finding"], "reported_severity": "Minor", "current_severity": "Minor", "factual": "CONFIRMED", "state": "OPEN", "evidence_locators": ["REQ-007"], "target_seal": "current-seal"}
+  ],
+  "decisions": [
+    {"triage_finding_id": "current-triage-id", "decision": "FF-prior", "rationale": "same missing REQ-007 verification"}
+  ]
+}
+```
+
+The `sources` arrays are the complete normalized source objects from Review
+Loop. Obtain current full findings by reading the current bound `triage-result`
+evidence file and verifying its registry digest/binding. Obtain prior full
+findings from the previous receipt's
+`run_ref` plus `triage_artifact_id`, verify that bound artifact the same way,
+and join its TRIAGE IDs to stable IDs through that receipt's
+`stable_id_mapping`. Do not use the projection rows for semantic input because
+they omit claims and evidence locators.
+
+The LLM receives only `prior_findings`, `current_findings`, and the criterion,
+and returns exactly:
+
+```json
+{"decisions": [{"triage_finding_id": "current-triage-id", "decision": "FF-prior", "rationale": "same missing REQ-007 verification"}]}
+```
+
+`decision` is either one supplied prior Feature Forge ID or literal `new`;
+`rationale` is a nonempty string for reuse and null for `new`.
+
+Implement `apply_stable_id_decisions(payload)` in installed `ff-check` as a
+pure, repository-read-only function. It validates exact input/output shapes,
+complete current-ID coverage, known and singly reused prior IDs, rationale
+rules, and final destination uniqueness; it replaces `new` with
+`allocated_finding_id()` and returns this exact transient result shape:
+
+```json
+{"schema": "feature-forge/stable-id-map/v1", "status": "pass", "stable_id_mapping": [{"triage_finding_id": "current-triage-id", "feature_forge_finding_id": "FF-prior"}], "error": null}
+```
+
+Invalid input returns the same four keys with `status: "fail"`, an empty
+mapping, and one stable nonempty error code. Before the exclusive receipt
+write, invoke the installed pure function without adding a checker subcommand
+or state artifact:
+
+```bash
+python3 -c 'import json,runpy,sys; api=runpy.run_path(sys.argv[1]); print(json.dumps(api["apply_stable_id_decisions"](json.load(sys.stdin)),sort_keys=True,separators=(",",":")))' "$SKILL_DIR/scripts/ff-check"
+```
+
+Feed the controller-assembled input plus LLM decisions on stdin. A missing
+single JSON result, non-pass status, or shape mismatch blocks before receipt
+creation. Record the decision/rationale rows in the existing ledger transition
+evidence; do not create a mapping artifact. Unit-test the installed helper by
+loading the same file with `runpy`, and make the integration fixture call that
+helper rather than a test-only validator.
+
+- [ ] **Step 8: Replace severity filtering with all-finding mapping**
 
 Change `_map_controller_return()` so every canonical TRIAGE row participates, regardless of `current_severity`. Add integration cases for:
 
@@ -694,9 +880,9 @@ round cap/repeated stable set -> blocked with nonnull TRIAGE artifact;
 zero-finding reports remain in raw_report_ids;
 ```
 
-For stable-ID judgment, feed only the prior stable IDs/current TRIAGE rows to a strict fake mapper returning one object per current ID with `decision: "new"` or `decision: "reuse"`, `feature_forge_finding_id` only for reuse, and a short `rationale` only for reuse. The fixture controller validates coverage, rejects unknown/multiply reused prior IDs, replaces `new` with `allocated_finding_id()`, and exclusively writes the final mapping. Add positive tests for distinct new IDs and one legitimate reuse, plus negative tests for two current findings reusing one prior ID.
+For stable-ID judgment, make the fake mapper first assert the exact semantic input above, then return one configured decision per current ID. Add positive tests for distinct new IDs and a legitimate reuse whose answer cannot be inferred from similar ID spelling, plus negative tests for missing coverage, unknown prior IDs, absent reuse rationale, and two current findings reusing one prior ID. All strict validation and allocation must call the installed helper from Step 7.
 
-- [ ] **Step 7: Synchronize the receipt and review lifecycle instructions**
+- [ ] **Step 9: Synchronize the receipt and review lifecycle instructions**
 
 In `adapters-and-reviews.md`, replace the old Important/Critical pass table and old eight-field receipt list with the approved exact contract. State separately:
 
@@ -709,7 +895,7 @@ TRIAGE: consolidation of current raw findings.
 
 State that an ordinary same-kind correction preserves root, round, and finding history while allocating fresh dispatch/run/seal/receipt identities. Reset only for a different review kind or authority-governed root invalidation with replaced/replacement root, reason, authority, and parent event in transition history.
 
-- [ ] **Step 8: Add the Stage 9 post-return identity gate for both execution modes**
+- [ ] **Step 10: Add the Stage 9 post-return identity gate for both execution modes**
 
 In `workflow.md`, change Stage 9's mechanical contract to:
 
@@ -719,16 +905,21 @@ and immediately after every bounded task return before recording that return com
 then run audit after the ledger update.
 ```
 
-Extend the post-task plan-drift fixture/oracle so delegated and inline modes both refuse to record task completion after `identities` reports the changed frozen plan. Do not add exact-prose tests; assert the observable command/result/state transition in the behavior fixture and the live workflow semantics in manual review.
+Task 2 already froze separate delegated and inline plan-drift variants whose
+oracle refuses task completion after the changed frozen plan. Do not edit that
+fixture, prompt, or scorer here. Synchronize the live workflow contract, run
+the unchanged deterministic scorer unit suite, and leave behavioral GREEN
+replay to Task 6.
 
-- [ ] **Step 9: Run focused and integration suites, then commit**
+- [ ] **Step 11: Run focused and integration suites, then commit**
 
 Run:
 
 ```bash
 python3 -m pytest feature-forge/tests/test_ff_check_audit.py \
   feature-forge/tests/test_ff_check_reviewed_snapshot.py \
-  feature-forge/tests/test_remediation_pressure.py -q
+  feature-forge/tests/test_remediation_pressure.py \
+  tests/test_install.py -q
 cd review-loop
 uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q
 ```
@@ -741,7 +932,8 @@ git add feature-forge/scripts/ff-check \
   feature-forge/references/workflow.md \
   feature-forge/tests/test_ff_check_audit.py \
   feature-forge/tests/test_ff_check_reviewed_snapshot.py \
-  feature-forge/tests/integration/test_review_loop_boundary.py
+  feature-forge/tests/integration/test_review_loop_boundary.py \
+  tests/test_install.py
 git commit -m "fix: preserve Feature Forge review evidence"
 ```
 
@@ -792,7 +984,7 @@ missing field -> required structural slot next to the owning template;
 conditional behavior -> instruction keyed to the observable condition.
 ```
 
-Do not add guidance for an `already correct` scenario. If wording is behavior-shaping, micro-test the candidate against the no-guidance control with five fresh capable-agent repetitions for that scenario, manually inspect all five, and retain only wording that fixes the observed gap without adding another task or authority.
+Do not add guidance for an `already correct` scenario. If wording is behavior-shaping, micro-test each candidate variant against five fresh repetitions of the same no-guidance control, manually inspect every result, and stop if the control does not reproduce the gap. Retain only wording that fixes the observed gap without adding another task or authority.
 
 - [ ] **Step 4: Recompose and review all seven dispatch shapes**
 
@@ -806,7 +998,7 @@ Flag a supplied field only when it is unused by this task; flag missing context 
 when the worker cannot complete the exact return without inventing it.
 ```
 
-These are test subjects invoked through noninteractive CLI calls, not SDD task reviewers. A failed rubric item is material and must be fixed in the owning existing instruction file, then only that packet is recomposed and re-reviewed.
+These are test subjects invoked through noninteractive CLI calls, not SDD task reviewers. A failed rubric item caused by a concrete packet/schema/composition mismatch is fixed structurally in its owning existing instruction file, then only that packet is recomposed and re-reviewed. Broader behavior-shaping guidance follows Step 3's five-repetition control/candidate rule and is not justified by a reviewer opinion alone.
 
 - [ ] **Step 5: Rerun the immutable pressure scenarios GREEN**
 
@@ -830,7 +1022,7 @@ Append, without rewriting Task 2 evidence:
 - bytes/words as diagnostics with content findings, not aggregate targets;
 - one disposition per scenario/packet: `pass`, `blocked-unavailable`, or `fail`.
 
-No `fail` row may remain. An unavailable required host blocks qualification; an unavailable optional second host is recorded and does not erase a passing capable-host result if the specification and repository contract do not require both.
+No `fail` row may remain. Required Codex failure or unavailability blocks qualification. Corroborating Claude unavailability is recorded and does not block; if Claude executes and fails, that observed gap must be resolved and cannot be erased by Codex passing.
 
 - [ ] **Step 7: Restore and run the exact component documentation gate**
 
@@ -871,14 +1063,14 @@ If `authority.md` changed for a demonstrated gap, add that one explicit path to 
 
 ---
 
-### Task 7: Run Cross-Cutting Verification and Prepare PR #7 for Push
+### Task 7: Record Cross-Cutting Verification
 
 **Files:**
 - Modify: `feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md` (append verification evidence only)
 
 **Interfaces:**
 - Consumes: Tasks 1–6 commits, qualification dispositions, exact installed payload, and repository/component verification contracts.
-- Produces: fresh complete verification evidence, a clean scoped worktree, one evidence-only commit, and a branch ready for the SDD final whole-branch review and push.
+- Produces: fresh complete verification evidence tied to the tested production `HEAD`, a clean scoped worktree, and one evidence-only commit ready for Task 7's own SDD review.
 
 - [ ] **Step 1: Verify the exact branch and diff scope before running suites**
 
@@ -952,19 +1144,11 @@ git commit -m "test: record Feature Forge remediation verification"
 git status --short --branch
 ```
 
-- [ ] **Step 7: Run the mandatory SDD whole-branch review**
-
-Use `superpowers:requesting-code-review` on the most capable available model with a review package covering `origin/main...HEAD`. Point the reviewer to the approved specification, this plan, the SDD ledger's deferred/parked findings, and the qualification record. Fix any Critical/Important issue through the SDD final one-wave fix/re-review procedure; do not let the controller edit fixes directly.
-
-- [ ] **Step 8: Verify once more, then push the branch without merging**
-
-After `superpowers:verification-before-completion` confirms the post-review `HEAD` and clean worktree, run:
-
-```bash
-git push origin HEAD:feature-forge-mvp
-```
-
-Then verify PR #7 points at the pushed head and report its checks. Do not merge PR #7.
+After the evidence-only commit, rerun the exact documentation gate from Task 6,
+`git diff --check origin/main...HEAD`, and `git status --short --branch`.
+Report both the production commit exercised by the complete suites and the
+later evidence-only commit; do not imply the code suites ran after the
+evidence-only documentation commit.
 
 ## Completion Conditions
 
