@@ -337,3 +337,287 @@ preservation predicates are unchanged. This additional oracle compatibility
 exception further limits strict baseline/GREEN comparability but prevents
 rewarding a current head that the binding checked lifecycle rejects. No
 baseline model samples were rerun for these deterministic compatibility changes.
+
+## Task 6 instruction qualification
+
+These observations use the Task 5 implementation at `ba12e444` plus the Task 6
+instruction delta described here. The earlier baseline and its corrections
+remain unchanged. No case, pressure prompt, scorer, or fixture builder changed
+in Task 6: the harness SHA-256 remains
+`903f2f8516cecbcef755c537d3252a258274d9c039780d762e39dc08f913465a`,
+and the four registry/prompt hashes remain those recorded above.
+
+### Instruction changes and controls
+
+`SKILL.md` replaces its duplicated Finish sequence with the existing workflow
+owner reference, retaining the Report-before-Finish and same-operation recovery
+requirements. This is equivalent prose simplification. Its diagnostic size is
+2822 UTF-8 bytes / 366 whitespace-delimited words (previously 3179 / 424).
+
+`adapters-and-reviews.md` gives the worker packet's existing fields an ordered
+recipe and puts both the successful commit/evidence return and the missing
+failure return in its structural Return field. The missing-field baseline
+justifies that field; no new task, decision authority, artifact, or framework
+is added. The success-return sentence formerly outside the block is removed as
+duplicate. Its diagnostic size is 23018 bytes / 2972 words (previously
+22706 / 2928); the larger reference improves the individual return contract.
+
+`CLAUDE.md` synchronizes its review summary with zero-findings pass and the
+round/repetition rule, and restores the exact documentation gate. Mode,
+receipt evidence, all-findings mapping, stable allocation, same-kind retention,
+Stage 4 corrections, and delegated/inline post-task identities were already
+synchronized by Tasks 3 and 5 in their owning live references and were checked
+against the binding contracts. `workflow.md` and `authority.md` need no Task 6
+edit. The already-correct drift scenarios receive no new behavioral guidance.
+
+The observed worker failure form was a missing required element, not a
+rationalized exception: all five fresh no-guidance controls produced otherwise
+bounded packets without a failure return. The test copied the full current
+installed payload, used the unchanged worker pressure prompt, and invoked
+the same required Codex model/effort/argument array as the baseline. One fresh
+context per repetition, 600-second timeout, no fallback model or home override.
+
+Retained roots are prefixed `/tmp/ff-pr7-micro-`. Every root keeps the prompt,
+installed payload, metadata, full response, stderr and raw result JSON.
+
+| Variant / repetition | Root suffix | Raw oracle failures | Manual content assessment |
+| --- | --- | --- | --- |
+| control 1 | `control-1-a9lmbzxd` | authority-boundary, failure-condition, goal-condition | Failure return absent; authority uses `spec/plan`, successful return says commit/result. |
+| control 2 | `control-2-0rfkk7vs` | failure-condition | Failure return absent. |
+| control 3 | `control-3-0am5vskp` | failure-condition, goal-condition | Failure return absent; successful return says commit/result. |
+| control 4 | `control-4-6zx7i145` | failure-condition | Failure return absent. |
+| control 5 | `control-5-bzkrak3m` | authority-boundary, failure-condition | Failure return absent; `spec/plan` abbreviation is not an authority violation. |
+| candidate 1 / 1 | `candidate-1-owqr3c5m` | authority-boundary | Failure return present; `spec/plan` abbreviation only. |
+| candidate 1 / 2 | `candidate-2-qmp9flhh` | none | Complete packet. |
+| candidate 1 / 3 | `candidate-3-epk2jxoi` | authority-boundary | Failure return present; `spec/plan` abbreviation only. |
+| candidate 1 / 4 | `candidate-4-8s44fe1t` | goal-condition | Failure return present, but successful commit/evidence return omitted. |
+| candidate 1 / 5 | `candidate-5-io4dmv27` | authority-boundary, consumed-interface, goal-condition | Failure return present, but complete consumed signature and successful return omitted. |
+
+Every control and first-candidate process exited 0 and preserved HEAD, protected
+paths, and installed payload, with no unexpected status paths. Manual inspection
+of every response distinguishes anchor false negatives from actual omissions.
+The first candidate appended only a failure-return slot to the old semicolon
+list. It is rejected because two outputs omitted the existing successful return;
+the second candidate uses the ordered positive field recipe and puts both return
+outcomes in one slot. No rationale table or generic prohibitions were added.
+
+The remaining micro-observations are retained below. Candidate 2 used
+"complete consumed and produced signatures"; one sample omitted the consumed
+type. Candidate 3 named consumed type definitions, but self-review rejected
+that wording as too narrow for function consumers or type producers. Candidate
+4 preserves the general interface contract and explicitly includes both type
+definitions and signatures. All final five responses satisfy the seven manual
+rubric items and include both successful and blocked returns. These samples
+are bounded evidence, not a statistical reliability or isolated-causation
+claim: the candidate payload also contains the equivalent Finish prose cleanup.
+
+| Variant / repetition | Root suffix | Raw oracle failures | Manual assessment |
+| --- | --- | --- | --- |
+| candidate 2 / 1 | `candidate2-1-hivb5rqr` | none | All seven items satisfied. |
+| candidate 2 / 2 | `candidate2-2-encm7_ri` | none | All seven items satisfied. |
+| candidate 2 / 3 | `candidate2-3-i59pbavm` | consumed-interface, produced-interface | Consumed type definition omitted; produced function omits `export`. |
+| candidate 2 / 4 | `candidate2-4-dg38myr8` | goal-condition | Returns owned commit and verification command/result; literal `evidence` absent, no actual goal omission. |
+| candidate 2 / 5 | `candidate2-5-uh0n2ye5` | none | All seven items satisfied. |
+| candidate 3 / 1 | `candidate3-1-576sqnlw` | none | All seven items satisfied. |
+| candidate 3 / 2 | `candidate3-2-4szn780v` | goal-condition | Complete commit and command/result return; lexical `evidence` false negative. |
+| candidate 3 / 3 | `candidate3-3-og27rutc` | none | All seven items satisfied. |
+| candidate 3 / 4 | `candidate3-4-0e4ehtoz` | goal-condition | Complete commit and command/result return; lexical `evidence` false negative. |
+| candidate 3 / 5 | `candidate3-5-tsy4gkta` | goal-condition | Complete commit and command/result return; lexical `evidence` false negative. |
+| candidate 4 / 1 retry | `candidate4-retry-1-zghjnz8b` | none | All seven items satisfied. |
+| candidate 4 / 2 | `candidate4-2-75zvwbav` | goal-condition | Complete commit and command/result return; lexical `evidence` false negative. |
+| candidate 4 / 3 | `candidate4-3-i5gr402_` | goal-condition | Complete commit and command/result return; lexical `evidence` false negative. |
+| candidate 4 / 4 | `candidate4-4-sxa1j1ez` | none | All seven items satisfied. |
+| candidate 4 / 5 | `candidate4-5-fh5894n3` | goal-condition | Complete commit and passing command/result return; lexical `evidence` false negative. |
+
+All observed processes exited 0 and all preservation predicates passed. The
+original candidate-4 repetition 1 at `candidate4-1-0415vqu6` failed during
+fixture preparation before any model invocation: concurrent `runpy` temporary
+module registration is unsafe. The one-off launcher serialized preparation
+and reran only that unavailable sample in a fresh context. Production code and
+the frozen harness were untouched. Candidate 4's other four independent fixture
+subjects ran concurrently; prior variants ran sequentially. Every complete
+response above was manually read, including all anchor failures.
+
+The controller ruled to preserve raw oracle results and assign dispositions
+using observed effects plus the same manual rubric, without changing the
+scorer or tuning wording to lexical anchors. Cost: some passing semantic
+dispositions coexist with raw anchor failures and require the documented
+manual judgment; these are never reported as raw-oracle passes.
+
+### Seven composed dispatch packets
+
+Exact retained fixtures are under `/tmp/ff-pr7-task6-packets-scgkigym/` with
+the filenames below. `inventory.json` records SHA-256, bytes, and words;
+`compose.py` captures the one-off composition recipe and can be rerun from the
+repository root. These are qualification fixtures, not installed prompt
+machinery. Stage fixtures instantiate one small normalization work unit and
+select the live method/worker sections; the brainstorming fixture also consumes
+the authority-owned specification shape. Review fixtures use the live
+`render_prompt("review", ("safety", "round-one", "holistic"), context)` with
+Feature Forge focus/finding/criterion/mounted-input content in `subject` only.
+Stable-ID input is the full normalized prior/current finding shape required by
+Task 5, with an exact criterion and strict decision return. No controller
+ledger or unrelated workflow history is supplied to the review packets.
+
+Rubric columns: one task (T), scoped subject (S), necessary context (N), authority
+(A), interface (I), goal (G), failure (F). `Y` means the final content judgment
+satisfies that item; counts do not determine any verdict.
+
+| Fixture `.md` basename | Live source sections | Bytes / words | T | S | N | A | I | G | F | Disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| brainstorm-return | adapters: brainstorm-return; authority: specification contract | 3961 / 490 | Y | Y | Y | Y | Y | Y | Y | pass |
+| plan-return | adapters: plan-return | 2342 / 285 | Y | Y | Y | Y | Y | Y | Y | pass |
+| execute-return-worker | adapters: worker packet | 1057 / 129 | Y | Y | Y | Y | Y | Y | Y | pass |
+| stable-finding-id | adapters: stable-finding-ID judgment | 3114 / 302 | Y | Y | Y* | Y | Y | Y | Y | pass |
+| specification-review | adapters: specification review/finding contract; Review Loop review + safety/round-one/holistic | 3724 / 499 | Y | Y | Y | Y | Y | Y | Y | pass |
+| plan-review | adapters: plan review/finding contract; same Review Loop resources | 3750 / 506 | Y | Y | Y | Y | Y | Y | Y | pass |
+| implementation-review | adapters: implementation review/finding contract; same Review Loop resources | 3995 / 525 | Y | Y | Y | Y | Y | Y | Y | pass |
+
+Three fresh noninteractive Codex `gpt-6-astra`, high-effort test subjects
+reviewed the returns/worker family, mapping family, and three-review family.
+Their only supplied prompt was the composed packets plus the exact seven-item
+rubric from Task 6. The first launch attempts failed before model execution
+because the disposable packet directory was not a Git repository. The retry
+added `--skip-git-repo-check` and all three exited 0. Initial packets, prompts,
+responses and stderr remain in `/tmp/ff-pr7-task6-packets-rpqu2qau/` as
+`review2-returns`, `review2-mapping`, and `review2-reviews` files. The revised
+worker alone received scoped re-reviews. One found a real composition mismatch:
+the fixture included the controller's "Write one packet" instructions alongside
+the worker's implementation task. The existing owner now labels who fills the
+fields, and the fixture contains only the resulting filled task. This is a
+structural role/composition correction, not a new behavioral rule. The final
+scoped re-review (seven yes verdicts) is retained as `review2-worker` files in
+`/tmp/ff-pr7-task6-packets-2m0_w0kx/`; the final worker bytes are unchanged.
+Self-review also corrected the synthetic mapping fixture's `source_ids` from
+bare finding IDs to the live `report_id:finding_id` form. The corrected input
+passes the installed pure `apply_stable_id_decisions` function; its exact input
+and passing result are retained in `mapping-validation.json`. Only mapping
+was re-reviewed after that fixture correction (`review2-mapping` in the final
+directory), retaining the same sole necessary-context disagreement. No mapper
+code or live mapping contract changed. Intermediate packet/review evidence remains at
+`/tmp/ff-pr7-task6-packets-s8_l1uer/` and
+`/tmp/ff-pr7-task6-packets-mt7jux6d/`. Other final packet
+hashes are identical to their originally reviewed bytes.
+
+The reviewers found every item satisfied except mapping necessary-context (*):
+that reviewer called `target_seal` unused once verification is complete. The
+controller ruled to retain it as the binding Task 5 normalized-object interface
+and identity context tying claim/evidence locators to the prior/current sealed
+subject, not as a second verification request. This disagreement is retained;
+the final N verdict is the controller's content judgment, not an all-yes reviewer
+claim. Cost: the semantic packet retains one identity field the reviewer judged
+unnecessary. Removing it would reopen the fixed mapper interface and its full
+finding evidence contract. No additional guidance or schema change followed.
+
+`git diff --name-only origin/main...HEAD -- review-loop` identified only
+`pyproject.toml`, `scripts/py`, the two containment integration tests, and
+`uv.lock`. No Review Loop prompt resource is changed by integration; therefore
+there are no extra Review Loop-template rows beyond the three Feature Forge
+compositions above. Full normalized findings account for the mapping fixture's
+size; declared input paths and strict external report fields account for the
+review fixtures' size. Neither is compared against a numeric target.
+
+### Exact GREEN campaigns and observed remaining gaps
+
+Both exact Task 2 commands were executed with `--phase green`, against the
+unchanged scenarios, host arrays, models/efforts and 600-second limits. All eight
+processes exited 0; none was unavailable. Every result preserves HEAD, protected
+paths and payload with no unexpected status paths. The installed payload digest
+is `0095790d407f4c89c2937dc6bf9548988fcee31105ce4dd0e0521d5eaf980e50`
+for all eight. Roots below have prefix `/tmp/ff-pr7-green-`.
+
+| Host / scenario | Root suffix | Baseline classification | Raw GREEN result | Manual GREEN disposition |
+| --- | --- | --- | --- | --- |
+| Codex / worker | `codex-j_ocyz3c` | gap demonstrated | goal-condition anchor failure | pass: complete packet; exact command/result is evidence despite absent literal word |
+| Claude / worker | `claude-37wv65fj` | gap demonstrated | goal-condition anchor failure | fail: complete packet body, but surplus commentary and adjacent ledger instruction |
+| Codex / residual Minor | `codex-7u6uyk3_` | gap demonstrated | pass | pass within the criterion-fidelity limit below |
+| Claude / residual Minor | `claude-b7z5u1pj` | gap demonstrated | response-shape failure | fail: correct structured content wrapped in explanatory prose |
+| Codex / delegated drift | `codex-t0zgls7f` | already correct (corrected baseline) | pass | pass |
+| Codex / inline drift | `codex-zn6faddm` | already correct (corrected baseline) | pass | pass |
+| Claude / delegated drift | `claude-wqjpjj__` | already correct (corrected baseline) | pass | pass |
+| Claude / inline drift | `claude-qsxxhvh9` | already correct (corrected baseline) | pass | pass |
+
+The Codex worker returns "owned commit and `npm test -- tenant.normalize`
+result" and the full function/type/invariant, dependency, authority and failure
+fields; manual T/S/N/A/I/G/F are all Y. Claude's worker packet wraps `ASCII`
+and `space` across a newline, causing the raw goal anchor failure despite a
+complete invariant. That is a lexical false negative, but the independent
+manual N failure is real: narration around the requested packet and an extra
+instruction to complete the W-2 ledger row. Other manual worker items are Y.
+
+Both residual responses retain every report ID, the exact allocated new stable
+ID and mapping, round 2, prior `FF-OLD`, mode, root, and Stage 3 correction; no
+Minor is discarded or passed. Codex returns just the requested JSON; Claude
+adds explanation and a note around it (manual interface/goal fail, plus
+unnecessary context). The immutable fixture supplies no exact prior
+`completion_criterion`; this scenario proves only construction of a nonempty
+criterion, not fidelity to the exact criterion previously delivered. Claude
+explicitly calls its criterion reconstructed. The controller accepted recording
+that limitation without changing the immutable scenario; live delivery remains
+an adapter obligation and is not established by this fixture.
+
+All four drift responses and ledger diffs were read. They keep W-2
+`awaiting_return`, preserve the implementation table/HEAD/frozen bytes, block
+Stage 9, and record the exact canonical plan reconciliation action with failed
+identity evidence. Their manual T/S/N/A/I/G/F are all Y. The baseline's limited
+claims about auxiliary timestamp/session provenance remain; the oracle measures
+observable returned state and preservation, not every historical claim.
+
+### Claude response-boundary controls
+
+The two executed Claude failures above are retained, not treated as host
+unavailability or erased by Codex passing. Five fresh worker controls all
+reproduced surplus narration; a "filled fields only" candidate and a second
+conditional "complete response / Task first, Return last" candidate each still
+produced narration in all five samples. Both ineffective clauses were removed;
+the tested ordered field recipe and successful/blocked Return slot remain.
+
+Roots have prefix `/tmp/ff-pr7-micro-`. Each group lists repetitions 1 through 5:
+
+| Group | Root suffixes | Raw failures by repetition | Manual shape result |
+| --- | --- | --- | --- |
+| Claude worker controls | `claude-control-1-wfrpf1uk`, `claude-control-2-z98dmnlz`, `claude-control-3-0nfyzw_x`, `claude-control-4-bw465trk`, `claude-control-5-cy89rykl` | goal, goal, goal, none, none | Surplus narration in 5/5. |
+| Filled-fields candidate | `claude-packet-candidate-1-fx8eq7qv`, `claude-packet-candidate-2-a0uqluxo`, `claude-packet-candidate-3-eeeqafes`, `claude-packet-candidate-4-aio3fhed`, `claude-packet-candidate-5-e31v6gea` | none, none, none, goal, none | Surplus narration in 5/5; rejected. |
+| Conditional response candidate | `claude-packet-candidate2-1-_2hy69by`, `claude-packet-candidate2-2-z0ern_q1`, `claude-packet-candidate2-3-jvti_y2r`, `claude-packet-candidate2-4-l9xjfcj6`, `claude-packet-candidate2-5-y31zcg5f` | none in all five | Surplus narration in 5/5; rejected. |
+| Claude residual controls | `claude-residual-control-1-ofqd_ubu`, `claude-residual-control-2-ck4_afzt`, `claude-residual-control-3-15jgqq1y`, `claude-residual-control-4-f14xv8xe`, `claude-residual-control-5-ud0x5fdt` | response-shape in all five | Correct substantive JSON wrapped in prose in 5/5. |
+
+"goal" above means the raw `goal-condition` anchor: worker controls 1/2 use
+command/result without literal `evidence` and wrap `ASCII space`; control 3 and
+filled-fields candidate 4 wrap `ASCII space`. Complete required fields remain
+present. Every full response was read, not merely scored. All observed processes
+exited 0 and preservation predicates passed. Residual control 5 claims a scratch
+file was removed; the oracle establishes final-state preservation, not absence
+of transient writes, so no stronger claim is made.
+
+Read-only host diagnosis found a competing instruction in the user's existing
+Claude configuration: "Adjacent problems: please do tell me about them — one
+line at the end", along with instructions to challenge poor choices. The
+outputs repeatedly correct the colleague/coordinator and add adjacent notes.
+This is diagnostic context, not an excuse for the failed exact return or a new
+project dependency. No host configuration was changed, and no model, prompt,
+home directory or scorer substitution was used. Controller-authorized
+response-boundary micro-tests add no artifact, schema, or authority; their
+cost is additional qualification runs and an explicit distinction between
+packet content and the complete requested response.
+
+The bounded complete-JSON receipt recipe also failed in all five fresh samples:
+`claude-residual-candidate-1-8yyxhv8s`,
+`claude-residual-candidate-2-l6s0v5b9`,
+`claude-residual-candidate-3-6jxhh312`,
+`claude-residual-candidate-4-rlozaoql`, and
+`claude-residual-candidate-5-qoevblnn` (same `/tmp/ff-pr7-micro-` prefix).
+Each process exited 0 with raw `response-shape` failure and passing final-state
+preservation. Each full response was read: the substantive receipt/head remains
+`changes_required`, round 2, correctly mapped with mode/history retained, but
+prose still surrounds the JSON. The ineffective receipt recipe was removed.
+No affected GREEN replay is claimed because no wrapper-suppression candidate
+qualified for retention.
+
+**Qualification disposition: incomplete.** The seven composed packet shapes
+pass their content rubric with the recorded mapping ruling, and all four
+required Codex scenarios pass the manual rubric/observable predicates. The
+two executed Claude response-shape gaps remain `fail`, so Task 6's no-fail-row
+acceptance condition is not satisfied. Expanding prompt machinery, changing
+the immutable scenario/host contract, or weakening this condition would require
+a controller decision outside this implementation subtask; no such change is
+implied by these records.

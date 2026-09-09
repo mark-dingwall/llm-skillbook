@@ -101,18 +101,24 @@ classification rule and block where the resulting authority is absent.
 ## Worker packet contract
 
 Every delegated worker packet must be independently executable under frozen
-specification/plan authority. It contains exactly:
+specification/plan authority. The controller fills these fields in order to
+produce the worker's task:
 
 ```text
-task ID and exact frozen plan task; applicable REQ-NNN and SCN-NNN IDs;
-owned paths; consumed/produced interfaces and signatures; invariants;
-dependencies and already-verified inputs; exact verification command/evidence;
-explicit prohibition on changing frozen spec/plan or inventing cross-task authority.
+Task: task ID and exact frozen plan task; applicable REQ-NNN and SCN-NNN IDs.
+Ownership: exact owned paths.
+Interfaces: complete consumed/produced interfaces, including type definitions
+and signatures; invariants.
+Dependencies: producer tasks, commits, and already-verified input evidence.
+Verification: exact command and required evidence.
+Authority: do not change frozen specification/plan or invent cross-task authority.
+Return: owned commit and verification command/result evidence to the controller;
+if authority or an input is missing, or verification is unavailable, stop and
+return blocked naming what is missing or unavailable.
 ```
 
 A packet missing any field is incomplete and must not be dispatched. The
-worker reports its commit and verification evidence back to the
-controller/ledger, which remains the sole progress authority — the
+controller/ledger remains the sole progress authority — the
 implementation table, not a worker's own state, records completion. This is a
 dispatch-completeness contract, not an invitation to create a new packet
 document outside the canonical run artifacts named in `workflow.md`.

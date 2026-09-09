@@ -94,7 +94,8 @@ Provide the actual subject, frozen ground truth, deployment context, and
 completion criterion. Before dispatch, persist `review_active`; during the
 sealed, read-only round mutate neither target nor ledger. On return, record the
 TRIAGE outcome/open finding IDs, stable run reference, and content seal before
-mapping no findings to `pass`, actionable findings to `changes_required`, and
+mapping zero findings to `pass`, any grounded finding (including Minor) to
+`changes_required` subject to the round/repetition block rule, and
 an indeterminate or unavailable required review to `blocked`. Fix only between
 rounds and re-review the required post-fix subject.
 
@@ -153,4 +154,12 @@ Run the review-loop boundary fixture in its owning environment:
 ```bash
 cd review-loop && uv run pytest \
   ../feature-forge/tests/integration/test_review_loop_boundary.py -q
+```
+
+Run the component documentation gate from the repository root:
+
+```bash
+python3 -m pytest \
+  'tests/test_documentation.py::test_documentation_entrypoints[feature-forge]' \
+  'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[feature-forge]' -q
 ```
