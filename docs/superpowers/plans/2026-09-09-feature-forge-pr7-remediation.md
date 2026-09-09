@@ -1,6 +1,6 @@
 # Feature Forge PR #7 Remediation Implementation Plan
 
-**Status:** Draft for independent review
+**Status:** Approved for execution
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -44,7 +44,7 @@
 | `feature-forge/tests/test_ff_check_identities.py` | Base ancestry and safe identity/path regressions | Tasks 3 and 4 |
 | `feature-forge/tests/test_ff_check_runs.py` | Repository-scoped run/worktree inventory regressions | Task 4 |
 | `feature-forge/tests/test_ff_check_reviewed_snapshot.py` | Strict receipt and reviewed-snapshot regressions | Task 5 |
-| `feature-forge/tests/integration/test_review_loop_boundary.py` | Public Review Loop through-TRIAGE adapter fixture and controller-return provenance | Task 5 |
+| `feature-forge/tests/integration/test_review_loop_boundary.py` | Public Review Loop through-TRIAGE adapter fixture and controller-return provenance | Task 3 schema compatibility, then Task 5 behavior |
 | `feature-forge/tests/behavior/identity_drift.py` | Existing installed-checker drift fixture; reuse of Task 2's schema-aware valid seed builder | Task 3; Task 5 verifies unchanged |
 | `feature-forge/tests/test_behavior_oracle.py` | Existing drift-fixture compatibility gate | Tasks 3 and 5 |
 | `feature-forge/tests/behavior/remediation_pressure.py` | Test-only preparation/scoring for the three remediation pressure scenarios | Task 2; Task 6 consumes unchanged |
@@ -478,8 +478,8 @@ REVIEW_STAGE_RULES = {
     "implementation": {
         "dispatch": frozenset({10}),
         "correction": frozenset({9}),
-        # At Stage 14 this applies only while stage.state is active. A complete
-        # Stage 14 is governed exclusively by the exact terminal triple.
+        # At Stage 14 this applies while stage.state is active or blocked. A
+        # complete Stage 14 is governed exclusively by the exact terminal triple.
         "retained_pass": frozenset({10, 11, 12, 13, 14}),
     },
 }
