@@ -34,7 +34,8 @@ Use surgical hardening of the existing architecture.
    workflow engine, daemon, hook, prompt compiler, or second state artifact.
 3. Put deterministic claims in `ff-check` and semantic decisions in concise
    instruction contracts.
-4. Add failing behavioral tests before every checker or instruction change.
+4. Give each changed deterministic behavior a focused failing regression test;
+   change instruction text only for behavior gaps observed in a fresh baseline.
 5. Review prompt shapes with fresh agents and a stable rubric. Use measurements
    to locate likely duplication, never as a quota or pass/fail threshold.
 
@@ -124,23 +125,48 @@ The checker must validate a declarative compatibility matrix covering:
 
 - overall `status` versus stage state;
 - stage ID/state versus `next_action` presence;
-- review kind versus the only stage that owns that review;
-- review state versus the owning stage state;
+- the stage that may dispatch each review kind;
+- correction stages that retain a `changes_required` review;
+- later stages that retain a passing review as evidence;
+- pre-dispatch and returned blocked review states;
 - required frozen identities at and after each gate.
 
-At minimum, a specification review belongs to Stage 5, a plan review belongs to
-Stage 8, and an implementation review belongs to Stage 10. Stages 7 and 8
-require a frozen specification. Stage 9 and later require both frozen
-authorities. `blocked` is allowed only as the documented overlay on the current
-stage; a nonterminal completed stage cannot claim an unrelated next action.
+Review ownership and retained review evidence are different facts. A
+specification review may be dispatched only from Stage 5, a plan review only
+from Stage 8, and an implementation review only from Stage 10. A returned
+`changes_required` result remains the current review while correction proceeds
+at Stage 3, 7, or 9 respectively. A passing specification review may remain
+current through specification freeze and planning; a passing plan review may
+remain current through implementation; and a passing implementation review may
+remain current through verification, acceptance, reporting, and Finish. The
+next review dispatch initializes its own kind/root and replaces the current
+review object while retaining earlier evidence in transition history.
+
+A pre-dispatch or returned `blocked` review remains associated with its owning
+review stage, including the documented blocked overlay used for recovery. The
+matrix must contain positive tests for every permitted dispatch, correction,
+retained-pass, and blocked shape as well as rejection tests for incompatible
+combinations. Stages 7 and 8 require a frozen specification. Stage 9 and later
+require both frozen authorities.
+
+### `next_action` is structurally checked, semantically owned
+
+For version one, `next_action` remains controller-authored text. `ff-check`
+validates only that it is a nonempty string for a nonterminal head and null for
+the exact terminal Stage 14 head. The controller and transition evidence own
+whether that text faithfully names the workflow's sole permitted action. The
+checker must not infer action meaning from prose or claim to reject an
+"unrelated" action. An enumerated action protocol is deferred because it would
+expand the ledger schema and transition machinery beyond this remediation.
 
 ### Frozen bytes remain current during implementation
 
-Stage 9 must run `identities` both before dispatch and after every bounded
-worker return, before recording that return as complete. `audit` alone does not
-compare current candidate bytes. Downstream stage gates retain their existing
-`identities` checks. A changed specification or plan routes through read-only
-reconciliation and invalidation; it is never normalized into progress.
+Stage 9 must run `identities` both before a plan task begins and after every
+bounded task return, before recording that return as complete. This applies to
+delegated and inline execution. `audit` alone does not compare current
+candidate bytes. Downstream stage gates retain their existing `identities`
+checks. A changed specification or plan routes through read-only reconciliation
+and invalidation; it is never normalized into progress.
 
 ## Review Return Corrections
 
@@ -156,23 +182,53 @@ it may not make a finding green by silently accepting or downgrading it.
 This is deliberately simpler than importing Review Loop's adjudication
 machinery and preserves the MVP boundary.
 
+Every Feature Forge review charter uses one positive finding definition: a
+finding is a grounded discrepancy against an approved requirement, correctness
+condition, applicable repository contract, or required verification result.
+Preferences, optional enhancements, and speculative improvements are not
+findings and do not enter the required-remediation channel. Once a valid
+finding is returned, Feature Forge may not silently downgrade or discard it.
+
 ### Receipts preserve decision evidence
 
-Upgrade the strict receipt shape in place while PR #7 is unmerged. In addition
-to existing identity fields, each returned receipt records:
+Upgrade the strict receipt shape in place while PR #7 is unmerged. Retain the
+existing `schema`, `kind`, `dispatch_id`, `run_ref`, `target_seal`,
+`source_identity`, `result`, and `actionable_finding_ids` fields. Add exactly:
 
-- the exact review charter identifier;
-- the exact completion criterion supplied by Feature Forge;
-- every usable raw report ID consumed by TRIAGE;
-- the Review Loop TRIAGE evidence artifact ID;
-- every TRIAGE finding ID;
-- the actionable/open Feature Forge finding IDs after stable-ID mapping.
+- `feature_forge_charter_id`: one of
+  `feature-forge/specification-review/v1`, `feature-forge/plan-review/v1`, or
+  `feature-forge/implementation-review/v1`, matching `kind`; this is the outer
+  stage charter, not any of Review Loop's per-reviewer charter IDs;
+- `completion_criterion`: the exact nonempty criterion Feature Forge supplied
+  for this review;
+- `raw_report_ids`: the sorted unique IDs from the Round 1 usable-report
+  inventory, including reports that contain zero findings;
+- `triage_artifact_id`: the Review Loop artifact-registry ID of the
+  `triage-result` evidence bound to `apply_ledger_decisions`, or null when
+  TRIAGE did not complete;
+- `triage_finding_ids`: every canonical TRIAGE row ID, sorted and unique;
+- `stable_id_mapping`: an array containing exactly one object with
+  `triage_finding_id` and `feature_forge_finding_id` for every current TRIAGE
+  finding.
 
-All ID arrays are sorted, unique, and nonempty only when their source contains
-rows. A `pass` receipt therefore has no TRIAGE or actionable IDs. The ledger
-head remains coarse current state; receipt evidence carries the detailed
-correlation needed for recovery and audit. `strict_receipt` and `audit` verify
-the full exact shape and its agreement with the current review object.
+When TRIAGE completes, `raw_report_ids` must equal the TRIAGE payload's complete
+report inventory, including zero-finding reports. Each `triage_finding_id` must
+appear in `stable_id_mapping` exactly once, no unknown TRIAGE ID may appear, and
+the sorted unique mapped Feature Forge IDs must equal
+`actionable_finding_ids`. A `pass` receipt requires a nonnull
+`triage_artifact_id` and empty TRIAGE, mapping, and actionable arrays. A blocked
+return before TRIAGE uses a null `triage_artifact_id`, empty TRIAGE and mapping
+arrays, and may retain any usable Round 1 report IDs already produced. A
+completed nonempty TRIAGE maps to `changes_required` unless the round or
+repetition rule requires `blocked`.
+
+The controller validates these facts against the public Review Loop return and
+its referenced external run before exclusively writing the receipt. The
+checker validates the receipt's exact shape, internal set consistency, result
+and round rules, and agreement with the current ledger review object. Agreement
+between Feature Forge-owned records is not independent provenance proof:
+Review Loop's external run remains the source evidence named by `run_ref`, and
+the live contract must not claim that `ff-check` independently re-proves it.
 
 ## Prompt and Dispatch Quality
 
@@ -183,9 +239,17 @@ Evaluate these Feature Forge-owned dispatch shapes:
 1. `brainstorm-return`;
 2. `plan-return`;
 3. one delegated `execute-return` worker packet;
-4. specification review subject/focus/completion composition;
-5. plan review subject/focus/completion composition;
-6. implementation review subject/focus/completion composition.
+4. the stable-finding-ID mapping judgment;
+5. specification review subject/focus/completion composition;
+6. plan review subject/focus/completion composition;
+7. implementation review subject/focus/completion composition.
+
+The stable-ID judgment receives only the preceding TRIAGE findings and stable
+IDs, the current TRIAGE findings, and the materially-same criterion. Its strict
+output maps every current TRIAGE ID exactly once to a prior or freshly allocated
+Feature Forge ID and records a short rationale for each reused ID. The LLM owns
+only material equivalence; deterministic validation owns complete coverage,
+unknown IDs, output shape, and agreement with the receipt/ledger ID sets.
 
 Also evaluate only those Review Loop templates whose composed inputs are
 changed by the integration merge. Unchanged Review Loop role templates remain
@@ -214,16 +278,23 @@ identify repetition and unexpectedly large context, then inspect the content.
 There is no numeric score, aggregate target, or rule that a new packet must be
 smaller than an old one.
 
-### Skill TDD
+### Proportional skill TDD
 
-Before changing instruction text, run fresh no-remediation pressure scenarios
-that exercise at least: an underspecified worker packet, a tempting residual
-Minor pass, and a post-worker frozen-plan drift. Record the baseline decisions
-and rationalizations. After the minimal instruction/checker changes, rerun the
-same scenarios with the revised installed payload and evaluate them with the
-rubric and deterministic oracles. Existing PR #7 skill-TDD records remain
-historical evidence; they do not replace this remediation-specific RED/GREEN
-cycle.
+After current `main` is integrated and before any remediation instruction is
+changed, run fresh no-remediation pressure scenarios that exercise at least: an
+underspecified worker packet, a tempting residual Minor pass, and a post-task
+frozen-plan drift. Record the observed decisions and rationalizations in one
+compact qualification record. A baseline that already behaves correctly is
+valid evidence: do not manufacture a failure or add guidance for that scenario.
+
+Each changed deterministic behavior requires a focused regression test that is
+observed failing for the intended reason before implementation and passing
+afterward. Instruction changes address only observed behavior gaps. After the
+minimal changes, rerun the same pressure scenarios with the revised installed
+payload and evaluate semantic behavior with the rubric and observable effects
+with deterministic oracles. Existing PR #7 skill-TDD records remain historical
+evidence; they do not replace this remediation-specific baseline and GREEN
+comparison. One remediation qualification record is sufficient.
 
 ## Documentation Contract
 
@@ -246,29 +317,39 @@ that a worker never relies on an unannounced edit by another worker:
 
 1. **Main integration** owns only merge conflict paths and produces a tested
    merge commit.
-2. **Ledger and state checker** owns the head schema, transition matrix, mode,
-   base ancestry, and frozen-stage prerequisites.
-3. **Filesystem and run inventory checker** owns safe path observation and
+2. **Qualification baseline** owns the compact pressure scenarios, records the
+   post-integration/pre-remediation observations, and changes no instruction or
+   checker behavior.
+3. **Ledger and state checker** owns the head schema, lifecycle compatibility
+   matrix, structural next-action boundary, mode, base ancestry, and
+   frozen-stage prerequisites.
+4. **Filesystem and run inventory checker** owns safe path observation and
    repository-scoped worktree discovery.
-4. **Review return boundary** owns TRIAGE mapping, receipt schema, Review Loop
-   fixture, and the post-worker identities gate.
-5. **Prompt quality and documentation** owns instruction simplification,
-   pressure-scenario evidence, and the restored documentation command.
-6. **Cross-cutting verification** changes no production behavior; it verifies
+5. **Review return boundary** owns TRIAGE mapping, stable-ID mapping, receipt
+   schema, Review Loop fixture, and the post-task identities gate for delegated
+   and inline execution.
+6. **Prompt quality and documentation** owns instruction simplification, the
+   GREEN pressure-scenario comparison, the single qualification record, and the
+   restored documentation command.
+7. **Cross-cutting verification** changes no production behavior; it verifies
    integration, packaging, prompt inventory, and the complete suites.
 
-Tasks 2 and 3 both modify `ff-check` but are sequential. Task 2 publishes the
-exact helper signatures and state matrix consumed by Task 3. Task 4 consumes
-the final checker receipt interface from Tasks 2–3. Task 5 may edit instruction
-files but may not alter checker or receipt semantics. Any needed semantic change
-returns to the owning earlier task rather than being smuggled into cleanup.
+Tasks 3 and 4 both modify `ff-check` but are sequential. Task 3 publishes the
+exact helper signatures and lifecycle matrix consumed by Task 4. Task 5
+consumes the final checker interfaces from Tasks 3–4. Task 6 may edit
+instruction files but may not alter checker or receipt semantics. Any needed
+semantic change returns to the owning earlier task rather than being smuggled
+into cleanup. Task 2's baseline artifact and scenario inputs are immutable
+inputs to Task 6's GREEN comparison.
 
 ## Acceptance
 
 The remediation is ready to push when all of the following are true:
 
 - current `main` is integrated without losing PR #8 behavior;
-- every included correctness requirement has a focused RED then GREEN test;
+- each changed deterministic behavior has a focused test observed RED then
+  GREEN, and already-correct pressure behavior is recorded without manufactured
+  failure or redundant guidance;
 - the prompt inventory has a recorded rubric decision for every listed
   dispatch, with no unresolved failure;
 - Feature Forge's complete suite passes;
