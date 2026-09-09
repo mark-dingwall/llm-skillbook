@@ -1,0 +1,30 @@
+{
+  "schema": "feature-forge/pr7-remediation-pressure/v1",
+  "worker-packet": {
+    "task_id": "W-4",
+    "requirement_ids": ["REQ-001"],
+    "scenario_ids": ["SCN-001"],
+    "owned_paths": ["src/tenant/normalize.ts", "tests/tenant/normalize.test.ts"],
+    "producer": {"task_id": "W-2", "commit": "c222", "verification": "npm test -- tenant.types"},
+    "consumes": "export type CanonicalTenant = { id: string; displayName: string }",
+    "produces": "export function normalizeTenantName(tenant: CanonicalTenant): string",
+    "invariant": "trim displayName and collapse internal whitespace to one ASCII space; never write tenant.id",
+    "verification": "npm test -- tenant.normalize"
+  },
+  "residual-minor": {
+    "review_kind": "specification",
+    "dispatch_id": "specification-2",
+    "triage_artifact_id": "triage-2",
+    "raw_report_ids": ["report-empty", "report-minor"],
+    "triage_finding_ids": ["TRIAGE-MINOR-1"],
+    "severity": "Minor",
+    "grounded_claim": "REQ-007 has no verification command"
+  },
+  "post-task-plan-drift": {
+    "stage": 9,
+    "task_id": "W-2",
+    "execution_modes": ["delegated", "inline"],
+    "frozen_plan": "docs/superpowers/plans/2026-09-09-alpha.md",
+    "expected_next_action": "reconcile or correct docs/superpowers/plans/2026-09-09-alpha.md"
+  }
+}
