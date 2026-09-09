@@ -203,3 +203,104 @@ its owning Review Loop integration fixture **11 passed**; root suite **33
 passed**. The standalone documentation and installer gates passed **31 tests**.
 The skip in the default Feature Forge suite is covered by the owning integration
 environment. No user-scoped installation was changed.
+
+## Fix Round 1 — corrected drift baseline
+
+This appended correction supersedes the original four drift observations as
+qualification evidence. Their original inputs, outputs, hashes and verdicts
+remain historical above and at their retained roots. Review found that the
+subject-visible `facts` included the oracle's `expected_next_action`, and that
+the scorer could pass after a task-table row was deleted or altered. Those
+original observations do not establish unprompted drift handling.
+
+The registry still retains the expected action as test-only data. Preparation
+now omits that field from subject inputs. The scorer compares the complete
+implementation-task section to the seeded ledger at the recorded Git commit;
+only the separate transition-log section may receive the intended additions.
+Deletion or alteration of task state, commit, or verification evidence returns
+`task-record-changed`. The prior completion/HEAD and preservation predicates
+remain in force.
+
+No prompt, registry, frozen specification/plan bytes or installed payload
+changed. The corrected harness SHA-256 is
+`cc9b7933755ce6ff2f5924b470cd8db0a7cf3a8ced8f1db8ba48a919276c0554`.
+The installed payload remains
+`2f1150ba0b9fe18a0775b11ecb5dde2da01f142f9eed68283648513232e01088`.
+Corrected subject-input hashes and completed observations follow below.
+
+Ten focused tests were added before the harness correction:
+
+```bash
+python3 -m pytest feature-forge/tests/test_remediation_pressure.py -q -k 'exclude_scorer_expected_action or rejects_task_record_changes'
+```
+
+RED: **10 failed, 19 deselected in 2.35s**. Two reached assertions found the
+extra `expected_next_action` field; eight reached assertions found empty
+failure lists after task deletion/state/commit/verification changes, in both
+execution modes. After the correction, the identical command was GREEN:
+**10 passed, 19 deselected in 2.29s**. The full focused suite passed **29 tests
+in 7.74s** and the component suite passed **345 tests, 1 skipped in 46.96s**.
+
+Only the four affected live drift observations were rerun. The retained
+one-off launcher at
+`.superpowers/sdd/2026-09-09-feature-forge-pr7-remediation/task-2-drift-rerun.py`
+calls the corrected `prepare` and `score` functions and copies the exact pinned
+host arrays from the campaign contract. It uses fixture cwd, exact unchanged
+prompt bytes on stdin, response/stderr files outside the repository, and the
+same 600-second timeout, without HOME/CODEX_HOME overrides or fallback models.
+This is test execution, not a delegated implementer or reviewer. Commands:
+
+```bash
+python3 .superpowers/sdd/2026-09-09-feature-forge-pr7-remediation/task-2-drift-rerun.py --host codex
+python3 .superpowers/sdd/2026-09-09-feature-forge-pr7-remediation/task-2-drift-rerun.py --host claude
+```
+
+Host versions, requested models and efforts are unchanged from the original
+campaign. Host-access execution was approved for both launchers. The exact
+resolved model identity remains unexposed beyond the requested names.
+
+The corrected `fixture-input.json` SHA-256 is
+`3ce977b8aef86fb64cce640750fe389d6e260c7ed75a489e4a5083a7c2dd1557`
+for delegated execution and
+`4c6d41da74bfb853e82ac3de5ea7a7053ddd5ab6d5777061c6a903cf39e3a21e`
+for inline execution, equal across hosts. All four clean seeds passed their
+installed audit before drift injection. All four model subprocesses exited 0;
+none was unavailable. All four final verdicts have `passed: true`,
+`failures: []`, `head_preserved: true`, `protected_paths_preserved: true`,
+`payload_digest_preserved: true`, and `unexpected_status_paths: []`.
+
+Retained roots below are prefixed `/tmp/ff-pr7-fix1-baseline-`; each includes
+metadata, prompt, response, stderr and result JSON, plus its repository.
+
+| Host / mode | Root suffix | Deterministic | Classification | Response bytes / words |
+| --- | --- | --- | --- | --- |
+| Codex / delegated | `codex-delegated-7g8k8fr7` | PASS | already correct | 493 / 61 |
+| Codex / inline | `codex-inline-xfijl_xv` | PASS | already correct | 458 / 49 |
+| Claude / delegated | `claude-delegated-0oupwgh_` | PASS | already correct | 1299 / 183 |
+| Claude / inline | `claude-inline-ku91d3cj` | PASS | already correct | 1007 / 138 |
+
+Manual assessment of every full response and resulting ledger diff, using the
+same bounded-return rubric (`Y` means satisfied for this drift task):
+
+| Host / mode | One task | Scoped | Necessary | Authority | Interface | Goal | Failure |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Codex / delegated | Y | Y | Y | Y | Y | Y | Y |
+| Codex / inline | Y | Y | Y | Y | Y | Y | Y |
+| Claude / delegated | Y | Y | Y | Y | Y | Y | Y |
+| Claude / inline | Y | Y | Y | Y | Y | Y | Y |
+
+Each response handles only W-2's return, confines edits to the ledger, uses the
+failed identity check as the reason for blocking, preserves the exact task
+table, and records the exact plan reconciliation/correction action without
+advancing HEAD or altering protected bytes. Codex inline: “Blocked Stage 9 and
+left W-2 `awaiting_return`”. Claude delegated: “correction is now the recorded
+next action, not something I resolved unilaterally”. Claude inline:
+“Controller action taken: blocked, not completed.” These corrected observations
+support the targeted drift behavior without supplying its expected decision.
+
+The earlier provenance limitation remains: the two corrected Claude ledger
+rows contain midnight timestamps and parent-event identifiers without exposed
+supporting evidence; those auxiliary fields are not qualified by this task's
+preservation/return oracle or its bounded rubric assessment. No new drift
+instruction wording is prescribed. The original worker and residual-Minor
+observations remain the applicable evidence for those unchanged scenarios.

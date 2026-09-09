@@ -146,6 +146,34 @@ def test_post_task_drift_requires_durable_block_then_accepts_conforming_return(t
     assert score(root)["passed"] is True
 
 
+@pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
+def test_drift_subject_inputs_exclude_scorer_expected_action(tmp_path: Path, execution_mode: str) -> None:
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
+    inputs = json.loads((Path(metadata(root)["repo"]) / "fixture-input.json").read_text())
+    assert set(inputs["facts"]) == {"stage", "task_id", "execution_modes", "frozen_plan"}
+    assert "expected_next_action" not in json.dumps(inputs)
+    assert f"reconcile or correct {PLAN}" not in json.dumps(inputs)
+    # The test-only registry retains the oracle's expectation.
+    assert json.loads((CASES / "cases.json").read_text())["post-task-plan-drift"]["expected_next_action"] == f"reconcile or correct {PLAN}"
+
+
+@pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
+@pytest.mark.parametrize("mutation", ["delete", "state", "commit", "verification"])
+def test_drift_score_rejects_task_record_changes(tmp_path: Path, execution_mode: str, mutation: str) -> None:
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
+    write_blocked(root)
+    path, _, _ = parts(root)
+    original = "| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass |"
+    replacements = {
+        "delete": "",
+        "state": original.replace("awaiting_return", "blocked"),
+        "commit": original.replace("supplied checkpoint", "invented-commit"),
+        "verification": original.replace("tenant.types: pass", "tenant.types: skipped"),
+    }
+    path.write_text(path.read_text().replace(original, replacements[mutation]))
+    assert score(root)["failures"] == ["task-record-changed"]
+
+
 @pytest.mark.parametrize("scenario,mode", [("worker-packet", None), ("residual-minor", None), ("post-task-plan-drift", "inline")])
 def test_preparation_pins_inputs_and_excludes_oracle(tmp_path: Path, scenario: str, mode: str | None) -> None:
     root = prepared_fixture(tmp_path, scenario, mode)

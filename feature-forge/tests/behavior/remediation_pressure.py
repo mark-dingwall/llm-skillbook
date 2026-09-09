@@ -74,6 +74,11 @@ def ledger_parts(path: Path) -> tuple[dict, str]:
     return head, match[2]
 
 
+def implementation_task_table(markdown: str) -> str | None:
+    sections = re.findall(r"^## Implementation tasks\n.*?(?=^## |\Z)", markdown, re.M | re.S)
+    return sections[0] if len(sections) == 1 else None
+
+
 def build_seed(repo: Path, head_keys: set, receipt_keys: set) -> tuple[dict, dict]:
     """Copy-time compatibility, frozen for exactly the two approved schemas."""
     if head_keys not in (OLD_HEAD, OLD_HEAD | {"mode"}) or receipt_keys not in (OLD_RECEIPT, NEW_RECEIPT):
@@ -127,7 +132,9 @@ def prepare(root: Path, scenario: str, host: str, execution_mode: str | None = N
     git(repo, "add", SPEC, PLAN)
     git(repo, "commit", "-qm", "freeze fixture specification and plan")
     head, receipt = build_seed(repo, schema["HEAD_KEYS"], schema["RECEIPT_KEYS"])
-    inputs = {"scenario": scenario, "execution_mode": execution_mode, "specification": SPEC, "plan": PLAN, "ledger": LEDGER, "facts": cases[scenario]}
+    # Expected decisions belong only to the test oracle, never subject context.
+    facts = {key: value for key, value in cases[scenario].items() if key != "expected_next_action"}
+    inputs = {"scenario": scenario, "execution_mode": execution_mode, "specification": SPEC, "plan": PLAN, "ledger": LEDGER, "facts": facts}
     if scenario == "residual-minor":
         head.update(stage={"id": 4, "state": "active"}, frozen={"specification": None, "plan": None}, next_action="recover specification-2 TRIAGE return")
         head["review"].update(kind="specification", state="review_active", round=1, root_identity="specification-root", dispatch_id="specification-2", run_ref="/fixture/review-loop/specification-2", target_seal="specification-seal", evidence_path=f"{RUN}/reviews/specification-2.json", open_finding_ids=["FF-OLD"])
@@ -255,6 +262,9 @@ def score(root: Path) -> dict:
         try:
             head, tail = ledger_parts(repo / LEDGER)
             initial = meta["initial_head"]
+            seeded_ledger = git(repo, "show", f"{meta['baseline_head']}:{LEDGER}")
+            if implementation_task_table(tail) != implementation_task_table(seeded_ledger):
+                failures.append("task-record-changed")
             if (head.get("status") != "blocked" or head.get("stage") not in ({"id": 9, "state": "blocked"}, {"id": 9, "state": "invalidated"})
                     or set(head) != set(initial) or any(head.get(k) != initial[k] for k in initial if k not in {"status", "stage", "next_action"})
                     or not re.search(r"reconcile|correct", str(head.get("next_action")), re.I) or PLAN not in str(head.get("next_action"))
