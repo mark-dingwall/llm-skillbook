@@ -136,6 +136,70 @@ def test_runs_keeps_an_unreadable_redirected_ledger_unverifiable(
     assert observed.findings == ("ledger=docs/feature-forge/runs/alias/ledger.md:unreadable",)
 
 
+def test_runs_main_treats_an_unobservable_canonical_inventory_directory_as_unverifiable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A failed ledger-directory observation is not evidence of a collision."""
+    repo = make_repo(tmp_path, branch="feature/other")
+    directory = run_dir(repo)
+    checker = runpy.run_path(str(CHECKER))
+    original_lstat = Path.lstat
+
+    def denied(path: Path):
+        if path == directory:
+            raise PermissionError("denied")
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", denied)
+    exit_code = checker["main"](["runs", "--repo", str(repo), "--run-id", "alpha"])
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == "FF-CHECK v1 gate=runs status=unverifiable\n"
+    assert captured.err == "ledger=docs/feature-forge/runs/2026-08-25-alpha/ledger.md:unreadable\n"
+    assert "Traceback" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("failure", ["top-level", "common-dir"])
+def test_runs_main_fails_closed_when_a_candidate_repository_identity_is_unobservable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], failure: str,
+) -> None:
+    """An unknown candidate identity cannot be dropped from the collision inventory."""
+    repo = tmp_path / "repository"
+    repo.mkdir()
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    common = tmp_path / "common"
+    common.mkdir()
+    checker = runpy.run_path(str(CHECKER))
+    inventory = f"worktree {candidate}\0branch refs/heads/feature/alpha\0\0".encode()
+
+    def fake_git(observed_repo: Path, *args: str) -> str | None:
+        if args == ("branch", "--list", "--format=%(refname)"):
+            return ""
+        if args == ("rev-parse", "--git-common-dir"):
+            if failure == "common-dir" and observed_repo == candidate:
+                return None
+            return str(common)
+        if args == ("rev-parse", "--show-toplevel"):
+            return None if failure == "top-level" else str(candidate)
+        return None
+
+    def fake_git_bytes(_repo: Path, *args: str) -> bytes | None:
+        return inventory if args == ("worktree", "list", "--porcelain", "-z") else None
+
+    namespace = checker["runs"].__globals__
+    monkeypatch.setitem(namespace, "repository", lambda _argument: repo)
+    monkeypatch.setitem(namespace, "valid_run_id", lambda _repo, _run_id: True)
+    monkeypatch.setitem(namespace, "git", fake_git)
+    monkeypatch.setitem(namespace, "git_bytes", fake_git_bytes)
+    exit_code = checker["main"](["runs", "--repo", str(repo), "--run-id", "alpha"])
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == "FF-CHECK v1 gate=runs status=unverifiable\n"
+    assert captured.err == "git-inventory=unavailable\n"
+    assert "Traceback" not in captured.out + captured.err
+
+
 def test_runs_passes_when_no_matching_inventory_exists(tmp_path: Path) -> None:
     result = check("runs", "--repo", str(make_repo(tmp_path, branch="feature/other")), "--run-id", "alpha")
     assert_result(result, "runs", "pass", 0)

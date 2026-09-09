@@ -360,6 +360,10 @@ def runs(repo_arg: str, run_id: str) -> Result:
         for directory in children:
             canonical_requested = valid_date(directory.name, run_id)
             directory_state = observed_entry_state(repo, directory)
+            if canonical_requested and directory_state == "unavailable":
+                relative = (directory / "ledger.md").relative_to(repo).as_posix()
+                unverifiable.append(f"ledger={relative}:unreadable")
+                continue
             if canonical_requested and directory_state != "directory":
                 diagnostics.append(f"run={directory.relative_to(repo).as_posix()}:occupied")
                 continue

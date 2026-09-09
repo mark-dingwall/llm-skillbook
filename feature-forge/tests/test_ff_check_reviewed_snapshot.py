@@ -719,6 +719,31 @@ def test_implementation_snapshot_digest_treats_a_walk_failure_as_unavailable(
     assert checker["implementation_snapshot_digest"](repo, directory, "implementation-1") is None
 
 
+def test_implementation_snapshot_main_treats_a_subject_walk_failure_as_unverifiable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    checker = runpy.run_path(str(CHECKER))
+    original_iterdir = Path.iterdir
+
+    def denied(path: Path):
+        if path == repo:
+            raise PermissionError("denied")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", denied)
+    exit_code = checker["main"]([
+        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
+        "--dispatch-id", "implementation-1",
+    ])
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == "FF-CHECK v1 gate=implementation-snapshot status=unverifiable\n"
+    assert captured.err == "snapshot=unavailable\n"
+    assert "Traceback" not in captured.out + captured.err
+
+
 def test_reviewed_snapshot_reports_a_looped_receipt_path_without_a_traceback(tmp_path: Path) -> None:
     repo, directory, data = reviewed_fixture(tmp_path)
     receipt = repo / data["review"]["evidence_path"]
