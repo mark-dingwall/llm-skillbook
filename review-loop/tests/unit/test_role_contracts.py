@@ -114,6 +114,7 @@ class RoleFieldContractTests(unittest.TestCase):
                       "new_depth_evidence"):
             with self.subTest(token=token):
                 self.assertIn(token, text)
+
     def test_inventory_revision_declares_resolutions_as_an_array_of_exact_objects(self):
         text = " ".join(_read("inventory.md").split())
         self.assertIn(

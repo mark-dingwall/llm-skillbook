@@ -39,7 +39,7 @@ area ID exactly once — a bijection with `areas`.
 
 **Initial inventory** — `role_id` is the literal string `inventory-owner`.
 `payload` is `areas`, `priority_order`, and `mappings`; `mappings` must be
-an empty array.
+empty.
 
 **Refresh** — `role_id` is `inventory-owner`. `mappings` maps every
 previously-named area ID the controller supplies exactly once to one of:
