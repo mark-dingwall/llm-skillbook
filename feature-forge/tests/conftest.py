@@ -40,10 +40,10 @@ def head(repo: Path, run_id: str = "alpha", *, status: str = "active",
          worktree: str | None = None, branch: str | None = None,
          base_identity: str | None = None, frozen: dict[str, object] | None = None) -> dict[str, object]:
     return {
-        "schema": "feature-forge/ledger/v1", "run_id": run_id, "status": status,
+        "schema": "feature-forge/ledger/v1", "run_id": run_id, "mode": "supervised", "status": status,
         "worktree": worktree or str(repo), "branch": branch or f"feature/{run_id}",
         "base_identity": base_identity or git(repo, "rev-parse", "HEAD"),
-        "stage": {"id": 1, "state": "active" if status != "complete" else "complete"},
+        "stage": {"id": 1, "state": status},
         "next_action": None if status == "complete" else "continue",
         "frozen": frozen or {"specification": None, "plan": None},
         "review": {"kind": None, "state": "not_started", "round": 0,

@@ -32,9 +32,44 @@ RECEIPT_KEYS = {
 }
 SOURCE_IDENTITY_KEYS = {"kind", "path", "value"}
 HEAD_KEYS = {
-    "schema", "run_id", "status", "worktree", "branch", "base_identity",
+    "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
     "stage", "next_action", "frozen", "review",
 }
+
+AUTOMATION_MODES = frozenset({"interactive", "supervised", "unattended"})
+
+REVIEW_STAGE_RULES = {
+    "specification": {
+        "dispatch": frozenset({5}),
+        "correction": frozenset({3, 4}),
+        "retained_pass": frozenset({5, 6, 7, 8}),
+    },
+    "plan": {
+        "dispatch": frozenset({8}),
+        "correction": frozenset({7}),
+        "retained_pass": frozenset({8, 9, 10}),
+    },
+    "implementation": {
+        "dispatch": frozenset({10}),
+        "correction": frozenset({9}),
+        # At Stage 14 this applies while stage.state is active or blocked. A
+        # complete Stage 14 is governed exclusively by the exact terminal triple.
+        "retained_pass": frozenset({10, 11, 12, 13, 14}),
+    },
+}
+
+
+def required_frozen_authorities(stage_id: int) -> tuple[str, ...]:
+    if stage_id >= 9:
+        return ("specification", "plan")
+    if stage_id >= 7:
+        return ("specification",)
+    return ()
+
+
+def mode_error(data: dict[str, object]) -> str | None:
+    mode = data.get("mode")
+    return None if isinstance(mode, str) and mode in AUTOMATION_MODES else "mode=unsupported"
 
 
 @dataclass(frozen=True)
@@ -93,6 +128,18 @@ def object_identity(
 
 def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical", "unverifiable"]:
     return object_identity(repo, value, "commit")
+
+
+def base_identity_result(repo: Path, value: object) -> Result:
+    identity = commit_identity(repo, value)
+    if identity == "noncanonical":
+        return result("fail", "base-identity=noncanonical")
+    if identity == "unverifiable":
+        return result("unverifiable", "base-identity=unresolvable")
+    ancestry = git_status(repo, "merge-base", "--is-ancestor", str(value), "HEAD")
+    if ancestry not in {0, 1}:
+        return result("unverifiable", "base-identity=ancestry-unavailable")
+    return result("pass") if ancestry == 0 else result("fail", "base-identity=not-ancestor")
 
 
 def repository(path: str) -> Path | None:
@@ -180,6 +227,8 @@ def valid_run_id(repo: Path, run_id: str) -> bool:
 
 def run_head_error(repo: Path, data: dict[str, object]) -> str | None:
     """Validate the values that `runs` must classify, never coerce them."""
+    if error := mode_error(data):
+        return error
     run_id, worktree, branch, status = (data.get("run_id"), data.get("worktree"),
                                         data.get("branch"), data.get("status"))
     if not isinstance(run_id, str) or not valid_run_id(repo, run_id):
@@ -932,6 +981,8 @@ def audit_frozen_shape(repo: Path, frozen: object) -> bool:
 
 
 def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | None:
+    if error := mode_error(data):
+        return error
     if set(data) != HEAD_KEYS:
         return "head=unsupported"
     suffix = DATED_DIRECTORY.fullmatch(run.name)
@@ -963,7 +1014,7 @@ def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | No
     ):
         return "stage=unsupported"
     next_action = data.get("next_action")
-    if next_action is not None and (not isinstance(next_action, str) or not next_action):
+    if next_action is not None and not isinstance(next_action, str):
         return "next-action=unsupported"
     if not audit_frozen_shape(repo, data.get("frozen")):
         return "frozen=unsupported"
@@ -971,15 +1022,48 @@ def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | No
     return error
 
 
-def terminal_invariant(data: dict[str, object]) -> bool:
-    terminal = (
-        data["status"] == "complete"
-        and data["stage"] == {"id": 14, "state": "complete"}
-        and data["next_action"] is None
+def head_transition_invariant(data: dict[str, object]) -> bool:
+    status = data["status"]
+    stage = data["stage"]
+    state = stage["state"]
+    terminal_stage = stage == {"id": 14, "state": "complete"}
+    if status == "complete" or terminal_stage:
+        return (
+            status == "complete"
+            and terminal_stage
+            and data["next_action"] is None
+        )
+    if data["next_action"] is None or not str(data["next_action"]).strip():
+        return False
+    return (
+        (status == "active" and state in {"active", "complete"})
+        or (status == "blocked" and state in {"blocked", "invalidated"})
     )
-    if data["status"] == "complete" or data["stage"] == {"id": 14, "state": "complete"} or data["next_action"] is None:
-        return terminal
-    return isinstance(data["next_action"], str) and bool(data["next_action"])
+
+
+def review_stage_invariant(status: str, stage: dict[str, object], review: dict[str, object]) -> bool:
+    """Check current-head compatibility; historical succession is controller-owned."""
+    if status == "complete":
+        return review["kind"] == "implementation" and review["state"] == "pass"
+    if stage["state"] == "invalidated":
+        return status == "blocked" and review["state"] == "not_started"
+    ordinary = (
+        (status == "active" and stage["state"] in {"active", "complete"})
+        or (status == "blocked" and stage["state"] == "blocked")
+    )
+    if review["state"] == "not_started":
+        return stage["id"] <= 5 and ordinary
+    rules = REVIEW_STAGE_RULES[review["kind"]]
+    if review["state"] == "review_active":
+        return stage["id"] in rules["dispatch"] and (
+            (status == "active" and stage["state"] == "active")
+            or (status == "blocked" and stage["state"] == "blocked")
+        )
+    if review["state"] == "blocked":
+        return stage["id"] in rules["dispatch"] and status == "blocked" and stage["state"] == "blocked"
+    if review["state"] == "changes_required":
+        return stage["id"] in rules["correction"] and ordinary
+    return review["state"] == "pass" and stage["id"] in rules["retained_pass"] and ordinary
 
 
 def populated_review_tuple(review: dict[str, object]) -> bool:
@@ -1149,11 +1233,9 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
         return result("unverifiable", "branch=unavailable")
     if observed_branch != f"refs/heads/{expected_branch}":
         return result("fail", "branch=wrong-run")
-    base = commit_identity(repo, data["base_identity"])
-    if base == "noncanonical":
-        return result("fail", "base-identity=noncanonical")
-    if base == "unverifiable":
-        return result("unverifiable", "base-identity=unresolvable")
+    base = base_identity_result(repo, data["base_identity"])
+    if base.status != "pass":
+        return base
     frozen = data["frozen"]
     assert isinstance(frozen, dict)
     for name in ("specification", "plan"):
@@ -1247,17 +1329,21 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
     stage = data["stage"]
     frozen = data["frozen"]
     assert isinstance(stage, dict) and isinstance(frozen, dict)
-    if stage["id"] >= 9 and any(frozen[name] is None for name in ("specification", "plan")):
+    if any(frozen[name] is None for name in required_frozen_authorities(stage["id"])):
         return result("fail", "frozen=incomplete")
     identities = canonical_identity_claims(repo, run, data)
     if identities.status != "pass":
         return identities
-    if not terminal_invariant(data):
-        return result("fail", "terminal=inconsistent")
+    if not head_transition_invariant(data):
+        terminal_error = (
+            data["status"] == "complete" or stage == {"id": 14, "state": "complete"}
+            or data["next_action"] is None or not str(data["next_action"]).strip()
+        )
+        return result("fail", "terminal=inconsistent" if terminal_error else "status-stage=inconsistent")
     review = data["review"]
     assert isinstance(review, dict)
     valid, receipt_required = review_state_invariant(review)
-    if not valid:
+    if not valid or not review_stage_invariant(data["status"], stage, review):
         return result("fail", "review=inconsistent")
     implementation_return = (
         review["kind"] == "implementation"
@@ -1341,6 +1427,8 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     if error:
         return result("unverifiable", f"ledger={error}")
     assert data is not None
+    if error := mode_error(data):
+        return result("unverifiable", error)
     suffix = DATED_DIRECTORY.fullmatch(run.name)
     assert suffix is not None
     if data.get("run_id") != suffix.group(4) or not valid_run_id(repo, suffix.group(4)):
@@ -1363,11 +1451,9 @@ def identities(repo_arg: str, run_arg: str) -> Result:
         or observed_branch != f"refs/heads/{expected_branch}"
     ):
         return result("fail", "identity=worktree-or-branch-mismatch")
-    base_status = commit_identity(repo, base)
-    if base_status == "noncanonical":
-        return result("fail", "base-identity=noncanonical")
-    if base_status == "unverifiable":
-        return result("unverifiable", "base-identity=unresolvable")
+    base_status = base_identity_result(repo, base)
+    if base_status.status != "pass":
+        return base_status
     return frozen_snapshot(repo, run, data.get("frozen"))
 
 

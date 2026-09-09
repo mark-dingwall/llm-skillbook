@@ -34,19 +34,23 @@ as absent.
 | --- | --- |
 | `schema` | Exactly `feature-forge/ledger/v1`. |
 | `run_id` | Work-unit slug. |
+| `mode` | Exactly `interactive`, `supervised`, or `unattended`; default `supervised`. |
 | `status` | `active`, `blocked`, or `complete`. |
-| `worktree`, `branch`, `base_identity` | Current absolute worktree; exact `feature/<run_id>` branch; canonical full, resolvable commit OID. |
-| `stage` | `{id, state}`; IDs are 1..14 and state is `pending`, `active`, `blocked`, `complete`, or `invalidated`. |
-| `next_action` | Nonempty for nonterminal heads; null only when status is `complete`, which is valid only with Stage 14 complete. |
+| `worktree`, `branch`, `base_identity` | Current absolute worktree; exact `feature/<run_id>` branch; canonical full, resolvable commit OID that is an ancestor of current `HEAD`. This does not reconstruct the historical fork point. |
+| `stage` | `{id, state}`; IDs are 1..14. The current head uses `active`, `blocked`, `complete`, or `invalidated`; `pending` describes future stages only and is rejected for the current stage. |
+| `next_action` | Nonblank for nonterminal heads; null only with overall `complete` and Stage 14 complete. Its semantic meaning remains controller-owned prose. |
 | `frozen` | `specification` and `plan`, each null or exactly `{path, blob}` strings; non-null paths are the run-derived canonical artifacts and blobs are canonical full, resolvable blob OIDs. |
 | `review` | Current review control object, defined below. |
 
-The exact top-level key set is `schema`, `run_id`, `status`, `worktree`,
+The exact top-level key set is `schema`, `run_id`, `mode`, `status`, `worktree`,
 `branch`, `base_identity`, `stage`, `next_action`, `frozen`, and `review`.
 The head owns those current values. Tables retain intent/run evidence, authority,
 implementation evidence, verification/acceptance evidence, the Finish journal,
 and dated transitions. They never claim to hold a current review field; prior
 review evidence belongs in transition history, not the current head.
+
+Human evidence explains automation authority but never substitutes for the
+checked `mode` enum in the head.
 
 `review` has exactly `kind`, `state`, `round`, `root_identity`, `dispatch_id`,
 `run_ref`, `target_seal`, `evidence_path`, `reviewed_commit`,
@@ -68,6 +72,34 @@ Starting a different review kind creates a fresh current review object at round
 0 with empty arrays and a new kind/root. Earlier review evidence remains in the
 transition history; the current head does not prove that historical transition.
 Only review-loop owns review target seals.
+
+The checker validates compatible current-head combinations, not historical
+succession. Overall `active` permits current stage `active` or `complete`;
+overall `blocked` permits current stage `blocked` or `invalidated`. A complete
+Stage 14 requires overall `complete`, an implementation `pass`, and null
+`next_action`; it never counts as a nonterminal retained pass.
+
+| current review | compatible stages and states |
+| --- | --- |
+| `not_started` | Before first dispatch, Stages 1–5 with active/active, active/complete, or blocked/blocked. |
+| `review_active` | Owning review stage (specification 5, plan 8, implementation 10), with active/active or blocked/blocked recovery overlay. |
+| `changes_required` | Specification correction at Stage 3 or 4; plan correction at 7; implementation correction at 9. Each allows active/active, active/complete, or blocked/blocked. |
+| `pass` | Owning review return allows active/complete. Retained specification pass is valid at Stages 5–8, plan pass at 8–10, and implementation pass at 10–14, with active/active, active/complete, or blocked/blocked, except complete Stage 14. |
+| `blocked` | Pre-dispatch or returned block at the owning review stage with blocked/blocked only. |
+| authority-governed invalidation | Any blocked/invalidated current stage with a freshly reset `not_started` review. Replacement-root authority and evidence remain required in transition history. |
+
+Frozen specification is required from Stage 7; both frozen specification and
+plan are required from Stage 9, including blocked and invalidated heads.
+
+Ordinary same-kind re-review retains `kind`, `root_identity`, `round`,
+`previous_open_finding_ids`, and `open_finding_ids`: record the returned
+`changes_required` at its correction stage, then the blocked pre-dispatch
+reservation at its owning review stage with dispatch/run/seal/evidence and
+`reviewed_commit` cleared, then populated `review_active` with fresh dispatch,
+run, seal, and evidence identities and null `reviewed_commit`. `audit` checks
+each individual head but cannot prove their historical succession; controller
+transition conformance is verified through the public boundary fixture and
+behavior evidence.
 
 | Term | Meaning | Validator |
 | --- | --- | --- |

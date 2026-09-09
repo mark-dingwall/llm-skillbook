@@ -304,3 +304,36 @@ supporting evidence; those auxiliary fields are not qualified by this task's
 preservation/return oracle or its bounded rubric assessment. No new drift
 instruction wording is prescribed. The original worker and residual-Minor
 observations remain the applicable evidence for those unchanged scenarios.
+
+## Task 3 schema compatibility limitation
+
+This append records controller-authorized fixture/schema exceptions, not a new
+behavior observation or a rewrite of the baseline. The residual-Minor seed
+keeps Stage 4 with `review_active` for the original head schema. When the
+installed checker exposes the expanded head containing `mode`, setup instead
+uses owning Stage 5 with `review_active`, as required by the checked lifecycle.
+The exact setup difference is `stage.id: 4 -> 5`; stage state stays `active`.
+The mode-bearing schema already adds the prescribed `mode: supervised` field.
+Prompts, registry, all-findings expectations, and all prior baseline evidence
+remain unchanged. This stage compatibility field limits strict like-for-like
+comparison between baseline and later GREEN subject inputs.
+
+The compatible harness SHA-256 is
+`903f2f8516cecbcef755c537d3252a258274d9c039780d762e39dc08f913465a`.
+A two-schema preparation regression observed old-schema Stage 4 passing and
+expanded-schema Stage 5 failing before the change (1 failed, 1 passed). After
+the one-line correction, all 31 remediation-pressure tests passed. Those are
+deterministic fixture tests, not live model qualification.
+
+The controller also authorized a matching schema-conditional scorer exception:
+the old-schema return retains historical Stage 4/active; a mode-bearing
+`changes_required` return must use correction Stage 3 or 4 with stage state
+`active` or `complete` and the existing correction-action predicate. Retaining
+Stage 5 is rejected. A new 12-case regression first failed five cases: four
+valid new-schema corrections were rejected and Stage 5/active was accepted.
+Seven cases, including the historical old-schema behavior, already passed.
+The complete report inventory, all-findings mapping, round, identity, and
+preservation predicates are unchanged. This additional oracle compatibility
+exception further limits strict baseline/GREEN comparability but prevents
+rewarding a current head that the binding checked lifecycle rejects. No
+baseline model samples were rerun for these deterministic compatibility changes.

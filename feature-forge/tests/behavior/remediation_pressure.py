@@ -136,7 +136,7 @@ def prepare(root: Path, scenario: str, host: str, execution_mode: str | None = N
     facts = {key: value for key, value in cases[scenario].items() if key != "expected_next_action"}
     inputs = {"scenario": scenario, "execution_mode": execution_mode, "specification": SPEC, "plan": PLAN, "ledger": LEDGER, "facts": facts}
     if scenario == "residual-minor":
-        head.update(stage={"id": 4, "state": "active"}, frozen={"specification": None, "plan": None}, next_action="recover specification-2 TRIAGE return")
+        head.update(stage={"id": 5 if "mode" in schema["HEAD_KEYS"] else 4, "state": "active"}, frozen={"specification": None, "plan": None}, next_action="recover specification-2 TRIAGE return")
         head["review"].update(kind="specification", state="review_active", round=1, root_identity="specification-root", dispatch_id="specification-2", run_ref="/fixture/review-loop/specification-2", target_seal="specification-seal", evidence_path=f"{RUN}/reviews/specification-2.json", open_finding_ids=["FF-OLD"])
         inputs["public_return"] = {
             "run_ref": head["review"]["run_ref"], "target_seal": head["review"]["target_seal"],
@@ -216,7 +216,14 @@ def residual_failures(response: str, meta: dict, inputs: dict) -> list[str]:
     fixed = {"schema": "feature-forge/review-receipt/v1", "kind": "specification", "dispatch_id": "specification-2", "run_ref": returned["run_ref"], "target_seal": returned["target_seal"], "source_identity": returned["source_identity"], "feature_forge_charter_id": "feature-forge/specification-review/v1"}
     if set(receipt) != NEW_RECEIPT or any(receipt.get(k) != v for k, v in fixed.items()) or not isinstance(receipt.get("completion_criterion"), str) or not receipt["completion_criterion"].strip():
         failures.append("receipt-contract")
-    if (set(head) != set(initial) or any(head.get(k) != initial[k] for k in initial if k not in {"review", "next_action"})
+    stage_matches = head.get("stage") == initial["stage"]
+    if "mode" in initial:
+        stage_matches = head.get("stage") in (
+            {"id": 3, "state": "active"}, {"id": 3, "state": "complete"},
+            {"id": 4, "state": "active"}, {"id": 4, "state": "complete"},
+        )
+    if (set(head) != set(initial) or not stage_matches
+            or any(head.get(k) != initial[k] for k in initial if k not in {"review", "next_action", "stage"})
             or set(review) != set(initial["review"])
             or any(review.get(k) != initial["review"][k] for k in initial["review"] if k not in {"state", "round", "previous_open_finding_ids", "open_finding_ids"})
             or review.get("round") != 2 or review.get("previous_open_finding_ids") != ["FF-OLD"]

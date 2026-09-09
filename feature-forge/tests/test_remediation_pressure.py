@@ -9,6 +9,7 @@ import re
 import runpy
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -71,6 +72,8 @@ def write_residual_response(root: Path, result: str = "changes_required", raw_re
     finding = "FF-" + hashlib.sha256(b'["specification-2","TRIAGE-MINOR-1"]').hexdigest()
     head["review"].update(state=result, round=2, previous_open_finding_ids=["FF-OLD"], open_finding_ids=[finding])
     head.update(status="active", next_action="correct REQ-007 verification and re-review")
+    if "mode" in head:
+        head["stage"] = {"id": 4, "state": "active"}
     source = json.loads((Path(metadata(root)["repo"]) / "fixture-input.json").read_text())["public_return"]["source_identity"]
     receipt = {
         "schema": "feature-forge/review-receipt/v1", "kind": "specification",
@@ -217,6 +220,65 @@ def test_schema_builder_emits_only_known_checker_keys(tmp_path: Path, expanded: 
         assert receipt["triage_artifact_id"] == "plan-triage"
     with pytest.raises(ValueError, match="unsupported checker schema"):
         harness["build_seed"](Path(metadata(root)["repo"]), head_keys | {"unknown"}, receipt_keys)
+
+
+def prepared_residual_schema(tmp_path: Path, head_keys: set[str]) -> Path:
+    # The historical checker is not shipped. Substitute only its schema/audit
+    # observations; preparation, installation, Git, and ledger writes stay real.
+    # Other preparation tests exercise the actual current installed audit.
+    prepare = runpy.run_path(str(SCRIPT))["prepare"]
+    prepare.__globals__["runpy"] = SimpleNamespace(run_path=lambda _path: {
+        "HEAD_KEYS": head_keys, "RECEIPT_KEYS": OLD_RECEIPT,
+    })
+
+    def checker_observation(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if len(args) > 2 and str(args[1]).endswith("/scripts/ff-check") and args[2] == "audit":
+            return subprocess.CompletedProcess(args, 0, "FF-CHECK v1 gate=audit status=pass\n", "")
+        return subprocess.run(args, **kwargs)
+
+    prepare.__globals__["subprocess"] = SimpleNamespace(run=checker_observation)
+    root = tmp_path / "fixture"
+    prepare(root, "residual-minor", "codex")
+    return root
+
+
+@pytest.mark.parametrize("head_keys,expected_stage", [(OLD_HEAD, 4), (OLD_HEAD | {"mode"}, 5)])
+def test_residual_preparation_uses_the_owning_stage_for_each_known_schema(
+    tmp_path: Path, head_keys: set[str], expected_stage: int,
+) -> None:
+    root = prepared_residual_schema(tmp_path, head_keys)
+    _, observed, _ = parts(root)
+    assert observed["stage"] == {"id": expected_stage, "state": "active"}
+    assert observed["review"]["kind"] == "specification"
+    assert observed["review"]["state"] == "review_active"
+    assert set(observed) == head_keys
+
+
+@pytest.mark.parametrize("expanded,stage,state,accepted", [
+    (False, 4, "active", True),
+    (False, 3, "active", False),
+    (False, 4, "complete", False),
+    (True, 3, "active", True),
+    (True, 3, "complete", True),
+    (True, 4, "active", True),
+    (True, 4, "complete", True),
+    (True, 5, "active", False),
+    (True, 5, "complete", False),
+    (True, 4, "blocked", False),
+    (True, 4, "pending", False),
+    (True, 4, "invalidated", False),
+])
+def test_residual_scorer_enforces_schema_compatible_correction_return(
+    tmp_path: Path, expanded: bool, stage: int, state: str, accepted: bool,
+) -> None:
+    root = prepared_residual_schema(tmp_path, OLD_HEAD | ({"mode"} if expanded else set()))
+    write_residual_response(root)
+    response = json.loads(response_path(root).read_text())
+    response["head"]["stage"] = {"id": stage, "state": state}
+    response_path(root).write_text(json.dumps(response))
+    observed = score(root)
+    assert observed["passed"] is accepted
+    assert observed["failures"] == ([] if accepted else ["resulting-head"])
 
 
 @pytest.mark.parametrize("host", ["codex", "claude"])

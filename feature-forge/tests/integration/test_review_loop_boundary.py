@@ -39,7 +39,7 @@ RECEIPT_KEYS = {
     "schema", "kind", "dispatch_id", "run_ref", "target_seal",
     "source_identity", "result", "actionable_finding_ids",
 }
-HEAD_KEYS = {"schema", "run_id", "status", "worktree", "branch", "base_identity", "stage", "next_action", "frozen", "review"}
+HEAD_KEYS = {"schema", "run_id", "mode", "status", "worktree", "branch", "base_identity", "stage", "next_action", "frozen", "review"}
 REVIEW_KEYS = {"kind", "state", "round", "root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit", "previous_open_finding_ids", "open_finding_ids"}
 
 
@@ -230,7 +230,7 @@ class BoundaryFixture:
 
     def _head(self) -> dict[str, object]:
         return {
-            "schema": "feature-forge/ledger/v1", "run_id": "alpha", "status": "active",
+            "schema": "feature-forge/ledger/v1", "run_id": "alpha", "mode": "supervised", "status": "active",
             "worktree": str(self.repository.resolve()), "branch": "feature/alpha", "base_identity": self.source_commit,
             "stage": {"id": 5, "state": "active"}, "next_action": "begin specification review",
             "frozen": {"specification": None, "plan": None},

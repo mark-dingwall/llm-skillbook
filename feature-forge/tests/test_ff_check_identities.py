@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,62 @@ def identity_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
 def test_identities_accepts_matching_worktree_branch_base_and_blobs(tmp_path: Path) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+@pytest.mark.parametrize("gate", ["identities", "audit", "runs"])
+@pytest.mark.parametrize("ancestry", ["unrelated", "signalled"])
+def test_base_ancestry_is_required_by_every_head_consumer(
+    tmp_path: Path, gate: str, ancestry: str,
+) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    environment = dict(os.environ)
+    if ancestry == "unrelated":
+        tree = git(repo, "rev-parse", "HEAD^{tree}")
+        data["base_identity"] = subprocess.run(
+            ["git", "commit-tree", tree], cwd=repo, input="unrelated root\n",
+            text=True, capture_output=True, check=True,
+        ).stdout.strip()
+        assert git(repo, "rev-parse", "--verify", f"{data['base_identity']}^{{commit}}") == data["base_identity"]
+        status, code, finding = "fail", 1, "base-identity=not-ancestor"
+    else:
+        real_git = shutil.which("git")
+        assert real_git is not None
+        binary = tmp_path / "bin"
+        binary.mkdir()
+        wrapper = binary / "git"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            'case " $* " in *" merge-base --is-ancestor "*) kill -TERM "$$";; esac\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+        wrapper.chmod(0o755)
+        environment["PATH"] = str(binary)
+        status, code, finding = "unverifiable", 2, "base-identity=ancestry-unavailable"
+    write_ledger(directory, data)
+    target = ["--run-id", "alpha"] if gate == "runs" else ["--run", str(directory)]
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), gate, "--repo", str(repo), *target],
+        text=True, capture_output=True, env=environment,
+    )
+    assert observed.returncode == code, observed.stderr
+    assert observed.stdout == f"FF-CHECK v1 gate={gate} status={status}\n"
+    expected = [finding] if gate != "runs" else [
+        "branch=feature/alpha",
+        f"ledger=docs/feature-forge/runs/2026-08-25-alpha/ledger.md:{finding}",
+        f"worktree={repo}",
+    ]
+    assert observed.stderr.splitlines() == expected
+
+
+@pytest.mark.parametrize("value", [None, "automatic", "SUPERVISED", 1])
+def test_identities_rejects_missing_or_unsupported_mode(tmp_path: Path, value: object) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    if value is None:
+        data.pop("mode")
+    else:
+        data["mode"] = value
+    write_ledger(directory, data)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
 
 
 def test_identities_uses_full_branch_ref_when_a_tag_has_the_same_short_name(tmp_path: Path) -> None:

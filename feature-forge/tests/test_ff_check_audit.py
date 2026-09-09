@@ -15,7 +15,7 @@ from conftest import CHECKER, check, git, head, make_repo, run_dir, write_ledger
 
 
 HEAD_KEYS = {
-    "schema", "run_id", "status", "worktree", "branch", "base_identity",
+    "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
     "stage", "next_action", "frozen", "review",
 }
 
@@ -99,6 +99,14 @@ def returned_review(
         "previous_open_finding_ids": previous, "open_finding_ids": opened,
     }
     data["review"] = review
+    if data["stage"]["id"] == 1:
+        owning_stage = {"specification": 5, "plan": 8, "implementation": 10}[kind]
+        correction_stage = {"specification": 3, "plan": 7, "implementation": 9}[kind]
+        data["stage"] = {
+            "id": correction_stage if state == "changes_required" else owning_stage,
+            "state": "blocked" if state == "blocked" else "complete" if state == "pass" else "active",
+        }
+        data["status"] = "blocked" if state == "blocked" else "active"
     path = directory / "reviews" / f"{dispatch_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
@@ -128,9 +136,219 @@ def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
     return files, status
 
 
+def lifecycle_head(repo: Path, directory: Path, data: dict[str, object],
+                   kind: str | None, state: str) -> None:
+    """Build real receipts; lifecycle expectations are supplied by each case."""
+    if state == "not_started":
+        return
+    returned = state not in {"review_active", "reserved"}
+    review = returned_review(
+        repo, directory, data, kind=kind, state=state if returned else "pass",
+        round_number=1 if state == "changes_required" else 0,
+        opened=["F-1"] if state == "changes_required" else [],
+    )
+    if not returned:
+        (repo / review["evidence_path"]).unlink()
+        review["reviewed_commit"] = None
+        review["state"] = "blocked" if state == "reserved" else state
+        if state == "reserved":
+            for field in ("dispatch_id", "run_ref", "target_seal", "evidence_path"):
+                review[field] = None
+
+
+# Literal contract cases, independent of the checker's rule data.
+LIFECYCLE_PAIRS = [("active", "active"), ("active", "complete"), ("blocked", "blocked")]
+LIFECYCLE_ACCEPTED = (
+    [(None, "not_started", stage, status, state)
+     for stage in (1, 2, 3, 4, 5) for status, state in LIFECYCLE_PAIRS]
+    + [(kind, "review_active", stage, status, state)
+       for kind, stage in (("specification", 5), ("plan", 8), ("implementation", 10))
+       for status, state in (("active", "active"), ("blocked", "blocked"))]
+    + [(kind, "changes_required", stage, status, state)
+       for kind, stages in (("specification", (3, 4)), ("plan", (7,)), ("implementation", (9,)))
+       for stage in stages for status, state in LIFECYCLE_PAIRS]
+    + [(kind, "pass", stage, status, state)
+       for kind, stages in (("specification", (5, 6, 7, 8)), ("plan", (8, 9, 10)),
+                            ("implementation", (10, 11, 12, 13, 14)))
+       for stage in stages for status, state in LIFECYCLE_PAIRS
+       if (stage, state) != (14, "complete")]
+    + [(kind, review, stage, "blocked", "blocked")
+       for kind, stage in (("specification", 5), ("plan", 8), ("implementation", 10))
+       for review in ("reserved", "blocked")]
+    + [(None, "not_started", stage, "blocked", "invalidated") for stage in range(1, 15)]
+    + [("implementation", "pass", 14, "complete", "complete")]
+)
+
+
+@pytest.mark.parametrize(("kind", "review", "stage", "status", "state"), LIFECYCLE_ACCEPTED)
+def test_audit_accepts_current_head_lifecycle_classes(
+    tmp_path: Path, kind: str | None, review: str, stage: int, status: str, state: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    lifecycle_head(repo, directory, data, kind, review)
+    data.update(status=status, stage={"id": stage, "state": state},
+                next_action=None if status == "complete" else "controller-owned action")
+    if stage < 7:
+        data["frozen"]["specification"] = None
+    if stage < 9:
+        data["frozen"]["plan"] = None
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize(("kind", "review", "stage"), [
+    (None, "not_started", 6),
+    ("specification", "review_active", 4), ("specification", "review_active", 6),
+    ("plan", "review_active", 7), ("plan", "review_active", 9),
+    ("implementation", "review_active", 9), ("implementation", "review_active", 11),
+    ("specification", "changes_required", 2), ("specification", "changes_required", 5),
+    ("plan", "changes_required", 6), ("plan", "changes_required", 8),
+    ("implementation", "changes_required", 8), ("implementation", "changes_required", 10),
+    ("specification", "pass", 4), ("specification", "pass", 9),
+    ("plan", "pass", 7), ("plan", "pass", 11), ("implementation", "pass", 9),
+    ("specification", "reserved", 4), ("specification", "blocked", 6),
+    ("plan", "reserved", 7), ("plan", "blocked", 9),
+    ("implementation", "reserved", 9), ("implementation", "blocked", 11),
+])
+def test_audit_rejects_review_outside_compatible_stages(
+    tmp_path: Path, kind: str | None, review: str, stage: int,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    lifecycle_head(repo, directory, data, kind, review)
+    blocked = review in {"reserved", "blocked"}
+    data.update(status="blocked" if blocked else "active",
+                stage={"id": stage, "state": "blocked" if blocked else "active"})
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "review=inconsistent\n"
+
+
+@pytest.mark.parametrize(("review", "stage", "status", "state", "finding"), [
+    ("review_active", 5, "active", "complete", "review=inconsistent"),
+    ("blocked", 5, "active", "active", "review=inconsistent"),
+    ("reserved", 5, "active", "complete", "review=inconsistent"),
+    ("changes_required", 3, "active", "blocked", "status-stage=inconsistent"),
+    ("pass", 5, "blocked", "active", "status-stage=inconsistent"),
+    ("not_started", 1, "active", "invalidated", "status-stage=inconsistent"),
+    ("pass", 5, "blocked", "invalidated", "review=inconsistent"),
+    ("review_active", 5, "blocked", "invalidated", "review=inconsistent"),
+    ("changes_required", 3, "blocked", "invalidated", "review=inconsistent"),
+    ("blocked", 5, "blocked", "invalidated", "review=inconsistent"),
+    ("not_started", 1, "blocked", "complete", "status-stage=inconsistent"),
+    ("not_started", 1, "active", "pending", "status-stage=inconsistent"),
+])
+def test_audit_rejects_incompatible_status_and_stage_states(
+    tmp_path: Path, review: str, stage: int, status: str, state: str, finding: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    lifecycle_head(repo, directory, data, None if review == "not_started" else "specification", review)
+    data.update(status=status, stage={"id": stage, "state": state})
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == finding + "\n"
+
+
+@pytest.mark.parametrize("stage", range(1, 15))
+def test_audit_rejects_any_pending_current_stage(tmp_path: Path, stage: int) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["stage"] = {"id": stage, "state": "pending"}
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "status-stage=inconsistent\n"
+
+
+@pytest.mark.parametrize(("stage", "authority"),
+                         [(7, "specification"), (8, "specification")]
+                         + [(stage, authority) for stage in range(9, 15)
+                            for authority in ("specification", "plan")])
+def test_audit_requires_frozen_authority_at_each_downstream_stage(
+    tmp_path: Path, stage: int, authority: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    lifecycle_head(repo, directory, data, "specification" if stage < 9 else "implementation", "pass")
+    data.update(status="active", stage={"id": stage, "state": "active"})
+    data["frozen"][authority] = None
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "frozen=incomplete\n"
+
+
+@pytest.mark.parametrize("action", [None, "", " \t\n"])
+def test_audit_requires_a_nonblank_nonterminal_action(tmp_path: Path, action: object) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["next_action"] = action
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "terminal=inconsistent\n"
+
+
+@pytest.mark.parametrize("kind", [None, "specification", "plan"])
+def test_audit_requires_implementation_pass_for_terminal_head(tmp_path: Path, kind: str | None) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    lifecycle_head(repo, directory, data, kind, "pass" if kind else "not_started")
+    data.update(status="complete", stage={"id": 14, "state": "complete"}, next_action=None)
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "review=inconsistent\n"
+
+
+@pytest.mark.parametrize("kind,correction,dispatch", [("specification", 4, 5), ("plan", 7, 8), ("implementation", 9, 10)])
+@pytest.mark.parametrize("phase", ["correction", "reservation", "dispatched"])
+def test_audit_accepts_individual_same_kind_rereview_heads(
+    tmp_path: Path, kind: str, correction: int, dispatch: int, phase: str,
+) -> None:
+    # Audit validates each current head, not their historical succession. The
+    # public boundary and behavior fixtures verify controller transitions.
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, kind=kind, state="changes_required",
+                             round_number=2, previous=["F-1"], opened=["F-2"])
+    retained = {key: review[key] for key in ("kind", "root_identity", "round",
+                                           "previous_open_finding_ids", "open_finding_ids")}
+    data.update(status="active", stage={"id": correction, "state": "active"})
+    if phase != "correction":
+        review["reviewed_commit"] = None
+        for field in ("dispatch_id", "run_ref", "target_seal", "evidence_path"):
+            review[field] = None
+        review["state"] = "blocked"
+        data.update(status="blocked", stage={"id": dispatch, "state": "blocked"})
+    if phase == "dispatched":
+        review.update(state="review_active", dispatch_id=f"{kind}-review-3",
+                      run_ref=f"/external/review-loop/{kind}-review-3", target_seal="fresh-seal",
+                      evidence_path=f"docs/feature-forge/runs/2026-08-25-alpha/reviews/{kind}-review-3.json")
+        data.update(status="active", stage={"id": dispatch, "state": "active"})
+    assert {key: review[key] for key in retained} == retained
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
 def test_audit_accepts_the_exact_clean_not_started_head(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
     assert set(data) == HEAD_KEYS
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("value", [None, "automatic", "SUPERVISED", 1])
+def test_audit_rejects_missing_or_unsupported_mode(tmp_path: Path, value: object) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    if value is None:
+        data.pop("mode")
+    else:
+        data["mode"] = value
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("mode", ["interactive", "supervised", "unattended"])
+def test_audit_accepts_supported_modes(tmp_path: Path, mode: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data["mode"] = mode
+    write_ledger(directory, data)
     assert_result(invoke(repo, directory), "pass", 0)
 
 
@@ -222,7 +440,7 @@ def test_audit_enforces_the_exact_terminal_triple(
 def test_audit_accepts_only_complete_stage_14_as_terminal(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
     data.update(status="complete", stage={"id": 14, "state": "complete"}, next_action=None)
-    write_ledger(directory, data)
+    returned_review(repo, directory, data, kind="implementation")
     assert_result(invoke(repo, directory), "pass", 0)
 
 
@@ -243,6 +461,7 @@ def test_audit_rejects_malformed_frozen_objects(tmp_path: Path, frozen: object) 
 
 def test_audit_accepts_populated_review_active_without_a_return_receipt(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
+    data["stage"] = {"id": 8, "state": "active"}
     data["review"] = {
         "kind": "plan", "state": "review_active", "round": 2,
         "root_identity": "plan-root", "dispatch_id": "plan-review-3",
@@ -260,6 +479,7 @@ def test_audit_rejects_a_review_reservation_beneath_a_symlinked_reviews_director
     tmp_path: Path,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
+    data["stage"] = {"id": 5, "state": "active"}
     outside = tmp_path / "outside-reviews"
     outside.mkdir()
     (directory / "reviews").symlink_to(outside, target_is_directory=True)

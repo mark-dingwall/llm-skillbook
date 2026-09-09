@@ -73,8 +73,9 @@ def test_ledger_head_pins_the_version_one_schema() -> None:
     head, _ = _head_and_markdown()
 
     assert head["schema"] == "feature-forge/ledger/v1"
+    assert head["mode"] == "supervised"
     assert set(head) == {
-        "schema", "run_id", "status", "worktree", "branch", "base_identity",
+        "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
         "stage", "next_action", "frozen", "review",
     }
     assert set(head["review"]) == {

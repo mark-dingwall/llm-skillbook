@@ -23,6 +23,18 @@ def test_runs_passes_when_no_matching_inventory_exists(tmp_path: Path) -> None:
     assert_result(result, "runs", "pass", 0)
 
 
+@pytest.mark.parametrize("value", [None, "automatic", "SUPERVISED", 1])
+def test_runs_rejects_missing_or_unsupported_mode(tmp_path: Path, value: object) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    if value is None:
+        data.pop("mode")
+    else:
+        data["mode"] = value
+    write_ledger(run_dir(repo), data)
+    assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
+
+
 def test_runs_rejects_the_primary_checkout_as_a_canonical_run_worktree(tmp_path: Path) -> None:
     repo = make_primary_repo(tmp_path)
     write_ledger(run_dir(repo), head(repo))

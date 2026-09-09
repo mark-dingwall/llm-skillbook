@@ -116,7 +116,13 @@ def test_prepare_checker_rejects_additional_identity_path(tmp_path):
 def test_prepare_with_current_checker_accepts_seed_and_isolates_drift(tmp_path):
     subprocess.run([sys.executable, str(REPO / "install.py"), "feature-forge", "--target", "codex",
                     "--home", str(tmp_path)], check=True, capture_output=True, text=True)
-    assert _prepare(tmp_path)["run"] == "identity-drift"
+    fixture = _prepare(tmp_path)
+    assert fixture["run"] == "identity-drift"
+    data, _ = _head(_ledger(fixture))
+    assert data["mode"] == "supervised"
+    assert data["stage"] == {"id": 9, "state": "active"}
+    assert data["review"]["kind"] == "plan"
+    assert data["review"]["state"] == "pass"
 
 
 def test_oracle_rejects_forward_commit(tmp_path):
@@ -144,7 +150,7 @@ def test_oracle_rejects_untracked_canonical_review_receipt(tmp_path):
         Path(str(fixture["repo"]))
         / "docs/feature-forge/runs/2026-08-25-identity-drift/reviews/dispatch.json"
     )
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("dispatch\n")
     assert not _score(tmp_path)["pass"]
 

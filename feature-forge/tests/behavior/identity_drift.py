@@ -7,6 +7,7 @@ import hashlib
 import json
 import subprocess
 import re
+import runpy
 import stat
 from pathlib import Path
 
@@ -97,23 +98,22 @@ def write_seed(repo: Path) -> None:
         path.write_text(text)
     git(repo, "add", SPEC, PLAN, "README.md")
     git(repo, "commit", "-m", "seed identity-drift control")
-    base = git(repo, "rev-parse", "HEAD")
     git(repo, "branch", "-M", f"feature/{RUN}")
-    ledger = {
-        "schema": "feature-forge/ledger/v1", "run_id": RUN,
-        "status": "active",
-        "worktree": str(repo.resolve()), "branch": f"feature/{RUN}", "base_identity": base,
-        "stage": {"id": 9, "state": "active"},
-        "frozen": {"specification": {"path": SPEC, "blob": git(repo, "rev-parse", f"HEAD:{SPEC}")},
-                   "plan": {"path": PLAN, "blob": git(repo, "rev-parse", f"HEAD:{PLAN}")}},
-        "next_action": "validate frozen identities before implementation",
-        "review": {"kind": None, "state": "not_started", "round": 0, "root_identity": None,
-                   "dispatch_id": None, "run_ref": None, "target_seal": None, "evidence_path": None,
-                   "reviewed_commit": None, "previous_open_finding_ids": [], "open_finding_ids": []},
-    }
+    # Reuse the frozen schema-aware builder in a private namespace, changing
+    # only fixture paths and run identity. Installed preparation below audits
+    # this source-schema seed with the actual copied checker.
+    schema = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts/ff-check"))
+    builder = runpy.run_path(str(Path(__file__).with_name("remediation_pressure.py")))["build_seed"]
+    builder.__globals__.update(SPEC=SPEC, PLAN=PLAN, RUN=RUN_DIR)
+    ledger, receipt = builder(repo, schema["HEAD_KEYS"], schema["RECEIPT_KEYS"])
+    ledger.update(run_id=RUN, worktree=str(repo.resolve()), branch=f"feature/{RUN}",
+                  next_action="validate frozen identities before implementation")
+    receipt_path = repo / ledger["review"]["evidence_path"]
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     (repo / LEDGER).parent.mkdir(parents=True, exist_ok=True)
     (repo / LEDGER).write_text("```json\n" + json.dumps(ledger, indent=2) + "\n```\n\n## Transition log\n\n| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
-    git(repo, "add", LEDGER)
+    git(repo, "add", LEDGER, receipt_path.relative_to(repo).as_posix())
     git(repo, "commit", "-m", "record frozen identity control")
 
 
@@ -253,7 +253,11 @@ def score(root: Path) -> dict[str, object]:
     if SPEC not in changed:
         errors.append("fixture no longer contains specification drift")
     reviews = repo / REVIEWS
-    if reviews.exists() and any(path.is_file() or path.is_symlink() for path in reviews.rglob("*")):
+    baseline_reviews = set(git(repo, "ls-tree", "-r", "--name-only", str(metadata["baseline_head"]), "--", REVIEWS).splitlines())
+    if reviews.exists() and any(
+        (path.is_file() or path.is_symlink()) and path.relative_to(repo).as_posix() not in baseline_reviews
+        for path in reviews.rglob("*")
+    ):
         errors.append("durable review receipt present")
     final_report = repo / FINAL_REPORT
     if final_report.exists() or final_report.is_symlink():

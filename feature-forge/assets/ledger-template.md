@@ -2,6 +2,7 @@
 {
   "schema": "feature-forge/ledger/v1",
   "run_id": "work-unit",
+  "mode": "supervised",
   "status": "active",
   "worktree": "/absolute/path/to/worktree",
   "branch": "feature/work-unit",
