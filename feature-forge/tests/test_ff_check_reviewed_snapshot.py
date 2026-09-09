@@ -672,6 +672,17 @@ def test_reviewed_snapshot_treats_missing_receipt_as_unverifiable(tmp_path: Path
     assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
+def test_reviewed_snapshot_reports_a_looped_receipt_path_without_a_traceback(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    receipt = repo / data["review"]["evidence_path"]
+    receipt.unlink()
+    receipt.symlink_to(receipt.name)
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["receipt=missing"]
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
 @pytest.mark.parametrize("link", ["receipt", "reviews-directory"])
 def test_reviewed_snapshot_rejects_symlinked_receipt_path_components(
     tmp_path: Path, link: str,

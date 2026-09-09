@@ -37,6 +37,7 @@ HEAD_KEYS = {
 }
 
 AUTOMATION_MODES = frozenset({"interactive", "supervised", "unattended"})
+PATH_OBSERVATION_ERRORS = (OSError, RuntimeError, UnicodeError, ValueError)
 
 REVIEW_STAGE_RULES = {
     "specification": {
@@ -78,6 +79,13 @@ class Result:
     findings: tuple[str, ...] = ()
 
 
+def resolve_observed_path(path: Path) -> Path | None:
+    try:
+        return path.resolve()
+    except PATH_OBSERVATION_ERRORS:
+        return None
+
+
 def git(repo: Path, *args: str) -> str | None:
     """Return a Git observation, or None when Git cannot establish it."""
     try:
@@ -85,7 +93,7 @@ def git(repo: Path, *args: str) -> str | None:
             ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], text=True, capture_output=True,
             check=False, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
-    except (OSError, UnicodeError, ValueError):
+    except PATH_OBSERVATION_ERRORS:
         return None
     return result.stdout.strip() if result.returncode == 0 else None
 
@@ -97,7 +105,7 @@ def git_bytes(repo: Path, *args: str) -> bytes | None:
             ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], capture_output=True, check=False,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
-    except (OSError, ValueError):
+    except PATH_OBSERVATION_ERRORS:
         return None
     return observed.stdout if observed.returncode == 0 else None
 
@@ -109,7 +117,7 @@ def git_status(repo: Path, *args: str) -> int | None:
             ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], capture_output=True, check=False,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
-    except (OSError, ValueError):
+    except PATH_OBSERVATION_ERRORS:
         return None
     return observed.returncode
 
@@ -144,22 +152,29 @@ def base_identity_result(repo: Path, value: object) -> Result:
 
 def repository(path: str) -> Path | None:
     root = git(Path(path), "rev-parse", "--show-toplevel")
-    return Path(root).resolve() if root else None
+    return resolve_observed_path(Path(root)) if root else None
+
+
+def common_git_directory(repo: Path) -> Path | None:
+    value = git(repo, "rev-parse", "--git-common-dir")
+    if value is None:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = repo / candidate
+    return resolve_observed_path(candidate)
 
 
 def linked_worktree(repo: Path) -> bool | None:
     """Distinguish an isolated linked worktree from the primary checkout."""
     git_dir = git(repo, "rev-parse", "--absolute-git-dir")
-    common = git(repo, "rev-parse", "--git-common-dir")
-    if git_dir is None or common is None:
+    common_path = common_git_directory(repo)
+    if git_dir is None or common_path is None:
         return None
-    try:
-        common_path = Path(common)
-        if not common_path.is_absolute():
-            common_path = repo / common_path
-        return Path(git_dir).resolve() != common_path.resolve()
-    except (OSError, ValueError):
+    git_path = resolve_observed_path(Path(git_dir))
+    if git_path is None:
         return None
+    return git_path != common_path
 
 
 def result(status: Literal["pass", "fail", "unverifiable"], *findings: str) -> Result:
@@ -170,7 +185,7 @@ def parse_ledger(path: Path) -> tuple[dict[str, object] | None, str | None]:
     """Read only the v1 JSON head; unsupported input is never absence."""
     try:
         text = path.read_text()
-    except (OSError, UnicodeError):
+    except PATH_OBSERVATION_ERRORS:
         return None, "unreadable-ledger"
     match = re.match(r"\s*```json\n(.*?)\n```", text, re.DOTALL)
     if not match:
@@ -243,6 +258,25 @@ def run_head_error(repo: Path, data: dict[str, object]) -> str | None:
 
 
 def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
+    requested_common = common_git_directory(repo)
+    if requested_common is None:
+        return None
+
+    def observe_candidate(path: str, branch: str | None) -> tuple[str, str | None] | None:
+        candidate = resolve_observed_path(Path(path))
+        if candidate is None:
+            return None
+        top_level = git(candidate, "rev-parse", "--show-toplevel")
+        if top_level is None:
+            return None
+        top = resolve_observed_path(Path(top_level))
+        if top is None:
+            return None
+        candidate_common = common_git_directory(top)
+        if candidate_common is None:
+            return None
+        return (str(top), branch) if candidate_common == requested_common else ("", None)
+
     raw = git_bytes(repo, "worktree", "list", "--porcelain", "-z")
     found: list[tuple[str, str | None]] = []
     if raw is not None:
@@ -257,8 +291,12 @@ def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
                      for field in fields[1:] if field.startswith(b"branch refs/heads/")),
                     None,
                 )
-                found.append((str(Path(path).resolve()), branch))
-        except (UnicodeDecodeError, OSError):
+                observed = observe_candidate(path, branch)
+                if observed is None:
+                    return None
+                if observed[0]:
+                    found.append(observed)
+        except PATH_OBSERVATION_ERRORS:
             return None
         return found
 
@@ -275,11 +313,14 @@ def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
             branch_bytes, path_bytes = record.split(b"\0", 1)
             if not path_bytes:
                 continue
-            found.append((
-                str(Path(path_bytes.decode("utf-8")).resolve()),
-                branch_bytes.decode("utf-8"),
-            ))
-    except (ValueError, UnicodeDecodeError, OSError):
+            observed = observe_candidate(
+                path_bytes.decode("utf-8"), branch_bytes.decode("utf-8"),
+            )
+            if observed is None:
+                return None
+            if observed[0]:
+                found.append(observed)
+    except PATH_OBSERVATION_ERRORS:
         return None
     return found
 
@@ -314,7 +355,7 @@ def runs(repo_arg: str, run_id: str) -> Result:
     if runs_state == "directory":
         try:
             children = sorted(runs_root.iterdir(), key=lambda item: item.name)
-        except OSError:
+        except PATH_OBSERVATION_ERRORS:
             return result("unverifiable", "runs-directory=unavailable")
         for directory in children:
             canonical_requested = valid_date(directory.name, run_id)
@@ -385,8 +426,11 @@ def runs(repo_arg: str, run_id: str) -> Result:
     recorded_worktree = data.get("worktree")
     if not isinstance(recorded_branch, str) or not isinstance(recorded_worktree, str):
         return result("unverifiable", *ledger_findings, "ledger-identity=unsupported")
+    observed_recorded_worktree = resolve_observed_path(Path(recorded_worktree))
+    if observed_recorded_worktree is None:
+        return result("unverifiable", *ledger_findings, "worktree=unavailable")
     matching_worktree = any(
-        path == str(Path(recorded_worktree).resolve()) and branch == expected_branch_ref
+        path == str(observed_recorded_worktree) and branch == expected_branch_ref
         for path, branch in observed_worktrees
     )
     if recorded_branch != expected_branch or expected_branch_ref not in branches or not matching_worktree:
@@ -394,29 +438,59 @@ def runs(repo_arg: str, run_id: str) -> Result:
     return result("pass", *ledger_findings, *branch_matches, *worktree_findings)
 
 
-def canonical_run(repo: Path, argument: str) -> Path | None:
+def canonical_run_observation(repo: Path, argument: str) -> tuple[Path | None, str | None]:
     candidate = Path(argument)
     candidate = repo / candidate if not candidate.is_absolute() else candidate
     root = repo / "docs" / "feature-forge" / "runs"
-    if not exact_directory(repo, root) or not exact_directory(repo, candidate):
-        return None
-    candidate = candidate.resolve()
-    root = root.resolve()
     try:
-        candidate.relative_to(root)
+        if candidate.parent != root:
+            return None, "noncanonical"
+        match = DATED_DIRECTORY.fullmatch(candidate.name)
+        if not match or not SLUG.fullmatch(match.group(4)) or not valid_date(candidate.name, match.group(4)):
+            return None, "noncanonical"
+    except PATH_OBSERVATION_ERRORS:
+        return None, "noncanonical"
+    observed_candidate = resolve_observed_path(candidate)
+    observed_root = resolve_observed_path(root)
+    if observed_candidate is None or observed_root is None:
+        return None, "unavailable"
+    try:
+        observed_candidate.relative_to(observed_root)
     except ValueError:
-        return None
-    if candidate.parent != root:
-        return None
-    match = DATED_DIRECTORY.fullmatch(candidate.name)
-    if not match or not SLUG.fullmatch(match.group(4)) or not valid_date(candidate.name, match.group(4)):
-        return None
-    return candidate
+        return None, "noncanonical"
+    if observed_candidate.parent != observed_root or not exact_directory(repo, root) or not exact_directory(repo, candidate):
+        return None, "noncanonical"
+    return observed_candidate, None
 
 
-def safe_frozen_path(repo: Path, value: object) -> str | None:
+def canonical_run(repo: Path, argument: str) -> Path | None:
+    return canonical_run_observation(repo, argument)[0]
+
+
+def frozen_path_targets_git_metadata(repo: Path, path: PurePosixPath) -> bool | None:
+    """Identify a lexical symlink redirect into the checkout's Git metadata."""
+    current = repo
+    try:
+        for part in path.parts:
+            current /= part
+            if not stat.S_ISLNK(current.lstat().st_mode):
+                continue
+            target = Path(os.readlink(current))
+            target = current.parent / target if not target.is_absolute() else target
+            try:
+                relative = target.relative_to(repo)
+            except ValueError:
+                continue
+            if ".git" in relative.parts:
+                return True
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return False
+
+
+def observed_frozen_path(repo: Path, value: object) -> tuple[str | None, str | None]:
     if not isinstance(value, str) or not value:
-        return None
+        return None, "wrong-path"
     path = PurePosixPath(value)
     if (
         not path.parts
@@ -425,27 +499,39 @@ def safe_frozen_path(repo: Path, value: object) -> str | None:
         or ".." in path.parts
         or path.as_posix() != value
     ):
-        return None
+        return None, "wrong-path"
+    metadata_directed = frozen_path_targets_git_metadata(repo, path)
+    if metadata_directed is None:
+        return None, "unavailable"
+    if metadata_directed:
+        return None, "wrong-path"
+    resolved = resolve_observed_path(repo / path)
+    if resolved is None:
+        return None, "unavailable"
     try:
-        resolved = (repo / path).resolve()
         resolved.relative_to(repo)
     except ValueError:
-        return None
-    if resolved == (repo / ".git").resolve():
-        return None
+        return None, "wrong-path"
+    metadata_root = resolve_observed_path(repo / ".git")
+    if metadata_root is None:
+        return None, "unavailable"
+    if resolved == metadata_root:
+        return None, "wrong-path"
     git_dir = git(repo, "rev-parse", "--git-dir")
     if git_dir is None:
-        return None
-    metadata = (repo / git_dir if not Path(git_dir).is_absolute() else Path(git_dir)).resolve()
+        return None, "unavailable"
+    metadata = resolve_observed_path(repo / git_dir if not Path(git_dir).is_absolute() else Path(git_dir))
+    if metadata is None:
+        return None, "unavailable"
     try:
         resolved.relative_to(metadata)
     except ValueError:
         pass
     else:
-        return None
+        return None, "wrong-path"
     if not exact_regular_file(repo, repo / path):
-        return None
-    return value
+        return None, "unavailable"
+    return value, None
 
 
 def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
@@ -459,7 +545,13 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
             continue
         if not isinstance(item, dict) or set(item) != {"path", "blob"}:
             return result("unverifiable", f"frozen={name}:unsupported")
-        path, blob = safe_frozen_path(repo, item.get("path")), item.get("blob")
+        path, path_error = observed_frozen_path(repo, item.get("path"))
+        blob = item.get("blob")
+        if path_error is not None:
+            return result(
+                "fail" if path_error == "wrong-path" else "unverifiable",
+                f"frozen={name}:{path_error}",
+            )
         if path is None or not isinstance(blob, str) or not blob:
             return result("unverifiable", f"frozen={name}:unsupported")
         if path != canonical_candidate_path(run, name):
@@ -493,7 +585,7 @@ def sorted_unique_strings(value: object) -> bool:
 def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
     try:
         payload = strict_json(path.read_text())
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+    except (PATH_OBSERVATION_ERRORS, json.JSONDecodeError):
         return None, "receipt=unreadable"
     if not isinstance(payload, dict) or set(payload) != RECEIPT_KEYS:
         return None, "receipt=unsupported"
@@ -576,7 +668,7 @@ def exact_regular_file(root: Path, path: Path) -> bool:
                 return stat.S_ISREG(mode)
             if not stat.S_ISDIR(mode):
                 return False
-    except OSError:
+    except PATH_OBSERVATION_ERRORS:
         return False
     return False
 
@@ -596,7 +688,7 @@ def exact_directory(root: Path, path: Path) -> bool:
             mode = current.lstat().st_mode
             if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
                 return False
-    except OSError:
+    except PATH_OBSERVATION_ERRORS:
         return False
     return True
 
@@ -607,7 +699,7 @@ def exact_entry_state(root: Path, path: Path) -> str | None:
         relative = path.absolute().relative_to(root.absolute())
         if not stat.S_ISDIR(root.lstat().st_mode):
             return None
-    except (OSError, ValueError):
+    except PATH_OBSERVATION_ERRORS:
         return None
     current = root
     for index, part in enumerate(relative.parts):
@@ -616,7 +708,7 @@ def exact_entry_state(root: Path, path: Path) -> str | None:
             mode = current.lstat().st_mode
         except FileNotFoundError:
             return "absent"
-        except OSError:
+        except PATH_OBSERVATION_ERRORS:
             return None
         final = index == len(relative.parts) - 1
         if not final:
@@ -639,7 +731,7 @@ def sha256_regular_file(root: Path, path: Path) -> str | None:
         with path.open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
-    except OSError:
+    except PATH_OBSERVATION_ERRORS:
         return None
     return digest.hexdigest()
 
@@ -654,7 +746,7 @@ def paths_have_filter(repo: Path, paths: bytes) -> bool | None:
             input=paths, capture_output=True, check=False,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
-    except OSError:
+    except PATH_OBSERVATION_ERRORS:
         return None
     if attributes.returncode != 0:
         return None
@@ -780,7 +872,7 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
             }.get(mode, False)
             if not expected:
                 mismatches.add(path)
-    except (OSError, ValueError, UnicodeDecodeError):
+    except PATH_OBSERVATION_ERRORS:
         return None
     return mismatches
 
@@ -795,7 +887,7 @@ def hash_object_bytes(repo: Path, payload: bytes) -> str | None:
             input=payload, capture_output=True, check=False,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
-    except OSError:
+    except PATH_OBSERVATION_ERRORS:
         return None
     if observed.returncode != 0:
         return None
@@ -830,7 +922,7 @@ def tracked_content_mismatches(repo: Path, allowed: set[str]) -> set[str] | None
                 return None
             if observed_oid.encode("ascii") != expected_oid:
                 mismatches.add(path)
-    except (OSError, ValueError, UnicodeDecodeError):
+    except PATH_OBSERVATION_ERRORS:
         return None
     return mismatches
 
@@ -859,9 +951,10 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     repo = repository(repo_arg)
     if repo is None:
         return result("unverifiable", "repository=unavailable")
-    run = canonical_run(repo, run_arg)
-    if run is None:
-        return result("unverifiable", "run=noncanonical")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
     ledger = run / "ledger.md"
     if not exact_regular_file(repo, ledger):
         return result("unverifiable", "ledger=unreadable-ledger")
@@ -943,26 +1036,6 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
 
 
-def canonical_path_shape(repo: Path, value: object) -> str | None:
-    """Validate a repository-relative path without observing its contents."""
-    if not isinstance(value, str) or not value:
-        return None
-    path = PurePosixPath(value)
-    if (
-        not path.parts
-        or path.is_absolute()
-        or path.as_posix() != value
-        or ".." in path.parts
-        or path.parts[0] == ".git"
-    ):
-        return None
-    try:
-        (repo / path).resolve().relative_to(repo)
-    except ValueError:
-        return None
-    return value
-
-
 def audit_frozen_shape(repo: Path, frozen: object) -> bool:
     if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
         return False
@@ -972,7 +1045,8 @@ def audit_frozen_shape(repo: Path, frozen: object) -> bool:
         if (
             not isinstance(item, dict)
             or set(item) != {"path", "blob"}
-            or canonical_path_shape(repo, item.get("path")) is None
+            or not isinstance(item.get("path"), str)
+            or not item.get("path")
             or not isinstance(item.get("blob"), str)
             or not item.get("blob")
         ):
@@ -1151,7 +1225,7 @@ def implementation_snapshot_digest(repo: Path, run: Path, dispatch_id: object) -
     def visit(directory: Path, prefix: PurePosixPath) -> bool:
         try:
             entries = sorted(directory.iterdir(), key=lambda item: item.name)
-        except OSError:
+        except PATH_OBSERVATION_ERRORS:
             return False
         for entry in entries:
             relative = (prefix / entry.name).as_posix()
@@ -1186,7 +1260,7 @@ def implementation_snapshot_digest(repo: Path, run: Path, dispatch_id: object) -
                         return False
                 else:
                     return False
-            except (OSError, UnicodeError):
+            except PATH_OBSERVATION_ERRORS:
                 return False
         return True
 
@@ -1197,9 +1271,10 @@ def implementation_snapshot(repo_arg: str, run_arg: str, dispatch_id: str) -> Re
     repo = repository(repo_arg)
     if repo is None:
         return result("unverifiable", "repository=unavailable")
-    run = canonical_run(repo, run_arg)
-    if run is None:
-        return result("unverifiable", "run=noncanonical")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
     if exact_entry_state(repo, run / "final-report.md") != "absent":
         return result("fail", "report=premature")
     expected = expected_receipt_path(repo, run, dispatch_id)
@@ -1243,6 +1318,12 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
         if item is None:
             continue
         assert isinstance(item, dict)
+        path, path_error = observed_frozen_path(repo, item["path"])
+        if path_error is not None:
+            return result(
+                "fail" if path_error == "wrong-path" else "unverifiable",
+                f"frozen={name}:{path_error}",
+            )
         if item["path"] != canonical_candidate_path(run, name):
             return result("fail", f"frozen={name}:wrong-path")
         identity = object_identity(repo, item["blob"], "blob")
@@ -1400,9 +1481,10 @@ def audit(repo_arg: str, run_arg: str) -> Result:
     repo = repository(repo_arg)
     if repo is None:
         return result("unverifiable", "repository=unavailable")
-    run = canonical_run(repo, run_arg)
-    if run is None:
-        return result("unverifiable", "run=noncanonical")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
     ledger = run / "ledger.md"
     if not exact_regular_file(repo, ledger):
         return result("unverifiable", "ledger=unreadable-ledger")
@@ -1417,9 +1499,10 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     repo = repository(repo_arg)
     if repo is None:
         return result("unverifiable", "repository=unavailable")
-    run = canonical_run(repo, run_arg)
-    if run is None:
-        return result("unverifiable", "run=noncanonical")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
     ledger = run / "ledger.md"
     if not exact_regular_file(repo, ledger):
         return result("unverifiable", "ledger=unreadable-ledger")

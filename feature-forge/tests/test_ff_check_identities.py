@@ -225,13 +225,13 @@ def test_identities_rejects_a_frozen_file_replaced_by_a_same_byte_symlink(tmp_pa
 
 
 @pytest.mark.parametrize("path", ["../README.md", "/tmp/escape", "docs/../README.md", "."])
-def test_identities_treats_path_escape_as_unverifiable(tmp_path: Path, path: str) -> None:
+def test_identities_fails_for_a_ledger_frozen_path_escape(tmp_path: Path, path: str) -> None:
     repo, directory, data = identity_fixture(tmp_path)
     data["frozen"]["specification"]["path"] = path
     write_ledger(directory, data)
     result = check("identities", "--repo", str(repo), "--run", str(directory))
-    assert_result(result, "unverifiable", 2)
-    assert not any(line.startswith("path=") for line in result.stderr.splitlines())
+    assert_result(result, "fail", 1)
+    assert result.stderr.splitlines() == ["frozen=specification:wrong-path"]
 
 
 def test_identities_treats_missing_frozen_file_and_pre_schema_ledger_as_unverifiable(tmp_path: Path) -> None:
@@ -244,12 +244,33 @@ def test_identities_treats_missing_frozen_file_and_pre_schema_ledger_as_unverifi
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
 
 
+def test_identities_reports_an_unobservable_frozen_path_without_a_traceback(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    target = repo / data["frozen"]["specification"]["path"]
+    target.unlink()
+    target.symlink_to(target.name)
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["frozen=specification:unavailable"]
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
 def test_identities_requires_a_canonical_run_directory(tmp_path: Path) -> None:
     repo, _, _ = identity_fixture(tmp_path)
     noncanonical = repo / "docs" / "feature-forge" / "runs" / "alpha"
     noncanonical.mkdir()
     write_ledger(noncanonical, head(repo))
-    assert_result(check("identities", "--repo", str(repo), "--run", str(noncanonical)), "unverifiable", 2)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(noncanonical)), "fail", 1)
+
+
+def test_identities_reports_an_unobservable_canonical_run_without_a_traceback(tmp_path: Path) -> None:
+    repo, _, _ = identity_fixture(tmp_path)
+    loop = repo / "docs" / "feature-forge" / "runs" / "2026-08-26-alpha"
+    loop.symlink_to(loop.name)
+    observed = check("identities", "--repo", str(repo), "--run", str(loop))
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["run=unavailable"]
+    assert "Traceback" not in observed.stdout + observed.stderr
 
 
 @pytest.mark.parametrize("run_id", ["Alpha", "alpha--beta"])
@@ -257,7 +278,7 @@ def test_identities_rejects_non_slug_dated_directory_suffix(tmp_path: Path, run_
     repo = make_repo(tmp_path)
     directory = run_dir(repo, run_id=run_id)
     write_ledger(directory, head(repo, run_id=run_id, branch=f"feature/{run_id}"))
-    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "fail", 1)
 
 
 def test_identities_requires_supported_head_id_to_match_dated_suffix(tmp_path: Path) -> None:
@@ -277,8 +298,8 @@ def test_identities_rejects_git_metadata_paths_and_links(tmp_path: Path, path: s
     data["frozen"]["specification"]["path"] = path
     write_ledger(directory, data)
     result = check("identities", "--repo", str(repo), "--run", str(directory))
-    assert_result(result, "unverifiable", 2)
-    assert not any(line.startswith("path=") for line in result.stderr.splitlines())
+    assert_result(result, "fail", 1)
+    assert result.stderr.splitlines() == ["frozen=specification:wrong-path"]
 
 
 def test_identities_rejects_a_link_to_a_linked_worktree_git_marker(tmp_path: Path) -> None:
@@ -295,8 +316,8 @@ def test_identities_rejects_a_link_to_a_linked_worktree_git_marker(tmp_path: Pat
     directory = run_dir(worktree)
     write_ledger(directory, head(worktree, frozen=frozen))
     result = check("identities", "--repo", str(worktree), "--run", str(directory))
-    assert_result(result, "unverifiable", 2)
-    assert not any(line.startswith("path=") for line in result.stderr.splitlines())
+    assert_result(result, "fail", 1)
+    assert result.stderr.splitlines() == ["frozen=specification:wrong-path"]
 
 
 def test_identities_reports_git_observation_failure_as_unverifiable(tmp_path: Path) -> None:

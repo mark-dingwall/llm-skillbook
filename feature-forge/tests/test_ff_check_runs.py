@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import os
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,87 @@ def assert_result(result, gate: str, status: str, code: int) -> None:
     assert result.returncode == code, result.stderr
     assert result.stdout == f"FF-CHECK v1 gate={gate} status={status}\n"
     assert result.stderr.splitlines() == sorted(result.stderr.splitlines())
+
+
+@pytest.mark.parametrize("error", [OSError, RuntimeError, UnicodeError, ValueError])
+def test_resolve_observed_path_treats_every_path_observation_error_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch, error: type[Exception],
+) -> None:
+    """A resolver that leaks one of these errors would crash a CLI path claim."""
+    checker = runpy.run_path(str(CHECKER))
+
+    def unavailable(_self: Path, *_args: object, **_kwargs: object) -> Path:
+        raise error("cannot observe path")
+
+    monkeypatch.setattr(Path, "resolve", unavailable)
+    assert checker["PATH_OBSERVATION_ERRORS"] == (OSError, RuntimeError, UnicodeError, ValueError)
+    assert checker["resolve_observed_path"](Path("candidate")) is None
+
+
+def test_worktrees_excludes_same_named_branches_from_another_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Removing common-Git-dir filtering would make repository B collide with A."""
+    parent_a, parent_b = tmp_path / "repository-a", tmp_path / "repository-b"
+    parent_a.mkdir()
+    parent_b.mkdir()
+    repo_a, repo_b = make_repo(parent_a), make_repo(parent_b)
+    checker = runpy.run_path(str(CHECKER))
+    inventory = (
+        f"worktree {repo_a}\0branch refs/heads/feature/alpha\0\0"
+        f"worktree {repo_b}\0branch refs/heads/feature/alpha\0\0"
+    ).encode()
+
+    def combined_inventory(_repo: Path, *args: str) -> bytes | None:
+        return inventory if args == ("worktree", "list", "--porcelain", "-z") else None
+
+    monkeypatch.setitem(checker["worktrees"].__globals__, "git_bytes", combined_inventory)
+    assert checker["worktrees"](repo_a) == [(str(repo_a.resolve()), "refs/heads/feature/alpha")]
+
+
+def test_common_git_directory_canonicalizes_a_relative_symlink_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Comparing raw common-dir strings would split one repository into two identities."""
+    repo = tmp_path / "repository"
+    repo.mkdir()
+    common = tmp_path / "common"
+    common.mkdir()
+    link = tmp_path / "common-link"
+    link.symlink_to(common, target_is_directory=True)
+    checker = runpy.run_path(str(CHECKER))
+
+    def relative_common(_repo: Path, *args: str) -> str | None:
+        return "../common-link" if args == ("rev-parse", "--git-common-dir") else None
+
+    monkeypatch.setitem(checker["common_git_directory"].__globals__, "git", relative_common)
+    assert checker["common_git_directory"](repo) == common.resolve()
+
+
+def test_worktrees_fails_closed_when_a_candidate_path_cannot_be_observed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Silently dropping an unobservable candidate would miss an active collision."""
+    repo = make_repo(tmp_path)
+    loop = tmp_path / "worktree-loop"
+    loop.symlink_to(loop.name)
+    checker = runpy.run_path(str(CHECKER))
+    inventory = f"worktree {loop}\0branch refs/heads/feature/alpha\0\0".encode()
+
+    def loop_inventory(_repo: Path, *args: str) -> bytes | None:
+        return inventory if args == ("worktree", "list", "--porcelain", "-z") else None
+
+    monkeypatch.setitem(checker["worktrees"].__globals__, "git_bytes", loop_inventory)
+    assert checker["worktrees"](repo) is None
+
+
+def test_runs_reports_an_unobservable_repository_without_a_traceback(tmp_path: Path) -> None:
+    loop = tmp_path / "repository-loop"
+    loop.symlink_to(loop.name)
+    observed = check("runs", "--repo", str(loop), "--run-id", "alpha")
+    assert_result(observed, "runs", "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["repository=unavailable"]
+    assert "Traceback" not in observed.stdout + observed.stderr
 
 
 def test_runs_passes_when_no_matching_inventory_exists(tmp_path: Path) -> None:
