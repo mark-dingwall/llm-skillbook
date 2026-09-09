@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import runpy
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,56 @@ def identity_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
 def test_identities_accepts_matching_worktree_branch_base_and_blobs(tmp_path: Path) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+def test_canonical_run_observation_keeps_a_canonical_lstat_failure_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replacing an unobservable directory with a noncanonical claim hides host failure."""
+    repo, directory, _ = identity_fixture(tmp_path)
+    checker = runpy.run_path(str(CHECKER))
+    original_lstat = Path.lstat
+
+    def denied(path: Path):
+        if path == directory:
+            raise PermissionError("denied")
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", denied)
+    assert checker["canonical_run_observation"](repo, str(directory)) == (None, "unavailable")
+
+
+def test_canonical_run_observation_rejects_a_redirected_runs_root(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    root = repo / "docs" / "feature-forge"
+    root.mkdir(parents=True)
+    external = tmp_path / "external-runs"
+    external.mkdir()
+    directory = external / "2026-08-25-alpha"
+    directory.mkdir()
+    (root / "runs").symlink_to(external, target_is_directory=True)
+    checker = runpy.run_path(str(CHECKER))
+    assert checker["canonical_run_observation"](repo, str(root / "runs" / directory.name)) == (
+        None, "noncanonical",
+    )
+
+
+def test_identities_fails_for_a_missing_wrong_frozen_path_before_observation(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data["frozen"]["specification"]["path"] = "missing-wrong-path.md"
+    write_ledger(directory, data)
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+    assert_result(observed, "fail", 1)
+    assert observed.stderr.splitlines() == ["frozen=specification:wrong-path"]
+
+
+def test_identities_treats_a_non_string_frozen_path_as_unsupported(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data["frozen"]["specification"]["path"] = 17
+    write_ledger(directory, data)
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["frozen=specification:unsupported"]
 
 
 @pytest.mark.parametrize("gate", ["identities", "audit", "runs"])

@@ -74,6 +74,20 @@ def test_common_git_directory_canonicalizes_a_relative_symlink_observation(
     assert checker["common_git_directory"](repo) == common.resolve()
 
 
+def test_common_git_directory_treats_a_real_symlink_loop_as_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop = tmp_path / "common-dir-loop"
+    loop.symlink_to(loop.name)
+    checker = runpy.run_path(str(CHECKER))
+
+    def loop_common(_repo: Path, *args: str) -> str | None:
+        return str(loop) if args == ("rev-parse", "--git-common-dir") else None
+
+    monkeypatch.setitem(checker["common_git_directory"].__globals__, "git", loop_common)
+    assert checker["common_git_directory"](tmp_path) is None
+
+
 def test_worktrees_fails_closed_when_a_candidate_path_cannot_be_observed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -98,6 +112,28 @@ def test_runs_reports_an_unobservable_repository_without_a_traceback(tmp_path: P
     assert_result(observed, "runs", "unverifiable", 2)
     assert observed.stderr.splitlines() == ["repository=unavailable"]
     assert "Traceback" not in observed.stdout + observed.stderr
+
+
+def test_runs_keeps_an_unreadable_redirected_ledger_unverifiable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A permission failure while classifying a run entry must not escape runs()."""
+    repo = make_repo(tmp_path, branch="feature/other")
+    external = tmp_path / "external-run"
+    external.mkdir()
+    write_ledger(external, head(repo))
+    root = repo / "docs" / "feature-forge" / "runs"
+    root.mkdir(parents=True)
+    (root / "alias").symlink_to(external, target_is_directory=True)
+    checker = runpy.run_path(str(CHECKER))
+
+    def denied(_path: Path) -> bool:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "is_symlink", denied)
+    observed = checker["runs"](str(repo), "alpha")
+    assert observed.status == "unverifiable"
+    assert observed.findings == ("ledger=docs/feature-forge/runs/alias/ledger.md:unreadable",)
 
 
 def test_runs_passes_when_no_matching_inventory_exists(tmp_path: Path) -> None:

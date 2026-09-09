@@ -359,31 +359,30 @@ def runs(repo_arg: str, run_id: str) -> Result:
             return result("unverifiable", "runs-directory=unavailable")
         for directory in children:
             canonical_requested = valid_date(directory.name, run_id)
-            if canonical_requested and not exact_directory(repo, directory):
+            directory_state = observed_entry_state(repo, directory)
+            if canonical_requested and directory_state != "directory":
                 diagnostics.append(f"run={directory.relative_to(repo).as_posix()}:occupied")
                 continue
-            if not exact_directory(repo, directory):
-                redirected_ledger = directory / "ledger.md"
-                if directory.is_symlink() and redirected_ledger.exists():
-                    relative = redirected_ledger.relative_to(repo).as_posix()
+            if directory_state != "directory":
+                if directory_state in {"symlink", "unavailable"}:
+                    relative = (directory / "ledger.md").relative_to(repo).as_posix()
                     unverifiable.append(f"ledger={relative}:unreadable")
-                continue
-            if not directory.is_dir():
                 continue
             ledger_path = directory / "ledger.md"
             relative = ledger_path.relative_to(repo).as_posix()
-            if canonical_requested and not ledger_path.exists():
+            ledger_state = observed_entry_state(repo, ledger_path)
+            if canonical_requested and ledger_state == "absent":
                 unverifiable.append(f"ledger={relative}:missing")
                 continue
-            if not ledger_path.exists():
+            if ledger_state == "absent":
                 continue
-            if not exact_regular_file(repo, ledger_path):
+            if ledger_state != "regular":
                 if canonical_requested:
                     unverifiable.append(f"ledger={relative}:unreadable")
                 continue
             data, error = parse_ledger(ledger_path)
             if error:
-                if canonical_requested or ledger_path.exists():
+                if canonical_requested or ledger_state == "regular":
                     unverifiable.append(f"ledger={relative}:{error}")
                 continue
             assert data is not None
@@ -458,8 +457,14 @@ def canonical_run_observation(repo: Path, argument: str) -> tuple[Path | None, s
         observed_candidate.relative_to(observed_root)
     except ValueError:
         return None, "noncanonical"
-    if observed_candidate.parent != observed_root or not exact_directory(repo, root) or not exact_directory(repo, candidate):
+    if observed_candidate.parent != observed_root:
         return None, "noncanonical"
+    root_state = observed_entry_state(repo, root)
+    candidate_state = observed_entry_state(repo, candidate)
+    if root_state == "symlink" or candidate_state == "symlink":
+        return None, "noncanonical"
+    if root_state != "directory" or candidate_state in {"absent", "unavailable", "regular", "other"}:
+        return None, "unavailable"
     return observed_candidate, None
 
 
@@ -490,7 +495,7 @@ def frozen_path_targets_git_metadata(repo: Path, path: PurePosixPath) -> bool | 
 
 def observed_frozen_path(repo: Path, value: object) -> tuple[str | None, str | None]:
     if not isinstance(value, str) or not value:
-        return None, "wrong-path"
+        return None, "unsupported"
     path = PurePosixPath(value)
     if (
         not path.parts
@@ -545,17 +550,19 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
             continue
         if not isinstance(item, dict) or set(item) != {"path", "blob"}:
             return result("unverifiable", f"frozen={name}:unsupported")
-        path, path_error = observed_frozen_path(repo, item.get("path"))
-        blob = item.get("blob")
+        path_value, blob = item.get("path"), item.get("blob")
+        if not isinstance(path_value, str) or not path_value or not isinstance(blob, str) or not blob:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        if path_value != canonical_candidate_path(run, name):
+            return result("fail", f"frozen={name}:wrong-path")
+        path, path_error = observed_frozen_path(repo, path_value)
         if path_error is not None:
             return result(
                 "fail" if path_error == "wrong-path" else "unverifiable",
                 f"frozen={name}:{path_error}",
             )
-        if path is None or not isinstance(blob, str) or not blob:
+        if path is None:
             return result("unverifiable", f"frozen={name}:unsupported")
-        if path != canonical_candidate_path(run, name):
-            return result("fail", f"frozen={name}:wrong-path")
         identity = object_identity(repo, blob, "blob")
         if identity == "noncanonical":
             return result("fail", f"frozen={name}:noncanonical-blob")
@@ -585,7 +592,7 @@ def sorted_unique_strings(value: object) -> bool:
 def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
     try:
         payload = strict_json(path.read_text())
-    except (PATH_OBSERVATION_ERRORS, json.JSONDecodeError):
+    except PATH_OBSERVATION_ERRORS:
         return None, "receipt=unreadable"
     if not isinstance(payload, dict) or set(payload) != RECEIPT_KEYS:
         return None, "receipt=unsupported"
@@ -651,6 +658,38 @@ def expected_receipt_path(repo: Path, run: Path, dispatch_id: object) -> tuple[s
     return path.relative_to(repo).as_posix(), path
 
 
+def observed_entry_state(root: Path, path: Path) -> str:
+    """Observe one entry without following symlink components."""
+    try:
+        relative = path.absolute().relative_to(root.absolute())
+        if not stat.S_ISDIR(root.lstat().st_mode):
+            return "unavailable"
+    except PATH_OBSERVATION_ERRORS:
+        return "unavailable"
+    current = root
+    for index, part in enumerate(relative.parts):
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return "absent"
+        except PATH_OBSERVATION_ERRORS:
+            return "unavailable"
+        if stat.S_ISLNK(mode):
+            return "symlink"
+        final = index == len(relative.parts) - 1
+        if not final:
+            if not stat.S_ISDIR(mode):
+                return "unavailable"
+            continue
+        if stat.S_ISDIR(mode):
+            return "directory"
+        if stat.S_ISREG(mode):
+            return "regular"
+        return "other"
+    return "directory"
+
+
 def exact_regular_file(root: Path, path: Path) -> bool:
     """Require a regular file reached without following any symlink component."""
     try:
@@ -695,32 +734,8 @@ def exact_directory(root: Path, path: Path) -> bool:
 
 def exact_entry_state(root: Path, path: Path) -> str | None:
     """Return absent, directory, or regular without following symlink components."""
-    try:
-        relative = path.absolute().relative_to(root.absolute())
-        if not stat.S_ISDIR(root.lstat().st_mode):
-            return None
-    except PATH_OBSERVATION_ERRORS:
-        return None
-    current = root
-    for index, part in enumerate(relative.parts):
-        current /= part
-        try:
-            mode = current.lstat().st_mode
-        except FileNotFoundError:
-            return "absent"
-        except PATH_OBSERVATION_ERRORS:
-            return None
-        final = index == len(relative.parts) - 1
-        if not final:
-            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-                return None
-            continue
-        if stat.S_ISDIR(mode):
-            return "directory"
-        if stat.S_ISREG(mode):
-            return "regular"
-        return None
-    return "directory"
+    state = observed_entry_state(root, path)
+    return state if state in {"absent", "directory", "regular"} else None
 
 
 def sha256_regular_file(root: Path, path: Path) -> str | None:
@@ -1045,10 +1060,6 @@ def audit_frozen_shape(repo: Path, frozen: object) -> bool:
         if (
             not isinstance(item, dict)
             or set(item) != {"path", "blob"}
-            or not isinstance(item.get("path"), str)
-            or not item.get("path")
-            or not isinstance(item.get("blob"), str)
-            or not item.get("blob")
         ):
             return False
     return True
@@ -1318,15 +1329,18 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
         if item is None:
             continue
         assert isinstance(item, dict)
-        path, path_error = observed_frozen_path(repo, item["path"])
+        path_value, blob = item["path"], item["blob"]
+        if not isinstance(path_value, str) or not path_value or not isinstance(blob, str) or not blob:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        if path_value != canonical_candidate_path(run, name):
+            return result("fail", f"frozen={name}:wrong-path")
+        path, path_error = observed_frozen_path(repo, path_value)
         if path_error is not None:
             return result(
                 "fail" if path_error == "wrong-path" else "unverifiable",
                 f"frozen={name}:{path_error}",
             )
-        if item["path"] != canonical_candidate_path(run, name):
-            return result("fail", f"frozen={name}:wrong-path")
-        identity = object_identity(repo, item["blob"], "blob")
+        identity = object_identity(repo, blob, "blob")
         if identity == "noncanonical":
             return result("fail", f"frozen={name}:noncanonical-blob")
         if identity == "unverifiable":

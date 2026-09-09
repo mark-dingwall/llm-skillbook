@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
@@ -670,6 +671,52 @@ def test_reviewed_snapshot_treats_missing_receipt_as_unverifiable(tmp_path: Path
     repo, directory, data = reviewed_fixture(tmp_path)
     (repo / data["review"]["evidence_path"]).unlink()
     assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_reviewed_snapshot_treats_duplicate_receipt_json_as_unreadable_without_a_traceback(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    receipt = repo / data["review"]["evidence_path"]
+    receipt.write_text('{"schema":"one","schema":"two"}')
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["receipt=unreadable"]
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
+def test_strict_receipt_treats_a_read_failure_as_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checker = runpy.run_path(str(CHECKER))
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text("{}")
+    original_read_text = Path.read_text
+
+    def denied(path: Path, *args: object, **kwargs: object) -> str:
+        if path == receipt:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", denied)
+    assert checker["strict_receipt"](receipt) == (None, "receipt=unreadable")
+
+
+def test_implementation_snapshot_digest_treats_a_walk_failure_as_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = make_repo(tmp_path)
+    directory = run_dir(repo)
+    checker = runpy.run_path(str(CHECKER))
+    original_iterdir = Path.iterdir
+
+    def denied(path: Path):
+        if path == repo:
+            raise PermissionError("denied")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", denied)
+    assert checker["implementation_snapshot_digest"](repo, directory, "implementation-1") is None
 
 
 def test_reviewed_snapshot_reports_a_looped_receipt_path_without_a_traceback(tmp_path: Path) -> None:
