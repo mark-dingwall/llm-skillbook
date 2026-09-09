@@ -45,6 +45,8 @@
 | `feature-forge/tests/test_ff_check_runs.py` | Repository-scoped run/worktree inventory regressions | Task 4 |
 | `feature-forge/tests/test_ff_check_reviewed_snapshot.py` | Strict receipt and reviewed-snapshot regressions | Task 5 |
 | `feature-forge/tests/integration/test_review_loop_boundary.py` | Public Review Loop through-TRIAGE adapter fixture and controller-return provenance | Task 5 |
+| `feature-forge/tests/behavior/identity_drift.py` | Existing installed-checker drift fixture; reuse of Task 2's schema-aware valid seed builder | Task 3; Task 5 verifies unchanged |
+| `feature-forge/tests/test_behavior_oracle.py` | Existing drift-fixture compatibility gate | Tasks 3 and 5 |
 | `feature-forge/tests/behavior/remediation_pressure.py` | Test-only preparation/scoring for the three remediation pressure scenarios | Task 2; Task 6 consumes unchanged |
 | `feature-forge/tests/behavior/pr7-remediation/` | Immutable prompts and fixture inputs for the three pressure scenarios | Task 2; Task 6 consumes unchanged |
 | `feature-forge/tests/test_remediation_pressure.py` | Deterministic oracle unit tests for scenario preparation/scoring | Task 2 |
@@ -76,13 +78,19 @@ Use `superpowers:requesting-code-review` on the most capable available model wit
 
 - [ ] **Controller Step 2: Refresh evidence after any final-review fix**
 
-If the final review produces a fix commit, the single final-fix implementer
-runs every focused test covering the fix plus the complete Feature Forge,
-Review Loop, documentation, installer, plugin-agent, and root gates from Task
-7. It updates the qualification record in that same fix commit with the exact
-commands/results and fixed production `HEAD`. The scoped re-review then judges
-that one fix range. After the fix commit, the controller reruns the exact
-documentation gate, `git diff --check origin/main...HEAD`, and status.
+If the final review produces a fix, the single final-fix implementer first
+commits the production correction, then runs every focused test covering it
+plus the complete Feature Forge, Review Loop, documentation, installer,
+plugin-agent, and root gates from Task 7. If any installed Feature Forge
+payload changed, reinstall that exact payload into fresh fixtures and rerun
+both complete immutable pressure campaigns; if a dispatch composition changed,
+recompose and re-review its affected packet family with the Task 6 rubric.
+Append the new results without rewriting prior evidence and create a separate
+evidence-only commit that records the production fix commit's identity. One
+final-fix dispatch may therefore produce those two ordered commits. The scoped
+re-review judges both commits and the refreshed evidence. Afterward, the
+controller reruns the exact documentation gate, `git diff --check
+origin/main...HEAD`, and status.
 
 If there is no fix, the Task 7 evidence remains current for production files;
 the controller still checks the evidence-only commit with the documentation,
@@ -201,9 +209,9 @@ Expected: exactly two parent IDs and a merge subject naming `origin/main`.
 
 **Interfaces:**
 - Consumes: Task 1's merge commit and exact installed Feature Forge payload; no remediation instruction or checker edit.
-- Produces: immutable scenario bytes plus `prepare`/`score`/`campaign` commands, one payload digest, eight fresh baseline observations (one required Codex and one corroborating Claude run for worker packet, residual Minor, delegated drift, and inline drift), manual rubric judgments, and no behavior guidance.
-- `python3 feature-forge/tests/behavior/remediation_pressure.py prepare --scenario NAME --root DIR --host HOST [--execution-mode MODE]` accepts `NAME` in `worker-packet | residual-minor | post-task-plan-drift`, `HOST` in `codex | claude`, and requires `MODE` in `delegated | inline` only for plan drift. It creates one disposable fixture and prints a JSON object with `repo`, `prompt`, `response`, `baseline_head`, `payload_digest`, `scenario`, and nullable `execution_mode`.
-- `python3 feature-forge/tests/behavior/remediation_pressure.py score --root DIR` prints one JSON verdict with `scenario`, `passed`, `failures`, `head_preserved`, and `protected_paths_preserved`; only deterministic predicates contribute to `passed`.
+- Produces: immutable scenario bytes plus schema-aware fixture construction, `prepare`/`score`/`campaign` commands, one payload digest, eight fresh baseline observations (one required Codex and one corroborating Claude run for worker packet, residual Minor, delegated drift, and inline drift), manual rubric judgments, and no behavior guidance.
+- `python3 feature-forge/tests/behavior/remediation_pressure.py prepare --scenario NAME --root DIR --host HOST [--execution-mode MODE]` accepts `NAME` in `worker-packet | residual-minor | post-task-plan-drift`, `HOST` in `codex | claude`, and requires `MODE` in `delegated | inline` only for plan drift. It creates one disposable fixture and prints a JSON object with `repo`, `prompt`, `response`, `baseline_head`, `payload_digest`, `installed_skill_root`, `protected_paths`, `scenario`, and nullable `execution_mode`.
+- `python3 feature-forge/tests/behavior/remediation_pressure.py score --root DIR` prints one JSON verdict with `scenario`, `passed`, `failures`, `head_preserved`, `protected_paths_preserved`, `payload_digest_preserved`, and `unexpected_status_paths`; only deterministic predicates contribute to `passed`.
 - `python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase PHASE --host HOST` accepts `PHASE` in `baseline | green`, creates one fresh temporary fixture per scenario, invokes the pinned host, scores each result, and prints a JSON array containing all paths and verdicts. It never deletes the fixtures.
 
 - [ ] **Step 1: Write the scenario registry and exact prompts**
@@ -299,6 +307,19 @@ assert score(root)["unexpected_status_paths"] == []
 
 For the drift case, the clean seed must pass current `ff-check audit`; preparation then changes only the frozen plan bytes. For the response-only cases, redirect host output to the response path outside the disposable repository.
 
+Make the frozen fixture builder compatible with both known checker schemas. It
+loads `HEAD_KEYS` and `RECEIPT_KEYS` from the copied installed `ff-check` with
+`runpy`, rejects any key set other than the pre-remediation or approved set,
+and emits exactly the fields required by that checker. Its Stage 9 clean seed
+always uses a retained passing plan review—not `not_started`—so both the old and
+new lifecycle accept it; include `mode: supervised` only when `HEAD_KEYS`
+requires it, and include the expanded receipt evidence only when
+`RECEIPT_KEYS` requires it. Unit-test both known key-set inputs before freezing
+the harness. The Task 2 baseline proves the generated old-schema seed with the
+live checker; Task 6 GREEN proves the generated new-schema seed with the
+remediated checker. This compatibility logic is fixture setup, not a change to
+scenario prompts, protected bytes, or scoring.
+
 - [ ] **Step 5: Run one fresh baseline per scenario and host**
 
 Confirm current CLI flags with `codex exec --help` and `claude --help`. Implement `campaign` with these exact argument arrays, substituting only the paths returned by its own `prepare` call:
@@ -361,6 +382,8 @@ git commit -m "test: record Feature Forge remediation baseline"
 - Modify: `feature-forge/tests/test_ff_check_identities.py`
 - Modify: `feature-forge/tests/test_ff_check_runs.py`
 - Modify for head-schema compatibility only: `feature-forge/tests/integration/test_review_loop_boundary.py`
+- Modify for installed-checker schema/lifecycle compatibility only: `feature-forge/tests/behavior/identity_drift.py`
+- Modify if its compatibility assertions need synchronization: `feature-forge/tests/test_behavior_oracle.py`
 
 **Interfaces:**
 - Consumes: Task 2's immutable baseline; existing four-command checker CLI and literal `FF-CHECK v1` output contract.
@@ -455,6 +478,8 @@ REVIEW_STAGE_RULES = {
     "implementation": {
         "dispatch": frozenset({10}),
         "correction": frozenset({9}),
+        # At Stage 14 this applies only while stage.state is active. A complete
+        # Stage 14 is governed exclusively by the exact terminal triple.
         "retained_pass": frozenset({10, 11, 12, 13, 14}),
     },
 }
@@ -478,7 +503,8 @@ changes_required correction: correction stage with active/(active or complete),
                              or blocked/blocked
 pass at owning review return: owning stage with active/complete
 pass retained downstream: retained-pass stage with active/(active or complete),
-                          or blocked/blocked
+                          or blocked/blocked, except Stage 14 complete is never
+                          a nonterminal retained-pass case
 pre-dispatch or returned blocked review: owning stage with blocked/blocked only
 authority-governed invalidation: blocked/invalidated with a freshly reset
                                   not_started review; replacement-root evidence
@@ -503,8 +529,13 @@ def head_transition_invariant(data: dict[str, object]) -> bool:
     status = data["status"]
     stage = data["stage"]
     state = stage["state"]
-    if status == "complete":
-        return stage == {"id": 14, "state": "complete"} and data["next_action"] is None
+    terminal_stage = stage == {"id": 14, "state": "complete"}
+    if status == "complete" or terminal_stage:
+        return (
+            status == "complete"
+            and terminal_stage
+            and data["next_action"] is None
+        )
     if data["next_action"] is None or not str(data["next_action"]).strip():
         return False
     return (
@@ -515,6 +546,15 @@ def head_transition_invariant(data: dict[str, object]) -> bool:
 
 Keep `next_action` semantic meaning controller-owned. Add `review_stage_invariant(status, stage, review)` to apply the exact compatibility classes above, including stage state and overall status rather than only stage ID. Do not parse verbs, stage names, or paths from `next_action`. Apply `required_frozen_authorities()` in `audit_current_head()`.
 
+Update the existing `identity_drift.py` fixture in this same task: its clean
+Stage 9 seed must reuse Task 2's schema-aware head/receipt builder, including
+`mode` and a retained passing plan review accepted by the installed checker.
+Do not create a second compatibility implementation. Keep its pressure prompt
+and oracle behavior unchanged.
+`test_behavior_oracle.py` must exercise preparation with the installed Task 3
+checker so the component suite cannot defer this compatibility failure to Task
+7.
+
 - [ ] **Step 8: Run the focused state/identity suites and commit**
 
 Run:
@@ -523,7 +563,8 @@ Run:
 python3 -m pytest feature-forge/tests/test_ledger_schema.py \
   feature-forge/tests/test_ff_check_audit.py \
   feature-forge/tests/test_ff_check_identities.py \
-  feature-forge/tests/test_ff_check_runs.py -q
+  feature-forge/tests/test_ff_check_runs.py \
+  feature-forge/tests/test_behavior_oracle.py -q
 python3 -m py_compile feature-forge/scripts/ff-check
 git diff --check
 cd review-loop
@@ -539,7 +580,9 @@ git add feature-forge/assets/ledger-template.md \
   feature-forge/tests/test_ff_check_audit.py \
   feature-forge/tests/test_ff_check_identities.py \
   feature-forge/tests/test_ff_check_runs.py \
-  feature-forge/tests/integration/test_review_loop_boundary.py
+  feature-forge/tests/integration/test_review_loop_boundary.py \
+  feature-forge/tests/behavior/identity_drift.py \
+  feature-forge/tests/test_behavior_oracle.py
 git commit -m "fix: enforce Feature Forge head lifecycle"
 ```
 
@@ -665,6 +708,8 @@ git commit -m "fix: scope Feature Forge path observations"
 - Modify: `feature-forge/tests/test_ff_check_reviewed_snapshot.py`
 - Modify: `feature-forge/tests/integration/test_review_loop_boundary.py`
 - Modify: `tests/test_install.py`
+- Verify unchanged: `feature-forge/tests/behavior/identity_drift.py`
+- Verify unchanged: `feature-forge/tests/test_behavior_oracle.py`
 
 **Interfaces:**
 - Consumes: Tasks 3–4 checker/path interfaces and Task 2 baseline; Review Loop public return state through `run_triage`.
@@ -789,6 +834,10 @@ def _triage_evidence(round1, outcome) -> tuple[list[str], str, list[str]]:
     ]
     assert len(triage_artifacts) == 1
     triage_id = triage_artifacts[0]
+    raw = (outcome.run_root / "evidence" / triage_id).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == registry["artifacts"][triage_id]["digest"]
+    artifact = json.loads(raw.decode("utf-8"))
+    assert sorted(artifact["report_ids"]) == report_ids
     assert any(
         binding["operation"] == "apply_ledger_decisions"
         and triage_id in binding["source_ids"]
@@ -919,6 +968,7 @@ Run:
 python3 -m pytest feature-forge/tests/test_ff_check_audit.py \
   feature-forge/tests/test_ff_check_reviewed_snapshot.py \
   feature-forge/tests/test_remediation_pressure.py \
+  feature-forge/tests/test_behavior_oracle.py \
   tests/test_install.py -q
 cd review-loop
 uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q
@@ -1017,7 +1067,8 @@ Append, without rewriting Task 2 evidence:
 
 - exact changed instruction files and which updates were schema/contract synchronization versus behavior guidance;
 - any five-repetition micro-test and rationalizations;
-- six GREEN scenario outcomes paired with their baseline outcomes;
+- eight GREEN outcomes (four scenario variants across two hosts, including
+  explicit unavailable dispositions) paired with their baseline outcomes;
 - the seven-shape prompt inventory and any changed Review Loop composition rows;
 - bytes/words as diagnostics with content findings, not aggregate targets;
 - one disposition per scenario/packet: `pass`, `blocked-unavailable`, or `fail`.
