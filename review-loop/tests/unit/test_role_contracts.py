@@ -7,11 +7,12 @@ Task-2 validators in `prompts.py` actually accept. A model that follows a
 role resource whose content these tests protect should produce output that
 passes the matching `validate_role_json`/`validate_review_report` validator.
 """
-import json
 import unittest
 from pathlib import Path
 
 RESOURCES = Path(__file__).parents[2] / "review_loop" / "resources"
+SKILL = Path(__file__).parents[2] / "SKILL.md"
+DISPATCH = Path(__file__).parents[2] / "dispatch.md"
 
 NON_FIX_ROLE_FILES = [
     "evidence-discovery.md",
@@ -57,6 +58,39 @@ class NonFixRoleBoundaryTests(unittest.TestCase):
                 self.assertIn("delegate", _read(name).lower())
 
 
+class OrdinaryReviewRoleBoundaryTests(unittest.TestCase):
+    def test_review_judgment_must_not_be_delegated(self):
+        for name in ("holistic.md", "adversarial.md", "specialist.md"):
+            with self.subTest(role=name):
+                text = _read(name)
+                self.assertIn("Do not delegate review judgment", text)
+                self.assertNotIn("Do not delegate this review", text)
+
+
+class OrdinaryExecutionContractTests(unittest.TestCase):
+    def test_trusted_cli_auth_network_and_model_command_sandbox_are_disclosed(self):
+        """Reject a return to the false outer-mapping containment claim."""
+        text = " ".join(
+            DISPATCH.read_text(encoding="utf-8").split("## Multi-review containment", 1)[0].split()
+        )
+        self.assertIn(
+            "trusted Codex CLI process receives a fixed provider auth file and network access",
+            text,
+        )
+        self.assertIn("`--sandbox read-only`", text)
+        self.assertIn("model-generated shell commands", text)
+        self.assertIn(
+            "outer mapping alone does not make provider credentials secret from a compromised CLI process",
+            text,
+        )
+        self.assertIn(
+            "makes no claim whether model-generated shell commands can or cannot read the credential",
+            text,
+        )
+        self.assertNotIn("no host credentials, no network", text)
+        self.assertNotIn("fake outer-wrapper", text)
+
+
 class RoleFieldContractTests(unittest.TestCase):
     """Each strict-JSON role file names the exact fields its Task-2 validator
     checks in prompts.py, so a resource edit that drifts from the validator
@@ -80,23 +114,16 @@ class RoleFieldContractTests(unittest.TestCase):
                       "new_depth_evidence"):
             with self.subTest(token=token):
                 self.assertIn(token, text)
-        self.assertIn("empty array", text)
-
-    def test_inventory_revision_example_uses_valid_json_grammar(self):
-        text = _read("inventory.md")
-        example = text.split("exactly one `", 1)[1].split("`", 1)[0]
-        rendered = example.replace("ID", json.dumps("challenge-1")).replace(
-            "STRING", json.dumps("resolution text")
+    def test_inventory_revision_declares_resolutions_as_an_array_of_exact_objects(self):
+        text = " ".join(_read("inventory.md").split())
+        self.assertIn(
+            '`resolutions` is an array of objects with exactly `challenge_id` and `resolution`',
+            text,
         )
-        self.assertEqual(
-            json.loads(rendered),
-            {"challenge_id": "challenge-1", "resolution": "resolution text"},
+        self.assertIn(
+            '`challenge_id` must be one of the controller-supplied challenge IDs; no other IDs are permitted',
+            text,
         )
-
-    def test_shared_review_prompt_states_strict_finding_constraints(self):
-        text = _read("review.md")
-        self.assertIn("finding IDs are unique", text)
-        self.assertIn("IDs and claims are non-empty", text)
 
     def test_inventory_challenge_matches_validate_inventory_challenge(self):
         text = _read("inventory-challenge.md")
@@ -153,6 +180,12 @@ class RoleFieldContractTests(unittest.TestCase):
                 self.assertIn("review-record", text)
                 self.assertIn("REVIEW-STATUS", text)
                 self.assertIn(f"`{role}`", text)
+
+class RetryContractTests(unittest.TestCase):
+    def test_malformed_output_retry_includes_exact_validator_rejection(self):
+        text = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("The host performing that retry must include the exact validator rejection", text)
+        self.assertIn("same identity, target, role, and semantic charter", text)
 
 
 class FixRoleContractTests(unittest.TestCase):

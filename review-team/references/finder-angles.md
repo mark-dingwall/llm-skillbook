@@ -75,6 +75,11 @@ candidates[]: {
 }
 ```
 
+Keep `summary` to one terse sentence. Keep `failure_scenario` to one terse sentence
+when that sentence can still name the observable wrong output, crash, data loss,
+security effect, wasted work, or concrete maintenance cost. Use a second sentence
+only when it is necessary to preserve the trigger or consequence.
+
 Use a repository-relative path when possible. Cite a changed line or the best
 changed-file anchor. Describe an observable wrong output, crash, data loss,
 security effect, wasted work, or concrete maintenance cost—not merely an
@@ -173,7 +178,7 @@ when explicitly nominated. Report a convention candidate only when it cites
 the exact instruction-file path, quotes the exact rule, and names the exact
 changed line that violates it. Do not infer unstated style preferences.
 
-Correctness defects outrank Cleanup findings when the final cap forces a cut.
+Correctness survivors precede Cleanup survivors in base and final ordering.
 
 ## Sweep
 

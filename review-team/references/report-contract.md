@@ -10,15 +10,15 @@
 - [Grouping and verification completeness](#grouping-and-verification-completeness)
 - [Replacement waves](#replacement-waves)
 - [Sweep suppression and verification](#sweep-suppression-and-verification)
-- [Survivor ordering](#survivor-ordering)
+- [Deterministic assembly](#deterministic-assembly)
 - [Synthesis](#synthesis)
-- [Deterministic fallback](#deterministic-fallback)
+- [Finalization and deterministic fallback](#finalization-and-deterministic-fallback)
 - [Report output](#report-output)
 - [Failure outcomes](#failure-outcomes)
 
 ## State machine
 
-Apply controller-owned operations in this order:
+Apply workflow operations in this order:
 
 ```text
 scope capture
@@ -30,11 +30,11 @@ scope capture
 → xhigh only: construct Sweep suppression set → dispatch gap-only Sweep
   → validate, identify, group, and independently verify new candidates
   → run one bounded, revalidated, independently verified replacement wave
-→ survivor base ordering
-→ choose exactly one report path:
-    usable Synthesis: identity validation → conservative semantic merge/backfill
-    Synthesis skipped/failed/unusable: exact fallback deduplication and ordering
-→ report cap and output
+→ assembler prepare: validate survivors → base order → assign report indexes
+→ optional Synthesis: infer bounded same-root-cause merge decisions
+→ assembler finalize: validate identities/merges → backfill or exact fallback
+  → enforce the exact survivor partition
+→ complete report output
 ```
 
 No candidate may bypass canonicalization, scope validation, controller identity
@@ -244,10 +244,16 @@ Ignore category fields supplied by a Finder or replacement.
 
 Enforce these aggregate ceilings:
 
-| Level | Correctness finders | Cleanup | Initial max | Sweep max | Finder-output max | Replacement max | All-record max | Report cap |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `high` | A-C, `3 × 6` | `1 × 30` | 48 | 0 | 48 | 48 | 96 | 10 |
-| `xhigh` | A-E, `5 × 8` | `1 × 40` | 80 | 8 | 88 | 88 | 176 | 15 |
+| Level | Correctness finders | Cleanup | Initial max | Sweep max | Finder-output max | Replacement max | All-record max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `high` | A-C, `3 × 6` | `1 × 30` | 48 | 0 | 48 | 48 | 96 |
+| `xhigh` | A-E, `5 × 8` | `1 × 40` | 80 | 8 | 88 | 88 | 176 |
+
+The closed report policy is `allVerifiedSurvivors`. It is not a numeric
+ceiling. Account for every independently verified `CONFIRMED` or `PLAUSIBLE`
+survivor exactly once: as a primary finding, as a member of an explicit
+same-root-cause merge, or as a retained identity in a fallback exact-duplicate
+group. Surface every distinct verified issue and verifier-evidence item.
 
 Slice each role result to its cap before ingest. Replacement max equals the
 number of finder-output records because each eligible source may propose at
@@ -339,40 +345,29 @@ independently verify all accepted Sweep candidates. Process one bounded
 Sweep-replacement wave as specified above. A required Sweep failure receives
 one fresh retry; stop after the second failure. An empty Sweep is complete.
 
-## Survivor ordering
+## Deterministic assembly
 
-Exclude `REFUTED` records. Before either report path, order survivors by the
-total tuple:
+Exclude `REFUTED` records and write the surviving normalized records, including
+verifier evidence, to a controller-owned JSON artifact outside the reviewed
+repository. Invoke the shipped assembler with direct arguments:
 
 ```text
-(categoryRank, verdictRank, file, line, candidateId)
+python3 <skill-root>/scripts/assemble_report.py prepare --input <path> --output <path>
 ```
 
-Use:
-
-- correctness rank 0; cleanup rank 1
-- `CONFIRMED` rank 0; `PLAUSIBLE` rank 1
-- file lexicographically ascending
-- numbered lines numerically ascending; missing lines after numbered lines
-- integer `candidateId` numerically ascending
-
-Thus line 2 precedes line 10 and candidate 9 precedes candidate 10.
+Use only the assembler output as Synthesis input. It validates survivor fields
+and unique IDs, applies the canonical category/verdict/file/line/candidate ID
+ordering, and assigns zero-based `reportIndex` values. A nonzero exit, missing
+output, malformed JSON, or output whose IDs differ from the supplied survivors
+stops the review. Do not reproduce these operations through model inference.
 
 ## Synthesis
 
-Synthesis is an optional presentation role. Give it only normalized surviving
-`CONFIRMED` and `PLAUSIBLE` records plus verifier evidence. Label the ordered
-input with zero-based `reportIndex` and immutable `candidateId`.
+Synthesis is an optional presentation role. Give it only the prepared survivor
+records from the assembler.
 
 Do not give Synthesis the diff, source, refuted candidates, Finder identity or
 provenance, candidate confidence, session history, or hidden reasoning.
-
-Require decisions by identity rather than rewritten finding text. Validate
-`reportIndex` with the strict actual-integer/range predicate used for
-`groupIndex`, then require strict `candidateId` equality. Index zero is valid;
-numeric strings are invalid. Reject duplicate candidate IDs. Ignore invalid
-individual decisions and backfill their verified records deterministically
-while capacity remains.
 
 Require structured Synthesis output in this shape:
 
@@ -384,44 +379,58 @@ decisions[]: {
   merge?: {
     reportIndex: non-negative integer,
     candidateId: non-negative integer
-  }[]
+  }[],
+  sharedRootCause?: string,
+  singleFix?: string
 }
 ```
 
-Validate every primary and merged identity pair against the dispatched ordered
-survivor list. A record may be claimed only once across primary and merge
-positions. Synthesis never re-emits or rewrites candidate text.
-
-Allow a semantic merge only when the supplied summaries and verifier evidence
-make the same root cause explicit. Synthesis has no diff access; when causality
-is ambiguous, keep records separate. Preserve every affected location. One
-merged root cause consumes one report slot regardless of location count;
-distinct root causes consume distinct slots even at one location.
-
-Order accepted decisions most severe first while preserving correctness before
-cleanup and `CONFIRMED` before `PLAUSIBLE`. Backfill every unmentioned survivor
-in base order while report capacity remains. Preserve verifier refinements and
-never promote an unverified replacement.
+Synthesis never re-emits or rewrites candidate text. It may merge differently
+worded records when the summaries and verifier evidence support one shared root
+cause and one named code or test change would fix every claim in the merge.
+Every merge must return non-empty `sharedRootCause` and `singleFix` values.
+When the one-fix test is uncertain, keep the records separate. Synthesis may
+order decisions by severity but cannot change category or verdict.
 
 Do not retry Synthesis. A failure or response with no usable decisions selects
-fallback immediately and must not lose verified evidence.
+fallback and must not lose verified evidence.
 
-## Deterministic fallback
+## Finalization and deterministic fallback
 
-Before fallback output, collapse exact-claim duplicates using the normalized
-tuple:
+Write the original normalized survivors and, when usable, the complete
+Synthesis response to a second controller-owned JSON artifact. Omit Synthesis
+after it was skipped or failed. Invoke:
+
+```text
+python3 <skill-root>/scripts/assemble_report.py finalize --input <path> --output <path>
+```
+
+The assembler validates actual-integer identity pairs, exact candidate-ID
+matches, uniqueness across primary and merge positions, and matching category
+and verdict within each merge. It ignores an invalid individual decision and
+backfills all unclaimed records. If no decision is usable, it selects fallback.
+Within each category/verdict bucket, accepted primaries retain Synthesis order
+and precede backfilled records in base order.
+
+Fallback collapses exact claims using:
 
 ```text
 (file, line, category, verdict, summary, failure_scenario)
 ```
 
-Trim fields and collapse internal whitespace before comparing. Keep the lowest
-`candidateId` as representative and retain the evidence and IDs of its exact
-duplicates. Do not perform semantic merging.
+For only `summary` and `failure_scenario`, normalization trims and collapses the
+ASCII whitespace code points U+0009 through U+000D and U+0020. No other code
+point is whitespace for this comparison. Fallback never performs semantic
+merging.
 
-Order the remaining representatives by the survivor total order and take the
-report cap. Label the report as deterministic fallback because Synthesis was
-skipped, failed, or unusable.
+The output contains `mode`, `reported`, and `findings[]`. Each finding carries
+`primaryCandidateId`, every accounted `candidateId`, and the complete original
+records; a semantic merge also carries its `sharedRootCause` and `singleFix`.
+The findings exactly partition survivor IDs. For a semantic merge, render every
+member record's failure scenario with its affected location and retain every
+distinct verifier-evidence item. Label fallback output as deterministic
+fallback. `reported` is the number of rendered primary findings, not the
+survivor count.
 
 ## Report output
 
@@ -439,10 +448,16 @@ concise verifier evidence
 same-root-cause locations, when merged
 ```
 
+Favor terse language. Keep the imperative title on one line and keep the
+failure scenario or cleanup cost and verifier evidence to one sentence each
+when their required meaning remains complete. Do not repeat the same mechanism across fields.
+Never omit evidence required by the applicable verdict ladder.
+
 Follow findings with a short assessment and stats containing:
 
 ```text
 level
+reportPolicy: allVerifiedSurvivors
 completedFinders
 candidates
 verifierAgents
@@ -459,13 +474,13 @@ ceilings: {
   finderOutput
   replacement
   allRecords
-  reportCap
 }
 ```
 
-Emit that same closed `ceilings` record when presenting scheduling decisions,
-before dispatch begins. Copy the selected row from “Identity, category, and
-ceilings”; do not reconstruct or duplicate its values elsewhere.
+Emit that closed report policy together with the same numeric `ceilings` record
+when presenting scheduling decisions, before dispatch begins, and in final
+stats. Copy the selected row from “Identity, category, and ceilings”; do not
+reconstruct or duplicate its values elsewhere.
 
 If no record survives, report: “No findings survived independent verification.”
 Do not claim that the reviewed change is safe.
@@ -497,3 +512,5 @@ post comments, push, open a PR, or change remote state.
 - No survivors: return the exact no-survivor result above.
 - Synthesis failure or no usable decisions: use labeled deterministic fallback
   without retry.
+- Assembler failure, malformed output, or survivor-ID mismatch: stop and name
+  the failed reporting contract; do not reproduce the operation manually.

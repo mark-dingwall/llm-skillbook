@@ -54,8 +54,9 @@ prior areas map onto the same active area, their `invalidators` must agree.
 
 **Revision** — `role_id` is the literal string `inventory-revision`.
 `payload` is `areas`, `priority_order`, and `resolutions`; `resolutions` is an
-array containing exactly one `{ "challenge_id": ID, "resolution": STRING }`
-object for every supplied challenge ID. The resolution explains how the
-replacement inventory addresses the challenge, or rejects it with primary
-evidence. The replacement inventory is a complete replacement, never a partial
-diff.
+array of objects with exactly `challenge_id` and `resolution`, covering every
+challenge ID the controller supplies exactly once. Each `challenge_id` must be
+one of the controller-supplied challenge IDs; no other IDs are permitted. Each
+`resolution` string explains how your replacement inventory addresses the
+challenge, or why you reject it with primary evidence. The replacement
+inventory is a complete replacement, never a partial diff.

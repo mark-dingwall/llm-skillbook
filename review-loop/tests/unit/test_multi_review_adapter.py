@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from review_loop.multi_review import (
+    _SUBJECT_TEXT,
     HolisticRequest,
     MultiReviewError,
     MultiReviewHostPaths,
@@ -21,6 +22,7 @@ from review_loop.multi_review import (
     build_prompt_yaml_text,
     render_verbatim_prompt,
 )
+from review_loop.prompts import render_prompt
 from review_loop.seals import GitPolicy, SealEntry, seal_target
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -208,6 +210,21 @@ class AdapterConstructionTests(unittest.TestCase):
         self.assertEqual(paths1.request_yaml.read_bytes(), paths2.request_yaml.read_bytes())
 
     # --- exact canonical prompt bytes ---
+
+    def test_verbatim_prompt_equals_canonical_rendering(self):
+        context = {
+            "request_id": self.request.request_id,
+            "role": "holistic",
+            "charter_id": "holistic",
+            "target_seal": self.request.target_seal,
+            "round_input_seal": "null",
+            "scope_locator_ids": json.dumps(list(self.request.scope_locator_ids)),
+            "subject": _SUBJECT_TEXT,
+        }
+        canonical = render_prompt("review", ("safety", "round-one", "holistic"), context)
+        rendered = render_verbatim_prompt(self.request)
+
+        self.assertEqual(rendered.encode("utf-8"), canonical)
 
     def test_canonical_prompt_matches_task10_verbatim_header_parser(self):
         prompt_text = render_verbatim_prompt(self.request)

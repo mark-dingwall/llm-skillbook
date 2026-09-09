@@ -7,13 +7,18 @@ file owns only the execution mappings and CLI mechanics described below.
 ## Ordinary review execution
 
 `review_loop/execution.py`'s `Executor` is the sole tested ordinary MVP
-backend: the Codex CLI under a fixed, empirically-tested Bubblewrap mapping
-(`--sandbox read-only`, no host credentials, no network, a fresh non-reusable
-process-tree identity, deadline-bound termination with parent-death cleanup).
-It exposes the target (or a disposable copy), the exact review-data inputs
-named in the call's input seal, and a fresh report/scratch channel — nothing
-else. If a requested reviewer CLI has no tested mapping here, it cannot be
-dispatched; do not improvise an uncontained subprocess call.
+backend: a fixed, empirically-tested Bubblewrap mapping with a fresh
+non-reusable process-tree identity and deadline-bound termination with
+parent-death cleanup. The trusted Codex CLI process receives a fixed provider
+auth file and network access as runtime prerequisites. `--sandbox read-only`
+governs model-generated shell commands. For review data, the mapping exposes
+the target (or a disposable copy), the exact review-data inputs named in the
+call's input seal, and a fresh report/scratch channel. The outer mapping alone
+does not make provider credentials secret from a compromised CLI process.
+This contract makes no claim whether model-generated shell commands can or
+cannot read the credential. If a requested reviewer CLI has no tested mapping
+here, it cannot be dispatched; do not improvise an uncontained subprocess
+call.
 
 `FIX` uses a *separate* write-enabled mapping (`review_loop/fix.py`,
 `build_fix_call`): auth and network stay on (the implementer may need them),
