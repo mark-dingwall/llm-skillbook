@@ -29,7 +29,15 @@ REVIEW_KEYS = {
 RECEIPT_KEYS = {
     "schema", "kind", "dispatch_id", "run_ref", "target_seal",
     "source_identity", "result", "actionable_finding_ids",
+    "feature_forge_charter_id", "completion_criterion", "raw_report_ids",
+    "triage_artifact_id", "triage_finding_ids", "stable_id_mapping",
 }
+CHARTER_BY_KIND = {
+    "specification": "feature-forge/specification-review/v1",
+    "plan": "feature-forge/plan-review/v1",
+    "implementation": "feature-forge/implementation-review/v1",
+}
+STABLE_MAPPING_KEYS = {"triage_finding_id", "feature_forge_finding_id"}
 SOURCE_IDENTITY_KEYS = {"kind", "path", "value"}
 HEAD_KEYS = {
     "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
@@ -593,6 +601,141 @@ def sorted_unique_strings(value: object) -> bool:
     )
 
 
+def allocated_finding_id(dispatch_id: str, triage_finding_id: str) -> str:
+    framed = json.dumps(
+        [dispatch_id, triage_finding_id], ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")
+    return "FF-" + hashlib.sha256(framed).hexdigest()
+
+
+def nonempty_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def stable_mapping_shape(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    sources, destinations = [], []
+    for row in value:
+        if not isinstance(row, dict) or set(row) != STABLE_MAPPING_KEYS:
+            return False
+        if not all(nonempty_text(item) for item in row.values()):
+            return False
+        sources.append(row["triage_finding_id"])
+        destinations.append(row["feature_forge_finding_id"])
+    return len(set(sources)) == len(sources) and len(set(destinations)) == len(destinations)
+
+
+def full_finding_shape(value: object) -> bool:
+    """Check the semantic input's local shape, not external provenance or meaning."""
+    keys = {"id", "sources", "source_ids", "reported_severity", "current_severity",
+            "factual", "state", "evidence_locators", "target_seal"}
+    if not isinstance(value, dict) or set(value) != keys:
+        return False
+    if not all(nonempty_text(value[key]) for key in
+               ("id", "reported_severity", "current_severity", "factual", "state", "target_seal")):
+        return False
+    for key in ("source_ids", "evidence_locators"):
+        if not isinstance(value[key], list) or not all(nonempty_text(x) for x in value[key]):
+            return False
+    sources = value["sources"]
+    if not isinstance(sources, list) or not sources:
+        return False
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != {"report_id", "finding_id", "claim", "severity", "locators"}:
+            return False
+        if not all(nonempty_text(source[key]) for key in ("report_id", "finding_id", "claim", "severity")):
+            return False
+        if not isinstance(source["locators"], list) or not all(nonempty_text(x) for x in source["locators"]):
+            return False
+    return value["source_ids"] == [f"{s['report_id']}:{s['finding_id']}" for s in sources]
+
+
+def apply_stable_id_decisions(payload: object) -> dict[str, object]:
+    """Pure accounting for one bounded material-equivalence judgment."""
+    failure = {"schema": "feature-forge/stable-id-map/v1", "status": "fail",
+               "stable_id_mapping": [], "error": "mapping=invalid-input"}
+    keys = {"dispatch_id", "materially_same_criterion", "prior_findings", "current_findings", "decisions"}
+    if not isinstance(payload, dict) or set(payload) != keys:
+        return failure
+    dispatch = payload["dispatch_id"]
+    if not isinstance(dispatch, str) or DISPATCH_ID.fullmatch(dispatch) is None:
+        return failure
+    if not nonempty_text(payload["materially_same_criterion"]):
+        return failure
+    if not all(isinstance(payload[key], list) for key in ("prior_findings", "current_findings", "decisions")):
+        return failure
+    prior_ids = []
+    for row in payload["prior_findings"]:
+        if (not isinstance(row, dict) or set(row) != {"feature_forge_finding_id", "triage_finding"}
+                or not nonempty_text(row["feature_forge_finding_id"])
+                or row["feature_forge_finding_id"] == "new"
+                or not full_finding_shape(row["triage_finding"])):
+            return failure
+        prior_ids.append(row["feature_forge_finding_id"])
+    if len(prior_ids) != len(set(prior_ids)):
+        return failure
+    if not all(full_finding_shape(row) for row in payload["current_findings"]):
+        return failure
+    current_ids = [row["id"] for row in payload["current_findings"]]
+    if len(current_ids) != len(set(current_ids)):
+        return failure
+    mapping = []
+    for row in payload["decisions"]:
+        if not isinstance(row, dict) or set(row) != {"triage_finding_id", "decision", "rationale"}:
+            return failure
+        identifier, decision = row["triage_finding_id"], row["decision"]
+        if not nonempty_text(identifier) or identifier not in current_ids or not nonempty_text(decision):
+            return failure
+        try:
+            allocated = allocated_finding_id(dispatch, identifier)
+        except (UnicodeError, ValueError):
+            return failure
+        if allocated in prior_ids:
+            return failure
+        if decision == "new":
+            if row["rationale"] is not None:
+                return failure
+            destination = allocated
+        else:
+            if decision not in prior_ids or not nonempty_text(row["rationale"]):
+                return failure
+            destination = decision
+        mapping.append({"triage_finding_id": identifier, "feature_forge_finding_id": destination})
+    if not stable_mapping_shape(mapping) or {row["triage_finding_id"] for row in mapping} != set(current_ids):
+        return failure
+    return {"schema": "feature-forge/stable-id-map/v1", "status": "pass",
+            "stable_id_mapping": sorted(mapping, key=lambda row: row["triage_finding_id"]), "error": None}
+
+
+def receipt_result_invariant(payload: dict[str, object], review: dict[str, object]) -> bool:
+    """Compare current controller-owned records; external evidence stays external."""
+    mapping = payload["stable_id_mapping"]
+    if not stable_mapping_shape(mapping):
+        return False
+    if sorted(row["triage_finding_id"] for row in mapping) != payload["triage_finding_ids"]:
+        return False
+    mapped = sorted(row["feature_forge_finding_id"] for row in mapping)
+    if mapped != payload["actionable_finding_ids"]:
+        return False
+    prior = review["previous_open_finding_ids"]
+    for row in mapping:
+        try:
+            allocated = allocated_finding_id(payload["dispatch_id"], row["triage_finding_id"])
+        except (UnicodeError, ValueError):
+            return False
+        destination = row["feature_forge_finding_id"]
+        if allocated in prior or (destination not in prior and destination != allocated):
+            return False
+    completed = payload["triage_artifact_id"] is not None
+    must_block = bool(mapped) and (review["round"] >= 3 or mapped == prior)
+    if payload["result"] == "pass":
+        return completed and not mapped
+    if payload["result"] == "changes_required":
+        return completed and bool(mapped) and review["round"] >= 1 and not must_block
+    return (not completed and not mapped) or (completed and bool(mapped) and must_block)
+
+
 def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
     try:
         payload = strict_json(path.read_text())
@@ -602,9 +745,9 @@ def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
         return None, "receipt=unsupported"
     if payload.get("schema") != RECEIPT_SCHEMA:
         return None, "receipt=unsupported"
-    if payload.get("kind") not in {"specification", "plan", "implementation"}:
+    if not isinstance(payload.get("kind"), str) or payload["kind"] not in CHARTER_BY_KIND:
         return None, "receipt=unsupported"
-    if payload.get("result") not in {"pass", "changes_required", "blocked"}:
+    if not isinstance(payload.get("result"), str) or payload["result"] not in {"pass", "changes_required", "blocked"}:
         return None, "receipt=unsupported"
     if not all(
         isinstance(payload.get(field), str) and payload.get(field)
@@ -612,6 +755,15 @@ def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
     ):
         return None, "receipt=unsupported"
     if not sorted_unique_strings(payload.get("actionable_finding_ids")):
+        return None, "receipt=unsupported"
+    if (
+        payload["feature_forge_charter_id"] != CHARTER_BY_KIND[payload["kind"]]
+        or not nonempty_text(payload["completion_criterion"])
+        or not sorted_unique_strings(payload["raw_report_ids"])
+        or not sorted_unique_strings(payload["triage_finding_ids"])
+        or (payload["triage_artifact_id"] is not None and not nonempty_text(payload["triage_artifact_id"]))
+        or not stable_mapping_shape(payload["stable_id_mapping"])
+    ):
         return None, "receipt=unsupported"
     source = payload.get("source_identity")
     if (
@@ -800,29 +952,6 @@ def worktree_paths(repo: Path) -> tuple[set[str] | None, str | None]:
         return None, "paths=unavailable"
     parsed = parse_porcelain_z(raw)
     return (parsed, None) if parsed is not None else (None, "paths=unsupported")
-
-
-def implementation_subject_clean(
-    repo: Path, run: Path, dispatch_id: object, *, allow_receipt: bool,
-) -> Result:
-    expected = expected_receipt_path(repo, run, dispatch_id)
-    if expected is None:
-        return result("unverifiable", "review=unsupported")
-    dirty, error = worktree_paths(repo)
-    if error:
-        return result("unverifiable", error)
-    assert dirty is not None
-    allowed = {(run / "ledger.md").relative_to(repo).as_posix()}
-    if allow_receipt:
-        allowed.add(expected[0])
-    mode_mismatches = tracked_mode_mismatches(repo, allowed)
-    if mode_mismatches is None:
-        return result("unverifiable", "modes=unavailable")
-    content_mismatches = tracked_content_mismatches(repo, allowed | mode_mismatches)
-    if content_mismatches is None:
-        return result("unverifiable", "content=unavailable")
-    foreign = sorted((dirty - allowed) | mode_mismatches | content_mismatches)
-    return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
 
 
 def parse_name_status_z(raw: bytes) -> set[str] | None:
@@ -1049,8 +1178,19 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     mode_mismatches = tracked_mode_mismatches(repo, committed_allowed)
     if mode_mismatches is None:
         return result("unverifiable", "modes=unavailable")
+    content_mismatches = tracked_content_mismatches(repo, committed_allowed | mode_mismatches)
+    if content_mismatches is None:
+        return result("unverifiable", "content=unavailable")
+    ignored_raw = git_bytes(repo, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+    if ignored_raw is None:
+        return result("unverifiable", "paths=unavailable")
+    try:
+        ignored = {path.decode("utf-8") for path in ignored_raw.split(b"\0") if path}
+    except UnicodeError:
+        return result("unverifiable", "paths=unsupported")
     foreign = sorted(
         (committed - committed_allowed) | (dirty - dirty_allowed) | mode_mismatches
+        | content_mismatches | (ignored - dirty_allowed)
     )
     return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
 
@@ -1221,89 +1361,6 @@ def canonical_candidate_path(run: Path, kind: str) -> str:
     return f"docs/superpowers/plans/{dated_id}.md"
 
 
-def implementation_snapshot_digest(repo: Path, run: Path, dispatch_id: object) -> str | None:
-    """Seal every review-subject entry except the three workflow-owned mutable files."""
-    expected = expected_receipt_path(repo, run, dispatch_id)
-    if expected is None:
-        return None
-    excluded = {
-        (run / "ledger.md").relative_to(repo).as_posix(),
-        (run / "final-report.md").relative_to(repo).as_posix(),
-        expected[0],
-    }
-    digest = hashlib.sha256()
-
-    def frame(value: bytes) -> None:
-        digest.update(len(value).to_bytes(8, "big"))
-        digest.update(value)
-
-    def visit(directory: Path, prefix: PurePosixPath) -> bool:
-        try:
-            entries = sorted(directory.iterdir(), key=lambda item: item.name)
-        except PATH_OBSERVATION_ERRORS:
-            return False
-        for entry in entries:
-            relative = (prefix / entry.name).as_posix()
-            if relative == ".git" or relative in excluded:
-                continue
-            try:
-                metadata = entry.lstat()
-                mode = metadata.st_mode
-                encoded = relative.encode("utf-8")
-                if stat.S_ISDIR(mode):
-                    if not visit(entry, prefix / entry.name):
-                        return False
-                    continue
-                mode_bytes = f"{stat.S_IFMT(mode):o}:{stat.S_IMODE(mode):o}".encode()
-                if stat.S_ISLNK(mode):
-                    digest.update(b"L")
-                    frame(encoded)
-                    frame(mode_bytes)
-                    frame(os.fsencode(os.readlink(entry)))
-                elif stat.S_ISREG(mode):
-                    digest.update(b"F")
-                    frame(encoded)
-                    frame(mode_bytes)
-                    expected_size = metadata.st_size
-                    digest.update(expected_size.to_bytes(8, "big"))
-                    observed_size = 0
-                    with entry.open("rb") as stream:
-                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                            digest.update(chunk)
-                            observed_size += len(chunk)
-                    if observed_size != expected_size or entry.lstat().st_size != expected_size:
-                        return False
-                else:
-                    return False
-            except PATH_OBSERVATION_ERRORS:
-                return False
-        return True
-
-    return digest.hexdigest() if visit(repo, PurePosixPath()) else None
-
-
-def implementation_snapshot(repo_arg: str, run_arg: str, dispatch_id: str) -> Result:
-    repo = repository(repo_arg)
-    if repo is None:
-        return result("unverifiable", "repository=unavailable")
-    run, run_error = canonical_run_observation(repo, run_arg)
-    if run_error is not None:
-        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
-    assert run is not None
-    if exact_entry_state(repo, run / "final-report.md") != "absent":
-        return result("fail", "report=premature")
-    expected = expected_receipt_path(repo, run, dispatch_id)
-    if expected is None:
-        return result("unverifiable", "review=unsupported")
-    if exact_entry_state(repo, expected[1]) != "absent":
-        return result("unverifiable", "receipt=unavailable")
-    clean = implementation_subject_clean(repo, run, dispatch_id, allow_receipt=False)
-    if clean.status != "pass":
-        return clean
-    digest = implementation_snapshot_digest(repo, run, dispatch_id)
-    return result("pass", f"snapshot={digest}") if digest else result("unverifiable", "snapshot=unavailable")
-
-
 def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) -> Result:
     """Validate that ledger identity claims cannot redirect the canonical run."""
     suffix = DATED_DIRECTORY.fullmatch(run.name)
@@ -1374,22 +1431,9 @@ def receipt_source_matches(
         if digest is None:
             return result("unverifiable", "receipt=source-unavailable")
         return result("pass") if source.get("value") == digest else result("fail", "receipt=source-mismatch")
-    if source.get("kind") != "implementation_snapshot_sha256" or source.get("path") is not None:
+    if source != {"kind": "reviewed_commit", "path": None, "value": review["reviewed_commit"]}:
         return result("fail", "receipt=source-mismatch")
-    value = source.get("value")
-    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-        return result("fail", "receipt=source-mismatch")
-    if not observe_current:
-        return result("pass")
-    clean = implementation_subject_clean(
-        repo, run, review["dispatch_id"], allow_receipt=True,
-    )
-    if clean.status != "pass":
-        return clean
-    observed = implementation_snapshot_digest(repo, run, review["dispatch_id"])
-    if observed is None:
-        return result("unverifiable", "receipt=source-unavailable")
-    return result("pass") if value == observed else result("fail", "receipt=source-mismatch")
+    return result("pass")
 
 
 def audit_receipt(
@@ -1414,6 +1458,7 @@ def audit_receipt(
         or payload["target_seal"] != review["target_seal"]
         or payload["result"] != review["state"]
         or payload["actionable_finding_ids"] != review["open_finding_ids"]
+        or not receipt_result_invariant(payload, review)
     ):
         return result("fail", "receipt=mismatch")
     return receipt_source_matches(
@@ -1573,10 +1618,6 @@ def parser() -> argparse.ArgumentParser:
     command = subcommands.add_parser("audit")
     command.add_argument("--repo", required=True)
     command.add_argument("--run", required=True)
-    command = subcommands.add_parser("implementation-snapshot")
-    command.add_argument("--repo", required=True)
-    command.add_argument("--run", required=True)
-    command.add_argument("--dispatch-id", required=True)
     return parsed
 
 
@@ -1588,10 +1629,8 @@ def main(argv: list[str] | None = None) -> int:
         checked = identities(args.repo, args.run)
     elif args.command == "reviewed-snapshot":
         checked = reviewed_snapshot(args.repo, args.run)
-    elif args.command == "audit":
-        checked = audit(args.repo, args.run)
     else:
-        checked = implementation_snapshot(args.repo, args.run, args.dispatch_id)
+        checked = audit(args.repo, args.run)
     print(f"FF-CHECK v1 gate={args.command} status={checked.status}")
     for finding in checked.findings:
         print(finding, file=sys.stderr)

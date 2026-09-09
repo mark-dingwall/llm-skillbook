@@ -176,29 +176,35 @@ promotion, final challenge, or `close`. This boundary is executable because
 it stops only between public controller calls; Feature Forge owns corrections
 between rounds.
 
+Every charter defines a finding as a grounded discrepancy against an approved
+requirement, correctness condition, applicable repository contract, or required
+verification result. Preferences, optional enhancements, and speculative
+improvements are not findings. TRIAGE consolidates current raw findings;
+Feature Forge neither discards nor downgrades a returned finding.
+
 Map the read-only return as follows:
 
 | Read-only return | Workflow review result |
 | --- | --- |
-| TRIAGE completed with no open Important or Critical findings and all required gates/reviewers complete; residual open Minor findings remain human evidence | `pass` |
-| TRIAGE completed with open Important or Critical findings | `changes_required` |
-| `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, missing authority, or non-actionable Important+ blocker | `blocked` |
+| TRIAGE completed with zero findings and all required gates/reviewers complete | `pass` |
+| TRIAGE completed with any finding, including Minor | `changes_required`, unless the round/repetition predicate below requires `blocked` |
+| `INDETERMINATE`, failed required gate, unavailable required reviewer/runner, or missing authority before TRIAGE | `blocked` |
 
 ## Bounded review return rule
 
 Starting a different review kind creates a fresh current review object with
 `review.round` zero, empty finding-ID arrays, and a new root identity; prior
 evidence stays in transition history. `root_identity` is an opaque controller
-label. Ordinary fixes retain it. Only an authority-governed root-cause
+label. Ordinary fixes retain the root, round, and both finding-ID histories
+through same-kind correction and re-review, while allocating fresh dispatch, external run,
+target-seal, and receipt identities. Only an authority-governed root-cause
 invalidation may replace it, and the transition records the old and new root
 identities, reason, authority, and parent event.
 
-After each completed nonempty actionable TRIAGE return, make one bounded LLM
-judgment: reuse a prior opaque ID only for the materially same finding and
-allocate a new ID otherwise, recording the mapping and rationale. Then copy the
-preceding actionable set to `previous_open_finding_ids`, store the current
-sorted unique set in `open_finding_ids`, and increment `review.round` before
-applying:
+After each completed nonempty TRIAGE return, apply the stable-ID judgment below
+to every row, irrespective of severity. Copy the old `open_finding_ids` to
+`previous_open_finding_ids`, install the new sorted mapped set in
+`open_finding_ids`, and increment `review.round` before applying:
 
 ```text
 must_block =
@@ -219,11 +225,10 @@ For every review round, the controller must:
 
 1. Capture source identity before materializing: require an exact regular file
    reached only through real-directory ancestors, then record its SHA-256 plus canonical path
-   for a Specification or Plan candidate, or the `implementation-snapshot`
-   digest plus null path and source `HEAD` for Implementation. The snapshot
-   digest covers every materialized regular file and declared symlink path,
-   type, mode, and content while excluding only the current ledger, reserved
-   receipt, and stage-owned final report. Materialize the exact subject and
+   for a Specification or Plan candidate. For Implementation, require the
+   clean committed subject and capture the canonical source `HEAD` as
+   `reviewed_commit`. The controller retains the materialized-subject evidence
+   needed to compare all sealed paths on return. Materialize the exact subject and
    create its one disposable bootstrap commit. Allocate a fresh filename-safe
    dispatch ID, caller-chosen external run root, and absent canonical receipt
    path `docs/feature-forge/runs/YYYY-MM-DD-<run-id>/reviews/<dispatch-id>.json`.
@@ -250,17 +255,107 @@ For every review round, the controller must:
    Stage 0, and `run_triage` only for a usable Round 1. Stop at the first
    terminal outcome. Keep loop reports **outside the sealed tree**; during the
    round mutate neither target nor ledger.
-5. Recheck the captured source identity against the same exact-regular-file
-   boundary before mapping the return or freezing.
-   Then write, without overwrite, the strict receipt with exactly `schema`,
-   `kind`, `dispatch_id`, `run_ref`, `target_seal`, `source_identity`, `result`,
-   and sorted unique `actionable_finding_ids`. The schema is
-   `feature-forge/review-receipt/v1`; `result` is `pass`,
-   `changes_required`, or `blocked` and maps to the same review state.
-   Implementation receipts use source-identity kind
-   `implementation_snapshot_sha256`, null path, and the captured digest; the
-   current review head separately records the captured source `HEAD` as
-   `reviewed_commit` for every returned implementation result.
+5. Recheck the captured source identity before mapping the return or freezing:
+   use the same exact-regular-file boundary for candidates; for Implementation,
+   confirm the source commit and all sealed subject paths remain unchanged.
+   Validate the returned evidence and stable-ID decisions as specified below,
+   then exclusively write the canonical receipt. Record the captured source
+   `HEAD` as `reviewed_commit` for every returned Implementation result.
+
+### Receipt evidence contract
+
+The exact receipt key set is:
+
+```text
+schema, kind, dispatch_id, run_ref, target_seal, source_identity, result,
+actionable_finding_ids, feature_forge_charter_id, completion_criterion,
+raw_report_ids, triage_artifact_id, triage_finding_ids, stable_id_mapping
+```
+
+`schema` is `feature-forge/review-receipt/v1`; kind, dispatch, run, seal, result,
+and sorted unique actionable IDs agree with the current ledger review.
+`source_identity` has exactly `kind`, `path`, and `value`: candidates use
+`candidate_sha256`, canonical path, and SHA-256; Implementation uses
+`reviewed_commit`, null path, and the ledger's reviewed commit. The checker
+requires that commit to be nonempty, canonical, resolvable, and an ancestor of
+current `HEAD`.
+
+| Evidence field | Source and validation |
+| --- | --- |
+| `feature_forge_charter_id` | Exactly `feature-forge/specification-review/v1`, `feature-forge/plan-review/v1`, or `feature-forge/implementation-review/v1`, matching kind. This outer charter is distinct from Review Loop's per-reviewer charters. |
+| `completion_criterion` | Exact nonempty criterion supplied for this review. |
+| `raw_report_ids` | Sorted unique usable IDs from the caller-retained `Round1Outcome.raw_reports`, including zero-finding reports; never infer this inventory by scanning files. |
+| `triage_artifact_id` | Registry ID of the `triage-result` bound to `apply_ledger_decisions`; null if TRIAGE did not complete. |
+| `triage_finding_ids` | Every canonical TRIAGE row ID, sorted and unique. |
+| `stable_id_mapping` | Exactly one `{triage_finding_id, feature_forge_finding_id}` per current TRIAGE ID; unique sources and destinations, no unknown sources. Sorted destination IDs equal `actionable_finding_ids`. |
+
+Before writing, the controller reads the named external run's bound
+`triage-result` evidence, verifies its registry digest and
+`apply_ledger_decisions` binding, and compares its complete report inventory
+with the retained Round 1 inventory and its finding IDs with the returned rows.
+For a pass, TRIAGE is nonnull and all three finding/mapping/actionable arrays
+are empty. A pre-TRIAGE block has null TRIAGE and empty arrays; retain any usable
+Round 1 reports already produced. A completed nonempty TRIAGE has a complete
+nonempty mapping and is `blocked` exactly when the round/repetition predicate
+requires it, otherwise `changes_required`. A pass does not increment round.
+
+`ff-check` validates local shape, sets, allocation, result/round rules, and
+receipt/head agreement. It does not open the external Review Loop run or
+independently prove provenance, charter dispatch, or criterion delivery.
+Controller-written records agreeing with each other are not independent proof.
+
+### Stable-finding-ID judgment
+
+The LLM owns only material equivalence. Supply exactly `prior_findings`,
+`current_findings`, and `materially_same_criterion`:
+
+- The criterion is: same grounded discrepancy against the same requirement,
+  correctness condition, repository contract, or verification result, with no
+  material change in the required correction.
+- Current findings are the complete normalized finding objects from the
+  digest- and binding-verified current `triage-result`, including `id`,
+  complete `sources` (`report_id`, `finding_id`, `claim`, `severity`,
+  `locators`), `source_ids`, `reported_severity`, `current_severity`,
+  `factual`, `state`, `evidence_locators`, and `target_seal`.
+- Prior findings have exactly `feature_forge_finding_id` and `triage_finding`.
+  Load full findings through the preceding receipt's `run_ref` and
+  `triage_artifact_id`, verify the same digest/binding and report/ID inventories,
+  then join through that receipt's `stable_id_mapping`. Require complete,
+  unique coverage of the prior open IDs. Projection rows omit claims and
+  evidence locators and cannot supply semantic input.
+
+Return exactly one decision per current ID:
+
+```json
+{"decisions":[{"triage_finding_id":"current-id","decision":"FF-prior","rationale":"same missing REQ-007 verification"}]}
+```
+
+Choose one supplied prior stable ID with a nonempty rationale, or literal
+`new` with null rationale. TRIAGE owns consolidation; two current findings
+cannot reuse one destination. The LLM never allocates IDs.
+
+The controller adds `dispatch_id` to those three input fields plus the exact
+`decisions` array and invokes the installed pure function before receipt
+creation, feeding this object on stdin:
+
+```bash
+python3 -c 'import json,runpy,sys; api=runpy.run_path(sys.argv[1]); print(json.dumps(api["apply_stable_id_decisions"](json.load(sys.stdin)),sort_keys=True,separators=(",",":")))' "$SKILL_DIR/scripts/ff-check"
+```
+
+Code validates exact shapes, complete current-ID coverage, known and singly
+reused prior IDs, rationale rules, allocation, and destination uniqueness.
+For `new`, it returns `FF-` plus SHA-256 of UTF-8
+`json.dumps([dispatch_id, triage_finding_id], ensure_ascii=False, separators=(",", ":"))`;
+a derived ID colliding with any prior ID is rejected. Each receipt destination
+must be a prior open ID or that exact allocation.
+
+The transient result has exactly `schema` (`feature-forge/stable-id-map/v1`),
+`status`, `stable_id_mapping`, and `error`. Success is `pass` with sorted
+mapping rows and null error; failure is `fail`, an empty mapping, and a stable
+nonempty error code. A missing single JSON result, non-pass status, or shape
+mismatch blocks before receipt creation. Record decisions and reuse rationales
+in the existing ledger transition evidence; create no mapping artifact or
+checker subcommand.
 
 `review-loop` validates its temporary target seal during its public calls.
 Feature Forge stores that returned seal, the external run reference, strict

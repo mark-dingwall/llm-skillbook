@@ -107,7 +107,6 @@ behavior evidence.
 | Review target seal | Seal for review-loop materialized target | review-loop only |
 | Frozen identity | canonical path plus Git blob | ff-check identities |
 | Reviewed implementation commit | source HEAD reviewed by the current returned implementation review | ff-check audit/reviewed-snapshot |
-| Implementation source snapshot | SHA-256 seal of every reviewed regular-file and declared-symlink path, type, mode, and content except the mutable ledger, reserved receipt, and stage-owned final report | ff-check implementation-snapshot/reviewed-snapshot |
 
 These identities are not interchangeable; Feature Forge cannot derive a review
 target seal from a source commit. A human transition row records `event`,
@@ -372,7 +371,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Complete every frozen plan task as committed, locally verified implementation.
 - **Inputs:** Frozen specification and plan identities, implementation table, execution authority, and `execute-return` contract.
-- **Mechanical check:** Run `identities` at entry and `audit` after each bounded execution return is recorded.
+- **Mechanical check:** Run `identities` at entry, immediately before each delegated or inline plan task, and immediately after every bounded task return before recording that return complete; then run `audit` after the ledger update.
 - **Owned action:** Select exactly one authorized execution mode, execute independently bounded tasks, and record each task's status, owned commit, and evidence without changing plan checkboxes.
 - **Pass:** Every plan-task row has a verified commit/evidence record and implementation content is committed with one next action.
 - **Failure:** A verified `fail` routes specification/plan drift through read-only reconciliation and the fixed graph; `unverifiable` or unavailable execution authority blocks. Recover a missing return before redispatch.

@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import copy
+import runpy
 import shutil
 import subprocess
 import sys
@@ -18,6 +20,241 @@ HEAD_KEYS = {
     "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
     "stage", "next_action", "frozen", "review",
 }
+
+# Receipt and semantic-mapping contracts are exercised through the installed file.
+def receipt_payload() -> dict[str, object]:
+    return {
+        "schema": "feature-forge/review-receipt/v1", "kind": "specification",
+        "dispatch_id": "specification-2", "run_ref": "/external/run", "target_seal": "seal",
+        "source_identity": {"kind": "candidate_sha256", "path": "candidate.md", "value": "a" * 64},
+        "result": "pass", "actionable_finding_ids": [],
+        "feature_forge_charter_id": "feature-forge/specification-review/v1",
+        "completion_criterion": "No grounded discrepancies remain.",
+        "raw_report_ids": ["empty-report", "report"], "triage_artifact_id": "triage-artifact",
+        "triage_finding_ids": [], "stable_id_mapping": [],
+    }
+
+
+def test_strict_receipt_accepts_complete_evidence_and_rejects_old_shape(tmp_path: Path) -> None:
+    api = runpy.run_path(str(CHECKER))
+    payload = receipt_payload()
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(payload))
+    assert api["strict_receipt"](path) == (payload, None)
+    for key in ("feature_forge_charter_id", "completion_criterion", "raw_report_ids",
+                "triage_artifact_id", "triage_finding_ids", "stable_id_mapping"):
+        payload.pop(key)
+    path.write_text(json.dumps(payload))
+    assert api["strict_receipt"](path) == (None, "receipt=unsupported")
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("feature_forge_charter_id", "feature-forge/plan-review/v1"),
+    ("completion_criterion", ""), ("completion_criterion", " "),
+    ("raw_report_ids", ["b", "a"]), ("raw_report_ids", ["a", "a"]),
+    ("triage_finding_ids", ["b", "a"]), ("triage_finding_ids", ["a", "a"]),
+    ("triage_artifact_id", ""), ("stable_id_mapping", [{}]),
+    ("stable_id_mapping", [{"triage_finding_id": "a", "feature_forge_finding_id": "F", "extra": 0}]),
+    ("stable_id_mapping", [{"triage_finding_id": "a", "feature_forge_finding_id": "F"},
+                           {"triage_finding_id": "a", "feature_forge_finding_id": "G"}]),
+    ("stable_id_mapping", [{"triage_finding_id": "a", "feature_forge_finding_id": "F"},
+                           {"triage_finding_id": "b", "feature_forge_finding_id": "F"}]),
+])
+def test_strict_receipt_rejects_malformed_evidence(tmp_path: Path, field: str, value: object) -> None:
+    payload = receipt_payload()
+    payload[field] = value
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(payload))
+    assert runpy.run_path(str(CHECKER))["strict_receipt"](path) == (None, "receipt=unsupported")
+
+
+@pytest.mark.parametrize("key", list(receipt_payload()) + ["extra"])
+def test_strict_receipt_requires_exact_keys(tmp_path: Path, key: str) -> None:
+    payload = receipt_payload()
+    if key == "extra":
+        payload[key] = None
+    else:
+        payload.pop(key)
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(payload))
+    assert runpy.run_path(str(CHECKER))["strict_receipt"](path) == (None, "receipt=unsupported")
+
+
+@pytest.mark.parametrize(("triage_id", "expected"), [
+    ("current-triage-id", "FF-8ba19360e98813264f1a2312b6cf6d0691f058ad9740655c00f6f556a4041117"),
+    ("缺失-α", "FF-919d54635b202d94b3bd4c4e320557c953e6f8e0c1dd5d0cee5dfab8b96c01fc"),
+])
+def test_allocated_finding_id_fixed_vectors(triage_id: str, expected: str) -> None:
+    allocate = runpy.run_path(str(CHECKER)).get("allocated_finding_id")
+    assert callable(allocate), "installed deterministic allocator is missing"
+    assert allocate("specification-2", triage_id) == expected
+
+
+@pytest.mark.parametrize(("result", "triage", "ids", "round_number", "previous", "expected"), [
+    ("pass", "artifact", [], 0, [], True),
+    ("pass", None, [], 0, [], False),
+    ("pass", "artifact", ["F"], 1, [], False),
+    ("changes_required", "artifact", ["F"], 1, [], True),
+    ("changes_required", None, ["F"], 1, [], False),
+    ("changes_required", "artifact", [], 1, [], False),
+    ("changes_required", "artifact", ["F"], 0, [], False),
+    ("changes_required", "artifact", ["F"], 3, [], False),
+    ("changes_required", "artifact", ["F"], 2, ["F"], False),
+    ("blocked", None, [], 0, [], True),
+    ("blocked", None, ["F"], 1, [], False),
+    ("blocked", "artifact", [], 3, [], False),
+    ("blocked", "artifact", ["F"], 1, [], False),
+    ("blocked", "artifact", ["F"], 3, [], True),
+    ("blocked", "artifact", ["F"], 2, ["F"], True),
+])
+def test_receipt_result_matrix(result, triage, ids, round_number, previous, expected) -> None:
+    api = runpy.run_path(str(CHECKER))
+    predicate = api.get("receipt_result_invariant")
+    assert callable(predicate), "installed result predicate is missing"
+    payload = receipt_payload()
+    payload.update(result=result, triage_artifact_id=triage, actionable_finding_ids=ids,
+                   triage_finding_ids=["T"] if ids else [],
+                   stable_id_mapping=[{"triage_finding_id": "T", "feature_forge_finding_id": "F"}] if ids else [])
+    review = {"round": round_number, "previous_open_finding_ids": previous or (["F", "other"] if ids else [])}
+    assert predicate(payload, review) is expected
+
+
+@pytest.mark.parametrize("defect", ["unknown-source", "missing-source", "wrong-actionable",
+                                    "unknown-destination", "allocation-collision"])
+def test_receipt_mapping_requires_complete_accounting(defect: str) -> None:
+    api = runpy.run_path(str(CHECKER))
+    predicate = api.get("receipt_result_invariant")
+    assert callable(predicate), "installed result predicate is missing"
+    payload = receipt_payload()
+    payload.update(result="changes_required", triage_finding_ids=["T"], actionable_finding_ids=["F"],
+                   stable_id_mapping=[{"triage_finding_id": "T", "feature_forge_finding_id": "F"}])
+    review = {"round": 1, "previous_open_finding_ids": ["F", "G"]}
+    if defect == "unknown-source":
+        payload["stable_id_mapping"][0]["triage_finding_id"] = "unknown"
+    elif defect == "missing-source":
+        payload["stable_id_mapping"] = []
+    elif defect == "wrong-actionable":
+        payload["actionable_finding_ids"] = ["G"]
+    elif defect == "unknown-destination":
+        payload["actionable_finding_ids"] = ["unknown"]
+        payload["stable_id_mapping"][0]["feature_forge_finding_id"] = "unknown"
+    else:
+        destination = api["allocated_finding_id"](payload["dispatch_id"], "T")
+        payload["actionable_finding_ids"] = [destination]
+        payload["stable_id_mapping"][0]["feature_forge_finding_id"] = destination
+        review["previous_open_finding_ids"] = [destination, "G"]
+    assert predicate(payload, review) is False
+
+
+def semantic_finding(identifier: str = "current-triage-id", claim: str = "REQ-007 lacks an acceptance check") -> dict[str, object]:
+    return {
+        "id": identifier,
+        "sources": [{"report_id": "current-report", "finding_id": "current-finding",
+                     "claim": claim, "severity": "Minor", "locators": ["REQ-007"]}],
+        "source_ids": ["current-report:current-finding"], "reported_severity": "Minor",
+        "current_severity": "Minor", "factual": "CONFIRMED", "state": "OPEN",
+        "evidence_locators": ["REQ-007"], "target_seal": "current-seal",
+    }
+
+
+def mapping_payload() -> dict[str, object]:
+    return {
+        "dispatch_id": "specification-2",
+        "materially_same_criterion": "same grounded discrepancy with no material change in required correction",
+        "prior_findings": [{"feature_forge_finding_id": "FF-prior",
+                            "triage_finding": semantic_finding("unrelated-id-spelling")}],
+        "current_findings": [semantic_finding()],
+        "decisions": [{"triage_finding_id": "current-triage-id", "decision": "FF-prior",
+                       "rationale": "same missing REQ-007 verification"}],
+    }
+
+
+def mapping_api():
+    helper = runpy.run_path(str(CHECKER)).get("apply_stable_id_decisions")
+    assert callable(helper), "installed stable-ID mapper is missing"
+    return helper
+
+
+def test_stable_id_mapper_reuses_prior_id_and_is_pure() -> None:
+    payload = mapping_payload()
+    before = copy.deepcopy(payload)
+    assert mapping_api()(payload) == {
+        "schema": "feature-forge/stable-id-map/v1", "status": "pass",
+        "stable_id_mapping": [{"triage_finding_id": "current-triage-id", "feature_forge_finding_id": "FF-prior"}],
+        "error": None,
+    }
+    assert payload == before
+
+
+def test_stable_id_mapper_allocates_two_distinct_new_ids() -> None:
+    payload = mapping_payload()
+    payload["current_findings"].append(semantic_finding("缺失-α"))
+    payload["decisions"] = [
+        {"triage_finding_id": name, "decision": "new", "rationale": None}
+        for name in ("缺失-α", "current-triage-id")
+    ]
+    observed = mapping_api()(payload)
+    assert observed["status"] == "pass"
+    assert observed["stable_id_mapping"] == [
+        {"triage_finding_id": "current-triage-id", "feature_forge_finding_id": "FF-8ba19360e98813264f1a2312b6cf6d0691f058ad9740655c00f6f556a4041117"},
+        {"triage_finding_id": "缺失-α", "feature_forge_finding_id": "FF-919d54635b202d94b3bd4c4e320557c953e6f8e0c1dd5d0cee5dfab8b96c01fc"},
+    ]
+
+
+@pytest.mark.parametrize("defect", [
+    "missing-decision", "unknown-source", "unknown-prior", "missing-rationale", "empty-rationale",
+    "new-rationale", "reused-prior", "duplicate-current", "duplicate-prior", "extra-decision-key",
+    "extra-payload-key", "missing-claim", "projected-finding", "allocation-collision",
+    "empty-criterion", "invalid-dispatch", "null-payload", "reuse-allocation-collision",
+])
+def test_stable_id_mapper_rejects_incomplete_or_ambiguous_mapping(defect: str) -> None:
+    payload = mapping_payload()
+    if defect == "missing-decision":
+        payload["decisions"] = []
+    elif defect == "unknown-source":
+        payload["decisions"][0]["triage_finding_id"] = "unknown"
+    elif defect == "unknown-prior":
+        payload["decisions"][0]["decision"] = "unknown"
+    elif defect == "missing-rationale":
+        payload["decisions"][0].pop("rationale")
+    elif defect == "empty-rationale":
+        payload["decisions"][0]["rationale"] = " "
+    elif defect == "new-rationale":
+        payload["decisions"][0]["decision"] = "new"
+    elif defect == "reused-prior":
+        payload["current_findings"].append(semantic_finding("second"))
+        payload["decisions"].append({"triage_finding_id": "second", "decision": "FF-prior", "rationale": "same"})
+    elif defect == "duplicate-current":
+        payload["current_findings"] *= 2
+    elif defect == "duplicate-prior":
+        payload["prior_findings"] *= 2
+    elif defect == "extra-decision-key":
+        payload["decisions"][0]["extra"] = 0
+    elif defect == "extra-payload-key":
+        payload["extra"] = 0
+    elif defect == "missing-claim":
+        payload["current_findings"][0]["sources"][0].pop("claim")
+    elif defect == "projected-finding":
+        payload["current_findings"][0].pop("sources")
+    elif defect == "allocation-collision":
+        payload["prior_findings"][0]["feature_forge_finding_id"] = "FF-8ba19360e98813264f1a2312b6cf6d0691f058ad9740655c00f6f556a4041117"
+        payload["decisions"][0].update(decision="new", rationale=None)
+    elif defect == "reuse-allocation-collision":
+        identifier = "FF-8ba19360e98813264f1a2312b6cf6d0691f058ad9740655c00f6f556a4041117"
+        payload["prior_findings"][0]["feature_forge_finding_id"] = identifier
+        payload["decisions"][0]["decision"] = identifier
+    elif defect == "empty-criterion":
+        payload["materially_same_criterion"] = " "
+    elif defect == "invalid-dispatch":
+        payload["dispatch_id"] = "../escape"
+    else:
+        payload = None
+    observed = mapping_api()(payload)
+    assert set(observed) == {"schema", "status", "stable_id_mapping", "error"}
+    assert observed["schema"] == "feature-forge/stable-id-map/v1"
+    assert observed["status"] == "fail" and observed["stable_id_mapping"] == []
+    assert isinstance(observed["error"], str) and observed["error"]
+
 
 
 def assert_result(result: subprocess.CompletedProcess[str], status: str, code: int) -> None:
@@ -55,15 +292,8 @@ def source_identity(
     repo: Path, directory: Path, kind: str, dispatch_id: str,
 ) -> dict[str, object]:
     if kind == "implementation":
-        captured = check(
-            "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-            "--dispatch-id", dispatch_id,
-        )
-        assert captured.returncode == 0, captured.stderr
-        return {
-            "kind": "implementation_snapshot_sha256", "path": None,
-            "value": captured.stderr.strip().removeprefix("snapshot="),
-        }
+        return {"kind": "reviewed_commit", "path": None,
+                "value": git(repo, "rev-parse", "HEAD")}
     relative = (
         "docs/superpowers/specs/2026-08-25-alpha-design.md"
         if kind == "specification" else "docs/superpowers/plans/2026-08-25-alpha.md"
@@ -89,6 +319,14 @@ def returned_review(
     opened = [] if opened is None else opened
     previous = [] if previous is None else previous
     dispatch_id = f"{kind}-review-1"
+    mapping = [
+        {"triage_finding_id": identifier,
+         "feature_forge_finding_id": identifier if identifier in previous else
+         "FF-" + hashlib.sha256(json.dumps([dispatch_id, identifier], ensure_ascii=False,
+                                          separators=(",", ":")).encode()).hexdigest()}
+        for identifier in opened
+    ]
+    opened = sorted(row["feature_forge_finding_id"] for row in mapping)
     reviewed_commit = git(repo, "rev-parse", "HEAD") if kind == "implementation" else None
     review = {
         "kind": kind, "state": state, "round": round_number,
@@ -115,6 +353,12 @@ def returned_review(
         "target_seal": review["target_seal"],
         "source_identity": source_identity(repo, directory, kind, dispatch_id),
         "result": receipt_result or state, "actionable_finding_ids": opened,
+        "feature_forge_charter_id": f"feature-forge/{kind}-review/v1",
+        "completion_criterion": "No grounded discrepancies remain.",
+        "raw_report_ids": ["report"],
+        "triage_artifact_id": None if state == "blocked" and not opened else "triage-artifact",
+        "triage_finding_ids": sorted(row["triage_finding_id"] for row in mapping),
+        "stable_id_mapping": mapping,
     }, sort_keys=True))
     write_ledger(directory, data)
     return review
@@ -456,7 +700,8 @@ def test_audit_rejects_malformed_frozen_objects(tmp_path: Path, frozen: object) 
     repo, directory, data = audit_fixture(tmp_path)
     data["frozen"] = frozen
     write_ledger(directory, data)
-    assert_result(invoke(repo, directory), "unverifiable", 2)
+    wrong_path = isinstance(frozen, dict) and isinstance(frozen.get("specification"), dict) and frozen["specification"].get("path") in {"../escape", "."}
+    assert_result(invoke(repo, directory), "fail" if wrong_path else "unverifiable", 1 if wrong_path else 2)
 
 
 def test_audit_accepts_populated_review_active_without_a_return_receipt(tmp_path: Path) -> None:
@@ -584,8 +829,8 @@ def test_audit_accepts_implementation_nonpass_receipt_with_canonical_source_comm
     assert review["reviewed_commit"] == git(repo, "rev-parse", "HEAD")
     receipt = json.loads((repo / review["evidence_path"]).read_text())
     assert receipt["source_identity"] == {
-        "kind": "implementation_snapshot_sha256", "path": None,
-        "value": receipt["source_identity"]["value"],
+        "kind": "reviewed_commit", "path": None,
+        "value": review["reviewed_commit"],
     }
     assert_result(invoke(repo, directory), "pass", 0)
 
@@ -610,7 +855,7 @@ def test_audit_rejects_an_unrelated_implementation_commit_on_a_nonpass_return(
 
 
 @pytest.mark.parametrize("identity", ["HEAD", "0" * 40, "not-a-digest"])
-def test_audit_rejects_noncanonical_implementation_nonpass_snapshot_digest(
+def test_audit_rejects_noncanonical_implementation_nonpass_source_commit(
     tmp_path: Path, identity: str,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -625,7 +870,7 @@ def test_audit_rejects_noncanonical_implementation_nonpass_snapshot_digest(
     assert_result(invoke(repo, directory), "fail", 1)
 
 
-def test_audit_rejects_short_snapshot_digest_before_observation(
+def test_audit_rejects_short_source_commit_before_observation(
     tmp_path: Path,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -641,7 +886,7 @@ def test_audit_rejects_short_snapshot_digest_before_observation(
     assert_result(invoke(repo, directory), "fail", 1)
 
 
-def test_audit_rejects_wrong_canonical_nonpass_snapshot_digest(
+def test_audit_rejects_wrong_canonical_nonpass_source_commit(
     tmp_path: Path,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -845,9 +1090,10 @@ def test_audit_accepts_transition_fixture_that_maps_and_increments_before_blocki
         previous=previous, opened=mapped,
     )
     assert review["round"] == expected_round
-    assert review["open_finding_ids"] == mapped
+    assert len(review["open_finding_ids"]) == len(mapped)
     receipt = json.loads((repo / review["evidence_path"]).read_text())
-    assert receipt["result"] == "blocked" and receipt["actionable_finding_ids"] == mapped
+    assert receipt["result"] == "blocked"
+    assert receipt["actionable_finding_ids"] == review["open_finding_ids"]
     assert_result(invoke(repo, directory), "pass", 0)
 
 
@@ -906,6 +1152,8 @@ def test_audit_rejects_return_receipt_head_disagreement(
     path = repo / review["evidence_path"]
     receipt = json.loads(path.read_text())
     receipt[field] = value
+    if field == "kind":
+        receipt["feature_forge_charter_id"] = f"feature-forge/{value}-review/v1"
     path.write_text(json.dumps(receipt))
     assert_result(invoke(repo, directory), "fail", 1)
 

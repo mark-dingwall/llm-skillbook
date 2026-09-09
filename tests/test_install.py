@@ -4,6 +4,7 @@ Run: python3 -m pytest tests/test_install.py
 """
 import importlib.util
 import os
+import runpy
 import stat
 import subprocess
 import sys
@@ -61,8 +62,18 @@ def test_feature_forge_production_checker_is_user_executable(tmp_path, host, nam
         [sys.executable, str(checker), "--help"], text=True, capture_output=True,
     )
     assert result.returncode == 0
-    assert "{runs,identities,reviewed-snapshot,audit,implementation-snapshot}" in result.stdout
+    assert "{runs,identities,reviewed-snapshot,audit}" in result.stdout
     assert "FF-CHECK" not in result.stdout
+    api = runpy.run_path(str(checker))
+    mapped = api["apply_stable_id_decisions"]({
+        "dispatch_id": "specification-1", "materially_same_criterion": "same grounded discrepancy",
+        "prior_findings": [], "current_findings": [], "decisions": [],
+    })
+    assert mapped == {
+        "schema": "feature-forge/stable-id-map/v1", "status": "pass",
+        "stable_id_mapping": [], "error": None,
+    }
+    assert api["apply_stable_id_decisions"]({})["status"] == "fail"
 
 
 def test_review_loop_production_launcher_excludes_dev_dependencies(tmp_path):

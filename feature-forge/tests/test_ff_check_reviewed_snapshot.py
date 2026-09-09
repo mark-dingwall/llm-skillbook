@@ -31,12 +31,6 @@ def write_receipt(directory: Path, review: dict[str, object], **changes: object)
     path = directory / "reviews" / f"{review['dispatch_id']}.json"
     if path.exists() or path.is_symlink():
         path.unlink()
-    captured = check(
-        "implementation-snapshot", "--repo", str(directory.parents[3]),
-        "--run", str(directory), "--dispatch-id", str(review["dispatch_id"]),
-    )
-    assert captured.returncode == 0, captured.stderr
-    snapshot = captured.stderr.strip().removeprefix("snapshot=")
     receipt = {
         "schema": "feature-forge/review-receipt/v1",
         "kind": "implementation",
@@ -44,12 +38,17 @@ def write_receipt(directory: Path, review: dict[str, object], **changes: object)
         "run_ref": review["run_ref"],
         "target_seal": review["target_seal"],
         "source_identity": {
-            "kind": "implementation_snapshot_sha256", "path": None, "value": snapshot,
+            "kind": "reviewed_commit", "path": None, "value": review["reviewed_commit"],
         },
         "result": "pass",
         "actionable_finding_ids": [],
+        "feature_forge_charter_id": "feature-forge/implementation-review/v1",
+        "completion_criterion": "No grounded discrepancies remain.",
+        "raw_report_ids": ["report"], "triage_artifact_id": "triage-artifact",
+        "triage_finding_ids": [], "stable_id_mapping": [],
     }
     receipt.update(changes)
+    receipt["feature_forge_charter_id"] = f"feature-forge/{receipt['kind']}-review/v1"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(receipt, sort_keys=True))
     return path
@@ -94,13 +93,21 @@ def invoke(repo: Path, directory: Path) -> subprocess.CompletedProcess[str]:
     return check("reviewed-snapshot", "--repo", str(repo), "--run", str(directory))
 
 
-def snapshot_digest(repo: Path, directory: Path, dispatch_id: str = "implementation-1") -> str:
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", dispatch_id,
-    )
-    assert observed.returncode == 0, observed.stderr
-    return observed.stderr.strip().removeprefix("snapshot=")
+def test_checker_exposes_only_four_public_commands() -> None:
+    observed = check("--help")
+    assert "{runs,identities,reviewed-snapshot,audit}" in observed.stdout
+
+
+def test_reviewed_snapshot_accepts_reviewed_commit_receipt(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    path = repo / data["review"]["evidence_path"]
+    payload = json.loads(path.read_text())
+    payload["source_identity"] = {
+        "kind": "reviewed_commit", "path": None,
+        "value": data["review"]["reviewed_commit"],
+    }
+    path.write_text(json.dumps(payload))
+    assert_result(invoke(repo, directory), "pass", 0)
 
 
 def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
@@ -113,218 +120,6 @@ def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
         capture_output=True, check=True,
     ).stdout
     return files, status
-
-
-def test_implementation_snapshot_length_frames_file_records(tmp_path: Path) -> None:
-    roots = [tmp_path / "left", tmp_path / "right"]
-    for root in roots:
-        root.mkdir()
-    left, right = (make_repo(root) for root in roots)
-    left_run, right_run = run_dir(left), run_dir(right)
-    second_header = b"b\x00100000:644\x00"
-    (left / "a").write_bytes(b"x")
-    (left / "b").write_bytes(b"p\x00" + second_header + b"q")
-    (right / "a").write_bytes(b"x\x00" + second_header + b"p")
-    (right / "b").write_bytes(b"q")
-    commit(left, "record framed inputs", "a", "b")
-    commit(right, "record framed inputs", "a", "b")
-    assert snapshot_digest(left, left_run) != snapshot_digest(right, right_run)
-
-
-def test_implementation_snapshot_hashes_the_raw_symlink_target(tmp_path: Path) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    link = repo / "link"
-    os.symlink("target//file", link)
-    commit(repo, "record first link", "link")
-    before = snapshot_digest(repo, directory)
-    link.unlink()
-    os.symlink("./target/file", link)
-    commit(repo, "record second link", "link")
-    assert snapshot_digest(repo, directory) != before
-
-
-def test_implementation_snapshot_rejects_dirty_review_subject_bytes(tmp_path: Path) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("committed\n")
-    commit(repo, "add implementation", "src/app.py")
-    target.write_text("dirty\n")
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode == 1
-    assert observed.stdout == "FF-CHECK v1 gate=implementation-snapshot status=fail\n"
-
-
-@pytest.mark.parametrize("flag", ["--assume-unchanged", "--skip-worktree"])
-def test_implementation_snapshot_rejects_index_flags_that_hide_dirty_bytes(
-    tmp_path: Path, flag: str,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("committed\n")
-    commit(repo, "add implementation", "src/app.py")
-    git(repo, "update-index", flag, "src/app.py")
-    target.write_text("hidden dirty bytes\n")
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode != 0
-
-
-def test_implementation_snapshot_rejects_a_mode_change_hidden_by_core_filemode(
-    tmp_path: Path,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("committed\n")
-    commit(repo, "add implementation", "src/app.py")
-    git(repo, "config", "core.fileMode", "false")
-    target.chmod(target.stat().st_mode | 0o111)
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode == 1
-
-
-def test_implementation_snapshot_rejects_a_fifo_without_blocking(tmp_path: Path) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("committed\n")
-    commit(repo, "add implementation", "src/app.py")
-    target.unlink()
-    os.mkfifo(target)
-    observed = subprocess.run(
-        [
-            sys.executable, str(CHECKER), "implementation-snapshot",
-            "--repo", str(repo), "--run", str(directory),
-            "--dispatch-id", "implementation-1",
-        ],
-        text=True, capture_output=True, timeout=2,
-    )
-    assert observed.returncode == 1
-    assert observed.stdout == "FF-CHECK v1 gate=implementation-snapshot status=fail\n"
-    assert observed.stderr == "path=src/app.py\n"
-
-
-def test_implementation_snapshot_reports_an_unstaged_deleted_tracked_path_as_drift(
-    tmp_path: Path,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("committed\n")
-    commit(repo, "add implementation", "src/app.py")
-    target.unlink()
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode == 1
-    assert observed.stdout == "FF-CHECK v1 gate=implementation-snapshot status=fail\n"
-    assert observed.stderr == "path=src/app.py\n"
-
-
-def test_implementation_snapshot_reports_a_tracked_path_behind_a_non_directory_as_drift(
-    tmp_path: Path,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("committed\n")
-    commit(repo, "add implementation", "src/app.py")
-    target.unlink()
-    target.parent.rmdir()
-    target.parent.write_text("not a directory\n")
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode == 1
-    assert observed.stdout == "FF-CHECK v1 gate=implementation-snapshot status=fail\n"
-    assert observed.stderr == "path=src\npath=src/app.py\n"
-
-
-def test_implementation_snapshot_rejects_same_size_dirt_hidden_by_git_stat_cache(
-    tmp_path: Path,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    target = repo / "src/app.py"
-    target.parent.mkdir(parents=True)
-    target.write_text("first-value\n")
-    commit(repo, "add implementation", "src/app.py")
-    git(repo, "config", "core.trustctime", "false")
-    git(repo, "config", "core.checkStat", "minimal")
-    old_time = time.time() - 10
-    os.utime(target, (old_time, old_time))
-    git(repo, "update-index", "--refresh")
-    indexed = target.stat()
-    target.write_text("other-value\n")
-    os.utime(target, ns=(indexed.st_atime_ns, indexed.st_mtime_ns))
-    assert git(repo, "status", "--porcelain=v1") == ""
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode != 0
-
-
-@pytest.mark.parametrize("entry_type", ["regular", "symlink", "directory"])
-def test_implementation_snapshot_requires_an_absent_receipt_reservation(
-    tmp_path: Path, entry_type: str,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    receipt = directory / "reviews/implementation-1.json"
-    receipt.parent.mkdir(parents=True)
-    if entry_type == "regular":
-        receipt.write_text("occupied\n")
-    elif entry_type == "symlink":
-        outside = tmp_path / "outside-receipt.json"
-        outside.write_text("outside\n")
-        receipt.symlink_to(outside)
-    else:
-        receipt.mkdir()
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode == 2
-
-
-@pytest.mark.parametrize("staged", [False, True])
-def test_implementation_snapshot_rejects_a_deleted_tracked_receipt_reservation(
-    tmp_path: Path, staged: bool,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    receipt = directory / "reviews/implementation-1.json"
-    receipt.parent.mkdir(parents=True)
-    receipt.write_text("old receipt\n")
-    commit(repo, "record old receipt", receipt.relative_to(repo).as_posix())
-    receipt.unlink()
-    if staged:
-        git(repo, "add", "-u", "--", receipt.relative_to(repo).as_posix())
-    observed = check(
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    )
-    assert observed.returncode != 0
 
 
 def test_reviewed_snapshot_accepts_exact_reviewed_head_without_interpreting_target_seal(tmp_path: Path) -> None:
@@ -512,31 +307,14 @@ def test_reviewed_snapshot_never_runs_configured_clean_filters(
     assert not marker.exists()
 
 
-@pytest.mark.parametrize("gate", ["implementation-snapshot", "reviewed-snapshot"])
-def test_snapshot_gates_never_run_a_configured_fsmonitor(tmp_path: Path, gate: str) -> None:
-    if gate == "implementation-snapshot":
-        repo = make_repo(tmp_path)
-        directory = run_dir(repo)
-        target = repo / "src/app.py"
-        target.parent.mkdir(parents=True)
-        target.write_text("committed\n")
-        commit(repo, "add implementation", "src/app.py")
-    else:
-        repo, directory, _ = reviewed_fixture(tmp_path)
+def test_reviewed_snapshot_never_runs_a_configured_fsmonitor(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
     marker = tmp_path / "fsmonitor-ran"
     hook = tmp_path / "fsmonitor"
     hook.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
     hook.chmod(0o755)
     git(repo, "config", "core.fsmonitor", str(hook))
-    if gate == "implementation-snapshot":
-        observed = check(
-            gate, "--repo", str(repo), "--run", str(directory),
-            "--dispatch-id", "fresh-implementation",
-        )
-        assert observed.returncode == 0
-    else:
-        observed = invoke(repo, directory)
-        assert observed.returncode == 0
+    assert invoke(repo, directory).returncode == 0
     assert not marker.exists()
 
 
@@ -702,48 +480,6 @@ def test_strict_receipt_treats_a_read_failure_as_unreadable(
     assert checker["strict_receipt"](receipt) == (None, "receipt=unreadable")
 
 
-def test_implementation_snapshot_digest_treats_a_walk_failure_as_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    checker = runpy.run_path(str(CHECKER))
-    original_iterdir = Path.iterdir
-
-    def denied(path: Path):
-        if path == repo:
-            raise PermissionError("denied")
-        return original_iterdir(path)
-
-    monkeypatch.setattr(Path, "iterdir", denied)
-    assert checker["implementation_snapshot_digest"](repo, directory, "implementation-1") is None
-
-
-def test_implementation_snapshot_main_treats_a_subject_walk_failure_as_unverifiable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-) -> None:
-    repo = make_repo(tmp_path)
-    directory = run_dir(repo)
-    checker = runpy.run_path(str(CHECKER))
-    original_iterdir = Path.iterdir
-
-    def denied(path: Path):
-        if path == repo:
-            raise PermissionError("denied")
-        return original_iterdir(path)
-
-    monkeypatch.setattr(Path, "iterdir", denied)
-    exit_code = checker["main"]([
-        "implementation-snapshot", "--repo", str(repo), "--run", str(directory),
-        "--dispatch-id", "implementation-1",
-    ])
-    captured = capsys.readouterr()
-    assert exit_code == 2
-    assert captured.out == "FF-CHECK v1 gate=implementation-snapshot status=unverifiable\n"
-    assert captured.err == "snapshot=unavailable\n"
-    assert "Traceback" not in captured.out + captured.err
-
-
 def test_reviewed_snapshot_reports_a_looped_receipt_path_without_a_traceback(tmp_path: Path) -> None:
     repo, directory, data = reviewed_fixture(tmp_path)
     receipt = repo / data["review"]["evidence_path"]
@@ -849,6 +585,21 @@ def test_reviewed_snapshot_requires_an_exact_implementation_source_identity(
 ) -> None:
     repo, directory, data = reviewed_fixture(tmp_path)
     write_receipt(directory, data["review"], source_identity=source_identity)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_rejects_same_size_dirt_hidden_by_git_stat_cache(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    git(repo, "config", "core.trustctime", "false")
+    git(repo, "config", "core.checkStat", "minimal")
+    old_time = time.time() - 10
+    os.utime(target, (old_time, old_time))
+    git(repo, "update-index", "--refresh")
+    indexed = target.stat()
+    target.write_bytes(b"x" * indexed.st_size)
+    os.utime(target, ns=(indexed.st_atime_ns, indexed.st_mtime_ns))
+    assert "src/app.py" not in git(repo, "status", "--porcelain=v1")
     assert_result(invoke(repo, directory), "fail", 1)
 
 

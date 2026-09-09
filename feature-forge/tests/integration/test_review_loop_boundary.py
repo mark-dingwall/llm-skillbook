@@ -9,6 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import runpy
+import copy
 import stat
 import subprocess
 import sys
@@ -38,9 +40,33 @@ FF_CHECK = Path(__file__).resolve().parents[2] / "scripts" / "ff-check"
 RECEIPT_KEYS = {
     "schema", "kind", "dispatch_id", "run_ref", "target_seal",
     "source_identity", "result", "actionable_finding_ids",
+    "feature_forge_charter_id", "completion_criterion", "raw_report_ids",
+    "triage_artifact_id", "triage_finding_ids", "stable_id_mapping",
 }
+FF_API = runpy.run_path(str(FF_CHECK))
+CRITERION = "same grounded discrepancy against the same requirement, correctness condition, repository contract, or verification result, with no material change in the required correction"
+COMPLETION = "No grounded discrepancies remain against the specification review charter."
 HEAD_KEYS = {"schema", "run_id", "mode", "status", "worktree", "branch", "base_identity", "stage", "next_action", "frozen", "review"}
 REVIEW_KEYS = {"kind", "state", "round", "root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit", "previous_open_finding_ids", "open_finding_ids"}
+
+
+def test_same_kind_redispatch_retains_root_round_and_finding_history(tmp_path):
+    first = BoundaryFixture(tmp_path, b"candidate v1\n", "history-first")
+    first.begin_review("history-1")
+    head = first._load_head()
+    head["review"].update(state="changes_required", round=2,
+                         previous_open_finding_ids=["FF-older"], open_finding_ids=["FF-prior"])
+    head.update(stage={"id": 4, "state": "active"})
+    first._write_head(head)
+    second = BoundaryFixture(tmp_path, b"candidate v2\n", "history-second", repository=first.repository)
+    second.begin_review("history-2")
+    current = second._load_head()["review"]
+    assert current["root_identity"] == head["review"]["root_identity"]
+    assert current["round"] == 2
+    assert current["previous_open_finding_ids"] == ["FF-older"]
+    assert current["open_finding_ids"] == ["FF-prior"]
+    assert current["dispatch_id"] == "history-2"
+    assert current["run_ref"] != head["review"]["run_ref"]
 
 
 def _git(root: Path, *args: str) -> str:
@@ -214,7 +240,20 @@ class BoundaryFixture:
         self.run_root = self.root / "external-review-loop-run"
         self.controller = Controller(xdg_config_home=self.root / "xdg")
         self.events: list[str] = []
-        self._write_head(self._head())
+        self.round1_outcome = None
+        self.mapper = None
+        self.triage_id_overrides = []
+        self.mapping_decisions = []
+        self.prior_receipt = None
+        if self.ledger_path.exists():
+            previous_review = self._load_head()["review"]
+            if previous_review["evidence_path"]:
+                receipt_path = self.repository / previous_review["evidence_path"]
+                if receipt_path.is_file():
+                    self.prior_receipt, error = FF_API["strict_receipt"](receipt_path)
+                    assert error is None
+        else:
+            self._write_head(self._head())
 
     @property
     def candidate_sha256(self) -> str:
@@ -259,8 +298,13 @@ class BoundaryFixture:
             "RESERVATION " + json.dumps(item, sort_keys=True) + "\n"
             for item in persisted
         )
+        history = [line for line in self.ledger_path.read_text().splitlines()
+                   if line.startswith("MAPPING ")] if self.ledger_path.exists() else []
+        if self.mapping_decisions:
+            history.append("MAPPING " + json.dumps(self.mapping_decisions, sort_keys=True))
+            self.mapping_decisions = []
         self.ledger_path.write_text(
-            "```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n" + reservations
+            "```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n" + reservations + "\n".join(history) + "\n"
         )
 
     def _load_reservations(self) -> list[dict[str, object]]:
@@ -294,12 +338,16 @@ class BoundaryFixture:
         self.reservations = reservations
         head = self._load_head()
         head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="create-or-recover")
+        retained = head["review"] if head["review"]["kind"] == "specification" else None
         head["review"] = {
             "kind": "specification", "state": "blocked", "round": 0,
             "root_identity": self.captured_identity["value"], "dispatch_id": None,
             "run_ref": None, "target_seal": None, "evidence_path": None,
             "reviewed_commit": None, "previous_open_finding_ids": [], "open_finding_ids": [],
         }
+        if retained is not None:
+            for key in ("root_identity", "round", "previous_open_finding_ids", "open_finding_ids"):
+                head["review"][key] = retained[key]
         self._write_head(head, reservations)
         return reservation
 
@@ -339,6 +387,7 @@ class BoundaryFixture:
             raise ValueError("review has no matching durable reservation")
         head = self._load_head()
         head.update(status="active", stage={"id": 5, "state": "active"}, next_action="await or recover the active review")
+        retained = head["review"]
         head["review"] = {
             "kind": "specification", "state": "review_active", "round": 0,
             "root_identity": self.captured_identity["value"], "dispatch_id": dispatch_id,
@@ -346,6 +395,8 @@ class BoundaryFixture:
             "evidence_path": path.relative_to(self.repository).as_posix(), "reviewed_commit": None,
             "previous_open_finding_ids": [], "open_finding_ids": [],
         }
+        for key in ("root_identity", "round", "previous_open_finding_ids", "open_finding_ids"):
+            head["review"][key] = retained[key]
         self.reservations = [
             item for item in self._load_reservations()
             if item["dispatch_id"] != dispatch_id
@@ -442,6 +493,10 @@ class BoundaryFixture:
 
         return dispatch
 
+    def run_round1(self, stage0, **kwargs):
+        self.round1_outcome = self.controller.run_round1(stage0, **kwargs)
+        return self.round1_outcome
+
     def triager(self, *, actionable: bool = False):
         def dispatch(expectation: RoleExpectation) -> ValidatedRoleArtifact:
             self.events.append("triage")
@@ -450,7 +505,7 @@ class BoundaryFixture:
                 for report_id, raw_findings in expectation.extra["raw_findings"].items():
                     for finding_id, (claim, severity, locators) in raw_findings.items():
                         findings.append({
-                            "canonical_id": f"actionable-{report_id}-{finding_id}",
+                            "canonical_id": self.triage_id_overrides[len(findings)] if self.triage_id_overrides else f"actionable-{report_id}-{finding_id}",
                             "sources": [{"report_id": report_id, "finding_id": finding_id,
                                          "claim": claim, "severity": severity, "locators": locators}],
                             "current_severity": severity, "factual": "CONFIRMED", "state": "OPEN",
@@ -487,6 +542,7 @@ class BoundaryFixture:
         result: str,
         actionable_ids: list[str],
         captured_identity: dict[str, object],
+        evidence: dict[str, object] | None = None,
     ) -> Path:
         if result not in {"pass", "changes_required", "blocked"}:
             raise ValueError("invalid review result")
@@ -504,7 +560,12 @@ class BoundaryFixture:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not _absent_entry_under_real_directories(self.repository, path):
             raise ValueError("receipt path is unavailable")
+        if evidence is None:
+            _, expected_result, expected_ids, evidence = self.return_evidence(dispatch_id, run_state)
+            if (result, actionable_ids) != (expected_result, expected_ids):
+                raise ValueError("receipt result is inconsistent with the controller return")
         payload = {
+            **evidence,
             "schema": "feature-forge/review-receipt/v1",
             "kind": "specification",
             "dispatch_id": dispatch_id,
@@ -514,6 +575,12 @@ class BoundaryFixture:
             "result": result,
             "actionable_finding_ids": sorted(set(actionable_ids)),
         }
+        projected = copy.deepcopy(review)
+        projected["previous_open_finding_ids"] = review["open_finding_ids"]
+        projected["open_finding_ids"] = actionable_ids
+        projected["round"] += bool(actionable_ids)
+        if not FF_API["receipt_result_invariant"](payload, projected):
+            raise ValueError("receipt result is inconsistent with the round state")
         with path.open("x") as handle:
             json.dump(payload, handle, sort_keys=True)
         return path
@@ -535,10 +602,57 @@ class BoundaryFixture:
             head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="resolve the review blocker")
         self._write_head(head)
 
+    def return_evidence(self, dispatch_id, outcome, *, round1_error=None):
+        run_state, result, triage_ids = _map_controller_return(outcome, round1_error=round1_error)
+        evidence = {
+            "feature_forge_charter_id": "feature-forge/specification-review/v1",
+            "completion_criterion": COMPLETION,
+            "raw_report_ids": sorted(report.report_id for report in self.round1_outcome.raw_reports)
+                              if self.round1_outcome else [],
+            "triage_artifact_id": None, "triage_finding_ids": [], "stable_id_mapping": [],
+        }
+        if result == "blocked":
+            return run_state, result, [], evidence
+        report_ids, artifact_id, checked_ids = _triage_evidence(self.round1_outcome, run_state)
+        artifact = _bound_triage(run_state.run_root, artifact_id, run_state.snapshot)
+        assert checked_ids == triage_ids
+        prior_findings = []
+        if self.prior_receipt and self.prior_receipt["triage_artifact_id"] is not None:
+            prior = self.prior_receipt
+            previous_artifact = _bound_triage(Path(prior["run_ref"]), prior["triage_artifact_id"])
+            assert sorted(previous_artifact["report_ids"]) == prior["raw_report_ids"]
+            previous_mapping = {row["triage_finding_id"]: row["feature_forge_finding_id"]
+                                for row in prior["stable_id_mapping"]}
+            assert sorted(previous_mapping) == prior["triage_finding_ids"]
+            assert sorted(f["id"] for f in previous_artifact["findings"]) == prior["triage_finding_ids"]
+            prior_findings = [{"feature_forge_finding_id": previous_mapping[f["id"]], "triage_finding": f}
+                              for f in previous_artifact["findings"]]
+        assert sorted(row["feature_forge_finding_id"] for row in prior_findings) == self._load_head()["review"]["open_finding_ids"]
+        semantic_input = {"prior_findings": prior_findings, "current_findings": artifact["findings"],
+                          "materially_same_criterion": CRITERION}
+        answer = self.mapper(semantic_input) if self.mapper else {
+            "decisions": [{"triage_finding_id": f["id"], "decision": "new", "rationale": None}
+                          for f in artifact["findings"]]}
+        if not isinstance(answer, dict) or set(answer) != {"decisions"}:
+            raise ValueError("invalid mapper return")
+        mapped = FF_API["apply_stable_id_decisions"]({"dispatch_id": dispatch_id, **semantic_input, **answer})
+        if (set(mapped) != {"schema", "status", "stable_id_mapping", "error"}
+                or mapped["schema"] != "feature-forge/stable-id-map/v1"
+                or mapped["status"] != "pass" or mapped["error"] is not None):
+            raise ValueError("invalid mapper return")
+        self.mapping_decisions = answer["decisions"]
+        evidence.update(raw_report_ids=report_ids, triage_artifact_id=artifact_id,
+                        triage_finding_ids=triage_ids, stable_id_mapping=mapped["stable_id_mapping"])
+        ids = sorted(row["feature_forge_finding_id"] for row in mapped["stable_id_mapping"])
+        review = self._load_head()["review"]
+        if ids and (review["round"] + 1 >= 3 or ids == review["open_finding_ids"]):
+            result = "blocked"
+        return run_state, result, ids, evidence
+
     def record_controller_return(self, dispatch_id: str, outcome, *, round1_error: ControllerError | None = None) -> Path:
-        run_state, result, actionable_ids = _map_controller_return(outcome, round1_error=round1_error)
-        receipt = self.write_receipt(dispatch_id, run_state, result, actionable_ids, self.captured_identity)
-        self.apply_result(result, actionable_ids)
+        run_state, result, ids, evidence = self.return_evidence(dispatch_id, outcome, round1_error=round1_error)
+        receipt = self.write_receipt(dispatch_id, run_state, result, ids, self.captured_identity, evidence)
+        self.apply_result(result, ids)
         return receipt
 
 
@@ -555,9 +669,120 @@ def _map_controller_return(outcome, *, round1_error: ControllerError | None = No
     rows = outcome.snapshot["processor_state"]["apply_ledger_decisions"]["rows"]
     actionable_ids = sorted(
         row["id"] for row in rows
-        if row["state"] == "OPEN" and row["current_severity"] in {"Important", "Critical"}
     )
     return outcome, ("changes_required" if actionable_ids else "pass"), actionable_ids
+
+
+def _bound_triage(run_root, artifact_id, snapshot=None):
+    snapshot = snapshot or json.loads((run_root / "review-state.json").read_text())
+    registry = snapshot["artifact_registry"]
+    metadata = registry["artifacts"][artifact_id]
+    assert metadata["kind"] == "triage-result"
+    assert metadata["target_seal"] == snapshot["governing_seal"]
+    assert any(binding["operation"] == "apply_ledger_decisions" and artifact_id in binding["source_ids"]
+               for binding in registry["bindings"])
+    assert Path(artifact_id).name == artifact_id
+    raw = (run_root / "evidence" / artifact_id).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == metadata["digest"]
+    artifact = json.loads(raw)
+    assert all(finding["target_seal"] == snapshot["governing_seal"] for finding in artifact["findings"])
+    return artifact
+
+
+def _triage_evidence(round1, outcome):
+    assert round1 is not None
+    triage_ids = sorted(row["id"] for row in outcome.snapshot["processor_state"]["apply_ledger_decisions"]["rows"])
+    report_ids = sorted(report.report_id for report in round1.raw_reports)
+    triage_artifacts = [artifact_id for artifact_id, item in outcome.snapshot["artifact_registry"]["artifacts"].items()
+                        if item["kind"] == "triage-result"]
+    assert len(triage_artifacts) == 1
+    artifact_id = triage_artifacts[0]
+    artifact = _bound_triage(outcome.run_root, artifact_id, outcome.snapshot)
+    assert sorted(artifact["report_ids"]) == report_ids
+    assert sorted(f["id"] for f in artifact["findings"]) == triage_ids
+    return report_ids, artifact_id, triage_ids
+
+
+def _nonempty_triage(fixture, run_state, severity="Important"):
+    stage0 = fixture.stage0(run_state)
+    source = ({"id": "raw-source", "claim": "REQ-007 has no acceptance check", "severity": severity,
+               "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source))
+    return fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
+
+
+def _nonempty_receipt(fixture, dispatch, run_state):
+    outcome = _nonempty_triage(fixture, run_state)
+    run_state, result, ids, evidence = fixture.return_evidence(dispatch, outcome)
+    return fixture.write_receipt(dispatch, run_state, result, ids, fixture.captured_identity, evidence)
+
+
+@pytest.mark.parametrize("defect", ["missing", "unknown-prior", "rationale", "reuse-twice", "extra-output"])
+def test_mapping_judgment_errors_block_before_receipt_creation(tmp_path, defect):
+    first = BoundaryFixture(tmp_path, b"candidate v1\\n", "mapper-prior")
+    previous = first.begin_review("mapper-prior")
+    _recover_receipt(first, _nonempty_receipt(first, "mapper-prior", previous))
+    fixture = BoundaryFixture(tmp_path, b"candidate v2\\n", "mapper-current", repository=first.repository)
+    current = fixture.begin_review("mapper-current")
+    outcome = _nonempty_triage(fixture, current)
+    def mapper(packet):
+        assert set(packet) == {"prior_findings", "current_findings", "materially_same_criterion"}
+        assert packet["materially_same_criterion"] == CRITERION
+        assert all(row["sources"][0]["claim"] == "REQ-007 has no acceptance check" for row in packet["current_findings"])
+        assert all("sources" in row["triage_finding"] for row in packet["prior_findings"])
+        decisions = [{"triage_finding_id": f["id"], "decision": p["feature_forge_finding_id"], "rationale": "same discrepancy"}
+                     for f, p in zip(packet["current_findings"], packet["prior_findings"])]
+        assert len(decisions) >= 2
+        if defect == "missing":
+            decisions.pop()
+        elif defect == "unknown-prior":
+            decisions[0]["decision"] = "FF-unknown"
+        elif defect == "rationale":
+            decisions[0]["rationale"] = None
+        elif defect == "reuse-twice":
+            decisions[1]["decision"] = decisions[0]["decision"]
+        else:
+            return {"decisions": decisions, "extra": True}
+        return {"decisions": decisions}
+    fixture.mapper = mapper
+    before = fixture.ledger_path.read_bytes()
+    with pytest.raises(ValueError, match="invalid mapper return"):
+        fixture.record_controller_return("mapper-current", outcome)
+    assert not fixture.receipt_path("mapper-current").exists()
+    assert fixture.ledger_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("defect", ["digest", "binding", "report-inventory", "finding-inventory"])
+def test_controller_evidence_checks_reject_inconsistent_triage(tmp_path, defect):
+    fixture = BoundaryFixture(tmp_path, b"candidate\\n", "evidence")
+    run_state = fixture.begin_review("evidence-1")
+    outcome = _nonempty_triage(fixture, run_state)
+    registry = outcome.snapshot["artifact_registry"]
+    artifact_id = next(key for key, value in registry["artifacts"].items() if value["kind"] == "triage-result")
+    if defect == "digest":
+        (outcome.run_root / "evidence" / artifact_id).write_text("{}")
+    elif defect == "binding":
+        registry["bindings"] = [b for b in registry["bindings"] if b["operation"] != "apply_ledger_decisions"]
+    elif defect == "report-inventory":
+        fixture.round1_outcome = type("IncompleteRound1", (), {"raw_reports": ()})()
+    else:
+        outcome.snapshot["processor_state"]["apply_ledger_decisions"]["rows"] = []
+    with pytest.raises(AssertionError):
+        fixture.record_controller_return("evidence-1", outcome)
+    assert not fixture.receipt_path("evidence-1").exists()
+
+
+def test_pretriage_block_retains_usable_zero_finding_report_inventory(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"candidate\\n", "partial-reports")
+    run_state = fixture.begin_review("partial-1")
+    stage0 = fixture.stage0(run_state)
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
+    receipt = fixture.record_controller_return("partial-1", stage0, round1_error=ControllerError("triage unavailable"))
+    payload = json.loads(receipt.read_text())
+    assert payload["result"] == "blocked" and payload["triage_artifact_id"] is None
+    assert payload["raw_report_ids"] == sorted(report.report_id for report in round1.raw_reports)
+    assert payload["raw_report_ids"] and payload["triage_finding_ids"] == []
+    _assert_production_audit_passes(fixture)
 
 
 def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):
@@ -571,7 +796,7 @@ def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):
     assert not fixture.receipt_path(dispatch_id).exists()
     stage0 = fixture.stage0(run_state)
     assert stage0.run_state.stage == "STAGE0" and stage0.review_may_start
-    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer())
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
     triage = fixture.controller.run_triage(round1, triager=fixture.triager())
     assert triage.stage == "TRIAGE"
     assert triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"] == []
@@ -602,10 +827,8 @@ def _recover_receipt(fixture: BoundaryFixture, receipt: Path) -> None:
         if (
             receipt != canonical
             or not isinstance(payload, dict)
-            or set(payload) != {
-                "schema", "kind", "dispatch_id", "run_ref", "target_seal",
-                "source_identity", "result", "actionable_finding_ids",
-            }
+            or set(payload) != RECEIPT_KEYS
+            or FF_API["strict_receipt"](receipt)[1] is not None
             or payload.get("schema") != "feature-forge/review-receipt/v1"
             or payload.get("kind") != review["kind"]
             or payload.get("dispatch_id") != review["dispatch_id"]
@@ -650,7 +873,14 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
         "source_identity": first.captured_identity,
         "result": "pass",
         "actionable_finding_ids": [],
+        "feature_forge_charter_id": "feature-forge/specification-review/v1",
+        "completion_criterion": COMPLETION,
+        "raw_report_ids": sorted(report.report_id for report in first.round1_outcome.raw_reports),
+        "triage_artifact_id": receipt_data["triage_artifact_id"],
+        "triage_finding_ids": [], "stable_id_mapping": [],
     }
+    assert receipt_data["triage_artifact_id"]
+    assert receipt_data["raw_report_ids"]
     assert first.run_root.is_relative_to(first.root)
     assert not first.run_root.is_relative_to(first.target)
     assert receipt_one.relative_to(first.repository).as_posix().startswith(
@@ -695,7 +925,7 @@ def test_review_loop_boundary_uses_fresh_receipts_stops_at_triage_and_preserves_
     failed_round_run = failed_round.begin_review("round-1")
     reviewable = failed_round.stage0(failed_round_run)
     with pytest.raises(ControllerError, match="synthetic reviewer unavailable") as round1_failure:
-        failed_round.controller.run_round1(reviewable, dispatch_role=failed_round.reviewer(fail=True))
+        failed_round.run_round1(reviewable, dispatch_role=failed_round.reviewer(fail=True))
     assert "triage" not in failed_round.events
     failed_round_receipt = failed_round.record_controller_return("round-1", reviewable, round1_error=round1_failure.value)
     assert json.loads(failed_round_receipt.read_text())["result"] == failed_round._load_head()["review"]["state"] == "blocked"
@@ -727,7 +957,7 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
     assert fixture.run_root not in mapping.target_ro + mapping.inputs_ro
 
     stage0 = fixture.stage0(run_state)
-    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer())
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
     triage = fixture.controller.run_triage(round1, triager=fixture.triager())
     captured_identity = fixture.captured_identity
     receipt = fixture.write_receipt("recovery-1", triage, "pass", [], captured_identity)
@@ -766,62 +996,92 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
     assert malformed_head["review"]["state"] == "review_active"
 
 
-def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path):
+@pytest.mark.parametrize("severity", ["Important", "Critical"])
+def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path, severity):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "actionable")
     run_state = fixture.begin_review("actionable-1")
     stage0 = fixture.stage0(run_state)
-    source_finding = ({"id": "raw-b", "claim": "needs a correction", "severity": "Important",
+    source_finding = ({"id": "raw-b", "claim": "needs a correction", "severity": severity,
                        "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
-    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
     triage = fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
     actionable_ids = sorted(row["id"] for row in triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"])
     receipt = fixture.record_controller_return("actionable-1", triage)
     payload = json.loads(receipt.read_text())
     assert payload["result"] == fixture._load_head()["review"]["state"] == "changes_required"
-    assert payload["actionable_finding_ids"] == actionable_ids
+    assert payload["triage_finding_ids"] == actionable_ids
+    assert sorted(row["feature_forge_finding_id"] for row in payload["stable_id_mapping"]) == payload["actionable_finding_ids"]
+    assert len(set(payload["actionable_finding_ids"])) == len(actionable_ids)
     assert fixture._load_head()["status"] == "active"
     assert fixture._load_head()["stage"] == {"id": 3, "state": "active"}
     assert fixture._load_head()["next_action"] == "correct the specification"
 
     recovery = BoundaryFixture(tmp_path, b"candidate\n", "actionable-recovery")
     recovery_run = recovery.begin_review("actionable-recovery-1")
-    recovery_receipt = recovery.write_receipt(
-        "actionable-recovery-1", recovery_run, "changes_required", ["actionable-a"], recovery.captured_identity,
-    )
+    recovery_receipt = _nonempty_receipt(recovery, "actionable-recovery-1", recovery_run)
     _recover_receipt(recovery, recovery_receipt)
     assert recovery._load_head()["stage"] == {"id": 3, "state": "active"}
     assert recovery._load_head()["next_action"] == "correct the specification"
 
 
-def test_residual_minor_triage_maps_to_pass(tmp_path):
+def test_residual_minor_triage_requires_correction(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "minor")
     run_state = fixture.begin_review("minor-1")
     stage0 = fixture.stage0(run_state)
     source_finding = ({"id": "raw-minor", "claim": "minor residual", "severity": "Minor",
                        "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
-    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
     triage = fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
     receipt = fixture.record_controller_return("minor-1", triage)
-    assert json.loads(receipt.read_text())["result"] == "pass"
-    assert fixture._load_head()["review"]["open_finding_ids"] == []
+    assert json.loads(receipt.read_text())["result"] == "changes_required"
+    assert fixture._load_head()["review"]["open_finding_ids"]
 
 
-def test_recovery_accepts_a_capped_blocked_receipt_with_actionable_ids(tmp_path):
-    fixture = BoundaryFixture(tmp_path, b"candidate\n", "capped-recovery")
-    run_state = fixture.begin_review("capped-1")
-    head = fixture._load_head()
-    head["review"]["round"] = 2
-    head["review"]["previous_open_finding_ids"] = ["F-1"]
-    head["review"]["open_finding_ids"] = ["F-2"]
-    fixture._write_head(head)
-    receipt = fixture.write_receipt(
-        "capped-1", run_state, "blocked", ["F-3"], fixture.captured_identity,
-    )
-    _recover_receipt(fixture, receipt)
-    recovered = fixture._load_head()
-    assert recovered["review"]["state"] == "blocked"
-    assert recovered["review"]["round"] == 3
-    assert recovered["review"]["open_finding_ids"] == ["F-3"]
+@pytest.mark.parametrize("reuse", [False, True])
+def test_completed_triage_blocks_at_cap_or_repeated_stable_set(tmp_path, reuse):
+    previous = None
+    for number in range(1, 3 if reuse else 4):
+        fixture = BoundaryFixture(tmp_path, f"candidate {number}\\n".encode(), f"round-{number}",
+                                  repository=previous.repository if previous else None)
+        dispatch = f"round-{number}"
+        run_state = fixture.begin_review(dispatch)
+        if reuse:
+            fixture.triage_id_overrides = ["red", "blue"] if number == 1 else ["seven", "eight"]
+        if previous:
+            assert fixture._load_head()["review"]["round"] == number - 1
+        if reuse and previous:
+            def mapper(packet):
+                assert set(packet) == {"prior_findings", "current_findings", "materially_same_criterion"}
+                assert packet["materially_same_criterion"] == CRITERION
+                assert len(packet["prior_findings"]) == len(packet["current_findings"])
+                decisions = []
+                for prior, current in zip(packet["prior_findings"], packet["current_findings"]):
+                    assert prior["triage_finding"]["id"] != current["id"]
+                    assert prior["triage_finding"]["id"] in {"red", "blue"}
+                    assert current["id"] in {"seven", "eight"}
+                    assert prior["triage_finding"]["sources"][0]["claim"] == current["sources"][0]["claim"] == "REQ-007 has no acceptance check"
+                    assert prior["triage_finding"]["evidence_locators"] == current["evidence_locators"]
+                    assert set(current) == {"id", "sources", "source_ids", "reported_severity", "current_severity",
+                                            "factual", "state", "evidence_locators", "target_seal"}
+                    assert set(current["sources"][0]) == {"report_id", "finding_id", "claim", "severity", "locators"}
+                    decisions.append({"triage_finding_id": current["id"], "decision": prior["feature_forge_finding_id"],
+                                      "rationale": "same missing REQ-007 acceptance check"})
+                return {"decisions": decisions}
+            fixture.mapper = mapper
+        receipt = _nonempty_receipt(fixture, dispatch, run_state)
+        _recover_receipt(fixture, receipt)
+        review = fixture._load_head()["review"]
+        assert review["round"] == number
+        if previous:
+            assert review["root_identity"] == previous._load_head()["review"]["root_identity"]
+        expected = "blocked" if number == (2 if reuse else 3) else "changes_required"
+        assert review["state"] == expected
+        payload = json.loads(receipt.read_text())
+        assert payload["result"] == expected and payload["triage_artifact_id"]
+        assert len(payload["stable_id_mapping"]) == len(payload["actionable_finding_ids"]) >= 1
+        assert "MAPPING " in fixture.ledger_path.read_text()
+        _assert_production_audit_passes(fixture)
+        previous = fixture
 
 
 def test_boundary_persists_reservation_before_create_run_and_review_active_before_stage0(
@@ -907,9 +1167,7 @@ def test_boundary_rejects_a_symlinked_receipt_ancestor_before_create_run(
 def test_recovery_rejects_changes_required_when_the_candidate_drifted(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "recovery-drift")
     run_state = fixture.begin_review("drift-1")
-    receipt = fixture.write_receipt(
-        "drift-1", run_state, "changes_required", ["F-1"], fixture.captured_identity,
-    )
+    receipt = _nonempty_receipt(fixture, "drift-1", run_state)
     fixture.source.write_bytes(b"changed after review\n")
     _recover_receipt(fixture, receipt)
     recovered = fixture._load_head()
@@ -921,9 +1179,7 @@ def test_recovery_rejects_changes_required_when_the_candidate_drifted(tmp_path):
 def test_recovery_rejects_a_same_byte_candidate_symlink(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "recovery-symlink")
     run_state = fixture.begin_review("symlink-1")
-    receipt = fixture.write_receipt(
-        "symlink-1", run_state, "changes_required", ["F-1"], fixture.captured_identity,
-    )
+    receipt = _nonempty_receipt(fixture, "symlink-1", run_state)
     same_bytes = fixture.root / "same-bytes.md"
     same_bytes.write_bytes(fixture.captured_candidate)
     fixture.source.unlink()
@@ -939,7 +1195,7 @@ def test_return_rejects_a_receipt_ancestor_swapped_to_a_symlink(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "return-symlink")
     run_state = fixture.begin_review("late-symlink-1")
     stage0 = fixture.stage0(run_state)
-    round1 = fixture.controller.run_round1(stage0, dispatch_role=fixture.reviewer())
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
     triage = fixture.controller.run_triage(round1, triager=fixture.triager())
     receipt = fixture.receipt_path("late-symlink-1")
     outside = fixture.root / "outside-return-receipts"
