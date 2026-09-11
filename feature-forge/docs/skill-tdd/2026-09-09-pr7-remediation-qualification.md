@@ -821,3 +821,19 @@ environmental limitation and was not used to waive the full owning suite.
 Task 6 remains qualified under its authorized structured-output boundary; its
 historical transport, criterion-fidelity, and auxiliary-provenance limits are
 unchanged. No unavailable required evidence remains.
+
+### Task 7 Fix Round 1: Review Loop skip evidence
+
+The full owning Review Loop result above includes one intentional, documented
+skip. The following narrow confirmation was run in the owning environment:
+
+```bash
+cd review-loop && uv run pytest tests/integration/test_execution_containment.py::ContainmentTests::test_evidence_gate_and_fix_mappings_are_out_of_scope_for_task_5 -q -rs
+```
+
+Exit status: 0. Result: `1 skipped in 0.02s`. Exact pytest reason:
+`evidence-gate/FIX mapping is out of scope for Task 5 (ordinary mapping only)`
+at `tests/integration/test_execution_containment.py:258`. This is an explicit
+scope placeholder, not an unavailable test environment or an unexamined test
+failure. No production behavior, previous verification result, or
+qualification disposition changed.
