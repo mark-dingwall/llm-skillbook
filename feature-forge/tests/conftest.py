@@ -10,6 +10,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 CHECKER = REPO / "feature-forge" / "scripts" / "ff-check"
 
+IMPLEMENTATION_PROGRESS = """\
+
+## Implementation progress
+
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+"""
+
 
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, text=True, check=True,
@@ -59,10 +68,17 @@ def run_dir(repo: Path, run_id: str = "alpha", date: str = "2026-08-25") -> Path
     return path
 
 
-def write_ledger(directory: Path, data: object, *, fenced: bool = True) -> Path:
+def write_ledger(
+    directory: Path,
+    data: object,
+    *,
+    fenced: bool = True,
+    markdown: str = IMPLEMENTATION_PROGRESS,
+) -> Path:
     path = directory / "ledger.md"
     encoded = json.dumps(data, indent=2)
-    path.write_text(f"```json\n{encoded}\n```\n" if fenced else encoded + "\n")
+    content = f"```json\n{encoded}\n```\n{markdown}" if fenced else encoded + "\n"
+    path.write_text(content)
     return path
 
 

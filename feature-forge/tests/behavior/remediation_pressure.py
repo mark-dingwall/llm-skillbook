@@ -74,9 +74,47 @@ def ledger_parts(path: Path) -> tuple[dict, str]:
     return head, match[2]
 
 
-def implementation_task_table(markdown: str) -> str | None:
-    sections = re.findall(r"^## Implementation tasks\n.*?(?=^## |\Z)", markdown, re.M | re.S)
-    return sections[0] if len(sections) == 1 else None
+def implementation_task_controls(markdown: str) -> tuple[tuple[str, ...], ...] | None:
+    sections = re.findall(
+        r"^## Implementation progress[ \t]*\n(?P<body>.*?)(?=^## |\Z)",
+        markdown,
+        re.MULTILINE | re.DOTALL,
+    )
+    if len(sections) != 1:
+        return None
+    lines = sections[0].splitlines()
+    header = ("plan task", "status", "commit", "evidence", "notes")
+
+    def cells(line: str) -> tuple[str, ...] | None:
+        candidate = line.strip()
+        if not candidate.startswith("|") or not candidate.endswith("|"):
+            return None
+        return tuple(cell.strip() for cell in re.split(r"(?<!\\)\|", candidate[1:-1]))
+
+    indexes = [index for index, line in enumerate(lines) if cells(line) == header]
+    if len(indexes) != 1 or indexes[0] + 2 >= len(lines):
+        return None
+    row_lines = lines[indexes[0] + 2:]
+    while row_lines and not row_lines[-1].strip():
+        row_lines.pop()
+    rows: list[tuple[str, ...]] = []
+    for line in row_lines:
+        row = cells(line)
+        if row is None or len(row) != 5:
+            return None
+        rows.append(row[:4])
+    return tuple(rows) if rows else None
+
+
+def returned_audit(repo: Path, meta: dict) -> subprocess.CompletedProcess[str]:
+    checker = Path(meta["installed_skill_root"]) / "scripts" / "ff-check"
+    return subprocess.run(
+        [sys.executable, str(checker), "audit", "--repo", str(repo),
+         "--run", str(repo / RUN)],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
 
 
 def build_seed(repo: Path, head_keys: set, receipt_keys: set) -> tuple[dict, dict]:
@@ -147,7 +185,7 @@ def prepare(root: Path, scenario: str, host: str, execution_mode: str | None = N
         }
     else:
         put(repo, head["review"]["evidence_path"], json.dumps(receipt, indent=2) + "\n")
-    tail = "\n## Execution\n\nMode: " + (execution_mode or "delegated") + "\n\n## Implementation tasks\n\n| task | state | commit | verification |\n| --- | --- | --- | --- |\n| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass |\n\n## Transition log\n"
+    tail = "\n## Execution\n\nMode: " + (execution_mode or "delegated") + "\n\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass | |\n| W-3 | pending | | | |\n\n## Transition log\n"
     write_ledger(repo, head, tail)
     put(repo, "fixture-input.json", json.dumps(inputs, indent=2) + "\n")
     paths = [LEDGER, "fixture-input.json"] + ([] if scenario == "residual-minor" else [head["review"]["evidence_path"]])
@@ -270,7 +308,13 @@ def score(root: Path) -> dict:
             head, tail = ledger_parts(repo / LEDGER)
             initial = meta["initial_head"]
             seeded_ledger = git(repo, "show", f"{meta['baseline_head']}:{LEDGER}")
-            if implementation_task_table(tail) != implementation_task_table(seeded_ledger):
+            audit = returned_audit(repo, meta)
+            if (audit.returncode != 0
+                    or audit.stdout != "FF-CHECK v1 gate=audit status=pass\n"
+                    or audit.stderr):
+                if audit.stderr.startswith(("task-table=", "task-status=")):
+                    failures.append("task-record-changed")
+            if implementation_task_controls(tail) != implementation_task_controls(seeded_ledger):
                 failures.append("task-record-changed")
             if (head.get("status") != "blocked" or head.get("stage") not in ({"id": 9, "state": "blocked"}, {"id": 9, "state": "invalidated"})
                     or set(head) != set(initial) or any(head.get(k) != initial[k] for k in initial if k not in {"status", "stage", "next_action"})

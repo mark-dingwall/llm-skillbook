@@ -54,22 +54,41 @@ one-shot skill and claim to interrupt that skill before its required handoff.
 
 - **Controller-owned execution method:** execute each bounded plan task against
   its fixed interfaces, either by dispatching an independently ownable worker
-  packet or working inline for tightly coupled tasks. Do not invoke
+  packet or working inline for tightly coupled tasks. After persisting the
+  selected task's pre-dispatch state and passing its `identities` and `audit`
+  gates, retain the complete ordered projection of all four controlled cells
+  for every implementation row, bound to that task and those frozen identities
+  for the current session. A worker returns task results and commentary; it
+  never owns the ledger mutation. Do not invoke
   `superpowers:subagent-driven-development` or
-  `superpowers:executing-plans`; both require a branch-finishing handoff that
-  lies outside Stage 9.
+  `superpowers:executing-plans`; both require a branch-finishing handoff outside
+  Stage 9.
 - **Required boundary:** verify each task before handoff, retain frozen
   specification/plan authority, never change plan checkboxes, and return after
   the implementation table records every task's commit and evidence. Do not
   offer or begin branch finishing or delete caller-owned progress state.
-- **Return artifact:** for every plan task, its status, owned commit, local
-  verification evidence, and a result suitable for the implementation table.
+- **Return artifact:** for every plan task, return exactly one permitted status
+  token, its owned commit, local verification evidence, and separate
+  commentary. Run post-return `identities` then `audit` before accepting the
+  result. Require the snapshot's selected task and exact frozen
+  specification/plan identity tuple to equal the current return context,
+  compare the complete ordered controlled projection so every nonselected row
+  and the selected row's `plan task` remain identical, and validate all
+  returned fields before ledger mutation. A binding mismatch is stale and
+  blocks; a projection mismatch is an invalid return even when `audit` passes.
+  Only after a valid ordinary return may the controller update the selected
+  row's status, commit, and evidence, then it runs `audit` again; a failed
+  identity or audit return changes no controlled cell. Put commentary in
+  `notes`, Blockers, or transition history.
 - **Block rule:** return `blocked` when a fixed contract cannot be honored or
-  authority for a material or out-of-scope decision is missing. The
-  authority contract's other pause/block triggers remain blocking and are not
-  gated by materiality. Non-material in-scope ambiguity alone does not block:
-  the controller records the decision under the authority contract and
-  continues.
+  authority for a material or out-of-scope decision is missing. The authority
+  contract's other pause/block triggers remain blocking and are not gated by
+  materiality. Non-material in-scope ambiguity alone does not block: the
+  controller records the decision under the authority contract and continues.
+  A task-table audit non-pass or controlled-projection mismatch permits only
+  the bounded recovery in `workflow.md`; missing, stale, or ambiguous snapshot
+  state blocks accepting a return or redispatching on resume even when `audit`
+  passes.
 
 ### finish-authority
 

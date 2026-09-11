@@ -20,6 +20,17 @@ HEAD_KEYS = {
     "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
     "stage", "next_action", "frozen", "review",
 }
+TASK_STATUSES = ("pending", "active", "awaiting_return", "blocked", "complete")
+
+
+def task_markdown(*rows: tuple[str, str, str, str, str]) -> str:
+    body = "\n".join("| " + " | ".join(row) + " |" for row in rows)
+    return (
+        "\n## Implementation progress\n\n"
+        "| plan task | status | commit | evidence | notes |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        f"{body}\n"
+    )
 
 # Receipt and semantic-mapping contracts are exercised through the installed file.
 def receipt_payload() -> dict[str, object]:
@@ -366,6 +377,51 @@ def returned_review(
 
 def invoke(repo: Path, directory: Path) -> subprocess.CompletedProcess[str]:
     return check("audit", "--repo", str(repo), "--run", str(directory))
+
+
+@pytest.mark.parametrize("status", TASK_STATUSES + ("  awaiting_return  ",))
+def test_audit_accepts_exact_task_statuses(tmp_path: Path, status: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=task_markdown(("W-2", status, "c123", "pytest: pass", "")))
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_audit_rejects_annotated_task_status(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=task_markdown((
+        "W-2", "awaiting_return (see Blockers)", "c123", "pytest: pass", "",
+    )))
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "task-status=unsupported\n"
+
+
+def test_audit_accepts_task_commentary_only_in_notes(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=task_markdown((
+        "W-2", "awaiting_return", "c123", "pytest: pass",
+        r"return held for drift \| see Blockers",
+    )))
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("markdown", [
+    "",
+    "\n## Implementation progress\n\n| plan task | status | commit | evidence |\n| --- | --- | --- | --- |\n| W-2 | active | c123 | pytest: pass |\n",
+    "\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n| W-2 | active | c123 | pytest: pass | note | extra |\n",
+    task_markdown(
+        ("", "", "", "", ""),
+        ("W-2", "active", "c123", "pytest: pass", ""),
+    ),
+    task_markdown(("W-2", "active", "c123", "pytest: pass", ""))
+    + "\nIgnored prose\n| W-3 | awaiting_return (see Blockers) | | | |\n",
+])
+def test_audit_rejects_malformed_task_table(tmp_path: Path, markdown: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=markdown)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "task-table=unsupported\n"
 
 
 def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
@@ -1153,7 +1209,10 @@ def test_audit_ignores_human_residual_minor_evidence_and_history(tmp_path: Path)
     repo, directory, data = audit_fixture(tmp_path)
     returned_review(repo, directory, data, kind="plan", state="pass")
     ledger = directory / "ledger.md"
-    ledger.write_text(ledger.read_text() + "\nPrior transition and residual Minor F-minor remain human evidence.\n")
+    ledger.write_text(
+        ledger.read_text()
+        + "\n## Transition log\n\nPrior transition and residual Minor F-minor remain human evidence.\n"
+    )
     assert_result(invoke(repo, directory), "pass", 0)
 
 

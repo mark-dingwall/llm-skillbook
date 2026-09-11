@@ -161,19 +161,84 @@ def test_drift_subject_inputs_exclude_scorer_expected_action(tmp_path: Path, exe
 
 
 @pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
-@pytest.mark.parametrize("mutation", ["delete", "state", "commit", "verification"])
+@pytest.mark.parametrize("mutation", ["delete", "state", "commit", "verification", "pending-state", "task-id", "insert", "reorder"])
 def test_drift_score_rejects_task_record_changes(tmp_path: Path, execution_mode: str, mutation: str) -> None:
     root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
     write_blocked(root)
     path, _, _ = parts(root)
-    original = "| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass |"
+    original = "| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass | |"
     replacements = {
         "delete": "",
         "state": original.replace("awaiting_return", "blocked"),
         "commit": original.replace("supplied checkpoint", "invented-commit"),
         "verification": original.replace("tenant.types: pass", "tenant.types: skipped"),
+        "pending-state": path.read_text().replace("| W-3 | pending | | | |", "| W-3 | complete | | | |"),
+        "task-id": original.replace("W-2", "W-4"),
+        "insert": original + "\n| W-4 | pending | | | |",
+        "reorder": "| W-3 | pending | | | |\n" + original,
     }
-    path.write_text(path.read_text().replace(original, replacements[mutation]))
+    if mutation == "pending-state":
+        path.write_text(replacements[mutation])
+    elif mutation == "reorder":
+        path.write_text(path.read_text().replace(original + "\n| W-3 | pending | | | |", replacements[mutation]))
+    else:
+        path.write_text(path.read_text().replace(original, replacements[mutation]))
+    assert score(root)["failures"] == ["task-record-changed"]
+
+
+@pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
+def test_drift_score_accepts_notes_only_annotation(
+    tmp_path: Path, execution_mode: str,
+) -> None:
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
+    write_blocked(root)
+    path, _, _ = parts(root)
+    original = "| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass | |"
+    annotated = original.replace(
+        " | |", " | return processing held for frozen-plan drift; see Blockers |",
+    )
+    path.write_text(path.read_text().replace(original, annotated))
+    assert score(root)["failures"] == []
+
+
+def test_returned_audit_requires_the_exact_pass_protocol(tmp_path: Path) -> None:
+    root = prepared_fixture(tmp_path, "worker-packet")
+    meta = metadata(root)
+    helper = runpy.run_path(str(SCRIPT))["returned_audit"]
+    observed = helper(Path(meta["repo"]), meta)
+    assert observed.returncode == 0
+    assert observed.stdout == "FF-CHECK v1 gate=audit status=pass\n"
+    assert observed.stderr == ""
+
+
+@pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
+def test_drift_score_keeps_head_failures_out_of_task_record_scoring(
+    tmp_path: Path, execution_mode: str,
+) -> None:
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
+    write_blocked(root)
+    assert score(root)["failures"] == []
+
+
+@pytest.mark.parametrize("mutation", ["separator", "late-row"])
+def test_drift_score_rejects_malformed_task_table(
+    tmp_path: Path, mutation: str,
+) -> None:
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", "inline")
+    write_blocked(root)
+    path, _, _ = parts(root)
+    text = path.read_text()
+    if mutation == "separator":
+        text = text.replace(
+            "| --- | --- | --- | --- | --- |",
+            "| --- | invalid | --- | --- | --- |",
+        )
+    else:
+        text = text.replace(
+            "\n## Transition log",
+            "\nIgnored prose\n| W-3 | awaiting_return (see Blockers) | | | |\n\n## Transition log",
+        )
+    path.write_text(text)
     assert score(root)["failures"] == ["task-record-changed"]
 
 

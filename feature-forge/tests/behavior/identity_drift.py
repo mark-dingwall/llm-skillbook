@@ -112,7 +112,7 @@ def write_seed(repo: Path) -> None:
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     (repo / LEDGER).parent.mkdir(parents=True, exist_ok=True)
-    (repo / LEDGER).write_text("```json\n" + json.dumps(ledger, indent=2) + "\n```\n\n## Transition log\n\n| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+    (repo / LEDGER).write_text("```json\n" + json.dumps(ledger, indent=2) + "\n```\n\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n|  |  |  |  |  |\n\n## Transition log\n\n| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
     git(repo, "add", LEDGER, receipt_path.relative_to(repo).as_posix())
     git(repo, "commit", "-m", "record frozen identity control")
 

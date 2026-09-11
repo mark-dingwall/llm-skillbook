@@ -304,7 +304,7 @@ class BoundaryFixture:
             history.append("MAPPING " + json.dumps(self.mapping_decisions, sort_keys=True))
             self.mapping_decisions = []
         self.ledger_path.write_text(
-            "```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n" + reservations + "\n".join(history) + "\n"
+            "```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n" + reservations + "\n".join(history) + "\n\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n|  |  |  |  |  |\n"
         )
 
     def _load_reservations(self) -> list[dict[str, object]]:

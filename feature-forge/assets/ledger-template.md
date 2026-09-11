@@ -43,9 +43,9 @@
 
 - Execution mode: `delegated | inline`
 
-| plan task | status | commit | evidence |
-| --- | --- | --- | --- |
-|  |  |  |  |
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
 
 ## Verification and acceptance
 

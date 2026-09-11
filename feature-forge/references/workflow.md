@@ -145,8 +145,23 @@ completed side-effect receipts, and durable phase receipts). Review round and
 finding-ID fields are the exception: they are checker-consumed control state in
 the head, with opaque IDs only and no finding prose.
 
-| plan task | status | commit | evidence |
-|---|---|---|---|
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+
+Each row's status is exactly one of `pending`, `active`, `awaiting_return`,
+`blocked`, or `complete`, after surrounding whitespace is trimmed. The complete
+ordered projection of `plan task`, `status`, `commit`, and `evidence` is
+controlled; `notes` is the single-line commentary escape hatch and any literal
+pipe in it is escaped as `\|`. A trusted snapshot is that complete ordered
+controlled projection, captured only after the selected task's pre-dispatch
+ledger state is persisted and its bound frozen identities plus `audit` pass.
+Either an audit non-pass or projection mismatch stops forward work: restore
+every controlled cell from that snapshot, move commentary to notes, Blockers,
+or transition history, and re-audit before resuming. A missing, stale, or
+ambiguous snapshot blocks return acceptance or redispatch on resume even when
+the current table passes `audit`; the snapshot is session-local and creates no
+second artifact, durable seal, transition writer, or migration.
 
 The plan remains frozen authority: its checkboxes are never changed for progress.
 The table, cross-checked against Git and its evidence on resume, is authoritative
@@ -371,10 +386,10 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Complete every frozen plan task as committed, locally verified implementation.
 - **Inputs:** Frozen specification and plan identities, implementation table, execution authority, and `execute-return` contract.
-- **Mechanical check:** Run `identities` at entry, immediately before each delegated or inline plan task, and immediately after every bounded task return before recording that return complete; then run `audit` after the ledger update.
+- **Mechanical check:** Run `identities` then `audit` at entry. Before every delegated or inline plan task, persist the selected task's pre-dispatch state, run `identities` then `audit`, and capture the snapshot bound to that selected task and the exact frozen specification/plan identity tuple. On return, run `identities` then `audit`; require the snapshot's selected-task and frozen-identity bindings to equal the current return context, compare the complete controlled projection, validate the returned fields, update the selected row, then run `audit` again. Either audit non-pass follows the bounded recovery without recording the return first; a binding mismatch is stale and blocks rather than restoring from the snapshot.
 - **Owned action:** Select exactly one authorized execution mode, execute independently bounded tasks, and record each task's status, owned commit, and evidence without changing plan checkboxes.
 - **Pass:** Every plan-task row has a verified commit/evidence record and implementation content is committed with one next action.
-- **Failure:** A verified `fail` routes specification/plan drift through read-only reconciliation and the fixed graph; `unverifiable` or unavailable execution authority blocks. Recover a missing return before redispatch.
+- **Failure:** A verified `fail` routes specification/plan drift through read-only reconciliation and the fixed graph; `unverifiable` or unavailable execution authority blocks. A task-table audit non-pass or controlled-projection mismatch permits only the bounded task-table recovery above; a missing, stale, or ambiguous snapshot blocks accepting a return or redispatching on resume.
 - **Next:** Stage 10: Implementation review.
 
 ### Stage 10: Implementation review

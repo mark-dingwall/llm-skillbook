@@ -146,6 +146,50 @@ def test_markdown_keeps_human_evidence_without_current_head_mirrors() -> None:
     assert "audit tip" not in json.dumps(head).lower()
 
 
+def test_implementation_progress_schema_is_synchronized() -> None:
+    _, markdown = _head_and_markdown()
+    header = "| plan task | status | commit | evidence | notes |"
+    assert markdown.count(header) == 1
+    workflow = WORKFLOW.read_text()
+    assert workflow.count(header) == 1
+    for status in ("pending", "active", "awaiting_return", "blocked", "complete"):
+        assert f"`{status}`" in workflow
+
+
+def _assert_in_order(text: str, *parts: str) -> None:
+    normalized = " ".join(text.lower().split())
+    cursor = 0
+    for part in parts:
+        needle = " ".join(part.lower().split())
+        cursor = normalized.index(needle, cursor) + len(needle)
+
+
+def test_stage9_checks_task_table_before_work_and_after_return() -> None:
+    check = _label_value(_stage_contracts()[9], "Mechanical check")
+    _assert_in_order(
+        check,
+        "`identities` then `audit` at entry",
+        "before every delegated or inline plan task",
+        "persist the selected task",
+        "run `identities` then `audit`",
+        "capture the snapshot bound",
+        "on return, run `identities` then `audit`",
+        "require the snapshot's selected-task and frozen-identity bindings",
+        "compare the complete controlled projection",
+        "validate the returned fields",
+        "update the selected row",
+        "run `audit` again",
+    )
+
+
+def test_stage9_blocks_return_or_redispatch_without_bound_snapshot() -> None:
+    failure = _label_value(_stage_contracts()[9], "Failure")
+    assert "missing, stale, or ambiguous" in failure
+    assert "accepting a return or redispatching" in failure
+    workflow = WORKFLOW.read_text()
+    _assert_in_order(workflow, "restore every controlled cell", "re-audit")
+
+
 def _stage_contracts() -> dict[int, str]:
     text = WORKFLOW.read_text()
     matches = list(re.finditer(r"^### Stage (\d+): .+$", text, re.MULTILINE))
