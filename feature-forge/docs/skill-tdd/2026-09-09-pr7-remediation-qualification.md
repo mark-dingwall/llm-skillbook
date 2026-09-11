@@ -786,3 +786,38 @@ boundary.** The four required Codex manual/effect rows and all four corrected
 Claude raw/manual/effect rows pass; no current fail row remains. Historical
 failures and the transport, criterion-fidelity and auxiliary-provenance limits
 above remain part of the evidence. Task 7 still owns cross-cutting verification.
+
+## Task 7: Cross-cutting verification
+
+All complete-suite evidence in this section exercised production commit
+`94e10be28f99ddd1fa1f0e2da68aa33e8e65f74a` before this evidence-only record
+was committed. The preflight branch was
+`feature-forge-mvp...origin/feature-forge-mvp [ahead 36]`, with no uncommitted
+paths. `git log --oneline --decorate --graph origin/main..HEAD`,
+`git diff --stat origin/main...HEAD`, and
+`git diff --name-status origin/main...HEAD` confirmed the reviewed remediation
+scope: Feature Forge, the approved Task 1 Review Loop reconciliation, and
+approved repository documentation, installer, and test changes.
+
+| Command | Exit | Result / availability |
+| --- | --- | --- |
+| `python3 -m pytest feature-forge/tests -q` | 0 | 649 passed, 1 skipped in 88.60s. The skipped integration import is covered by the owning Review Loop invocation below. |
+| `cd review-loop && uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q` | 0 | 24 passed in 13.37s. |
+| `cd review-loop && uv run pytest -q` (restricted sandbox) | 1 | 27 failed, 483 passed, 1 skipped in 386.58s. Every material failure traces to the sandbox preventing bwrap network-namespace setup (`Failed to create NETLINK_ROUTE socket: Operation not permitted`) or UNIX-socket creation; this made containment gates report `FAILED` and cascaded into controller tests. This is unavailable environmental evidence, not a production defect disposition. |
+| `cd review-loop && uv run pytest -q` (required host access) | 0 | 510 passed, 1 skipped in 18.51s. This is the applicable owning-suite result. |
+| `python3 -m pytest tests/test_install.py -q` | 0 | 11 passed in 0.29s. |
+| `python3 -m pytest tests/test_documentation.py -q` | 0 | 20 passed in 0.14s. |
+| `python3 -m pytest tests/test_plugin_agents.py -q` | 0 | 2 passed in 0.11s. |
+| `claude plugin validate . --strict` | 0 | Marketplace manifest validation passed. |
+| `python3 -m pytest tests -q` | 0 | 33 passed in 0.28s. |
+| `python3 -m py_compile feature-forge/scripts/ff-check feature-forge/tests/behavior/remediation_pressure.py` | 0 | Both target files compiled without syntax errors. |
+| `git diff --check origin/main...HEAD` | 0 | No whitespace errors. |
+| `git status --short --branch` | 0 | No uncommitted paths; branch was ahead of `origin/feature-forge-mvp` by 36 commits. |
+
+**Task 7 qualification disposition:** all required production verification
+gates pass at `94e10be` when containment tests run with the host capability
+they require. The restricted-sandbox Review Loop attempt is retained as an
+environmental limitation and was not used to waive the full owning suite.
+Task 6 remains qualified under its authorized structured-output boundary; its
+historical transport, criterion-fidelity, and auxiliary-provenance limits are
+unchanged. No unavailable required evidence remains.
