@@ -577,6 +577,43 @@ def test_audit_accepts_the_exact_clean_not_started_head(tmp_path: Path) -> None:
     assert_result(invoke(repo, directory), "pass", 0)
 
 
+@pytest.mark.parametrize("command", ["runs", "audit", "reviewed-snapshot"])
+@pytest.mark.parametrize("value", [{}, []], ids=["object", "array"])
+@pytest.mark.parametrize(("field", "diagnostic"), [
+    ("status", "status=unsupported"),
+    ("stage.state", "stage=unsupported"),
+    ("review.kind", "review=unsupported"),
+    ("review.state", "review=unsupported"),
+])
+def test_public_commands_reject_unhashable_ledger_enums_without_a_traceback(
+    tmp_path: Path, command: str, value: object, field: str, diagnostic: str,
+) -> None:
+    """Missing enum type guards must yield an unsupported result, not a crash."""
+    repo, directory, data = audit_fixture(tmp_path)
+    if "." in field:
+        parent, key = field.split(".")
+        data[parent][key] = value
+    else:
+        data[field] = value
+    write_ledger(directory, data)
+    if command == "runs":
+        observed = check(command, "--repo", str(repo), "--run-id", "alpha")
+        if field == "status":
+            diagnostic = "ledger-status=unsupported"
+        expected = sorted([
+            "branch=feature/alpha",
+            f"ledger=docs/feature-forge/runs/2026-08-25-alpha/ledger.md:{diagnostic}",
+            f"worktree={repo.resolve()}",
+        ])
+    else:
+        observed = check(command, "--repo", str(repo), "--run", str(directory))
+        expected = [diagnostic]
+    assert observed.returncode == 2, observed.stderr
+    assert observed.stdout == f"FF-CHECK v1 gate={command} status=unverifiable\n"
+    assert observed.stderr.splitlines() == expected
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
 @pytest.mark.parametrize("value", [None, "automatic", "SUPERVISED", 1])
 def test_audit_rejects_missing_or_unsupported_mode(tmp_path: Path, value: object) -> None:
     repo, directory, data = audit_fixture(tmp_path)

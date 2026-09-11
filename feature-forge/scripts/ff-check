@@ -260,7 +260,7 @@ def run_head_error(repo: Path, data: dict[str, object]) -> str | None:
         return "worktree=unsupported"
     if not isinstance(branch, str) or git(repo, "check-ref-format", "--branch", branch) is None:
         return "branch=unsupported"
-    if status not in {"active", "blocked", "complete"}:
+    if not isinstance(status, str) or status not in {"active", "blocked", "complete"}:
         return "ledger-status=unsupported"
     return None
 
@@ -781,9 +781,12 @@ def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
 def review_shape(review: object) -> tuple[dict[str, object] | None, str | None]:
     if not isinstance(review, dict) or set(review) != REVIEW_KEYS:
         return None, "review=unsupported"
-    if review.get("kind") not in {None, "specification", "plan", "implementation"}:
+    kind = review.get("kind")
+    if kind is not None and (
+        not isinstance(kind, str) or kind not in {"specification", "plan", "implementation"}
+    ):
         return None, "review=unsupported"
-    if review.get("state") not in {
+    if not isinstance(review.get("state"), str) or review["state"] not in {
         "not_started", "review_active", "changes_required", "pass", "blocked",
     }:
         return None, "review=unsupported"
@@ -1220,7 +1223,7 @@ def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | No
     run_id = data.get("run_id")
     if not isinstance(run_id, str) or run_id != suffix.group(4) or not valid_run_id(repo, run_id):
         return "run=unsupported"
-    if data.get("status") not in {"active", "blocked", "complete"}:
+    if not isinstance(data.get("status"), str) or data["status"] not in {"active", "blocked", "complete"}:
         return "status=unsupported"
     if (
         not isinstance(data.get("worktree"), str)
@@ -1239,6 +1242,7 @@ def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | No
         or not isinstance(stage.get("id"), int)
         or isinstance(stage.get("id"), bool)
         or not 1 <= stage["id"] <= 14
+        or not isinstance(stage.get("state"), str)
         or stage.get("state") not in {"pending", "active", "blocked", "complete", "invalidated"}
     ):
         return "stage=unsupported"
