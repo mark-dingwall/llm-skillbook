@@ -1,12 +1,14 @@
 # Feature Forge PR #7 Remediation Implementation Plan
 
-**Status:** Approved for execution
+**Status:** Pending review of the 2026-09-12 amendment
+
+**Amended:** 2026-09-12
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Feature Forge PR #7 merge-ready by integrating current `main`, closing the approved checked-state and review-return defects, and qualifying every affected LLM dispatch without expanding Feature Forge into a workflow engine.
+**Goal:** Make Feature Forge PR #7 merge-ready by integrating current `main`, closing the approved checked-state and review-return defects, and qualifying every affected LLM dispatch without expanding Feature Forge into a workflow engine; implementation-task statuses remain exact while annotations have a separate notes cell.
 
-**Architecture:** Preserve Feature Forge's instruction-driven outer controller, one version-one ledger, and one read-only Python standard-library checker. Put Git, path, schema, set, result, round, and identity predicates in `ff-check`; leave material equivalence and other semantic judgments in small bounded LLM calls whose outputs are mechanically validated. Reuse Review Loop only through its public read-only path ending at TRIAGE.
+**Architecture:** Preserve Feature Forge's instruction-driven outer controller, one version-one ledger, and one read-only Python standard-library checker. Put Git, path, schema, set, result, round, identity, and exact task-status predicates in `ff-check`; keep task commentary in one free-form notes cell and leave material equivalence and other semantic judgments in small bounded LLM calls whose outputs are mechanically validated. Reuse Review Loop only through its public read-only path ending at TRIAGE.
 
 **Tech Stack:** Markdown skill/reference files, Python 3 standard library, pytest, Git, the existing `review_loop` Python package and public `Controller`, Codex CLI, Claude Code CLI.
 
@@ -18,8 +20,10 @@
 - Treat the approved remediation specification as binding. The earlier checked-skill MVP design remains authoritative only where the remediation specification does not supersede it.
 - Merge current `origin/main`; do not rebase or force-push. Preserve PR #8's Review Loop contracts and accept PR #9's Review Team state from `main` without alteration.
 - Keep one version-one ledger and one standard-library `ff-check`; do not add a workflow engine, daemon, hook, prompt compiler, second state artifact, fifth operational checker command, historical-ledger migration, or Review Loop FIX/adjudication/promotion/challenge/CLOSE integration.
+- Accept task status only as the exact trimmed value `pending`, `active`, `awaiting_return`, `blocked`, or `complete`. Never accept an enum prefix, strip a suffix, or automatically repair malformed control state; annotations belong in the single-line `notes` cell.
+- A task-table `audit` non-pass stops dispatch, completion, advancement, implementation mutation, progress commits, and Finish effects. Permit only bounded restoration from the trusted pre-dispatch snapshot and an immediate re-audit; absent or ambiguous recovery state blocks.
 - Use `superpowers:test-driven-development` for every deterministic behavior change: observe a focused failure for the intended reason before production implementation, then observe it pass.
-- Use `superpowers:writing-skills` for behavior-shaping instruction changes: Task 2 records the post-integration/no-remediation baseline; Task 6 changes guidance only for a demonstrated behavior gap and reruns the same immutable scenarios. Schema and contract synchronization does not require an artificial behavioral failure.
+- Use `superpowers:writing-skills` for behavior-shaping instruction changes: Task 2 records the post-integration/no-remediation baseline; Task 6 changes guidance only for a demonstrated behavior gap and reruns the same immutable scenarios; Task 8 uses the retained Sonnet failure as RED evidence and adds only the approved notes/recovery guidance. Schema and contract synchronization does not require an artificial behavioral failure.
 - The North Star is: “LLM output quality is maximized by small, well scoped, clearly bounded tasks with clear goal conditions.” Packet bytes and words are diagnostic only, never a quota or pass/fail gate.
 - A finding is a grounded discrepancy against an approved requirement, correctness condition, applicable repository contract, or required verification result. Preferences, optional enhancements, and speculative improvements are not findings.
 - Use code for deterministic facts and LLM inference only for material-equivalence or other semantic judgments. Every LLM task has one job, exact inputs and authority, a strict output contract, an observable goal, and an explicit blocked/failure condition.
@@ -33,43 +37,46 @@
 
 | Unit | Responsibility | Owned task |
 | --- | --- | --- |
-| `feature-forge/scripts/ff-check` | Four read-only operational gates; exact ledger/receipt/path/Git predicates; deterministic stable-ID formula and validation | Tasks 3–5, sequentially |
-| `feature-forge/assets/ledger-template.md` | Copy-time version-one head with checked `mode` | Task 3 |
-| `feature-forge/references/workflow.md` | Ledger/state lifecycle, identities gates, stage contracts | Tasks 3 and 5; Task 6 may only simplify equivalent prose |
-| `feature-forge/references/adapters-and-reviews.md` | Worker packet, review charter/return, stable-ID, and receipt contracts | Task 5; Task 6 may only simplify equivalent prose |
+| `feature-forge/scripts/ff-check` | Four read-only operational gates; exact ledger/receipt/path/Git/task-status predicates; deterministic stable-ID formula and validation | Tasks 3–5, then Task 8 |
+| `feature-forge/assets/ledger-template.md` | Copy-time version-one head and canonical implementation-progress table | Tasks 3 and 8 |
+| `feature-forge/references/workflow.md` | Ledger/state lifecycle, identities/audit gates, task-table recovery, stage contracts | Tasks 3, 5, and 8; Task 6 may only simplify equivalent prose |
+| `feature-forge/references/adapters-and-reviews.md` | Worker packet, execution return, review charter/return, stable-ID, and receipt contracts | Tasks 5 and 8; Task 6 may only simplify equivalent prose |
 | `feature-forge/SKILL.md` | Concise entry point and controller boundary | Task 6 |
 | `feature-forge/CLAUDE.md` | Component maintainer and verification commands | Task 6 |
-| `feature-forge/tests/conftest.py` | Canonical valid head and Git fixture helpers | Task 3; later tasks consume without renaming |
-| `feature-forge/tests/test_ff_check_audit.py` | Head, lifecycle, review/receipt, and audit regressions | Tasks 3 and 5, sequentially |
+| `feature-forge/tests/conftest.py` | Canonical valid head, implementation-table tail, and Git fixture helpers | Tasks 3 and 8 |
+| `feature-forge/tests/test_ff_check_audit.py` | Head, lifecycle, review/receipt, task-table, and audit regressions | Tasks 3, 5, and 8, sequentially |
+| `feature-forge/tests/test_ledger_schema.py` | Ledger template and live workflow schema synchronization | Task 8 |
 | `feature-forge/tests/test_ff_check_identities.py` | Base ancestry and safe identity/path regressions | Tasks 3 and 4 |
 | `feature-forge/tests/test_ff_check_runs.py` | Repository-scoped run/worktree inventory regressions | Task 4 |
 | `feature-forge/tests/test_ff_check_reviewed_snapshot.py` | Strict receipt and reviewed-snapshot regressions | Task 5 |
-| `feature-forge/tests/integration/test_review_loop_boundary.py` | Public Review Loop through-TRIAGE adapter fixture and controller-return provenance | Task 3 schema compatibility, then Task 5 behavior |
-| `feature-forge/tests/behavior/identity_drift.py` | Existing installed-checker drift fixture; reuse of Task 2's schema-aware valid seed builder | Task 3; Task 5 verifies unchanged |
+| `feature-forge/tests/integration/test_review_loop_boundary.py` | Public Review Loop through-TRIAGE adapter fixture and controller-return provenance | Task 3 schema compatibility, Task 5 behavior, Task 8 canonical table tail only |
+| `feature-forge/tests/behavior/identity_drift.py` | Existing installed-checker drift fixture; reuse of Task 2's schema-aware valid seed builder | Task 3; Task 5 verifies unchanged; Task 8 adds only the canonical table tail |
 | `feature-forge/tests/test_behavior_oracle.py` | Existing drift-fixture compatibility gate | Tasks 3 and 5 |
-| `feature-forge/tests/behavior/remediation_pressure.py` | Test-only preparation/scoring for the three remediation pressure scenarios | Task 2; Task 6 may correct Claude GREEN transport only, preserving baseline invocation and scorer semantics |
-| `feature-forge/tests/behavior/pr7-remediation/` | Immutable prompts and fixture inputs for the three pressure scenarios | Task 2; Task 6 consumes unchanged |
-| `feature-forge/tests/test_remediation_pressure.py` | Deterministic oracle unit tests for scenario preparation/scoring and host transport | Task 2; Task 6 adds authorized adapter regressions |
-| `feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md` | One compact baseline, GREEN comparison, prompt inventory, metrics, and final verification record | Task 2 creates; Tasks 6–7 append only |
+| `feature-forge/tests/behavior/remediation_pressure.py` | Test-only preparation/scoring for the three remediation pressure scenarios | Task 2; Task 6 may correct Claude GREEN transport only; Task 8 moves the seed to the canonical table and excludes only notes from controlled-cell comparison |
+| `feature-forge/tests/behavior/pr7-remediation/` | Immutable prompts and fixture inputs for the three pressure scenarios | Task 2; Tasks 6 and 8 consume unchanged |
+| `feature-forge/tests/test_remediation_pressure.py` | Deterministic oracle unit tests for scenario preparation/scoring, notes projection, and host transport | Task 2; Tasks 6 and 8 add authorized regressions |
+| `feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md` | One compact baseline, GREEN comparison, prompt inventory, metrics, and final verification record | Task 2 creates; Tasks 6–8 append only |
 
 ## Sequential Dependency and Ownership Table
 
 | Producer | Consumer | Contract handed forward | Shared surface/ruling |
 | --- | --- | --- | --- |
-| Task 1 | Tasks 2–7 | Tested merge commit containing current PR #8 and PR #9 state | Later tasks never reopen Review Loop conflict resolutions except to fix a demonstrated integration defect |
-| Task 2 | Tasks 5–6 | Immutable scenario files (including delegated and inline drift variants), scorer interface, installed-payload digest, and baseline observations | Task 5 changes the live Stage 9 contract while consuming the frozen tests; Task 6 reruns exact inputs and never rewrites the baseline or scorer |
+| Task 1 | Tasks 2–8 | Tested merge commit containing current PR #8 and PR #9 state | Later tasks never reopen Review Loop conflict resolutions except to fix a demonstrated integration defect |
+| Task 2 | Tasks 5–6 and 8 | Immutable scenario files (including delegated and inline drift variants), scorer interface, installed-payload digest, and baseline observations | Task 5 changes the live Stage 9 contract; Task 6 reruns exact inputs; Task 8 mechanically adapts only the table schema and controlled-cell projection |
 | Task 3 | Task 4 | Unchanged public checker CLI/result contract plus `repository()`, `linked_worktree()`, `worktrees()`, and `audit_current_head()` signatures | Task 4 adds the shared path-error boundary and may harden internals but may not change these signatures or lifecycle semantics |
 | Task 3 | Task 5 | `REVIEW_STAGE_RULES`, `required_frozen_authorities()`, checked `mode`, and exact head compatibility rules | Task 5 adds receipt semantics without reopening status/stage/next-action decisions |
 | Task 4 | Task 5 | Final safe path observation and repository-scoped inventory helpers | Task 5 uses the helpers for receipt paths and never adds a second path-validation stack |
 | Task 5 | Task 6 | Exact receipt fields, stable-ID formula, all-findings return rule, and pre/post-task identities contract | Task 6 may shorten wording but may not alter these semantics |
 | Task 6 | Task 7 | Final installed payload, GREEN evidence, seven-shape rubric table, and any explicitly unresolved qualification item | Task 7 verifies; it adds no production behavior |
+| Tasks 2 and 7 | Task 8 | Retained Sonnet annotated-status failure, immutable raw observations, and the last verified production head | Task 8 adds the canonical five-column table and deterministic recovery gate without reopening prior behavior |
+| Task 8 | Controller post-task gate | Exact task-status audit, controlled-cell scorer projection, focused RED/GREEN evidence, and refreshed complete verification | Final review judges the full branch including both Task 8 commits before push |
 
 ## Controller-Owned Post-Task Gate
 
 This section is not an implementation task and is deliberately placed before
 the numbered task headings so `task-brief` cannot include it in any worker
-brief. The SDD controller performs it only after Task 7's implementer has
-reported, Task 7's task review is approved, and all seven task completion lines
+brief. The SDD controller performs it only after Task 8's implementer has
+reported, Task 8's task review is approved, and all eight task completion lines
 are in the SDD ledger.
 
 - [ ] **Controller Step 1: Run the mandatory SDD whole-branch review**
@@ -82,8 +89,11 @@ If the final review produces a fix, the single final-fix implementer first
 commits the production correction, then runs every focused test covering it
 plus the complete Feature Forge, Review Loop, documentation, installer,
 plugin-agent, and root gates from Task 7. If any installed Feature Forge
-payload changed, reinstall that exact payload into fresh fixtures and rerun
-both complete immutable pressure campaigns; if a dispatch composition changed,
+payload changed outside the Task 8 table-only contract, reinstall that exact
+payload into fresh fixtures and rerun both complete immutable pressure
+campaigns. Task 8 itself uses its focused canonical-fixture regression because
+its table shape is intentionally not like-for-like with the historical inputs.
+If a dispatch composition changed beyond the approved notes/recovery wording,
 recompose and re-review its affected packet family with the Task 6 rubric.
 Append the new results without rewriting prior evidence and create a separate
 evidence-only commit that records the production fix commit's identity. One
@@ -92,7 +102,7 @@ re-review judges both commits and the refreshed evidence. Afterward, the
 controller reruns the exact documentation gate, `git diff --check
 origin/main...HEAD`, and status.
 
-If there is no fix, the Task 7 evidence remains current for production files;
+If there is no fix, the Task 8 evidence remains current for production files;
 the controller still checks the evidence-only commit with the documentation,
 diff, and status gates before proceeding.
 
@@ -1233,6 +1243,407 @@ Report both the production commit exercised by the complete suites and the
 later evidence-only commit; do not imply the code suites ran after the
 evidence-only documentation commit.
 
+### Task 8: Fail Closed on Annotated Task States Without Adding State Machinery
+
+**Files:**
+- Modify: `feature-forge/scripts/ff-check`
+- Modify: `feature-forge/assets/ledger-template.md`
+- Modify: `feature-forge/references/workflow.md`
+- Modify: `feature-forge/references/adapters-and-reviews.md`
+- Modify: `feature-forge/tests/conftest.py`
+- Modify: `feature-forge/tests/test_ff_check_audit.py`
+- Modify: `feature-forge/tests/test_ledger_schema.py`
+- Modify: `feature-forge/tests/behavior/remediation_pressure.py`
+- Modify: `feature-forge/tests/test_remediation_pressure.py`
+- Modify: `feature-forge/tests/behavior/identity_drift.py`
+- Modify: `feature-forge/tests/integration/test_review_loop_boundary.py`
+- Modify: `feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md` (append evidence only after the production commit)
+
+**Interfaces:**
+- Consumes: the existing `audit --repo REPOSITORY --run RUN` command and literal `FF-CHECK v1` result protocol; the canonical `## Implementation progress` section; Task 7's verified branch; and the retained Sonnet `44s37v8y` failure in the qualification record.
+- Produces: `TASK_STATUSES: frozenset[str]`; `markdown_table_cells(line: str) -> tuple[str, ...] | None`; `audit_implementation_progress(path: Path) -> Result`; a required five-column implementation table; task-record comparison over exactly `plan task`, `status`, `commit`, and `evidence`; and focused verification evidence tied to the Task 8 production commit.
+- Preserves: all four public checker commands and their exit/result protocol; the JSON head and receipt schemas; scenario facts, prompts, expected decisions, raw historical observations, and every pressure-scorer predicate except excluding `notes` from `task-record-changed`.
+
+- [ ] **Step 1: Confirm the retained RED evidence and clean starting point**
+
+Read the qualification record's `Correction: completed Claude inline failure and authorized experiment` section. Confirm it retains the exact invalid state `awaiting_return (return processing held for frozen-plan drift, see Blockers)` and that five later controls did not erase that failure. Run:
+
+```bash
+git status --short --branch
+git log -1 --oneline
+```
+
+Expected: the worktree is clean. Do not run another stochastic campaign: the completed Sonnet result is the behavioral RED, while the following steps add deterministic regression coverage.
+
+- [ ] **Step 2: Add canonical test fixtures and focused failing tests**
+
+In `feature-forge/tests/conftest.py`, give valid fenced ledgers a canonical table by default while preserving intentionally unfenced malformed fixtures:
+
+```python
+IMPLEMENTATION_PROGRESS = """\
+
+## Implementation progress
+
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+"""
+
+
+def write_ledger(
+    directory: Path,
+    data: object,
+    *,
+    fenced: bool = True,
+    markdown: str = IMPLEMENTATION_PROGRESS,
+) -> Path:
+    path = directory / "ledger.md"
+    encoded = json.dumps(data, indent=2)
+    content = f"```json\n{encoded}\n```\n{markdown}" if fenced else encoded + "\n"
+    path.write_text(content)
+    return path
+```
+
+In `feature-forge/tests/test_ff_check_audit.py`, add a small test-only table builder and public-command tests. Exercise all five accepted states, surrounding whitespace, escaped notes delimiters, an annotated state, a missing table, the old four-column shape, a malformed row, and a placeholder mixed with a real row. Assert `status=fail`, exit 1, and `task-status=unsupported` for a well-shaped row with an invalid status; assert `task-table=unsupported` for structural failures.
+
+```python
+TASK_STATUSES = ("pending", "active", "awaiting_return", "blocked", "complete")
+
+
+def task_markdown(*rows: tuple[str, str, str, str, str]) -> str:
+    body = "\n".join("| " + " | ".join(row) + " |" for row in rows)
+    return (
+        "\n## Implementation progress\n\n"
+        "| plan task | status | commit | evidence | notes |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        f"{body}\n"
+    )
+
+
+@pytest.mark.parametrize("status", TASK_STATUSES + ("  awaiting_return  ",))
+def test_audit_accepts_exact_task_statuses(tmp_path: Path, status: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=task_markdown(("W-2", status, "c123", "pytest: pass", "")))
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_audit_rejects_annotated_task_status(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=task_markdown((
+        "W-2", "awaiting_return (see Blockers)", "c123", "pytest: pass", "",
+    )))
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "task-status=unsupported\n"
+
+
+def test_audit_accepts_task_commentary_only_in_notes(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=task_markdown((
+        "W-2", "awaiting_return", "c123", "pytest: pass",
+        r"return held for drift \| see Blockers",
+    )))
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("markdown", [
+    "",
+    "\n## Implementation progress\n\n| plan task | status | commit | evidence |\n| --- | --- | --- | --- |\n| W-2 | active | c123 | pytest: pass |\n",
+    "\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n| W-2 | active | c123 | pytest: pass | note | extra |\n",
+    task_markdown(
+        ("", "", "", "", ""),
+        ("W-2", "active", "c123", "pytest: pass", ""),
+    ),
+])
+def test_audit_rejects_malformed_task_table(tmp_path: Path, markdown: str) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    write_ledger(directory, data, markdown=markdown)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "task-table=unsupported\n"
+```
+
+Do not add recovery or mutation behavior to the checker tests: the checker is read-only.
+
+In `feature-forge/tests/test_ledger_schema.py`, add this schema assertion rather than an exact-prose assertion:
+
+```python
+def test_implementation_progress_schema_is_synchronized() -> None:
+    _, markdown = _head_and_markdown()
+    header = "| plan task | status | commit | evidence | notes |"
+    assert markdown.count(header) == 1
+    workflow = WORKFLOW.read_text()
+    assert workflow.count(header) == 1
+    for status in ("pending", "active", "awaiting_return", "blocked", "complete"):
+        assert f"`{status}`" in workflow
+```
+
+Mechanically change the pressure fixture's seed heading/header/row to:
+
+```markdown
+## Implementation progress
+
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass | |
+```
+
+Update existing mutation-test row literals to five cells. Add this notes-only regression while retaining the four existing controlled-cell mutations and their expected failure:
+
+```python
+@pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
+def test_drift_score_accepts_notes_only_annotation(
+    tmp_path: Path, execution_mode: str,
+) -> None:
+    root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
+    write_blocked(root)
+    path, _, _ = parts(root)
+    original = "| W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass | |"
+    annotated = original.replace(
+        " | |", " | return processing held for frozen-plan drift; see Blockers |",
+    )
+    path.write_text(path.read_text().replace(original, annotated))
+    assert score(root)["failures"] == []
+```
+
+- [ ] **Step 3: Run the focused tests and verify RED for the intended reasons**
+
+Run:
+
+```bash
+python3 -m pytest \
+  feature-forge/tests/test_ff_check_audit.py \
+  feature-forge/tests/test_ledger_schema.py \
+  feature-forge/tests/test_remediation_pressure.py -q
+```
+
+Expected: the new annotated-status and malformed-table audit tests fail because current `audit` ignores the Markdown table; the template assertion fails on the old four-column header; and the notes-only pressure test fails because the current scorer compares the complete section. Existing unrelated tests remain green. Record the exact failing node IDs and diagnostics in the SDD ledger; do not weaken an assertion to manufacture GREEN.
+
+- [ ] **Step 4: Implement the bounded read-only audit parser**
+
+In `feature-forge/scripts/ff-check`, add only these constants and helpers near the existing ledger parser:
+
+```python
+TASK_STATUSES = frozenset({"pending", "active", "awaiting_return", "blocked", "complete"})
+TASK_TABLE_HEADER = ("plan task", "status", "commit", "evidence", "notes")
+TABLE_SEPARATOR = re.compile(r":?-{3,}:?\Z")
+
+
+def markdown_table_cells(line: str) -> tuple[str, ...] | None:
+    candidate = line.strip()
+    if not candidate.startswith("|") or not candidate.endswith("|"):
+        return None
+    return tuple(cell.strip() for cell in re.split(r"(?<!\\)\|", candidate[1:-1]))
+
+
+def audit_implementation_progress(path: Path) -> Result:
+    try:
+        text = path.read_text()
+    except PATH_OBSERVATION_ERRORS:
+        return result("unverifiable", "task-table=unreadable")
+    sections = re.findall(
+        r"^## Implementation progress[ \t]*\n(?P<body>.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if len(sections) != 1:
+        return result("fail", "task-table=unsupported")
+    lines = sections[0].splitlines()
+    headers = [index for index, line in enumerate(lines)
+               if markdown_table_cells(line) == TASK_TABLE_HEADER]
+    if len(headers) != 1 or headers[0] + 1 >= len(lines):
+        return result("fail", "task-table=unsupported")
+    separator = markdown_table_cells(lines[headers[0] + 1])
+    if separator is None or len(separator) != 5 or not all(TABLE_SEPARATOR.fullmatch(cell) for cell in separator):
+        return result("fail", "task-table=unsupported")
+    rows: list[tuple[str, ...]] = []
+    for line in lines[headers[0] + 2:]:
+        if not line.strip():
+            if rows:
+                break
+            continue
+        cells = markdown_table_cells(line)
+        if cells is None:
+            if line.lstrip().startswith("|"):
+                return result("fail", "task-table=unsupported")
+            break
+        if len(cells) != 5:
+            return result("fail", "task-table=unsupported")
+        rows.append(cells)
+    if not rows:
+        return result("fail", "task-table=unsupported")
+    placeholders = [row for row in rows if not any(row)]
+    if placeholders:
+        return result("pass") if len(rows) == 1 else result("fail", "task-table=unsupported")
+    if any(not row[0] for row in rows):
+        return result("fail", "task-table=unsupported")
+    if any(row[1] not in TASK_STATUSES for row in rows):
+        return result("fail", "task-status=unsupported")
+    return result("pass")
+```
+
+Keep the parser deliberately local: one exact heading, one exact header, one separator, five cells, and no Markdown AST dependency. Do not unescape or rewrite notes. An unescaped `|` produces an extra cell and therefore fails structurally; `\|` remains within the notes cell.
+
+In `audit()`, after the existing successful `parse_ledger(ledger)` call and before `audit_current_head(...)`, add:
+
+```python
+task_table = audit_implementation_progress(ledger)
+if task_table.status != "pass":
+    return task_table
+```
+
+Do not call this helper from `runs`, `identities`, or `reviewed-snapshot`; the approved contract strengthens the `audit` gate and adds no fifth command. Do not mutate the ledger or attempt repair.
+
+- [ ] **Step 5: Synchronize the live template and minimal controller instructions**
+
+Use `superpowers:writing-skills` for this step. In `feature-forge/assets/ledger-template.md` and the authoritative table in `feature-forge/references/workflow.md`, replace the four-column table with:
+
+```markdown
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+```
+
+Immediately below the workflow table, state the exact five statuses, surrounding-whitespace rule, controlled cells, single-line notes escape hatch, and escaped-pipe rule. Add the fail-closed recovery sequence once at that authoritative boundary: a non-pass stops forward work; only restoration from the trusted pre-dispatch snapshot plus moving commentary to notes/Blockers/transition history is permitted; re-audit before resuming; missing or ambiguous state blocks. In Stage 9's Failure line, reference that bounded task-table recovery alongside the existing frozen-identity route instead of repeating it.
+
+In `feature-forge/references/adapters-and-reviews.md` under `execute-return`, replace the existing four bullets with this concise synchronized contract:
+
+```markdown
+- **Controller-owned execution method:** execute each bounded plan task against its fixed interfaces, either by dispatching an independently ownable worker packet or working inline for tightly coupled tasks. Before execution, retain a snapshot of the four controlled implementation cells. A worker returns task results and commentary; it never owns the ledger mutation. Do not invoke `superpowers:subagent-driven-development` or `superpowers:executing-plans`; both require a branch-finishing handoff outside Stage 9.
+- **Required boundary:** verify each task before handoff, retain frozen specification/plan authority, never change plan checkboxes, and return after the implementation table records every task's commit and evidence. Do not offer or begin branch finishing or delete caller-owned progress state.
+- **Return artifact:** for every plan task, return exactly one permitted status token, its owned commit, local verification evidence, and separate commentary. The controller records only a workflow-authorized status transition and puts commentary in `notes`, Blockers, or transition history.
+- **Block rule:** return `blocked` when a fixed contract cannot be honored or authority for a material or out-of-scope decision is missing. The authority contract's other pause/block triggers remain blocking and are not gated by materiality. Non-material in-scope ambiguity alone does not block: the controller records the decision under the authority contract and continues. A task-table audit non-pass permits only the bounded recovery in `workflow.md`; absent or ambiguous pre-dispatch state blocks.
+```
+
+Integrate these clauses into the current concise text; do not paste a second protocol, add a prompt template, or edit `feature-forge/SKILL.md`. The existing entry point already routes checker failures to `workflow.md`.
+
+- [ ] **Step 6: Adapt only fixtures that must present a valid canonical ledger**
+
+In `feature-forge/tests/behavior/remediation_pressure.py`, replace `implementation_task_table()` with this test-only controlled projection and use it for the seeded-versus-returned `task-record-changed` comparison:
+
+```python
+def implementation_task_controls(markdown: str) -> tuple[tuple[str, ...], ...] | None:
+    sections = re.findall(
+        r"^## Implementation progress[ \t]*\n(?P<body>.*?)(?=^## |\Z)",
+        markdown,
+        re.MULTILINE | re.DOTALL,
+    )
+    if len(sections) != 1:
+        return None
+    lines = sections[0].splitlines()
+    header = ("plan task", "status", "commit", "evidence", "notes")
+
+    def cells(line: str) -> tuple[str, ...] | None:
+        candidate = line.strip()
+        if not candidate.startswith("|") or not candidate.endswith("|"):
+            return None
+        return tuple(cell.strip() for cell in re.split(r"(?<!\\)\|", candidate[1:-1]))
+
+    indexes = [index for index, line in enumerate(lines) if cells(line) == header]
+    if len(indexes) != 1 or indexes[0] + 2 >= len(lines):
+        return None
+    rows: list[tuple[str, ...]] = []
+    for line in lines[indexes[0] + 2:]:
+        if not line.strip():
+            if rows:
+                break
+            continue
+        row = cells(line)
+        if row is None or len(row) != 5:
+            return None
+        rows.append(row[:4])
+    return tuple(rows) if rows else None
+```
+
+Do not ignore row deletion, insertion, reordering, or any controlled-cell change. The live `audit` validates the separator and status; this test-only helper exists solely to compare the controlled projection.
+
+In `feature-forge/tests/behavior/identity_drift.py`, insert the canonical five-column placeholder section before its Transition log. In `feature-forge/tests/integration/test_review_loop_boundary.py`, make `_write_head()` retain its existing fixture prose/reservation/mapping lines and add exactly the same canonical placeholder section. These are fixture schema adaptations only; do not alter identity, receipt, review, or scorer decisions.
+
+Do not edit `feature-forge/tests/behavior/pr7-remediation/cases.json` or any scenario prompt. Do not rewrite historical qualification results or present the canonical-table regression as like-for-like with the earlier campaign.
+
+- [ ] **Step 7: Run focused GREEN verification**
+
+Run:
+
+```bash
+python3 -m pytest \
+  feature-forge/tests/test_ff_check_audit.py \
+  feature-forge/tests/test_ledger_schema.py \
+  feature-forge/tests/test_remediation_pressure.py \
+  feature-forge/tests/test_behavior_oracle.py -q
+```
+
+Then run the public Review Loop boundary in its owning environment:
+
+```bash
+cd review-loop
+uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q
+```
+
+Expected: PASS. Confirm the annotated state returns exactly `FF-CHECK v1 gate=audit status=fail` with `task-status=unsupported`, the same annotation in notes passes, controlled-cell pressure mutations still fail, and notes-only annotation passes.
+
+- [ ] **Step 8: Commit the Task 8 production, instruction, test, and fixture change**
+
+Return to the repository root. Run `superpowers:verification-before-completion`, inspect the explicit diff, and stage only:
+
+```bash
+git add feature-forge/scripts/ff-check \
+  feature-forge/assets/ledger-template.md \
+  feature-forge/references/workflow.md \
+  feature-forge/references/adapters-and-reviews.md \
+  feature-forge/tests/conftest.py \
+  feature-forge/tests/test_ff_check_audit.py \
+  feature-forge/tests/test_ledger_schema.py \
+  feature-forge/tests/behavior/remediation_pressure.py \
+  feature-forge/tests/test_remediation_pressure.py \
+  feature-forge/tests/behavior/identity_drift.py \
+  feature-forge/tests/integration/test_review_loop_boundary.py
+git diff --cached --check
+git commit -m "fix: validate Feature Forge task statuses"
+```
+
+Do not include the qualification record in this production commit.
+
+- [ ] **Step 9: Refresh cross-cutting evidence against the production commit**
+
+Run the complete Task 7 gates against the Task 8 production commit:
+
+```bash
+python3 -m pytest feature-forge/tests -q
+cd review-loop
+uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q
+uv run pytest -q
+cd ..
+python3 -m pytest tests/test_install.py -q
+python3 -m pytest tests/test_documentation.py -q
+python3 -m pytest tests/test_plugin_agents.py -q
+claude plugin validate . --strict
+python3 -m pytest tests -q
+python3 -m py_compile feature-forge/scripts/ff-check \
+  feature-forge/tests/behavior/remediation_pressure.py
+git diff --check origin/main...HEAD
+git status --short --branch
+```
+
+Append to `feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md` without rewriting prior evidence:
+
+- the retained `44s37v8y` failure as behavioral RED;
+- the exact deterministic RED and GREEN node IDs/results;
+- confirmation that the canonical fixture changed only table shape/extraction and that scenario prompts/facts/expected decisions stayed unchanged;
+- the task-status fail-closed result, notes-only pass, and continued controlled-cell mutation failures;
+- why no additional stochastic campaign was run: the prior failure demonstrated the gap and the amended fixture is intentionally not a like-for-like continuation;
+- every complete verification command/result and the Task 8 production commit identity.
+
+Then stage and commit only the evidence record:
+
+```bash
+git add feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md
+git diff --cached --check
+git commit -m "test: record task-table recovery verification"
+```
+
+After the evidence commit, rerun the exact Feature Forge documentation gate, `git diff --check origin/main...HEAD`, and `git status --short --branch`. Report both the production commit tested by the complete suites and the later evidence-only commit. Task 8 is then ready for its SDD specification-compliance review followed by code-quality review.
+
 ## Completion Conditions
 
-The plan is complete only when Task 7's fresh evidence establishes all acceptance bullets in the approved specification, the SDD final whole-branch review has no unresolved material issue, `origin/feature-forge-mvp` equals local `HEAD`, PR #7 reflects that head, and the worktree is clean. The handoff reports any unavailable optional evidence and every SDD ruling; it does not describe PR #7 as mergeable when a required gate is unavailable.
+The plan is complete only when Task 8's refreshed evidence establishes all acceptance bullets in the approved specification, the SDD final whole-branch review has no unresolved material issue, `origin/feature-forge-mvp` equals local `HEAD`, PR #7 reflects that head, and the worktree is clean. The handoff reports any unavailable optional evidence and every SDD ruling; it does not describe PR #7 as mergeable when a required gate is unavailable.
