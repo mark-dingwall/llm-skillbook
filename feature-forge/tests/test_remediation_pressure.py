@@ -394,3 +394,40 @@ def test_claude_green_malformed_structured_return_is_executed_failure(tmp_path: 
         assert Path(row["response"]).read_bytes() == b""
         assert row["verdict"]["passed"] is False
         assert row["structured_output_error"] in row["verdict"]["failures"]
+
+
+@pytest.mark.parametrize("host,phase", [("claude", "green"), ("claude", "baseline"), ("codex", "green"), ("codex", "baseline")])
+@pytest.mark.parametrize("fault", ["timeout", "launch"])
+def test_campaign_classifies_executed_timeout_separately_from_launch_failure(tmp_path: Path, host: str, phase: str, fault: str) -> None:
+    campaign = runpy.run_path(str(SCRIPT))["campaign"]
+    partial = b'{"partial":'
+
+    def bounded_host(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if args[0] == host:
+            assert kwargs["timeout"] == 600
+            if fault == "launch":
+                return subprocess.run([str(tmp_path / "missing-host")], **kwargs)
+            # Execute a real child and let subprocess enforce its timeout after
+            # flushed partial output. Only the external model and wait change.
+            kwargs["timeout"] = 0.25
+            return subprocess.run([sys.executable, "-c",
+                                   "import sys,time; sys.stdout.buffer.write(" + repr(partial) + "); sys.stdout.flush(); time.sleep(5)"], **kwargs)
+        return subprocess.run(args, **kwargs)
+
+    campaign.__globals__["subprocess"] = SimpleNamespace(run=bounded_host, TimeoutExpired=subprocess.TimeoutExpired)
+    for row in campaign(phase, host):
+        structured = host == "claude" and phase == "green"
+        raw = Path(row["raw_response"] if structured else row["response"])
+        assert raw.read_bytes() == (partial if fault == "timeout" else b"")
+        assert row["host_returncode"] is None
+        assert Path(row["stderr"]).read_bytes()
+        if structured and fault == "timeout":
+            assert row["unavailable"] is None
+            assert row["structured_output_error"] == "structured-output=timeout"
+            assert "structured-output=timeout" in row["verdict"]["failures"]
+            assert row["verdict"]["passed"] is False
+            assert Path(row["response"]).read_bytes() == b""
+        else:
+            assert row["unavailable"]
+            if not structured:
+                assert "structured_output_error" not in row

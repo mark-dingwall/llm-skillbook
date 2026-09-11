@@ -364,14 +364,23 @@ def campaign(phase: str, host: str) -> list[dict]:
         error_path = root / "stderr.txt"
         unavailable = None
         code = None
+        executed_timeout = False
         with capture.open("wb") as output, error_path.open("wb") as error:
             try:
                 result = subprocess.run(argv, cwd=str(meta["repo"]), input=Path(meta["prompt"]).read_bytes(), stdout=output, stderr=error, timeout=600)
                 code = result.returncode
-            except (OSError, subprocess.TimeoutExpired) as exc:
+            except subprocess.TimeoutExpired as exc:
+                if structured:
+                    executed_timeout = True
+                else:
+                    unavailable = str(exc)
+                error.write((str(exc) + "\n").encode())
+            except OSError as exc:
                 unavailable = str(exc)
                 error.write((str(exc) + "\n").encode())
         transport_error = materialize_structured_output(capture, Path(meta["response"]), scenario, code) if structured else None
+        if executed_timeout:
+            transport_error = "structured-output=timeout"
         verdict = score(root)
         if transport_error:
             verdict["failures"].append(transport_error)
