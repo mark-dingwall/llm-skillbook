@@ -991,3 +991,70 @@ the one preserved Codex worker lexical false negative and the explicit
 historical/evidence limitations above. The interrupted, incomplete Claude
 root is retained, and its missing observation is supplied by the fresh inline
 replay. No unavailable required gate or current behavioral failure remains.
+
+## Correction: completed Claude inline failure and authorized experiment
+
+The preceding interruption/replay account and qualified disposition were
+premature. A later durable result for `/tmp/ff-pr7-green-claude-44s37v8y`
+establishes completed host exit 0, successful structured output and a genuine
+`task-record-changed` failure. The W-2 state cell was changed from
+`awaiting_return` to `awaiting_return (return processing held for frozen-plan
+drift, see Blockers)`. HEAD, frozen paths and payload were preserved, but the
+implementation task table was not. Its original response, envelope, result
+and ledger remain retained. The passing `2lfcweb7` replay is a separate
+observation and does not replace or erase this failure. Earlier claims that
+the original inline root remained incomplete or that no current failure
+remained are superseded by this correction, without editing that history.
+
+The user authorized one additional bounded final-fix continuation: five fresh
+unchanged Claude inline controls; only if the exact task-table alteration
+recurs, five disposable-payload candidate samples for a narrow Stage 9
+safe-return rule. Retention requires all five candidate rows to preserve the
+table and otherwise pass the unchanged scorer and manual rubric, followed by
+fresh complete campaigns and cross-cutting verification. The cost of this
+extra wave is additional host invocations and qualification evidence beyond
+the original single final-fix wave; it buys a measured test of this specific
+instruction gap, not a new workflow or generic prohibition layer.
+
+### Five unchanged controls: stop condition reached
+
+The retained runner `/tmp/ff-pr7-table-rule-dl65TE/run.py` invokes the same
+unchanged preparation, structured schema, exact Claude GREEN argv, 600-second
+timeout handling, materialization and scorer as the campaign, selecting inline
+drift and adding only an external experiment label. Commands were
+`python3 /tmp/ff-pr7-table-rule-dl65TE/run.py control-N` for N = 1 through 5.
+Each used a fresh independent fixture/context and the current installed
+payload `f3f0947235ff3a23f9699cbc4ca4de1a998a2d4fd9519543507f82cbf13d06b6`.
+Source HEAD was `e8e903218b12e1539e68d0427e8eb105de466dce` (production
+checker bytes still `be9d319`); no live instruction had changed. The exact
+frozen prompt, case registry, scorer and schema were not altered.
+
+| Control | Root | Host/wrapper exit | Raw verdict | Exact task table | T/S/N/A/I/G/F | Duration |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `/tmp/ff-pr7-table-control-1-pakzxmnw` | 0 / 0 | pass | preserved | Y/Y/Y/Y/Y/Y/Y | 105915 ms |
+| 2 | `/tmp/ff-pr7-table-control-2-f9f31snv` | 0 / 0 | pass | preserved | Y/Y/Y/Y/Y/Y/Y | 57484 ms |
+| 3 | `/tmp/ff-pr7-table-control-3-5q_q2rdj` | 0 / 0 | pass | preserved | Y/Y/Y/Y/Y/Y/Y | 66599 ms |
+| 4 | `/tmp/ff-pr7-table-control-4-ndsyb6o4` | 0 / 0 | pass | preserved | Y/Y/Y/Y/Y/Y/Y | 81609 ms |
+| 5 | `/tmp/ff-pr7-table-control-5-6f_spl3v` | 0 / 0 | pass | preserved | Y/Y/Y/Y/Y/Y/Y | 82139 ms |
+
+Every raw envelope reports successful structured completion, canonical model
+`claude-sonnet-5`, no transport error and no unavailability. HEAD, protected
+paths and payload were preserved in all five, with no unexpected status paths.
+The full responses and ledger diffs were read manually: all five retain the
+exact task table, set the authoritative head/Stage 9 state blocked, record the
+plan path and identity evidence, and leave reconciliation as the sole next
+action without exercising correction authority. Their auxiliary timestamp,
+parent-event and transition-label claims retain the previously recorded
+evidence limits. Controls 2–5 include denied preliminary tool calls in their
+envelopes; those denials and the completed effects are preserved in raw
+evidence, with no claims of broader host availability.
+
+**Experiment disposition: NEEDS_CONTEXT.** None of the five controls reproduced
+the specific implementation-task-table alteration. Under the authorized
+experiment and writing-skills no-guidance-control rule, this stops before
+candidate wording: no candidate was created, no instruction was changed and
+no production commit or replacement full campaign was run. The five successful
+controls do not refute or erase the completed `44s37v8y` failure. That observed
+gap remains unresolved; this experiment provides no evidence for retaining the
+proposed wording. Further remediation requires a new controller/user decision,
+not another repetition added to this fixed sample.
