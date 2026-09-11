@@ -1058,3 +1058,41 @@ controls do not refute or erase the completed `44s37v8y` failure. That observed
 gap remains unresolved; this experiment provides no evidence for retaining the
 proposed wording. Further remediation requires a new controller/user decision,
 not another repetition added to this fixed sample.
+
+## Task 8 deterministic task-table recovery verification
+
+Production commit under test: `01f5dac` (`fix: validate Feature Forge task
+statuses`). The retained Sonnet `44s37v8y` result remains the behavioral RED:
+its W-2 status was `awaiting_return (return processing held for frozen-plan
+drift, see Blockers)`. The five later unchanged controls remain separate
+passing observations and do not erase that failure.
+
+Deterministic RED was recorded before checker and instruction changes with
+`python3 -m pytest feature-forge/tests/test_ff_check_audit.py::test_audit_rejects_annotated_task_status feature-forge/tests/test_ff_check_audit.py::test_audit_rejects_malformed_task_table feature-forge/tests/test_ledger_schema.py::test_implementation_progress_schema_is_synchronized feature-forge/tests/test_ledger_schema.py::test_stage9_checks_task_table_before_work_and_after_return feature-forge/tests/test_ledger_schema.py::test_stage9_blocks_return_or_redispatch_without_bound_snapshot feature-forge/tests/test_remediation_pressure.py::test_drift_score_accepts_notes_only_annotation -q`: 9 failed and 2 passed. The failed nodes were the annotated-status audit node; all five parametrizations of the malformed-table audit node; and the implementation-progress, Stage 9 entry/return-gate, and Stage 9 missing-snapshot schema nodes. Audit returned a false `FF-CHECK v1 gate=audit status=pass` for invalid table states; the schema diagnostics showed the absent five-column table and old Stage 9 contract.
+
+The canonical pressure fixture changed only implementation-table shape and the
+test-only controlled-cell extraction. Scenario prompts, scenario facts, and
+expected decisions were unchanged. The final deterministic GREEN command was
+`python3 -m pytest feature-forge/tests/test_ff_check_audit.py feature-forge/tests/test_ledger_schema.py feature-forge/tests/test_remediation_pressure.py feature-forge/tests/test_behavior_oracle.py -q`: 517 passed in 81.02s. It verifies the exact task-status fail-closed response (`FF-CHECK v1 gate=audit status=fail` with `task-status=unsupported`), notes-only commentary pass, unchanged controlled-cell mutation failures, malformed returned-table failures, and the exact returned-audit pass protocol.
+
+No additional stochastic campaign was run. The retained `44s37v8y` observation
+already demonstrated the behavioral gap, and the amended canonical-table
+fixture/extraction is intentionally not a like-for-like continuation of that
+campaign.
+
+Complete verification against `01f5dac`:
+
+- `python3 -m pytest feature-forge/tests -q`: 704 passed, 1 skipped in 108.03s.
+- `cd review-loop && uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q`: 24 passed in 16.48s.
+- `cd review-loop && uv run pytest -q`: non-green and incomplete after emitting broader failures; its host session stopped producing output without a live test process and was interrupted. A fresh diagnostic `uv run pytest -q -x` reproduced the first failure: `tests/integration/test_controller_clean.py::CleanTracerTests::test_full_lifecycle_converges_and_is_merge_ready`, with Stage 0 returning `FAILED` instead of `PASSED` (1 failed, 44 passed in 3.79s). The public boundary remained green; this is not claimed as a substitute for the required full review-loop gate.
+- `python3 -m pytest tests/test_install.py -q`: 11 passed in 0.31s.
+- `python3 -m pytest tests/test_documentation.py -q`: 20 passed in 0.11s.
+- `python3 -m pytest tests/test_plugin_agents.py -q`: 2 passed in 0.11s.
+- `claude plugin validate . --strict`: passed.
+- `python3 -m pytest tests -q`: 33 passed in 0.27s.
+- `python3 -m py_compile feature-forge/scripts/ff-check feature-forge/tests/behavior/remediation_pressure.py`: passed.
+- `git diff --check origin/main...HEAD`: passed before this evidence-only append.
+
+The non-green required full review-loop suite is an outstanding qualification
+gate. This record supplies evidence only and does not describe the remediation
+as mergeable.
