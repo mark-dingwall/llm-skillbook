@@ -397,10 +397,13 @@ conversational prose. The original failed observations remain evidence.
 The later task-table correction may mechanically update the pressure fixture's
 seed ledger tail and table extractor to the canonical heading and five-column
 shape so the strengthened `audit` gate can prepare a valid run. It must not
-change scenario facts, prompts, expected decisions, or scoring predicates.
-Preserve the original raw baseline and GREEN observations as historical
-evidence; results produced with the amended table are a focused regression, not
-a like-for-like continuation of the earlier comparison.
+change scenario facts, prompts, expected decisions, or any other scoring
+predicate. Preserve `task-record-changed` for the four controlled cells but
+exclude the new `notes` cell from that comparison, so permitted commentary is
+not treated as control-state drift. Preserve the original raw baseline and
+GREEN observations as historical evidence; results produced with the amended
+table are a focused regression, not a like-for-like continuation of the earlier
+comparison.
 
 ## Documentation Contract
 
@@ -469,6 +472,8 @@ The remediation is ready to push when all of the following are true:
 - annotated task statuses fail closed, the same commentary is accepted in the
   dedicated notes cell, and the canonical pressure fixture passes the clean-seed
   audit;
+- the pressure scorer still rejects any controlled-cell mutation and accepts a
+  notes-only annotation;
 - the prompt inventory has a recorded rubric decision for every listed
   dispatch, with no unresolved failure;
 - Feature Forge's complete suite passes;
