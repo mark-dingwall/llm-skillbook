@@ -199,14 +199,17 @@ pre-task `identities` and `audit` gates, the controller retains the complete
 ordered projection of all four controlled cells for every row as its trusted,
 session-local pre-dispatch snapshot. The snapshot is bound to that selected
 task and those current frozen identities. On return it compares the complete
-projection before applying any result: every nonselected row and the selected
-row's `plan task` remain identical. An unequal projection is an invalid return
-even when the returned ledger passes `audit`: no return may be applied and no
-work may be dispatched, advanced, committed, or finished until the bounded
-recovery below succeeds. Only after a valid ordinary return may the controller
-update the selected row's status, commit, and evidence to record that result. A
-failed post-task identity check preserves every controlled cell. Explanations
-belong in `notes`, Blockers, or the transition log, never in a controlled cell.
+snapshot's selected task and exact frozen specification/plan identity tuple to
+the current return context, then compares the complete projection before
+applying any result: every nonselected row and the selected row's `plan task`
+remain identical. A binding mismatch is a stale snapshot and must block; it
+must not drive restoration. An unequal projection is an invalid return even
+when the returned ledger passes `audit`: no return may be applied and no work
+may be dispatched, advanced, committed, or finished until the bounded recovery
+below succeeds. Only after a valid ordinary return may the controller update
+the selected row's status, commit, and evidence to record that result. A failed
+post-task identity check preserves every controlled cell. Explanations belong
+in `notes`, Blockers, or the transition log, never in a controlled cell.
 
 The checker proves the current table's shape and exact status vocabulary. It
 does not claim to prove equality with an earlier in-memory snapshot: the
@@ -236,11 +239,12 @@ Stage 9 runs `identities` then `audit` at entry. Immediately before every
 delegated or inline task it persists the selected task's pre-dispatch state,
 runs `identities` then `audit`, and captures the bound snapshot described above.
 This makes a malformed table persisted by an interrupted return observable
-before any later implementation work. On return it runs `identities`, compares
-the complete projection before applying the return, updates the selected row
-only after those checks pass, then runs `audit` before advancement. Resume must
-apply the missing-snapshot rule above before it accepts a pending return or
-redispatches work.
+before any later implementation work. On return it runs `identities`, requires
+the snapshot's selected task and frozen identity tuple to equal the current
+return context, compares the complete projection before applying the return,
+updates the selected row only after those checks pass, then runs `audit` before
+advancement. Resume must apply the missing-snapshot rule above before it accepts
+a pending return or redispatches work.
 
 ### Frozen bytes remain current during implementation
 
