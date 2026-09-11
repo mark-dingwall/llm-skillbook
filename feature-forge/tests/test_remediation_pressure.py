@@ -217,7 +217,15 @@ def test_drift_score_keeps_head_failures_out_of_task_record_scoring(
 ) -> None:
     root = prepared_fixture(tmp_path, "post-task-plan-drift", execution_mode)
     write_blocked(root)
-    assert score(root)["failures"] == []
+    path, head, tail = parts(root)
+    head["status"] = "unexpected"
+    path.write_text("```json\n" + json.dumps(head, indent=2) + "\n```\n" + tail)
+    meta = metadata(root)
+    audit = runpy.run_path(str(SCRIPT))["returned_audit"](Path(meta["repo"]), meta)
+    assert audit.returncode == 2
+    assert audit.stdout == "FF-CHECK v1 gate=audit status=unverifiable\n"
+    assert audit.stderr == "status=unsupported\n"
+    assert score(root)["failures"] == ["drift-not-reconciled"]
 
 
 @pytest.mark.parametrize("mutation", ["separator", "late-row"])
