@@ -621,3 +621,168 @@ acceptance condition is not satisfied. Expanding prompt machinery, changing
 the immutable scenario/host contract, or weakening this condition would require
 a controller decision outside this implementation subtask; no such change is
 implied by these records.
+
+## Task 6 Fix Round 1: authorized Claude GREEN transport correction
+
+The user authorized a bounded test-host adapter correction after the incomplete
+disposition above. The binding design, plan and task scope now permit Claude
+GREEN alone to append `--output-format json --json-schema <scenario-schema>`.
+Baseline argv, every Codex argv, scenario bytes, preparation and scorer
+semantics remain unchanged. No live skill instruction or host configuration
+changed in this fix. Every earlier result above remains historical evidence.
+
+Worker output is an exact object of seven required string fields: `task`,
+`ownership`, `interfaces`, `dependencies`, `verification`, `authority`, `return`.
+Residual output is exactly the required objects `receipt` and `head`, with deep
+content left to the frozen oracle and existing checker. Drift output has only
+a required `summary` string: its schema supplies no action or verdict. The
+worker fields have generic implementation-role descriptions, not fixture
+values, expected dispositions or scorer wording. This is schema/role
+synchronization, not additional behavioral guidance in the installed skill.
+
+Each root retains the original bytes in `claude-envelope.json` outside its
+fixture repository. The adapter requires process exit 0 and a successful
+result envelope with present schema-valid `structured_output`; it never falls
+back to the separate conversational `result`. It renders worker fields in
+fixed order, serializes receipt/head as sorted compact JSON, and materializes
+the drift summary to `response.txt` for the unchanged scorer/manual rubric.
+Duplicate JSON keys, non-JSON numeric constants, malformed/missing fields and
+unsuccessful envelopes fail closed. An executed malformed return is a failure,
+not unavailability. Generic, schema-valid but semantically wrong model output
+continues to fail the oracle in the regression tests.
+
+**Comparability cost:** the new observations qualify the structured return
+channel, not suppression of Claude's separate conversational prose. The raw
+envelopes preserve that prose. Comparing the old plain-text baseline/first
+GREEN with these rows changes the transport as well as the earlier instruction
+payload; it cannot isolate a prompt-only effect or establish reliable
+plain-text conformance. Baseline reproducibility is retained through its exact
+legacy invocation. No production host adapter or new installed dependency is
+claimed by this test-only correction.
+
+### Adapter RED/GREEN and first structured campaign
+
+New CLI-boundary tests replace only the external model executable; real
+preparation, installation, Git state, capture and scoring execute. They check
+exact argv across host/phase combinations, all scenario schemas without oracle
+answers, raw byte preservation outside the repository, deterministic extraction,
+and missing, null, extra, wrongly typed or absent fields, envelope errors,
+nonzero exits, malformed JSON, duplicate keys and non-JSON numbers.
+
+- Initial adapter tests: `python3 -m pytest
+  feature-forge/tests/test_remediation_pressure.py -q -k 'claude_green'` reached
+  assertions and failed **11 tests**, with 44 deselected; after implementation,
+  the full owning suite passed **55 tests**.
+- Strict JSON follow-up: `-k 'nan or duplicate'` reached two failures; strict
+  parsing fixed both. The combined harness/ledger suite then passed **67 tests**.
+- After the first structured worker observation below, the generic role-field
+  regression (`-k 'exact_structured_argv'`) failed at the missing description;
+  adding the authorized answer-free descriptions made it pass (56 deselected).
+
+The exact command was run twice, each time across all four scenarios:
+
+```bash
+python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase green --host claude
+```
+
+The first run used bare worker field names. All four invocations exited 0,
+returned successful structured envelopes, and passed preservation predicates.
+Roots below use prefix `/tmp/ff-pr7-green-claude-`:
+
+| First structured scenario | Root suffix | Raw oracle | Manual disposition |
+| --- | --- | --- | --- |
+| Worker | `4mt3vum7` | six failed content predicates | fail: reported the packet-composition task rather than supplying implementation-worker instructions |
+| Residual Minor | `w35a9_6s` | pass | pass |
+| Delegated drift | `zlib7wxx` | pass | pass |
+| Inline drift | `wonnv24q` | pass | pass |
+
+The worker failures were authority boundary, consumed interface, failure
+condition, goal condition, owned paths and produced interface: these were real
+semantic failures, not lexical false negatives. Bare schema labels allowed
+the model to describe its own composition activity. The controller approved
+only scenario-independent role descriptions to disambiguate whose task and
+inputs the fields describe. The first run, including this failure and its full
+envelope, remains intact; no selective erasure or scorer change occurred.
+The passing residual response retains the Minor as actionable with the correct
+new stable ID, report inventory, round/history and correction stage. Both
+drift ledger diffs preserve the task row and frozen bytes, block Stage 9 and
+record the exact plan reconciliation action. Their bounded manual
+T/S/N/A/I/G/F dispositions are all Y, with the previously stated limits on
+auxiliary timestamp/provenance claims.
+
+### Corrected full Claude GREEN replay and final disposition
+
+All four corrected invocations exited 0 with successful, schema-valid envelopes,
+no transport error and no unavailability. Every raw oracle passes, including
+HEAD, protected-path and installed-payload preservation with no unexpected
+status paths. Each complete materialized response and both drift ledger diffs
+were read. The same seven-item rubric applies; no string anchor substitutes
+for these judgments. Root prefix remains `/tmp/ff-pr7-green-claude-`.
+
+| Scenario | Root suffix | Raw oracle | T | S | N | A | I | G | F | Materialized bytes / words |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Worker | `eq3_6yl0` | pass | Y | Y | Y | Y | Y | Y | Y | 1123 / 140 |
+| Residual Minor | `31sc9uva` | pass | Y | Y | Y | Y | Y | Y | Y | 2001 / 33 |
+| Delegated drift | `9fb4debz` | pass | Y | Y | Y | Y | Y | Y | Y | 1059 / 154 |
+| Inline drift | `tmxzqjy7` | pass | Y | Y | Y | Y | Y | Y | Y | 1291 / 178 |
+
+The worker contains only the filled implementation packet, with W-4/REQ-001/
+SCN-001, exact owned paths, complete consumed type/produced signature/invariant,
+verified W-2 dependency, the verification command/result requirement, frozen
+artifact and cross-task boundaries, and successful/blocked return conditions.
+It does not repeat the first structured run's composition-role mistake.
+
+The residual object retains both reports, including the empty one, exactly
+maps the TRIAGE finding to the allocated stable ID, retains `FF-OLD` as previous
+history, increments to round 2, preserves mode/root and sets `changes_required`
+with Stage 3 correction. No Minor is downgraded or discarded. As before, the
+fixture does not supply the dispatched completion criterion: this response
+proves nonempty construction, not exact fidelity to a supplied prior criterion.
+
+Both drift outputs take only the ledger action, retain W-2 `awaiting_return`
+and its full row, block Stage 9, record identity-failure evidence and leave the
+exact plan reconciliation as next action without restoring, committing,
+advancing or dispatching. Their brief related receipt-mismatch notes do not
+create another task or exercise correction authority. Inline additionally
+records that mismatch in the permitted ledger; its claim that the mismatch is
+"pre-existing" is not established by this run's clean seed audit. As in the
+earlier drift evidence, auxiliary chronology/session assertions are not part
+of the qualified observable effects and are not endorsed. Final preservation
+does not establish absence of transient writes.
+
+No new lexical false negative occurs in either structured campaign: the first
+worker's failures were genuine and corrected; all latest raw rows pass. The
+original Codex worker's literal-`evidence` false negative remains explicitly
+itemized above and its manual disposition remains pass. Original Claude
+plain-text shape failures are historical failures, resolved for the authorized
+structured channel only, not relabeled as lexical errors or unavailability.
+
+The final harness SHA-256 is
+`6a124fa51102a5244c674c3b9330cfe59f4699c6aeb5d089c878b0b71429015d`.
+Cases and all three prompt hashes match the original recorded values. The
+installed payload remains
+`0095790d407f4c89c2937dc6bf9548988fcee31105ce4dd0e0521d5eaf980e50`;
+therefore the previously passing Codex campaign and seven composed-packet
+reviews still apply. Their counts and mapping-context ruling are unchanged.
+Structured JSON word counts are serialization diagnostics, not evidence of
+prompt simplification or a pass threshold.
+
+Fresh final verification:
+
+```bash
+python3 -m pytest feature-forge/tests/test_ledger_schema.py feature-forge/tests/test_remediation_pressure.py -q
+python3 -m pytest 'tests/test_documentation.py::test_documentation_entrypoints[feature-forge]' 'tests/test_documentation.py::test_entrypoint_local_markdown_links_resolve[feature-forge]' -q
+python3 -m pytest tests/test_documentation.py -q
+git diff --check
+```
+
+Results: **67 passed** (23.35s), **2 passed** (0.12s), **20 passed** (0.12s),
+and clean diff whitespace. Self-review confirms adapter-only harness changes,
+unchanged scorer/preparation and frozen inputs, append-only qualification
+history, explicit five-path scope, and unchanged AGENTS symlink metadata.
+
+**Current Task 6 disposition: qualified under the authorized structured-output
+boundary.** The four required Codex manual/effect rows and all four corrected
+Claude raw/manual/effect rows pass; no current fail row remains. Historical
+failures and the transport, criterion-fidelity and auxiliary-provenance limits
+above remain part of the evidence. Task 7 still owns cross-cutting verification.

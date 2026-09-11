@@ -314,6 +314,34 @@ Existing PR #7 skill-TDD records remain historical evidence; they do not
 replace this remediation-specific baseline and GREEN comparison. One
 remediation qualification record is sufficient.
 
+### Authorized Claude GREEN transport correction
+
+The Task 6 requalification uses Claude's structured-output transport for GREEN
+only: append `--output-format json --json-schema <scenario-schema>` to the
+existing invocation. Baseline invocations and Codex remain unchanged. Worker
+output has exactly seven required string fields: `task`, `ownership`,
+`interfaces`, `dependencies`, `verification`, `authority`, and `return`.
+Their scenario-independent descriptions identify the implementation worker's
+instructions and inputs, rather than a report about composing the packet.
+Residual output has exactly the required object fields `receipt` and `head`;
+their deep content remains subject to the existing scorer/checker. Drift output
+has only a required `summary` string. Schemas supply structure, never scenario
+answers, expected actions, findings, or verdicts.
+
+Retain the complete raw Claude JSON envelope outside the fixture repository.
+Require a successful process and success envelope with schema-valid
+`structured_output`; materialize only that object deterministically for the
+unchanged scorer and manual rubric. A missing or malformed structured return
+from an executed invocation is a failure, not host unavailability. No extraction
+from conversational `result` prose or fallback to it is permitted.
+
+Task 6 may amend only this test-host adapter and its focused tests, preserving
+all cases, prompts, scorer semantics, baseline behavior, and historical results.
+Qualify the adapter RED/GREEN, rerun all four Claude GREEN scenarios, and append
+the new outcomes and explicit transport-comparability limitation. This tests
+the structured return channel, not whether Claude suppresses its separate
+conversational prose. The original failed observations remain evidence.
+
 ## Documentation Contract
 
 Restore the Feature Forge documentation gate to `feature-forge/CLAUDE.md`:
@@ -358,7 +386,9 @@ consumes the final checker interfaces from Tasks 3–4. Task 6 may edit
 instruction files but may not alter checker or receipt semantics. Any needed
 semantic change returns to the owning earlier task rather than being smuggled
 into cleanup. Task 2's baseline artifact and scenario inputs are immutable
-inputs to Task 6's GREEN comparison.
+inputs to Task 6's GREEN comparison. The authorized Claude GREEN transport
+correction above is the sole exception for the host adapter; it does not
+change the frozen scorer or scenario inputs.
 
 ## Acceptance
 

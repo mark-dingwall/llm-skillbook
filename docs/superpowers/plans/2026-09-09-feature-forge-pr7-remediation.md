@@ -47,9 +47,9 @@
 | `feature-forge/tests/integration/test_review_loop_boundary.py` | Public Review Loop through-TRIAGE adapter fixture and controller-return provenance | Task 3 schema compatibility, then Task 5 behavior |
 | `feature-forge/tests/behavior/identity_drift.py` | Existing installed-checker drift fixture; reuse of Task 2's schema-aware valid seed builder | Task 3; Task 5 verifies unchanged |
 | `feature-forge/tests/test_behavior_oracle.py` | Existing drift-fixture compatibility gate | Tasks 3 and 5 |
-| `feature-forge/tests/behavior/remediation_pressure.py` | Test-only preparation/scoring for the three remediation pressure scenarios | Task 2; Task 6 consumes unchanged |
+| `feature-forge/tests/behavior/remediation_pressure.py` | Test-only preparation/scoring for the three remediation pressure scenarios | Task 2; Task 6 may correct Claude GREEN transport only, preserving baseline invocation and scorer semantics |
 | `feature-forge/tests/behavior/pr7-remediation/` | Immutable prompts and fixture inputs for the three pressure scenarios | Task 2; Task 6 consumes unchanged |
-| `feature-forge/tests/test_remediation_pressure.py` | Deterministic oracle unit tests for scenario preparation/scoring | Task 2 |
+| `feature-forge/tests/test_remediation_pressure.py` | Deterministic oracle unit tests for scenario preparation/scoring and host transport | Task 2; Task 6 adds authorized adapter regressions |
 | `feature-forge/docs/skill-tdd/2026-09-09-pr7-remediation-qualification.md` | One compact baseline, GREEN comparison, prompt inventory, metrics, and final verification record | Task 2 creates; Tasks 6–7 append only |
 
 ## Sequential Dependency and Ownership Table
@@ -992,6 +992,8 @@ git commit -m "fix: preserve Feature Forge review evidence"
 ### Task 6: Simplify Dispatches, Run GREEN Qualification, and Restore the Docs Gate
 
 **Files:**
+- Modify for authorized Claude GREEN transport only: `feature-forge/tests/behavior/remediation_pressure.py`
+- Modify for adapter regressions: `feature-forge/tests/test_remediation_pressure.py`
 - Modify: `feature-forge/SKILL.md`
 - Modify as required for equivalent prose only: `feature-forge/references/workflow.md`
 - Modify as required for equivalent prose only: `feature-forge/references/adapters-and-reviews.md`
@@ -1061,6 +1063,30 @@ python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase gr
 
 Do not edit `cases.json`, prompts, scorer, or baseline section. Score deterministic effects and manually apply the same North-Star rubric. Record unavailable host/model results as unavailable.
 
+**Authorized fix-round transport amendment:** Preserve the legacy baseline
+argv and every Codex invocation. Claude GREEN alone adds `--output-format json`
+and `--json-schema` with a scenario-specific structural schema. Worker output
+is exactly seven required string fields (`task`, `ownership`, `interfaces`,
+`dependencies`, `verification`, `authority`, `return`); residual output is
+exactly two required objects (`receipt`, `head`) with deep semantics left to
+the existing scorer/checker; drift output is exactly one required `summary`
+string. No schema contains scenario answers or expected actions.
+Worker field descriptions identify the implementation worker's actual task,
+paths, inputs and return; they remain scenario-independent and contain no
+fixture values, expected disposition, or scorer-specific wording.
+
+Capture the raw envelope separately outside the fixture repository. Require
+successful process/envelope status and present schema-valid `structured_output`;
+serialize only that object for the existing scorer/manual review, with no
+fallback to conversational prose. Missing/malformed output after execution
+fails qualification, never becomes unavailability. First add real failing
+tests for phase-specific argv, schema boundaries/no oracle leakage, envelope
+preservation, deterministic materialization, and malformed/missing output;
+then implement the bounded adapter and rerun them GREEN. Rerun all four Claude
+GREEN scenarios and append their outcomes, preserving every historical result
+and recording the transport-comparability cost. No new live skill schema,
+prompt machinery, or host configuration change is authorized.
+
 - [ ] **Step 6: Complete the single qualification record**
 
 Append, without rewriting Task 2 evidence:
@@ -1111,6 +1137,12 @@ git commit -m "docs: tighten Feature Forge dispatch contracts"
 ```
 
 If `authority.md` changed for a demonstrated gap, add that one explicit path to the command; otherwise leave it untouched.
+
+For the authorized structured-output fix, stage only its actually changed
+explicit paths: `feature-forge/tests/behavior/remediation_pressure.py`,
+`feature-forge/tests/test_remediation_pressure.py`, this plan, the binding
+remediation design, and the appended qualification record. Preserve prior
+commits/results; do not amend the original Task 6 evidence commit.
 
 ---
 

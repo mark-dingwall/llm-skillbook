@@ -284,23 +284,101 @@ def score(root: Path) -> dict:
     return {"scenario": meta["scenario"], "passed": not failures, "failures": sorted(set(failures)), "head_preserved": head_preserved, "protected_paths_preserved": protected, "payload_digest_preserved": payload_preserved, "unexpected_status_paths": sorted(unexpected)}
 
 
+def structured_schema(scenario: str) -> dict:
+    """Transport shape only; no fixture facts or expected decisions."""
+    fields, kind = {
+        "worker-packet": (["task", "ownership", "interfaces", "dependencies", "verification", "authority", "return"], "string"),
+        "residual-minor": (["receipt", "head"], "object"),
+        "post-task-plan-drift": (["summary"], "string"),
+    }[scenario]
+    properties = {key: {"type": kind} for key in fields}
+    if scenario == "worker-packet":
+        descriptions = {
+            "task": "The implementation task the worker will execute and its requirement and scenario identifiers.",
+            "ownership": "The exact implementation paths the worker may change.",
+            "interfaces": "Complete consumed and produced interfaces, type definitions, signatures, and invariants needed by the implementation worker.",
+            "dependencies": "Producer tasks and verified inputs available to the implementation worker.",
+            "verification": "How the implementation worker verifies completion of its task.",
+            "authority": "Boundaries on changes and decisions the implementation worker may make.",
+            "return": "What the implementation worker must return on completion or when unable to proceed.",
+        }
+        for key in fields:
+            properties[key]["description"] = descriptions[key]
+    return {"type": "object", "properties": properties,
+            "required": fields, "additionalProperties": False}
+
+
+def unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError("duplicate JSON key")
+    return value
+
+
+def reject_json_constant(value: str) -> None:
+    raise ValueError("non-JSON numeric constant: " + value)
+
+
+def materialize_structured_output(raw: Path, response: Path, scenario: str, code: int | None) -> str | None:
+    """Require the structured channel; never recover an answer from prose."""
+    response.write_bytes(b"")
+    try:
+        envelope = json.loads(raw.read_text(encoding="utf-8"),
+                              object_pairs_hook=unique_json_object, parse_constant=reject_json_constant)
+    except (OSError, UnicodeError, ValueError):
+        return "structured-output=malformed-envelope"
+    if (code != 0 or not isinstance(envelope, dict)
+            or envelope.get("type") != "result" or envelope.get("subtype") != "success"
+            or envelope.get("is_error") is not False):
+        return "structured-output=unsuccessful"
+    value = envelope.get("structured_output")
+    schema = structured_schema(scenario)
+    if (not isinstance(value, dict) or set(value) != set(schema["required"])
+            or any(not isinstance(value[key], dict if rule["type"] == "object" else str)
+                   for key, rule in schema["properties"].items())):
+        return "structured-output=invalid-shape"
+    if scenario == "worker-packet":
+        text = "\n".join(f"{key.capitalize()}: {value[key]}" for key in schema["required"]) + "\n"
+    elif scenario == "residual-minor":
+        text = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    else:
+        text = value["summary"] + "\n"
+    try:
+        data = text.encode("utf-8")
+    except UnicodeError:
+        return "structured-output=invalid-text"
+    response.write_bytes(data)
+    return None
+
+
 def campaign(phase: str, host: str) -> list[dict]:
     results = []
     for scenario, mode in [("worker-packet", None), ("residual-minor", None), ("post-task-plan-drift", "delegated"), ("post-task-plan-drift", "inline")]:
         root = Path(tempfile.mkdtemp(prefix=f"ff-pr7-{phase}-{host}-"))
         meta = prepare(root, scenario, host, mode)
         argv = (["codex", "exec", "--ephemeral", "--model", "gpt-5.6-terra", "--config", 'model_reasoning_effort="medium"', "--approve-for-me", "--cd", str(meta["repo"]), "-"] if host == "codex" else ["claude", "--print", "--no-session-persistence", "--model", "sonnet", "--effort", "medium", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *) Bash(python3 *) Bash(sha256sum *)"])
+        structured = phase == "green" and host == "claude"
+        capture = root / "claude-envelope.json" if structured else Path(meta["response"])
+        if structured:
+            argv += ["--output-format", "json", "--json-schema", json.dumps(structured_schema(scenario), separators=(",", ":"))]
         error_path = root / "stderr.txt"
         unavailable = None
         code = None
-        with Path(meta["response"]).open("wb") as output, error_path.open("wb") as error:
+        with capture.open("wb") as output, error_path.open("wb") as error:
             try:
                 result = subprocess.run(argv, cwd=str(meta["repo"]), input=Path(meta["prompt"]).read_bytes(), stdout=output, stderr=error, timeout=600)
                 code = result.returncode
             except (OSError, subprocess.TimeoutExpired) as exc:
                 unavailable = str(exc)
                 error.write((str(exc) + "\n").encode())
-        item = {**meta, "root": str(root), "phase": phase, "host": host, "argv": argv, "stderr": str(error_path), "host_returncode": code, "unavailable": unavailable, "verdict": score(root)}
+        transport_error = materialize_structured_output(capture, Path(meta["response"]), scenario, code) if structured else None
+        verdict = score(root)
+        if transport_error:
+            verdict["failures"].append(transport_error)
+            verdict["passed"] = False
+        item = {**meta, "root": str(root), "phase": phase, "host": host, "argv": argv, "stderr": str(error_path), "host_returncode": code, "unavailable": unavailable, "verdict": verdict}
+        if structured:
+            item.update(raw_response=str(capture), structured_output_error=transport_error)
         (root / "result.json").write_text(json.dumps(item, indent=2) + "\n")
         results.append(item)
     return results

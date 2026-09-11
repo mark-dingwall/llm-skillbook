@@ -281,15 +281,15 @@ def test_residual_scorer_enforces_schema_compatible_correction_return(
     assert observed["failures"] == ([] if accepted else ["resulting-head"])
 
 
-@pytest.mark.parametrize("host", ["codex", "claude"])
-def test_campaign_host_process_discovers_only_fixture_skill(tmp_path: Path, host: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("host,phase", [("codex", "baseline"), ("claude", "baseline"), ("codex", "green")])
+def test_campaign_host_process_discovers_only_fixture_skill(tmp_path: Path, host: str, phase: str, monkeypatch: pytest.MonkeyPatch) -> None:
     # Substitute only the external model executable; installer, cwd, stdin,
     # preparation, Git observations, output capture and scoring remain real.
     binary = tmp_path / host
     binary.write_text("#!/usr/bin/env python3\nimport json, pathlib, sys\nrepo = pathlib.Path.cwd()\npayload = repo / " + repr(".agents/skills/feature-forge" if host == "codex" else ".claude/skills/feature-forge") + "\nprint(json.dumps({'cwd': str(repo), 'payload': str(payload.resolve()), 'exists': (payload/'SKILL.md').is_file(), 'stdin': sys.stdin.read(), 'argv': sys.argv[1:]}))\n")
     binary.chmod(0o755)
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
-    results = command("campaign", "--phase", "baseline", "--host", host)
+    results = command("campaign", "--phase", phase, "--host", host)
     assert len(results) == 4
     for item in results:
         observed = json.loads(Path(item["response"]).read_text())
@@ -303,3 +303,94 @@ def test_campaign_host_process_discovers_only_fixture_skill(tmp_path: Path, host
             assert observed["argv"] == ["exec", "--ephemeral", "--model", "gpt-5.6-terra", "--config", 'model_reasoning_effort="medium"', "--approve-for-me", "--cd", item["repo"], "-"]
         else:
             assert observed["argv"] == ["--print", "--no-session-persistence", "--model", "sonnet", "--effort", "medium", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *) Bash(python3 *) Bash(sha256sum *)"]
+
+
+WORKER_FIELDS = ["task", "ownership", "interfaces", "dependencies", "verification", "authority", "return"]
+
+
+def structured_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str = "") -> list[dict]:
+    """Replace only the model executable; exercise real campaign/capture/scoring."""
+    binary = tmp_path / "claude"
+    binary.write_text('''#!/usr/bin/env python3
+import json, pathlib, sys
+repo = pathlib.Path.cwd()
+scenario = json.loads((repo / "fixture-input.json").read_text())["scenario"]
+fields = ["task", "ownership", "interfaces", "dependencies", "verification", "authority", "return"]
+value = ({k: "model supplied " + k for k in fields} if scenario == "worker-packet" else
+         {"receipt": {}, "head": {}} if scenario == "residual-minor" else {"summary": "model supplied summary"})
+envelope = {"type": "result", "subtype": "success", "is_error": False,
+            "result": "Conversational prose must not reach the scorer.", "structured_output": value,
+            "observed": {"argv": sys.argv[1:], "stdin": sys.stdin.read(), "cwd": str(repo)}}
+mutation = ''' + repr(mutation) + '''
+if mutation == "missing": envelope.pop("structured_output")
+if mutation == "null": envelope["structured_output"] = None
+if mutation == "extra": value["surprise"] = "not permitted"
+if mutation == "type": value[next(iter(value))] = 42
+if mutation == "field": value.pop(next(iter(value)))
+if mutation == "error": envelope["is_error"] = True
+if mutation == "subtype": envelope["subtype"] = "error_max_turns"
+if mutation == "status": envelope.pop("type")
+if mutation == "nan": envelope["usage"] = float("nan")
+blob = json.dumps(envelope, indent=2)
+if mutation == "duplicate": blob = blob[:-1] + ',"structured_output":' + json.dumps(value) + '}'
+print("not json" if mutation == "json" else blob)
+sys.exit(9 if mutation == "exit" else 0)
+''')
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    return command("campaign", "--phase", "green", "--host", "claude")
+
+
+def test_claude_green_exact_structured_argv_schema_and_materialization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = structured_claude(tmp_path, monkeypatch)
+    assert len(rows) == 4
+    for row in rows:
+        # This assertion is reached against the uncorrected plain-text adapter.
+        assert "raw_response" in row
+        raw = Path(row["raw_response"])
+        assert not raw.is_relative_to(Path(row["repo"]))
+        envelope = json.loads(raw.read_text())
+        assert raw.read_text() == json.dumps(envelope, indent=2) + "\n"
+        observed = envelope["observed"]
+        assert observed["cwd"] == row["repo"]
+        assert observed["stdin"].encode() == Path(row["prompt"]).read_bytes()
+        argv = observed["argv"]
+        assert argv[:-1] == ["--print", "--no-session-persistence", "--model", "sonnet", "--effort", "medium", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(git *) Bash(python3 *) Bash(sha256sum *)", "--output-format", "json", "--json-schema"]
+        schema = json.loads(argv[-1])
+        fields = WORKER_FIELDS if row["scenario"] == "worker-packet" else ["receipt", "head"] if row["scenario"] == "residual-minor" else ["summary"]
+        kind = "object" if row["scenario"] == "residual-minor" else "string"
+        assert set(schema) == {"type", "properties", "required", "additionalProperties"}
+        assert schema["type"] == "object"
+        assert schema["required"] == fields
+        assert schema["additionalProperties"] is False
+        assert set(schema["properties"]) == set(fields)
+        for key in fields:
+            prop = schema["properties"][key]
+            assert prop["type"] == kind
+            if row["scenario"] == "worker-packet":
+                assert set(prop) == {"type", "description"}
+                assert isinstance(prop["description"], str) and prop["description"].strip()
+            else:
+                assert prop == {"type": kind}
+        assert not any(word in argv[-1] for word in ["W-4", "REQ-", "TRIAGE", "blocked", "pass", "reconcile", PLAN])
+        value = envelope["structured_output"]
+        expected = ("\n".join(f"{key.capitalize()}: {value[key]}" for key in fields) + "\n" if row["scenario"] == "worker-packet" else
+                    json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n" if row["scenario"] == "residual-minor" else value["summary"] + "\n")
+        assert Path(row["response"]).read_text() == expected
+        assert row["structured_output_error"] is None
+        assert row["unavailable"] is None
+        # Shape success must not manufacture a content pass.
+        assert row["verdict"]["passed"] is False
+        assert "structured-output" not in " ".join(row["verdict"]["failures"])
+
+
+@pytest.mark.parametrize("mutation", ["missing", "null", "extra", "type", "field", "error", "subtype", "status", "json", "exit", "nan", "duplicate"])
+def test_claude_green_malformed_structured_return_is_executed_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str) -> None:
+    for row in structured_claude(tmp_path, monkeypatch, mutation):
+        assert row.get("structured_output_error"), mutation
+        assert row["unavailable"] is None
+        assert row["host_returncode"] == (9 if mutation == "exit" else 0)
+        assert Path(row["raw_response"]).read_bytes()
+        assert Path(row["response"]).read_bytes() == b""
+        assert row["verdict"]["passed"] is False
+        assert row["structured_output_error"] in row["verdict"]["failures"]
