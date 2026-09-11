@@ -1096,3 +1096,23 @@ Complete verification against `01f5dac`:
 The non-green required full review-loop suite is an outstanding qualification
 gate. This record supplies evidence only and does not describe the remediation
 as mergeable.
+
+### Correction: authorized host verification of the Review Loop full suite
+
+The preceding Review Loop full-suite entry described a restricted outer-sandbox
+observation, not a product failure. Controller evidence identified its root
+cause as Bubblewrap host denial: `bwrap: loopback: Failed to create
+NETLINK_ROUTE socket: Operation not permitted`. The controller then reran the
+same required command with authorized host access:
+
+```text
+cd review-loop && uv run pytest -q
+```
+
+It exited 0 with `510 passed, 1 skipped in 28.80s`. This supersedes the
+restricted-run NEEDS_CONTEXT classification for the full Review Loop gate;
+the earlier constrained observation remains retained as environment evidence.
+Together with the public boundary result, the complete Task 8 verification
+set against production commit `01f5dac` is passing. This correction adds
+evidence only and does not alter the retained behavioral RED, scenarios,
+prompts, or historical observations.
