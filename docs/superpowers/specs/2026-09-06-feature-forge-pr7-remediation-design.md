@@ -239,12 +239,15 @@ Stage 9 runs `identities` then `audit` at entry. Immediately before every
 delegated or inline task it persists the selected task's pre-dispatch state,
 runs `identities` then `audit`, and captures the bound snapshot described above.
 This makes a malformed table persisted by an interrupted return observable
-before any later implementation work. On return it runs `identities`, requires
-the snapshot's selected task and frozen identity tuple to equal the current
-return context, compares the complete projection before applying the return,
-updates the selected row only after those checks pass, then runs `audit` before
-advancement. Resume must apply the missing-snapshot rule above before it accepts
-a pending return or redispatches work.
+before any later implementation work. On return it runs `identities` then
+`audit` before accepting the return, requires the snapshot's selected task and
+frozen identity tuple to equal the current return context, compares the complete
+projection, and validates the returned fields before applying them. It updates
+the selected row only after those checks pass, then runs `audit` again before
+advancement. Either audit non-pass follows the same bounded recovery rule;
+neither permits the return to be recorded first. Resume must apply the
+missing-snapshot rule above before it accepts a pending return or redispatches
+work.
 
 ### Frozen bytes remain current during implementation
 
