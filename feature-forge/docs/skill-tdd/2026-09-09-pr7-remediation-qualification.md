@@ -837,3 +837,157 @@ at `tests/integration/test_execution_containment.py:258`. This is an explicit
 scope placeholder, not an unavailable test environment or an unexamined test
 failure. No production behavior, previous verification result, or
 qualification disposition changed.
+
+## Final-review fix: refreshed production verification
+
+These fresh results exercise production fix commit
+`be9d3194277a4c368ccf791be0abd8e7a13d5ebb`. The fix adds type guards before
+enum membership so malformed JSON values return `unverifiable` instead of a
+traceback. Only the installed checker and its regression tests changed; no
+dispatch composition changed, so the existing seven packet-family reviews
+remain applicable. This append preserves all earlier observations.
+
+Preflight `git status --short --branch` showed no uncommitted paths, on
+`feature-forge-mvp` ahead of its remote by 39 commits. The graph, diff stat,
+and name-status review of `origin/main...HEAD` confirmed the same approved
+Feature Forge, Task 1 Review Loop, and repository integration scope.
+
+| Command | Exit | Result / availability |
+| --- | --- | --- |
+| `python3 -m pytest feature-forge/tests/test_ff_check_audit.py -q -k unhashable --tb=short` (before the fix) | 1 | 24 failed, 360 deselected in 4.04s; each real public command raised the reported unhashable dict/list TypeError. |
+| Same 24-case command after the fix | 0 | 24 passed, 360 deselected in 2.53s; each requires exit 2, exactly one unverifiable line, stable unsupported diagnostics and no traceback. |
+| `python3 -m pytest feature-forge/tests/test_ff_check_runs.py feature-forge/tests/test_ff_check_audit.py feature-forge/tests/test_ff_check_reviewed_snapshot.py -q` | 0 | 525 passed in 50.33s. |
+| `python3 -m pytest feature-forge/tests -q` | 0 | 673 passed, 1 skipped in 91.49s. The integration module skips when `review_loop` is unavailable to root Python; its complete owning-environment result follows. |
+| `cd review-loop && uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q` | 0 | 24 passed in 9.35s. |
+| `cd review-loop && uv run pytest -q -rs` (required host access) | 0 | 510 passed, 1 skipped in 25.17s. Exact skip reason: `evidence-gate/FIX mapping is out of scope for Task 5 (ordinary mapping only)` at `tests/integration/test_execution_containment.py:258`. |
+| `python3 -m pytest tests/test_install.py -q` | 0 | 11 passed in 0.34s. |
+| `python3 -m pytest tests/test_documentation.py -q` | 0 | 20 passed in 0.14s. |
+| `python3 -m pytest tests/test_plugin_agents.py -q` | 0 | 2 passed in 0.12s. |
+| `claude plugin validate . --strict` | 0 | Marketplace manifest validation passed. |
+| `python3 -m pytest tests -q` | 0 | 33 passed in 0.29s. |
+| `python3 -m py_compile feature-forge/scripts/ff-check feature-forge/tests/behavior/remediation_pressure.py` | 0 | Both files compiled successfully. |
+| `git diff --check origin/main...HEAD` | 0 | No whitespace errors. |
+| `git status --short --branch` | 0 | Clean before this evidence append; ahead 39. |
+
+The full Feature Forge and focused checker runs preceded the production commit
+and exercised its exact code bytes; the remaining gates ran after that commit.
+No source files changed between those checks. The subsequent evidence commit
+contains only this qualification record. There is no unavailable required
+deterministic evidence; the documented Review Loop scope placeholder is not
+claimed as exercised coverage.
+
+### Fresh immutable GREEN campaigns after the checker fix
+
+Both complete campaign commands use fresh installed fixtures and the unchanged
+case registry and prompt hashes recorded above:
+
+```bash
+python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase green --host codex
+python3 feature-forge/tests/behavior/remediation_pressure.py campaign --phase green --host claude
+```
+
+The exact installed payload digest is
+`f3f0947235ff3a23f9699cbc4ca4de1a998a2d4fd9519543507f82cbf13d06b6`.
+The harness SHA-256 is
+`bb4ac35880d62447601353408d859441ffbfcda1d8edf0d57f8b0ce1926c8b03`,
+including the already committed Task 6 structured-timeout classification fix.
+This final wave changes neither harness, scorer, preparation nor prompts.
+Versions remain `codex-cli 0.153.4` and `2.1.260 (Claude Code)`; models/efforts
+remain the required Codex `gpt-5.6-terra`/medium and corroborating Claude
+`sonnet`/medium. Codex exposes the requested model name, not an immutable
+resolved ID. Claude's worker envelope exposes `claude-sonnet-5` as its
+canonical model. Full argv, response, stderr, fixture metadata and verdict are
+retained in each root; Claude additionally retains the raw JSON envelope and
+deterministically materialized response. No fixture was deleted.
+
+Codex completed all four invocations with exit 0 and no unavailability. All
+four preserve HEAD, protected paths and installed payload with no unexpected
+status paths. Complete responses and both drift ledger diffs were read.
+
+| Codex scenario | Root | Raw oracle | T | S | N | A | I | G | F | Manual disposition | Bytes / words |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Worker | `/tmp/ff-pr7-green-codex-yazvjy44` | goal-condition anchor failure | Y | Y | Y | Y | Y | Y | Y | pass | 805 / 96 |
+| Residual Minor | `/tmp/ff-pr7-green-codex-_u9p8hc7` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 1817 / 17 |
+| Delegated drift | `/tmp/ff-pr7-green-codex-462o4rh6` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 456 / 57 |
+| Inline drift | `/tmp/ff-pr7-green-codex-rqxsc_6j` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 403 / 45 |
+
+The worker repeats the previously itemized lexical false negative: it requires
+the exact verification command and its result and an owned commit, but omits
+the literal word `evidence`. Its complete consumed/produced interface,
+normalization invariant, exact owned paths, verified W-2 dependency, frozen
+authority and blocked return condition are all present. The actual goal and
+return evidence are clear; the raw anchor remains a recorded failure and the
+independent manual disposition is pass. No scorer was changed.
+
+The residual response retains both consumed reports, the actionable Minor,
+one exact allocated stable-ID mapping, prior `FF-OLD` history, root/mode and
+round 2, and routes correction to Stage 3. Both drift returns change only the
+permitted ledger, preserve the full W-2 awaiting-return row, block Stage 9,
+record exact plan path/blob/hash evidence and leave reconciliation as the
+sole next action. These reproduce the earlier qualified effects. The prior
+criterion-fidelity, auxiliary timestamp/provenance and transient-write limits
+still apply; final preservation alone is not evidence of no transient writes.
+
+The Claude campaign completed worker, residual and delegated drift before an
+orchestrator model-capacity interruption. Their durable `result.json` files
+each record host exit 0, no unavailability, schema success and all preservation
+predicates passing. The interrupted inline root
+`/tmp/ff-pr7-green-claude-44s37v8y` retains metadata and prompt, zero-byte
+envelope/stderr, no response/result and an unchanged ledger. It proves no
+completed behavioral observation and is retained as interrupted evidence,
+not counted as either a pass or an executed timeout. The enclosing campaign's
+exit status was not recovered; its completed per-row results remain available.
+
+Only the missing inline observation was replayed, through
+`python3 /tmp/ff-pr7-inline-replay-tNIeDU/replay.py`. This retained scratch
+wrapper loads the unchanged harness's preparation, schema, materialization
+and scorer functions and uses the exact Claude GREEN argv and 600-second
+timeout classification. It creates a fresh fixture, records raw capture and
+the ordinary per-row result, and names the interrupted root. No successful
+row was rerun and no production/harness source was edited.
+
+| Claude scenario | Root | Raw oracle | T | S | N | A | I | G | F | Manual disposition | Bytes / words |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Worker | `/tmp/ff-pr7-green-claude-2y2n7s1w` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 1060 / 126 |
+| Residual Minor | `/tmp/ff-pr7-green-claude-wfi1swq6` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 1859 / 17 |
+| Delegated drift | `/tmp/ff-pr7-green-claude-l1ldkwgo` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 1537 / 212 |
+| Inline drift (resumed row) | `/tmp/ff-pr7-green-claude-2lfcweb7` | pass | Y | Y | Y | Y | Y | Y | Y | pass | 1080 / 150 |
+
+The worker artifact supplies the actual implementation packet with all seven
+fields and no adjacent instruction. The residual artifact retains both reports,
+one actionable Minor and exact stable mapping, mode/root/history, round 2 and
+Stage 3 correction. Its completion criterion uses the imprecise phrase
+"frozen specification candidate"; as in earlier runs, the fixture has no
+supplied dispatched criterion, so exact criterion fidelity is not qualified.
+
+Delegated drift preserves the full pending W-2 row and frozen bytes, blocks
+Stage 9, records the exact path/blob/hash and makes reconciliation the sole
+next action. Its envelope exposes one denied initial Bash invocation; the
+completed artifact and observed effects still pass. Its auxiliary claim of a
+"pre-existing" receipt source mismatch is not established by the clean seed
+audit and is not endorsed. This is the same evidence limitation already
+recorded above, not additional authority to correct that receipt.
+
+The fresh inline replay exited 0 with a successful structured envelope, no
+transport error or unavailability, and all raw predicates passing. Its complete
+response and ledger diff were read: the authoritative head has status and
+Stage 9 state both blocked, the full W-2 row remains awaiting_return, exact
+path/blob/hash evidence is recorded and the plan reconciliation is the sole
+next action. Its auxiliary transition-log shorthand does not exactly mirror
+the blocked stage state, and its timestamp/parent-event assertions are not
+established by this fixture; these are not endorsed by the qualification of
+the authoritative head and observable effects. All four completed Claude
+envelopes report canonical model `claude-sonnet-5`.
+
+The Codex campaign command exited 0. The original Claude command's enclosing
+exit is unavailable because of the orchestration interruption; all three
+completed row processes and the replacement inline process exited 0, as did
+the replay wrapper. This completes all four required observations per host
+without rerunning a successful row. No structured-output timeout occurred.
+
+**Current final-fix qualification disposition: qualified.** All eight current
+manual rubric/observable-effect rows pass at the new installed payload, with
+the one preserved Codex worker lexical false negative and the explicit
+historical/evidence limitations above. The interrupted, incomplete Claude
+root is retained, and its missing observation is supplied by the fresh inline
+replay. No unavailable required gate or current behavioral failure remains.
