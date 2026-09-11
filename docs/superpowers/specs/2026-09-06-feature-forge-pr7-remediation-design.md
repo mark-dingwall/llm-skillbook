@@ -194,14 +194,19 @@ rejected annotated value, and the same annotation accepted in `notes`.
 `plan task`, `status`, `commit`, and `evidence` remain controller-owned control
 cells. The `notes` cell contains optional free-form, single-line commentary; an
 empty cell is valid, and a literal Markdown table delimiter must be escaped.
-Before a delegated or inline task begins, the controller retains the complete
-ordered projection of all four controlled cells for every row as its
-pre-dispatch snapshot. On return it compares the complete projection before
-applying any result: every nonselected row and the selected row's `plan task`
-remain identical. Only after a valid ordinary return may the controller update
-the selected row's status, commit, and evidence to record that result. A failed
-post-task identity check preserves every controlled cell. Explanations belong
-in `notes`, Blockers, or the transition log, never in a controlled cell.
+After persisting the selected task's pre-dispatch ledger state and passing the
+pre-task `identities` and `audit` gates, the controller retains the complete
+ordered projection of all four controlled cells for every row as its trusted,
+session-local pre-dispatch snapshot. The snapshot is bound to that selected
+task and those current frozen identities. On return it compares the complete
+projection before applying any result: every nonselected row and the selected
+row's `plan task` remain identical. An unequal projection is an invalid return
+even when the returned ledger passes `audit`: no return may be applied and no
+work may be dispatched, advanced, committed, or finished until the bounded
+recovery below succeeds. Only after a valid ordinary return may the controller
+update the selected row's status, commit, and evidence to record that result. A
+failed post-task identity check preserves every controlled cell. Explanations
+belong in `notes`, Blockers, or the transition log, never in a controlled cell.
 
 The checker proves the current table's shape and exact status vocabulary. It
 does not claim to prove equality with an earlier in-memory snapshot: the
@@ -213,21 +218,29 @@ PR #7 remains unmerged, its version-one ledger template and live instructions
 are updated in place rather than supporting two task-table schemas side by
 side.
 
-A task-table `audit` failure stops forward work: no task dispatch, task
-completion, stage advance, implementation mutation, progress commit, or Finish
-effect may occur while the gate is non-pass. The controller may make only the
-bounded ledger correction needed to restore controlled cells from its trusted
-pre-dispatch snapshot, move commentary into `notes`, Blockers, or the transition
-log, and rerun `audit`. That successful correction may resume the interrupted
-return without abandoning the run. If the snapshot is absent or ambiguous, the
+A task-table `audit` failure or controlled-projection mismatch stops forward
+work: no task dispatch, task completion, stage advance, implementation mutation,
+progress commit, or Finish effect may occur while the gate is non-pass or the
+projection differs. The controller may make only the bounded ledger correction
+needed to restore every controlled cell from its trusted pre-dispatch snapshot,
+move commentary into `notes`, Blockers, or the transition log, and rerun
+`audit`. Only an exact restored projection plus a passing re-audit may resume the
+interrupted return. If the snapshot is absent, stale, or ambiguous, the
 correction remains invalid, or the check is `unverifiable`, record the canonical
-blocked overlay and stop for recovery rather than inventing state.
+blocked overlay and stop for recovery rather than inventing state. In
+particular, resuming an in-flight or return-pending task without its bound
+session snapshot must block before accepting that return or redispatching,
+even when the persisted table passes `audit`.
 
-Stage 9 runs `audit` at entry and immediately before every delegated or inline
-task, after the corresponding `identities` check. This makes a malformed table
-persisted by an interrupted return observable before any later implementation
-work. The existing post-return order remains: run `identities` before recording
-the return complete, update the ledger, then run `audit` before advancement.
+Stage 9 runs `identities` then `audit` at entry. Immediately before every
+delegated or inline task it persists the selected task's pre-dispatch state,
+runs `identities` then `audit`, and captures the bound snapshot described above.
+This makes a malformed table persisted by an interrupted return observable
+before any later implementation work. On return it runs `identities`, compares
+the complete projection before applying the return, updates the selected row
+only after those checks pass, then runs `audit` before advancement. Resume must
+apply the missing-snapshot rule above before it accepts a pending return or
+redispatches work.
 
 ### Frozen bytes remain current during implementation
 
@@ -410,12 +423,13 @@ change scenario facts, prompts, expected decisions, or any other scoring
 predicate. Preserve `task-record-changed` for the complete ordered projection
 of four controlled cells but exclude the new `notes` cell from that comparison,
 so permitted commentary is not treated as control-state drift. Run the
-installed `audit` against the returned ledger before scoring that projection,
-mapping a task-table non-pass to `task-record-changed`; do not duplicate the
-live structural parser in the scorer. Preserve the original raw baseline and
-GREEN observations as historical evidence; results produced with the amended
-table are a focused regression, not a like-for-like continuation of the earlier
-comparison.
+installed `audit` against the returned ledger before scoring that projection.
+Map only a `task-table=*` or `task-status=*` diagnostic to
+`task-record-changed`; preserve the scorer's existing head-result mapping for
+other audit failures, and do not duplicate the live structural parser in the
+scorer. Preserve the original raw baseline and GREEN observations as historical
+evidence; results produced with the amended table are a focused regression,
+not a like-for-like continuation of the earlier comparison.
 
 ## Documentation Contract
 

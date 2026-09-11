@@ -21,7 +21,7 @@
 - Merge current `origin/main`; do not rebase or force-push. Preserve PR #8's Review Loop contracts and accept PR #9's Review Team state from `main` without alteration.
 - Keep one version-one ledger and one standard-library `ff-check`; do not add a workflow engine, daemon, hook, prompt compiler, second state artifact, fifth operational checker command, historical-ledger migration, or Review Loop FIX/adjudication/promotion/challenge/CLOSE integration.
 - Accept task status only as the exact trimmed value `pending`, `active`, `awaiting_return`, `blocked`, or `complete`. Never accept an enum prefix, strip a suffix, or automatically repair malformed control state; annotations belong in the single-line `notes` cell.
-- Stage 9 runs `identities` then `audit` at entry and immediately before every delegated or inline task. A task-table `audit` non-pass stops dispatch, completion, advancement, implementation mutation, progress commits, and Finish effects. Permit only bounded restoration from the trusted complete table-wide pre-dispatch projection and an immediate re-audit; absent or ambiguous recovery state blocks.
+- Stage 9 runs `identities` then `audit` at entry and immediately before every delegated or inline task, then captures a selected-task/frozen-identity-bound session snapshot. A task-table `audit` non-pass, controlled-projection mismatch, or missing/stale/ambiguous snapshot on return or resume stops dispatch, return acceptance, advancement, implementation mutation, progress commits, and Finish effects. Permit only bounded restoration of every controlled cell from the trusted complete table-wide projection and an immediate re-audit; absent or ambiguous recovery state blocks.
 - Use `superpowers:test-driven-development` for every deterministic behavior change: observe a focused failure for the intended reason before production implementation, then observe it pass.
 - Use `superpowers:writing-skills` for behavior-shaping instruction changes: Task 2 records the post-integration/no-remediation baseline; Task 6 changes guidance only for a demonstrated behavior gap and reruns the same immutable scenarios; Task 8 uses the retained Sonnet failure as RED evidence and adds only the approved notes/recovery guidance. Schema and contract synchronization does not require an artificial behavioral failure.
 - The North Star is: “LLM output quality is maximized by small, well scoped, clearly bounded tasks with clear goal conditions.” Packet bytes and words are diagnostic only, never a quota or pass/fail gate.
@@ -1261,7 +1261,7 @@ evidence-only documentation commit.
 
 **Interfaces:**
 - Consumes: the existing `audit --repo REPOSITORY --run RUN` command and literal `FF-CHECK v1` result protocol; the canonical `## Implementation progress` section; Task 7's verified branch; and the retained Sonnet `44s37v8y` failure in the qualification record.
-- Produces: `TASK_STATUSES: frozenset[str]`; `markdown_table_cells(line: str) -> tuple[str, ...] | None`; `audit_implementation_progress(path: Path) -> Result`; test-only `implementation_task_controls(markdown: str) -> tuple[tuple[str, ...], ...] | None` and `returned_audit_passes(repo: Path, meta: dict) -> bool`; a required five-column implementation table; task-record comparison over the complete ordered projection of `plan task`, `status`, `commit`, and `evidence`; Stage 9 entry/pre-task audit gates; and focused verification evidence tied to the Task 8 production commit.
+- Produces: `TASK_STATUSES: frozenset[str]`; `markdown_table_cells(line: str) -> tuple[str, ...] | None`; `audit_implementation_progress(path: Path) -> Result`; test-only `implementation_task_controls(markdown: str) -> tuple[tuple[str, ...], ...] | None` and `returned_audit(repo: Path, meta: dict) -> subprocess.CompletedProcess[str]`; a required five-column implementation table; task-record comparison over the complete ordered projection of `plan task`, `status`, `commit`, and `evidence`; Stage 9 entry/pre-task audit gates and fail-closed return/resume rules; and focused verification evidence tied to the Task 8 production commit.
 - Preserves: all four public checker commands and their exit/result protocol; the JSON head and receipt schemas; scenario facts, prompts, expected decisions, raw historical observations, and every pressure-scorer predicate except excluding `notes` from `task-record-changed`.
 
 - [ ] **Step 1: Confirm the retained RED evidence and clean starting point**
@@ -1382,10 +1382,19 @@ def test_implementation_progress_schema_is_synchronized() -> None:
 
 def test_stage9_checks_task_table_before_work_and_after_return() -> None:
     check = _label_value(_stage_contracts()[9], "Mechanical check")
-    assert "`identities` then `audit` at entry" in check
-    assert "immediately before each delegated or inline plan task" in check
-    assert "immediately after every bounded task return" in check
-    assert check.rindex("`identities`") < check.rindex("`audit`")
+    entry = "Run `identities` then `audit` at entry"
+    pre_task = "before every delegated or inline plan task, run `identities` then `audit`"
+    post_return = "On return, run `identities`, compare the complete controlled projection"
+    post_update = "update the selected row, then run `audit`"
+    assert check.index(entry) < check.index(pre_task)
+    assert check.index(pre_task) < check.index(post_return)
+    assert check.index(post_return) < check.index(post_update)
+
+
+def test_stage9_blocks_return_or_redispatch_without_bound_snapshot() -> None:
+    failure = _label_value(_stage_contracts()[9], "Failure")
+    assert "missing, stale, or ambiguous" in failure
+    assert "accepting a return or redispatching" in failure
 ```
 
 Mechanically change the pressure fixture's seed heading/header/row to:
@@ -1398,7 +1407,7 @@ Mechanically change the pressure fixture's seed heading/header/row to:
 | W-2 | awaiting_return | supplied checkpoint | npm test -- tenant.types: pass | |
 ```
 
-Update existing mutation-test row literals to five cells. Add this notes-only regression while retaining the four existing controlled-cell mutations and their expected failure:
+Update existing mutation-test row literals to five cells. Add this notes-only regression while retaining the four existing controlled-cell mutations and their expected failure. Extend that deterministic mutation set with a valid-token change in a nonselected row, a selected task-ID change, a valid row insertion, and a row swap so the complete ordered-projection promise is directly covered:
 
 ```python
 @pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
@@ -1531,17 +1540,17 @@ Use `superpowers:writing-skills` for this step. In `feature-forge/assets/ledger-
 |  |  |  |  |  |
 ```
 
-Immediately below the workflow table, state the exact five statuses, surrounding-whitespace rule, controlled cells, single-line notes escape hatch, and escaped-pipe rule. Add the fail-closed recovery sequence once at that authoritative boundary: a non-pass stops forward work; only restoration from the trusted complete table-wide pre-dispatch projection plus moving commentary to notes/Blockers/transition history is permitted; re-audit before resuming; missing or ambiguous state blocks.
+Immediately below the workflow table, state the exact five statuses, surrounding-whitespace rule, controlled cells, single-line notes escape hatch, and escaped-pipe rule. Define the trusted snapshot as the complete ordered controlled projection captured only after the selected task's pre-dispatch ledger state is persisted and its bound frozen identities plus `audit` pass. Add the fail-closed recovery sequence once at that authoritative boundary: either a non-pass or any projection mismatch stops forward work; only restoration of every controlled cell from that snapshot plus moving commentary to notes/Blockers/transition history is permitted; re-audit before resuming. A missing, stale, or ambiguous snapshot blocks return acceptance or redispatch on resume even when the current table passes `audit`. Keep the snapshot session-local: do not add a second artifact, durable seal, transition writer, or migration.
 
-Change Stage 9's Mechanical check so it runs `identities` then `audit` at entry and immediately before every delegated or inline task. Retain the post-return sequence: `identities` immediately after the bounded return before recording it complete, followed by `audit` after the ledger update. In Stage 9's Failure line, reference the bounded task-table recovery alongside the existing frozen-identity route instead of repeating it. Extend the existing stage-gate schema test to assert this order, so resume cannot dispatch from a persisted invalid table.
+Change Stage 9's Mechanical check so it runs `identities` then `audit` at entry. Immediately before every delegated or inline task, persist the selected task's pre-dispatch state, run `identities` then `audit`, and capture the bound snapshot. On return, run `identities`, compare the complete projection before applying the result, update only the selected row after those checks pass, then run `audit`. In Stage 9's Failure line, reference the bounded task-table recovery and require a missing, stale, or ambiguous snapshot to block return acceptance or redispatch on resume. Extend the existing stage-gate schema tests to assert each ordered clause independently and the resume rule.
 
 In `feature-forge/references/adapters-and-reviews.md` under `execute-return`, replace the existing four bullets with this concise synchronized contract:
 
 ```markdown
-- **Controller-owned execution method:** execute each bounded plan task against its fixed interfaces, either by dispatching an independently ownable worker packet or working inline for tightly coupled tasks. Before execution, retain the complete ordered projection of all four controlled cells for every implementation row. A worker returns task results and commentary; it never owns the ledger mutation. Do not invoke `superpowers:subagent-driven-development` or `superpowers:executing-plans`; both require a branch-finishing handoff outside Stage 9.
+- **Controller-owned execution method:** execute each bounded plan task against its fixed interfaces, either by dispatching an independently ownable worker packet or working inline for tightly coupled tasks. After persisting the selected task's pre-dispatch state and passing its `identities` and `audit` gates, retain the complete ordered projection of all four controlled cells for every implementation row, bound to that task and those frozen identities for the current session. A worker returns task results and commentary; it never owns the ledger mutation. Do not invoke `superpowers:subagent-driven-development` or `superpowers:executing-plans`; both require a branch-finishing handoff outside Stage 9.
 - **Required boundary:** verify each task before handoff, retain frozen specification/plan authority, never change plan checkboxes, and return after the implementation table records every task's commit and evidence. Do not offer or begin branch finishing or delete caller-owned progress state.
-- **Return artifact:** for every plan task, return exactly one permitted status token, its owned commit, local verification evidence, and separate commentary. Before applying the result, the controller compares the complete ordered controlled projection: every nonselected row and the selected row's `plan task` remain identical. Only after a valid ordinary return may it update the selected row's status, commit, and evidence; a failed identity return changes no controlled cell. Put commentary in `notes`, Blockers, or transition history.
-- **Block rule:** return `blocked` when a fixed contract cannot be honored or authority for a material or out-of-scope decision is missing. The authority contract's other pause/block triggers remain blocking and are not gated by materiality. Non-material in-scope ambiguity alone does not block: the controller records the decision under the authority contract and continues. A task-table audit non-pass permits only the bounded recovery in `workflow.md`; absent or ambiguous pre-dispatch state blocks.
+- **Return artifact:** for every plan task, return exactly one permitted status token, its owned commit, local verification evidence, and separate commentary. Before applying the result, the controller compares the complete ordered controlled projection: every nonselected row and the selected row's `plan task` remain identical. Any mismatch is an invalid return even when `audit` passes. Only after a valid ordinary return may it update the selected row's status, commit, and evidence; a failed identity return changes no controlled cell. Put commentary in `notes`, Blockers, or transition history.
+- **Block rule:** return `blocked` when a fixed contract cannot be honored or authority for a material or out-of-scope decision is missing. The authority contract's other pause/block triggers remain blocking and are not gated by materiality. Non-material in-scope ambiguity alone does not block: the controller records the decision under the authority contract and continues. A task-table audit non-pass or controlled-projection mismatch permits only the bounded recovery in `workflow.md`; missing, stale, or ambiguous snapshot state blocks accepting a return or redispatching on resume even when `audit` passes.
 ```
 
 Integrate these clauses into the current concise text; do not paste a second protocol, add a prompt template, or edit `feature-forge/SKILL.md`. The existing entry point already routes checker failures to `workflow.md`.
@@ -1583,23 +1592,18 @@ def implementation_task_controls(markdown: str) -> tuple[tuple[str, ...], ...] |
     return tuple(rows) if rows else None
 
 
-def returned_audit_passes(repo: Path, meta: dict) -> bool:
+def returned_audit(repo: Path, meta: dict) -> subprocess.CompletedProcess[str]:
     checker = Path(meta["installed_skill_root"]) / "scripts" / "ff-check"
-    observed = subprocess.run(
+    return subprocess.run(
         [sys.executable, str(checker), "audit", "--repo", str(repo),
          "--run", str(repo / RUN)],
         cwd=repo,
         capture_output=True,
         text=True,
     )
-    return (
-        observed.returncode == 0
-        and observed.stdout == "FF-CHECK v1 gate=audit status=pass\n"
-        and observed.stderr == ""
-    )
 ```
 
-In the post-task-drift branch of `score()`, run `returned_audit_passes(repo, meta)` before comparing the projections. Append the existing `task-record-changed` failure when the audit is non-pass; do not introduce a second scorer verdict. Then compare `implementation_task_controls(tail)` with the seeded projection. This makes the live checker own header, separator, row-shape, suffix, and status validation while the test-only helper owns only complete ordered controlled-cell equality.
+In the post-task-drift branch of `score()`, run `returned_audit(repo, meta)` before comparing the projections. Treat its literal pass protocol as success. For a non-pass, append `task-record-changed` only when `stderr` begins with `task-table=` or `task-status=`; otherwise leave task-record scoring to the projection and retain the existing `drift-not-reconciled` head-result predicate. Add a regression with a valid unchanged table and invalid returned head to prove that it produces `drift-not-reconciled`, not a false `task-record-changed`. Then compare `implementation_task_controls(tail)` with the seeded projection. This makes the live checker own header, separator, row-shape, suffix, and status validation while the test-only helper owns only complete ordered controlled-cell equality.
 
 Do not ignore row deletion, insertion, reordering, or any controlled-cell change. Do not duplicate the live structural parser in the scorer.
 
