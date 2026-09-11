@@ -2,6 +2,8 @@
 
 **Date:** 2026-09-06
 
+**Amended:** 2026-09-12
+
 **Status:** Approved for implementation
 
 **Supersedes:** Only defective or ambiguous parts of the approved
@@ -53,6 +55,8 @@ integration with PR #8 harder to reason about.
 - The ten verified correctness gaps from the PR #7 review.
 - The automation-mode omission because mode controls later authority decisions
   and is therefore material checked state.
+- Exact implementation-task status validation and a separate notes escape hatch
+  for controller annotations.
 - Prompt/task-shape evaluation for every Feature Forge-owned LLM dispatch and
   every Review Loop prompt composition changed by PR #7.
 - Restoration of the component documentation gate.
@@ -64,6 +68,8 @@ integration with PR #8 harder to reason about.
 - Migration of historical or pre-schema ledgers.
 - A general prompt scoring framework or token-budget enforcement.
 - Refactoring `ff-check` solely to reduce its line count.
+- A general Markdown parser, task-transition writer, ledger migration engine,
+  or automatic repair of malformed task states.
 - Review Loop FIX, adjudication, promotion, challenge, or CLOSE integration.
 - Cleanup findings that do not improve correctness or materially simplify a
   touched boundary.
@@ -167,6 +173,42 @@ whether that text faithfully names the workflow's sole permitted action. The
 checker must not infer action meaning from prose or claim to reject an
 "unrelated" action. An enumerated action protocol is deferred because it would
 expand the ledger schema and transition machinery beyond this remediation.
+
+### Implementation task state is exact; commentary has its own cell
+
+The canonical implementation-progress table gains one final `notes` column:
+
+| plan task | status | commit | evidence | notes |
+| --- | --- | --- | --- | --- |
+
+The template's initial row is a placeholder only while all five cells are
+empty. After trimming surrounding whitespace, every non-placeholder `status`
+cell must equal exactly one of `pending`, `active`, `awaiting_return`, `blocked`,
+or `complete`. `ff-check audit` parses only this bounded canonical table and
+returns a literal non-pass result for a missing table, malformed row, unknown
+status, or status with trailing commentary. It must not accept a prefix such as
+`awaiting_return (reason)`, silently remove a suffix, or normalize an invalid
+value. Focused tests cover every accepted value, surrounding whitespace, a
+rejected annotated value, and the same annotation accepted in `notes`.
+
+`plan task`, `status`, `commit`, and `evidence` remain controller-owned control
+cells. The `notes` cell contains optional free-form, single-line commentary; an
+empty cell is valid, and a literal Markdown table delimiter must be escaped.
+Before a delegated or inline task begins, the controller retains the current
+controlled cells as its pre-dispatch snapshot. On return, including a failed
+post-task identity check, it preserves those values except for the
+workflow-authorized transition it is recording. Explanations belong in
+`notes`, Blockers, or the transition log, never in a controlled cell.
+
+The checker proves the current table's shape and exact status vocabulary. It
+does not claim to prove equality with an earlier in-memory snapshot: the
+version-one ledger has no durable pre-return task-table seal. The controller
+owns that comparison under the bounded return contract. Adding a second state
+artifact, a new public checker command, a transition writer, historical-ledger
+migration, or a general-purpose Markdown engine is outside this MVP. Because
+PR #7 remains unmerged, its version-one ledger template and live instructions
+are updated in place rather than supporting two task-table schemas side by
+side.
 
 ### Frozen bytes remain current during implementation
 
@@ -342,6 +384,14 @@ the new outcomes and explicit transport-comparability limitation. This tests
 the structured return channel, not whether Claude suppresses its separate
 conversational prose. The original failed observations remain evidence.
 
+The later task-table correction may mechanically update the pressure fixture's
+seed ledger tail and table extractor to the canonical heading and five-column
+shape so the strengthened `audit` gate can prepare a valid run. It must not
+change scenario facts, prompts, expected decisions, or scoring predicates.
+Preserve the original raw baseline and GREEN observations as historical
+evidence; results produced with the amended table are a focused regression, not
+a like-for-like continuation of the earlier comparison.
+
 ## Documentation Contract
 
 Restore the Feature Forge documentation gate to `feature-forge/CLAUDE.md`:
@@ -379,6 +429,9 @@ that a worker never relies on an unannounced edit by another worker:
    restored documentation command.
 7. **Cross-cutting verification** changes no production behavior; it verifies
    integration, packaging, prompt inventory, and the complete suites.
+8. **Task-table state boundary** owns only the canonical table/template,
+   bounded audit parser, exact status tests, minimal instruction synchronization,
+   and the mechanical pressure-fixture adaptation authorized above.
 
 Tasks 3 and 4 both modify `ff-check` but are sequential. Task 3 publishes the
 exact helper signatures and lifecycle matrix consumed by Task 4. Task 5
@@ -390,6 +443,11 @@ inputs to Task 6's GREEN comparison. The authorized Claude GREEN transport
 correction above is the sole exception for the host adapter; it does not
 change the frozen scorer or scenario inputs.
 
+Task 8 is a post-qualification correction prompted by the retained Sonnet
+failure evidence. It does not reopen receipt, transition-matrix, path, or Finish
+architecture. After Task 8, rerun the applicable Task 7 gates and independent
+review before push.
+
 ## Acceptance
 
 The remediation is ready to push when all of the following are true:
@@ -398,6 +456,9 @@ The remediation is ready to push when all of the following are true:
 - each changed deterministic behavior has a focused test observed RED then
   GREEN, and already-correct pressure behavior is recorded without manufactured
   failure or redundant guidance;
+- annotated task statuses fail closed, the same commentary is accepted in the
+  dedicated notes cell, and the canonical pressure fixture passes the clean-seed
+  audit;
 - the prompt inventory has a recorded rubric decision for every listed
   dispatch, with no unresolved failure;
 - Feature Forge's complete suite passes;
