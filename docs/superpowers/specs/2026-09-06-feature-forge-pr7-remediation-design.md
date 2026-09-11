@@ -210,6 +210,16 @@ PR #7 remains unmerged, its version-one ledger template and live instructions
 are updated in place rather than supporting two task-table schemas side by
 side.
 
+A task-table `audit` failure stops forward work: no task dispatch, task
+completion, stage advance, implementation mutation, progress commit, or Finish
+effect may occur while the gate is non-pass. The controller may make only the
+bounded ledger correction needed to restore controlled cells from its trusted
+pre-dispatch snapshot, move commentary into `notes`, Blockers, or the transition
+log, and rerun `audit`. That successful correction may resume the interrupted
+return without abandoning the run. If the snapshot is absent or ambiguous, the
+correction remains invalid, or the check is `unverifiable`, record the canonical
+blocked overlay and stop for recovery rather than inventing state.
+
 ### Frozen bytes remain current during implementation
 
 Stage 9 must run `identities` both before a plan task begins and after every
