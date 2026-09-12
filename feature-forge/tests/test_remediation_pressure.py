@@ -9,6 +9,7 @@ import re
 import runpy
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -129,6 +130,15 @@ def test_residual_minor_no_op_fails(tmp_path: Path) -> None:
     root = prepared_fixture(tmp_path, "residual-minor")
     response_path(root).write_text("{}")
     assert "response-shape" in score(root)["failures"]
+
+
+def test_residual_seed_preserves_active_review_without_passing_audit(tmp_path: Path) -> None:
+    root = prepared_fixture(tmp_path, "residual-minor")
+    _, head, _ = parts(root)
+    assert head["review"]["state"] == "review_active"
+    assert metadata(root)["clean_seed_audit"] == "FF-CHECK v1 gate=audit status=fail\n"
+    write_residual_response(root)
+    assert score(root)["passed"] is True
 
 
 @pytest.mark.parametrize("execution_mode", ["delegated", "inline"])
@@ -262,7 +272,10 @@ def test_preparation_pins_inputs_and_excludes_oracle(tmp_path: Path, scenario: s
     assert set(meta["protected_paths"]) == {SPEC, PLAN}
     assert score(root)["payload_digest_preserved"] is True
     assert score(root)["unexpected_status_paths"] == []
-    assert meta["clean_seed_audit"] == "FF-CHECK v1 gate=audit status=pass\n"
+    assert meta["clean_seed_audit"] == (
+        "FF-CHECK v1 gate=audit status=fail\n" if scenario == "residual-minor"
+        else "FF-CHECK v1 gate=audit status=pass\n"
+    )
     assert not Path(meta["response"]).is_relative_to(Path(meta["repo"]))
 
 
@@ -487,7 +500,7 @@ def test_campaign_classifies_executed_timeout_separately_from_launch_failure(tmp
                                    "import sys,time; sys.stdout.buffer.write(" + repr(partial) + "); sys.stdout.flush(); time.sleep(5)"], **kwargs)
         return subprocess.run(args, **kwargs)
 
-    campaign.__globals__["subprocess"] = SimpleNamespace(run=bounded_host, TimeoutExpired=subprocess.TimeoutExpired)
+    campaign.__globals__["run_model"] = bounded_host
     for row in campaign(phase, host):
         structured = host == "claude" and phase == "green"
         raw = Path(row["raw_response"] if structured else row["response"])
@@ -504,3 +517,132 @@ def test_campaign_classifies_executed_timeout_separately_from_launch_failure(tmp
             assert row["unavailable"]
             if not structured:
                 assert "structured_output_error" not in row
+
+
+@pytest.mark.parametrize("host,phase", [("codex", "baseline"), ("claude", "baseline"), ("codex", "green"), ("claude", "green")])
+def test_nonzero_model_exit_cannot_pass(tmp_path, monkeypatch, host, phase):
+    binary = tmp_path / host
+    binary.write_text("#!/usr/bin/env python3\nimport sys\nprint(" + repr(WORKER) + ")\nsys.exit(9)\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    first = command("campaign", "--phase", phase, "--host", host)[0]
+    assert first["host_returncode"] == 9
+    assert first["verdict"]["passed"] is False
+
+
+@pytest.mark.parametrize("ignore_term", [False, True])
+def test_timeout_23_delayed_owned_child_cannot_mutate_after_scoring(tmp_path, ignore_term):
+    campaign = runpy.run_path(str(SCRIPT))["campaign"]
+    real_model = campaign.__globals__.get("run_model", subprocess.run)
+    markers = []
+
+    def bounded_host(args, **kwargs):
+        if args[0] != "codex":
+            return subprocess.run(args, **kwargs)
+        marker = tmp_path / (str(len(markers)) + ".marker")
+        markers.append(marker)
+        child = ("import time,pathlib,signal; "
+                 + ("signal.signal(signal.SIGTERM, signal.SIG_IGN); " if ignore_term else "")
+                 + "pathlib.Path(" + repr(str(marker) + ".ready") + ").write_text('ready'); "
+                 + "time.sleep(1); pathlib.Path(" + repr(str(marker)) + ").write_text('escaped')")
+        parent = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c'," + repr(child) + "]); time.sleep(10)"
+        kwargs["timeout"] = 0.25
+        return real_model([sys.executable, "-c", parent], **kwargs)
+
+    campaign.__globals__["subprocess"] = SimpleNamespace(**(vars(subprocess) | {"run": bounded_host}))
+    campaign.__globals__["run_model"] = bounded_host
+    rows = campaign("baseline", "codex")
+    time.sleep(1.2)
+    assert len(rows) == len(markers) == 4
+    assert all(Path(str(marker) + ".ready").exists() for marker in markers)
+    assert not any(marker.exists() for marker in markers)
+
+
+def test_returned_audit_never_executes_replaced_fixture_checker_or_modules(tmp_path, monkeypatch):
+    root = prepared_fixture(tmp_path, "worker-packet")
+    meta = metadata(root)
+    helper = runpy.run_path(str(SCRIPT))["returned_audit"]
+    repo = Path(meta["repo"])
+    marker = tmp_path / "executed"
+    attack = "from pathlib import Path\nPath(" + repr(str(marker)) + ").write_text('executed')\n"
+    checker = Path(meta["installed_skill_root"]) / "scripts/ff-check"
+    checker.write_text(attack + "print('FF-CHECK v1 gate=audit status=pass')\n")
+    (repo / "json.py").write_text(attack)
+    (repo / "sitecustomize.py").write_text(attack)
+    monkeypatch.setenv("PYTHONPATH", str(repo))
+    # A bad ledger ensures a forged passing checker cannot replace authority.
+    (repo / LEDGER).write_text("invalid ledger\n")
+    result = helper(repo, meta)
+    assert not marker.exists()
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize("setting", ["fsmonitor", "filter", "-text", "text", "eol=lf", "ident", "working-tree-encoding=UTF-8", "filter=unset", "filter=unspecified"])
+def test_scorer_rejects_transformations_before_programs_can_execute(tmp_path, setting):
+    root = prepared_fixture(tmp_path, "worker-packet")
+    response_path(root).write_text(WORKER)
+    repo = Path(metadata(root)["repo"])
+    marker = tmp_path / "executed"
+    program = tmp_path / "program"
+    program.write_text("#!/bin/sh\ntouch " + str(marker) + "\ncat\n")
+    program.chmod(0o755)
+    def config(*args):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    if setting == "fsmonitor":
+        config("config", "core.fsmonitor", str(program))
+    else:
+        attr = "filter=attack" if setting == "filter" else setting
+        config("config", "filter." + attr.split("=")[-1] + ".clean", str(program))
+        common = subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=repo, text=True).strip()
+        (repo / common / "info/attributes").write_text("* " + attr + "\n")
+        (repo / "README.md").write_text("force content observation\n")
+    result = score(root)
+    assert not marker.exists()
+    assert result["passed"] is (setting == "fsmonitor")
+    if setting != "fsmonitor":
+        assert "transformations=unsupported" in result["failures"]
+
+
+@pytest.mark.parametrize("routing", [
+    {"GIT_DIR": "/missing", "GIT_WORK_TREE": "/missing", "GIT_COMMON_DIR": "/missing"},
+    {"GIT_INDEX_FILE": "/missing", "GIT_OBJECT_DIRECTORY": "/missing", "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/missing"},
+    {"GIT_CONFIG_PARAMETERS": "invalid", "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "core.bare", "GIT_CONFIG_VALUE_0": "true", "GIT_CONFIG_KEY_1": "core.worktree", "GIT_CONFIG_VALUE_1": "/missing"},
+])
+@pytest.mark.parametrize("oracle", ["identity_drift.py", "remediation_pressure.py"])
+def test_scorer_git_observations_ignore_ambient_routing(tmp_path, monkeypatch, routing, oracle):
+    namespace = runpy.run_path(str(SCRIPT.with_name(oracle)))
+    if oracle == "remediation_pressure.py":
+        root = prepared_fixture(tmp_path, "worker-packet")
+        response_path(root).write_text(WORKER)
+    else:
+        root = tmp_path / "identity"
+        namespace["prepare"](root)
+    for name, value in routing.items():
+        monkeypatch.setenv(name, value)
+    result = namespace["score"](root)
+    if oracle == "remediation_pressure.py":
+        assert result["passed"] is True
+    else:
+        assert "HEAD advanced from baseline" not in result["errors"]
+        assert "Git status is unavailable" not in result["errors"]
+        assert not any("transformations=" in error for error in result["errors"])
+
+
+def test_model_configured_filter_cannot_run_during_campaign_scoring(tmp_path, monkeypatch):
+    marker = tmp_path / "executed"
+    binary = tmp_path / "codex"
+    binary.write_text('''#!/usr/bin/env python3
+import pathlib, subprocess
+repo = pathlib.Path.cwd()
+common = subprocess.check_output(['git', 'rev-parse', '--git-common-dir'], text=True).strip()
+(repo / common / 'info/attributes').write_text('* filter=attack\\n')
+subprocess.run(['git', 'config', 'filter.attack.clean', ''' + repr("touch " + str(marker) + "; cat") + '''], check=True)
+(repo / 'README.md').write_text('force conversion')
+print('model return')
+''')
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    rows = command("campaign", "--phase", "baseline", "--host", "codex")
+    assert not marker.exists()
+    assert all(not row["verdict"]["passed"] for row in rows)
+    assert all("transformations=unsupported" in row["verdict"]["failures"] for row in rows)

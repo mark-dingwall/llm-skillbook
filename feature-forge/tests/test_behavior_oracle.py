@@ -354,3 +354,34 @@ def test_oracle_accepts_blocked_drift_reconciliation(tmp_path):
     fixture = _prepare(tmp_path)
     _passing_ledger(fixture)
     assert _score(tmp_path)["pass"]
+
+
+@pytest.mark.parametrize("setting", ["fsmonitor", "filter"])
+def test_identity_scorer_never_runs_git_configured_programs(tmp_path, setting):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    repo = Path(fixture["repo"])
+    marker = tmp_path / "executed"
+    program = tmp_path / "program"
+    program.write_text("#!/bin/sh\ntouch " + str(marker) + "\ncat\n")
+    program.chmod(0o755)
+    if setting == "fsmonitor":
+        _git(repo, "config", "core.fsmonitor", str(program))
+    else:
+        _git(repo, "config", "filter.attack.clean", str(program))
+        common = subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=repo, text=True).strip()
+        (repo / common / "info/attributes").write_text("* filter=attack\n")
+    verdict = _score(tmp_path)
+    assert not marker.exists()
+    assert verdict["pass"] is (setting == "fsmonitor")
+
+
+def test_identity_scorer_never_executes_replaced_fixture_checker(tmp_path):
+    fixture = _prepare(tmp_path)
+    _passing_ledger(fixture)
+    checker = Path(fixture["repo"]) / ".agents/skills/feature-forge/scripts/ff-check"
+    checker.parent.mkdir(parents=True)
+    marker = tmp_path / "executed"
+    checker.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").write_text('executed')\nprint('FF-CHECK v1 gate=audit status=pass')\n")
+    assert not _score(tmp_path)["pass"]
+    assert not marker.exists()

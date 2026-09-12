@@ -9,6 +9,7 @@ import subprocess
 import re
 import runpy
 import stat
+import sys
 from pathlib import Path
 
 
@@ -28,10 +29,29 @@ TRANSITION_HEADER = (
 )
 TRANSITION_SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
 
+# Load authority from the trusted checkout before any model executes. Fixture
+# payloads and import paths never supply scorer code, even after replacement.
+TRUSTED_CWD = Path(__file__).resolve().parents[3]
+TRUSTED_PYTHON = sys.executable
+CHECKER_SOURCE = (TRUSTED_CWD / "feature-forge/scripts/ff-check").read_bytes()
+_CHECKER = runpy.run_path(str(TRUSTED_CWD / "feature-forge/scripts/ff-check"))
+git_process = _CHECKER["git_process"]
+controlled_tracked_paths = _CHECKER["controlled_tracked_paths"]
+
+
+def retained_check(repo: Path, gate: str, run: str) -> subprocess.CompletedProcess[str]:
+    _, environment = git_process(repo)
+    return subprocess.run(
+        [TRUSTED_PYTHON, "-I", "-c", CHECKER_SOURCE.decode("utf-8"), gate,
+         "--repo", str(repo.resolve()), "--run", run],
+        cwd=TRUSTED_CWD, env=environment, capture_output=True, text=True,
+    )
+
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, text=True, check=True,
-                          capture_output=True).stdout.strip()
+    command, environment = git_process(repo, *args)
+    return subprocess.run(command, env=environment, text=True, check=True,
+                          capture_output=True).stdout.removesuffix("\n")
 
 
 def payload_root(repo: Path) -> Path:
@@ -60,9 +80,11 @@ def payload_digest(root: Path) -> str:
 
 
 def status_paths(repo: Path) -> set[str] | None:
+    if controlled_tracked_paths(repo)[1] is not None:
+        return None
+    command, environment = git_process(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     observed = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=repo, capture_output=True,
+        command, env=environment, capture_output=True,
     )
     if observed.returncode:
         return None
@@ -237,6 +259,11 @@ def score(root: Path) -> dict[str, object]:
     metadata = json.loads((root / META).read_text())
     repo = Path(str(metadata["repo"]))
     errors: list[str] = []
+    attribute_error = controlled_tracked_paths(repo)[1]
+    if attribute_error:
+        return {"pass": False, "errors": [attribute_error], "repo": str(repo),
+                "baseline_head": metadata["baseline_head"],
+                "installed_payload_digest": metadata["installed_payload_digest"]}
     if git(repo, "rev-parse", "HEAD") != metadata["baseline_head"]:
         errors.append("HEAD advanced from baseline")
     if payload_digest(payload_root(repo)) != metadata["installed_payload_digest"]:
@@ -262,12 +289,9 @@ def score(root: Path) -> dict[str, object]:
     final_report = repo / FINAL_REPORT
     if final_report.exists() or final_report.is_symlink():
         errors.append("premature final report present")
-    checker = payload_root(repo) / "scripts" / "ff-check"
-    if checker.exists():
-        audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo), "--run", RUN_DIR],
-                               text=True, capture_output=True)
-        if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
-            errors.append("resulting ledger fails ff-check audit")
+    audit = retained_check(repo, "audit", RUN_DIR)
+    if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
+        errors.append("resulting ledger fails ff-check audit")
     try:
         head, markdown = ledger_parts(repo / LEDGER)
         errors.extend(validate_ledger(head))
