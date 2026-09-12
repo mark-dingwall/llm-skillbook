@@ -95,13 +95,25 @@ def _materialize_committed_implementation(fixture, reviewed_commit, base, *, rel
         destination.chmod(mode)
     manifest = fixture.root / "symlink-manifest.json"
     manifest.write_text(json.dumps(links, sort_keys=True))
-    _git(target, "init", "-q")
-    _git(target, "config", "user.name", "Feature Forge fixture")
-    _git(target, "config", "user.email", "fixture@example.invalid")
-    _git(target, "-c", "core.autocrlf=false", "add", "--", *(path for path, _, _ in regular))
-    _git(target, "commit", "-qm", "canonical review transport")
+    assert FF_API["git"](target, "init", "-q") is not None
+    assert FF_API["git"](target, "config", "user.name", "Feature Forge fixture") is not None
+    assert FF_API["git"](target, "config", "user.email", "fixture@example.invalid") is not None
+    error = FF_API["transformation_gate"](
+        target, b"".join(path.encode("utf-8") + b"\0" for path, _, _ in regular),
+    )
+    if error:
+        raise ValueError(error)
+    assert FF_API["git"](target, "-c", "core.autocrlf=false", "add", "--", *(path for path, _, _ in regular)) is not None
+    expected_index = {
+        metadata.split(b" ")[0] + b" " + metadata.split(b" ")[2] + b" 0\t" + path
+        for metadata, path in entries if metadata.startswith((b"100644 ", b"100755 "))
+    }
+    staged = FF_API["git_bytes"](target, "ls-files", "--stage", "-z")
+    if staged is None or set(filter(None, staged.split(b"\0"))) != expected_index:
+        raise ValueError("bootstrap=staged-mismatch")
+    assert FF_API["git"](target, "commit", "-qm", "canonical review transport") is not None
     fixture.target = target
-    fixture.bootstrap_commit = _git(target, "rev-parse", "HEAD")
+    fixture.bootstrap_commit = FF_API["git"](target, "rev-parse", "HEAD")
     return manifest
 
 
@@ -139,6 +151,62 @@ def test_implementation_materialization_blocks_unsupported_subject_before_creati
         )
     assert not (fixture.root / "committed-target").exists()
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("attribute", ["text", "filter=bootstrap"])
+def test_bootstrap_rechecks_effective_attributes_before_staging(tmp_path, monkeypatch, attribute):
+    fixture = BoundaryFixture(tmp_path, b"specification\n", "bootstrap-attributes")
+    repo = fixture.repository
+    (repo / "app.txt").write_bytes(b"canonical\r\nbytes\r\n")
+    (repo / ".gitattributes").write_text(f"app.txt {attribute}\n")
+    info = Path(_git(repo, "rev-parse", "--git-path", "info/attributes"))
+    info.write_text("app.txt !text !filter\n")
+    _git(repo, "add", "--", "app.txt", ".gitattributes")
+    _git(repo, "commit", "-qm", "source attribute override")
+    marker = fixture.root / "filter-ran"
+    configuration = fixture.root / "global-config"
+    _git(repo, "config", "--file", str(configuration), "filter.bootstrap.clean", f'touch "{marker}"; cat')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(configuration))
+    assert FF_API["transformation_gate"](repo, b"app.txt\0.gitattributes\0") is None
+    observed_error = None
+    try:
+        commit = _git(repo, "rev-parse", "HEAD")
+        _materialize_committed_implementation(fixture, commit, commit)
+    except ValueError as error:
+        observed_error = str(error)
+    assert not marker.exists(), "bootstrap ran a filter after losing source info/attributes"
+    assert observed_error == "transformations=unsupported"
+    target = fixture.root / "committed-target"
+    assert FF_API["git_bytes"](target, "ls-files", "--stage", "-z") == b""
+
+
+@pytest.mark.parametrize("drift", ["blob", "mode"])
+def test_bootstrap_rejects_staged_identity_drift_before_commit(tmp_path, monkeypatch, drift):
+    fixture = BoundaryFixture(tmp_path, b"specification\n", "bootstrap-staged-drift")
+    repo = fixture.repository
+    (repo / "app.py").write_bytes(b"implementation\n")
+    (repo / "app.py").chmod(0o755)
+    _git(repo, "add", "--", "app.py")
+    _git(repo, "commit", "-qm", "executable implementation")
+    commit = _git(repo, "rev-parse", "HEAD")
+    oid = _git(repo, "rev-parse", "HEAD:README.md" if drift == "blob" else "HEAD:app.py")
+    mode = "100755" if drift == "blob" else "100644"
+    target = fixture.root / "committed-target"
+    real_run = subprocess.run
+
+    def mutate_staged_index(command, **kwargs):
+        observed = real_run(command, **kwargs)
+        if str(target) in command and "add" in command and observed.returncode == 0:
+            mutation, environment = FF_API["git_process"](
+                target, "update-index", "--cacheinfo", f"{mode},{oid},app.py",
+            )
+            real_run(mutation, env=environment, check=True, capture_output=True)
+        return observed
+
+    monkeypatch.setattr(subprocess, "run", mutate_staged_index)
+    with pytest.raises(ValueError, match="bootstrap=staged-mismatch"):
+        _materialize_committed_implementation(fixture, commit, commit)
+    assert FF_API["git"](target, "rev-parse", "--verify", "HEAD") is None
 
 
 def test_first_implementation_pass_enters_stage_14_at_atomic_checkpoint_7(tmp_path):

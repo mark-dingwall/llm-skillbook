@@ -806,7 +806,8 @@ def test_attribute_gate_includes_head_paths_deleted_from_index(tmp_path: Path) -
     assert observed.stderr == "transformations=unsupported\n"
 
 
-def test_checkout_symlink_target_comparison_requires_real_directory_ancestors(tmp_path: Path) -> None:
+@pytest.mark.parametrize("ignored", [False, True])
+def test_checkout_symlink_target_comparison_requires_real_directory_ancestors(tmp_path: Path, ignored: bool) -> None:
     repo, directory, data = reviewed_fixture(tmp_path)
     links = repo / "links"
     links.mkdir()
@@ -817,6 +818,9 @@ def test_checkout_symlink_target_comparison_requires_real_directory_ancestors(tm
     outside = tmp_path / "outside-links"
     links.rename(outside)
     links.symlink_to(outside, target_is_directory=True)
+    if ignored:
+        exclude = Path(git(repo, "rev-parse", "--git-path", "info/exclude"))
+        exclude.write_text("links\n")
     assert_result(invoke(repo, directory), "fail", 1)
 
 

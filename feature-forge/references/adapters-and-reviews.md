@@ -171,10 +171,22 @@ entries block; do not initialize submodules. Also supply the conversion-free
 binary committed diff and NUL-delimited staged-entry listing as review inputs.
 Keep each `run_root`, manifest, and reports outside the target.
 
-Create one disposable bootstrap commit without transforming the materialized
-bytes (disable automatic line-ending conversion), and pass its exact
-commit ID as `InvocationIntent.base` so preflight can resolve the target. This
-temporary transport commit is not a candidate freeze checkpoint.
+After initializing the temporary repository, apply the same shared effective-
+attribute gate to every materialized path in that repository before any
+conversion-capable staging. Source `info/attributes` overrides do not accompany
+the tracked tree, so a passing source-side gate does not establish the target's
+attribute context. Any of the five transforming attributes remains unsupported
+there, regardless of value; block before staging or running a filter.
+
+Use the hardened Git argv/environment policy throughout bootstrap. Disable
+automatic line-ending conversion when staging explicit materialized paths.
+Before creating the one disposable bootstrap commit, use conversion-free
+`ls-files --stage -z` to require the exact regular-file path set, stage-zero
+blob identities, and Git modes from the reviewed tree; symlinks remain solely
+in their separate manifest. A missing, additional, or differing entry blocks
+without committing. Pass the verified bootstrap commit's exact ID as
+`InvocationIntent.base` so preflight can resolve the target. This temporary
+transport commit is not a candidate freeze checkpoint.
 
 Pass frozen authorities, repository constraints, the symlink manifest, diff,
 and staged-entry listing in both `InvocationIntent.ground_truth` (identity) and

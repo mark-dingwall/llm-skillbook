@@ -1109,7 +1109,7 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
             expected = {
                 b"100644": exact_regular_file(repo, repo / path) and not bool(observed & stat.S_IXUSR),
                 b"100755": exact_regular_file(repo, repo / path) and bool(observed & stat.S_IXUSR),
-                b"120000": stat.S_ISLNK(observed),
+                b"120000": stat.S_ISLNK(observed) and exact_entry_state(repo, (repo / path).parent) == "directory",
             }.get(mode, False)
             if not expected:
                 mismatches.add(path)
