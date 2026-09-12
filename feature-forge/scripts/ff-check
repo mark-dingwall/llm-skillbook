@@ -814,6 +814,13 @@ def apply_stable_id_decisions(payload: object) -> dict[str, object]:
             "stable_id_mapping": sorted(mapping, key=lambda row: row["triage_finding_id"]), "error": None}
 
 
+def review_must_block(
+    round_number: int, previous_ids: list[str], current_ids: list[str],
+) -> bool:
+    """Apply the completed-TRIAGE cap and consecutive stable-ID rule."""
+    return bool(current_ids) and (round_number >= 3 or current_ids == previous_ids)
+
+
 def receipt_result_invariant(payload: dict[str, object], review: dict[str, object]) -> bool:
     """Compare current controller-owned records; external evidence stays external."""
     mapping = payload["stable_id_mapping"]
@@ -834,7 +841,7 @@ def receipt_result_invariant(payload: dict[str, object], review: dict[str, objec
         if allocated in prior or (destination not in prior and destination != allocated):
             return False
     completed = payload["triage_artifact_id"] is not None
-    must_block = bool(mapped) and (review["round"] >= 3 or mapped == prior)
+    must_block = review_must_block(review["round"], prior, mapped)
     if payload["result"] == "pass":
         return completed and not mapped
     if payload["result"] == "changes_required":
@@ -1509,6 +1516,45 @@ def receipt_source_matches(
     return result("pass")
 
 
+def implementation_review_source(
+    repo: Path, run: Path, reviewed_commit: object, stage_id: int, evidence_path: object,
+) -> Result:
+    """Validate a historical implementation source and stage-owned descendants."""
+    identity = commit_identity(repo, reviewed_commit)
+    if identity == "noncanonical":
+        return result("unverifiable", "reviewed-commit=noncanonical")
+    if identity == "unverifiable":
+        return result("unverifiable", "reviewed-commit=unresolvable")
+    ancestry = git_status(
+        repo, "merge-base", "--is-ancestor", str(reviewed_commit), "HEAD",
+    )
+    if ancestry not in {0, 1}:
+        return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+    if ancestry == 1:
+        return result("fail", "reviewed-commit=not-ancestor")
+    changed_raw = git_bytes(
+        repo, "diff", "--name-status", "-z", "--find-renames", "--find-copies-harder",
+        f"{reviewed_commit}..HEAD", "--",
+    )
+    if changed_raw is None:
+        return result("unverifiable", "reviewed-commit=descendants-unavailable")
+    changed = parse_name_status_z(changed_raw)
+    if changed is None:
+        return result("unverifiable", "reviewed-commit=descendants-unsupported")
+    if not isinstance(evidence_path, str):
+        return result("unverifiable", "review=unsupported")
+    allowed = {
+        (run / "ledger.md").relative_to(repo).as_posix(),
+        evidence_path,
+    }
+    if stage_id >= 13:
+        allowed.add((run / "final-report.md").relative_to(repo).as_posix())
+    return (
+        result("fail", "reviewed-commit=foreign-descendant")
+        if changed - allowed else result("pass")
+    )
+
+
 def audit_receipt(
     repo: Path, run: Path, review: dict[str, object], *, observe_current: bool,
 ) -> Result:
@@ -1530,13 +1576,89 @@ def audit_receipt(
         or payload["run_ref"] != review["run_ref"]
         or payload["target_seal"] != review["target_seal"]
         or payload["result"] != review["state"]
-        or payload["actionable_finding_ids"] != review["open_finding_ids"]
+        or (
+            payload["triage_artifact_id"] is not None
+            and payload["actionable_finding_ids"] != review["open_finding_ids"]
+        )
         or not receipt_result_invariant(payload, review)
     ):
         return result("fail", "receipt=mismatch")
     return receipt_source_matches(
         repo, run, review, payload, observe_current=observe_current,
     )
+
+
+def recover_review_return(
+    repo: Path, run: Path, data: dict[str, object],
+) -> tuple[dict[str, object] | None, Result]:
+    """Validate and project one persisted return from a review-active head."""
+    review = data.get("review")
+    if not isinstance(review, dict) or review.get("state") != "review_active":
+        return None, result("fail", "review=not-active")
+    valid, _ = review_state_invariant(review)
+    if not valid:
+        return None, result("fail", "review=inconsistent")
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if expected is None:
+        return None, result("unverifiable", "review=unsupported")
+    relative, path = expected
+    if review["evidence_path"] != relative:
+        return None, result("fail", "receipt=wrong-path")
+    if not exact_regular_file(repo, path):
+        return None, result("unverifiable", "receipt=missing")
+    payload, error = strict_receipt(path)
+    if error is not None:
+        return None, result("unverifiable", error)
+    assert payload is not None
+    if (
+        payload["kind"] != review["kind"]
+        or payload["dispatch_id"] != review["dispatch_id"]
+        or payload["run_ref"] != review["run_ref"]
+        or payload["target_seal"] != review["target_seal"]
+    ):
+        return None, result("fail", "receipt=mismatch")
+
+    projected = dict(review)
+    completed = payload["triage_artifact_id"] is not None
+    actionable = payload["actionable_finding_ids"]
+    assert isinstance(actionable, list)
+    if completed and actionable:
+        projected["round"] = review["round"] + 1
+        projected["previous_open_finding_ids"] = review["open_finding_ids"]
+        projected["open_finding_ids"] = actionable
+        projected["state"] = (
+            "blocked" if review_must_block(
+                projected["round"],
+                projected["previous_open_finding_ids"],
+                projected["open_finding_ids"],
+            ) else "changes_required"
+        )
+    elif completed:
+        projected["state"] = "pass"
+        projected["open_finding_ids"] = []
+    else:
+        projected["state"] = "blocked"
+    source = payload["source_identity"]
+    assert isinstance(source, dict)
+    projected["reviewed_commit"] = (
+        source["value"] if review["kind"] == "implementation" else None
+    )
+    if payload["result"] != projected["state"]:
+        return None, result("fail", "receipt=mismatch")
+    projected_valid, receipt_required = review_state_invariant(projected)
+    if not projected_valid or not receipt_required:
+        return None, result("fail", "review=inconsistent")
+    if review["kind"] == "implementation":
+        stage = data.get("stage")
+        if not isinstance(stage, dict) or not isinstance(stage.get("id"), int):
+            return None, result("unverifiable", "stage=unsupported")
+        implementation_source = implementation_review_source(
+            repo, run, projected["reviewed_commit"], stage["id"], projected["evidence_path"],
+        )
+        if implementation_source.status != "pass":
+            return None, implementation_source
+    checked = audit_receipt(repo, run, projected, observe_current=True)
+    return (projected, checked) if checked.status == "pass" else (None, checked)
 
 
 def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result:
@@ -1567,15 +1689,22 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
         and review["reviewed_commit"] is not None
     )
     if implementation_return:
-        if commit_identity(repo, review["reviewed_commit"]) != "valid":
-            return result("unverifiable", "reviewed-commit=unresolvable")
-        ancestry = git_status(
-            repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD",
-        )
-        if ancestry not in {0, 1}:
-            return result("unverifiable", "reviewed-commit=ancestry-unavailable")
-        if ancestry == 1:
-            return result("fail", "reviewed-commit=not-ancestor")
+        if review["state"] == "changes_required":
+            if commit_identity(repo, review["reviewed_commit"]) != "valid":
+                return result("unverifiable", "reviewed-commit=unresolvable")
+            ancestry = git_status(
+                repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD",
+            )
+            if ancestry not in {0, 1}:
+                return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+            if ancestry == 1:
+                return result("fail", "reviewed-commit=not-ancestor")
+        else:
+            implementation_source = implementation_review_source(
+                repo, run, review["reviewed_commit"], stage["id"], review["evidence_path"],
+            )
+            if implementation_source.status != "pass":
+                return implementation_source
     expected = expected_receipt_path(repo, run, review["dispatch_id"])
     if review["state"] == "review_active":
         if expected is None:
@@ -1584,22 +1713,7 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
             return result("fail", "receipt=wrong-path")
         if exact_entry_state(repo, expected[1]) != "absent":
             return result("unverifiable", "receipt=unavailable")
-    must_block = (
-        (review["round"] >= 3 and bool(review["open_finding_ids"]))
-        or (
-            bool(review["open_finding_ids"])
-            and review["open_finding_ids"] == review["previous_open_finding_ids"]
-        )
-    )
-    if must_block and review["state"] != "blocked":
-        return result("fail", "review=must-block")
-    if (
-        review["state"] == "blocked"
-        and receipt_required
-        and bool(review["open_finding_ids"])
-        and not must_block
-    ):
-        return result("fail", "review=premature-block")
+        return result("fail", "review=active")
     observe_current = review["state"] != "changes_required"
     if implementation_return and review["state"] == "changes_required":
         current_head = git(repo, "rev-parse", "HEAD")

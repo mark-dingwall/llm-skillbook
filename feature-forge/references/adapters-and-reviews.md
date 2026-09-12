@@ -323,11 +323,24 @@ are empty. A pre-TRIAGE block has null TRIAGE and empty arrays; retain any usabl
 Round 1 reports already produced. A completed nonempty TRIAGE has a complete
 nonempty mapping and is `blocked` exactly when the round/repetition predicate
 requires it, otherwise `changes_required`. A pass does not increment round.
+For a pre-TRIAGE block, retain the active round and both finding-ID histories
+while the receipt's TRIAGE, mapping, and actionable arrays remain empty.
+The limitation is exact: partial Round 1 reports exist only when `run_round1` returns a `Round1Outcome`; an exception before return exposes no usable partial inventory.
 
 `ff-check` validates local shape, sets, allocation, result/round rules, and
 receipt/head agreement. It does not open the external Review Loop run or
 independently prove provenance, charter dispatch, or criterion delivery.
 Controller-written records agreeing with each other are not independent proof.
+
+Ordinary `audit` remains non-passing while the ledger records `review_active`.
+Recovery first validates the canonical receipt's exact-regular path, strict
+schema, dispatch/run/seal tuple, result, mapping, stable IDs, projected round,
+and source identity, then applies that validated projection before auditing the
+new head. Specification and Plan recovery require the current candidate bytes
+to match the receipt. Implementation recovery requires the receipt's canonical
+`reviewed_commit` to resolve, remain an ancestor of current `HEAD`, and have
+only stage-allowed controller-owned committed descendants. A failed recovery
+validation retains `review_active` under the blocked workflow overlay.
 
 ### Stable-finding-ID judgment
 

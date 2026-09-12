@@ -390,6 +390,13 @@ def returned_review(
     return review
 
 
+def recover_review(
+    repo: Path, directory: Path, data: dict[str, object],
+) -> tuple[dict[str, object] | None, object]:
+    checker = runpy.run_path(str(CHECKER))
+    return checker["recover_review_return"](repo, directory, data)
+
+
 def invoke(repo: Path, directory: Path) -> subprocess.CompletedProcess[str]:
     return check("audit", "--repo", str(repo), "--run", str(directory))
 
@@ -476,9 +483,6 @@ LIFECYCLE_PAIRS = [("active", "active"), ("active", "complete"), ("blocked", "bl
 LIFECYCLE_ACCEPTED = (
     [(None, "not_started", stage, status, state)
      for stage in (1, 2, 3, 4, 5) for status, state in LIFECYCLE_PAIRS]
-    + [(kind, "review_active", stage, status, state)
-       for kind, stage in (("specification", 5), ("plan", 8), ("implementation", 10))
-       for status, state in (("active", "active"), ("blocked", "blocked"))]
     + [(kind, "changes_required", stage, status, state)
        for kind, stages in (("specification", (3, 4)), ("plan", (7,)), ("implementation", (9,)))
        for stage in stages for status, state in LIFECYCLE_PAIRS]
@@ -639,7 +643,8 @@ def test_audit_accepts_individual_same_kind_rereview_heads(
         data.update(status="active", stage={"id": dispatch, "state": "active"})
     assert {key: review[key] for key in retained} == retained
     write_ledger(directory, data)
-    assert_result(invoke(repo, directory), "pass", 0)
+    expected = "fail" if phase == "dispatched" else "pass"
+    assert_result(invoke(repo, directory), expected, 1 if expected == "fail" else 0)
 
 
 def test_audit_accepts_the_exact_clean_not_started_head(tmp_path: Path) -> None:
@@ -826,7 +831,7 @@ def test_audit_rejects_malformed_frozen_objects(tmp_path: Path, frozen: object) 
     assert_result(invoke(repo, directory), "fail" if wrong_path else "unverifiable", 1 if wrong_path else 2)
 
 
-def test_audit_accepts_populated_review_active_without_a_return_receipt(tmp_path: Path) -> None:
+def test_audit_does_not_pass_a_populated_review_active_head(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
     data["stage"] = {"id": 8, "state": "active"}
     data["review"] = {
@@ -839,7 +844,162 @@ def test_audit_accepts_populated_review_active_without_a_return_receipt(tmp_path
     }
     write_ledger(directory, data)
     assert not (directory / "reviews/plan-review-3.json").exists()
-    assert_result(invoke(repo, directory), "pass", 0)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "review=active\n"
+
+
+@pytest.mark.parametrize("receipt_result", ["pass", "changes_required", "blocked"])
+def test_recovery_validates_then_projects_completed_review_returns(
+    tmp_path: Path, receipt_result: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    if receipt_result == "pass":
+        returned = returned_review(repo, directory, data, state="pass", round_number=2)
+        active_round, active_previous, active_open = 2, ["F-old"], ["F-current"]
+    elif receipt_result == "changes_required":
+        returned = returned_review(
+            repo, directory, data, state="changes_required", round_number=2,
+            previous=["F-current"], opened=["T-new"],
+        )
+        active_round, active_previous, active_open = 1, ["F-old"], ["F-current"]
+    else:
+        returned = returned_review(
+            repo, directory, data, state="blocked", round_number=2,
+            previous=["F-current"], opened=["F-current"],
+        )
+        active_round, active_previous, active_open = 1, ["F-old"], ["F-current"]
+    expected_open = copy.deepcopy(returned["open_finding_ids"])
+    returned.update(
+        state="review_active", round=active_round, reviewed_commit=None,
+        previous_open_finding_ids=active_previous,
+        open_finding_ids=active_open,
+    )
+    data.update(status="active", stage={"id": 5, "state": "active"})
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert checked.status == "pass"
+    assert projected is not None
+    assert projected["state"] == receipt_result
+    assert projected["round"] == (active_round if receipt_result == "pass" else active_round + 1)
+    assert projected["previous_open_finding_ids"] == (
+        active_previous if receipt_result == "pass" else active_open
+    )
+    assert projected["open_finding_ids"] == expected_open
+
+
+def test_recovery_pretriage_block_retains_both_finding_histories(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active_previous, active_open = ["F-old"], ["F-current"]
+    active = returned_review(repo, directory, data, state="blocked", round_number=2)
+    active.update(
+        state="review_active", reviewed_commit=None,
+        previous_open_finding_ids=active_previous, open_finding_ids=active_open,
+    )
+    data.update(status="active", stage={"id": 5, "state": "active"})
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert checked.status == "pass"
+    assert projected is not None
+    assert projected["state"] == "blocked"
+    assert projected["round"] == 2
+    assert projected["previous_open_finding_ids"] == active_previous
+    assert projected["open_finding_ids"] == active_open
+
+
+@pytest.mark.parametrize("defect", ["extra", "dispatch", "mapping", "source"])
+def test_recovery_rejects_malformed_mismatched_or_source_divergent_receipts(
+    tmp_path: Path, defect: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, state="pass")
+    receipt_path = repo / active["evidence_path"]
+    receipt = json.loads(receipt_path.read_text())
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 5, "state": "active"})
+    if defect == "extra":
+        receipt["extra"] = True
+    elif defect == "dispatch":
+        receipt["dispatch_id"] = "different-dispatch"
+    elif defect == "mapping":
+        receipt["triage_finding_ids"] = ["unmapped"]
+    else:
+        receipt["source_identity"]["value"] = "0" * 64
+    receipt_path.write_text(json.dumps(receipt))
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert projected is None
+    assert checked.status != "pass"
+
+
+@pytest.mark.parametrize(("foreign_change", "expected"), [(False, "pass"), (True, "fail")])
+def test_implementation_recovery_allows_only_controller_owned_descendant_changes(
+    tmp_path: Path, foreign_change: bool, expected: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, kind="implementation", state="pass")
+    reviewed_commit = active["reviewed_commit"]
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 10, "state": "active"})
+    write_ledger(directory, data)
+    controlled = [
+        (directory / "ledger.md").relative_to(repo).as_posix(),
+        str(active["evidence_path"]),
+    ]
+    if foreign_change:
+        implementation = repo / "src/app.py"
+        implementation.parent.mkdir()
+        implementation.write_text("changed implementation\n")
+        controlled.append(implementation.relative_to(repo).as_posix())
+    git(repo, "add", *controlled)
+    git(repo, "commit", "-qm", "persist controller recovery state")
+    assert git(repo, "merge-base", "--is-ancestor", str(reviewed_commit), "HEAD") == ""
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert checked.status == expected
+    assert (projected is not None) is (expected == "pass")
+    if projected is not None:
+        assert projected["reviewed_commit"] == reviewed_commit
+
+
+@pytest.mark.parametrize("identity", ["HEAD", "0" * 40])
+def test_implementation_recovery_rejects_noncanonical_or_unresolvable_source_commit(
+    tmp_path: Path, identity: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, kind="implementation", state="pass")
+    receipt_path = repo / active["evidence_path"]
+    receipt = json.loads(receipt_path.read_text())
+    receipt["source_identity"]["value"] = identity
+    receipt_path.write_text(json.dumps(receipt))
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 10, "state": "active"})
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert projected is None
+    assert checked.status != "pass"
+
+
+def test_audit_rejects_an_implementation_return_after_a_foreign_descendant_change(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(repo, directory, data, kind="implementation", state="pass")
+    implementation = repo / "src/app.py"
+    implementation.parent.mkdir()
+    implementation.write_text("post-review change\n")
+    git(repo, "add", implementation.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "change implementation after review")
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "reviewed-commit=foreign-descendant\n"
 
 
 def test_audit_rejects_a_review_reservation_beneath_a_symlinked_reviews_directory(
@@ -1209,6 +1369,20 @@ def test_audit_fails_unblocked_cap_or_oscillation_state(
         previous=previous, opened=opened,
     )
     assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize(("round_number", "previous", "current", "expected"), [
+    (1, ["F-1"], ["F-2"], False),
+    (2, ["F-1"], ["F-2"], False),
+    (3, ["F-1"], ["F-2"], True),
+    (1, ["F-1"], ["F-1"], True),
+    (3, ["F-1"], [], False),
+])
+def test_review_must_block_uses_the_post_return_round_and_consecutive_ids(
+    round_number: int, previous: list[str], current: list[str], expected: bool,
+) -> None:
+    checker = runpy.run_path(str(CHECKER))
+    assert checker["review_must_block"](round_number, previous, current) is expected
 
 
 def test_audit_rejects_blocked_before_the_actionable_return_boundary(tmp_path: Path) -> None:

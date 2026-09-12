@@ -576,9 +576,12 @@ class BoundaryFixture:
             "actionable_finding_ids": sorted(set(actionable_ids)),
         }
         projected = copy.deepcopy(review)
-        projected["previous_open_finding_ids"] = review["open_finding_ids"]
-        projected["open_finding_ids"] = actionable_ids
-        projected["round"] += bool(actionable_ids)
+        if actionable_ids:
+            projected["previous_open_finding_ids"] = review["open_finding_ids"]
+            projected["open_finding_ids"] = actionable_ids
+            projected["round"] += 1
+        elif result == "pass":
+            projected["open_finding_ids"] = []
         if not FF_API["receipt_result_invariant"](payload, projected):
             raise ValueError("receipt result is inconsistent with the round state")
         with path.open("x") as handle:
@@ -587,18 +590,25 @@ class BoundaryFixture:
 
     def apply_result(self, result: str, actionable_ids: list[str]) -> None:
         head = self._load_head()
-        prior_open = head["review"]["open_finding_ids"]
-        head["review"]["state"] = result
-        head["review"]["previous_open_finding_ids"] = prior_open
-        head["review"]["open_finding_ids"] = sorted(set(actionable_ids))
+        projected = copy.deepcopy(head["review"])
+        projected["state"] = result
+        if actionable_ids:
+            projected["previous_open_finding_ids"] = projected["open_finding_ids"]
+            projected["open_finding_ids"] = sorted(set(actionable_ids))
+            projected["round"] += 1
+        elif result == "pass":
+            projected["open_finding_ids"] = []
+        self.apply_projected_review(projected)
+
+    def apply_projected_review(self, projected: dict[str, object]) -> None:
+        head = self._load_head()
+        head["review"] = projected
+        result = projected["state"]
         if result == "pass":
             head.update(status="active", stage={"id": 5, "state": "complete"}, next_action="freeze the reviewed specification")
         elif result == "changes_required":
-            head["review"]["round"] += 1
             head.update(status="active", stage={"id": 3, "state": "active"}, next_action="correct the specification")
         else:
-            if actionable_ids:
-                head["review"]["round"] += 1
             head.update(status="blocked", stage={"id": 5, "state": "blocked"}, next_action="resolve the review blocker")
         self._write_head(head)
 
@@ -645,7 +655,7 @@ class BoundaryFixture:
                         triage_finding_ids=triage_ids, stable_id_mapping=mapped["stable_id_mapping"])
         ids = sorted(row["feature_forge_finding_id"] for row in mapped["stable_id_mapping"])
         review = self._load_head()["review"]
-        if ids and (review["round"] + 1 >= 3 or ids == review["open_finding_ids"]):
+        if FF_API["review_must_block"](review["round"] + 1, review["open_finding_ids"], ids):
             result = "blocked"
         return run_state, result, ids, evidence
 
@@ -785,6 +795,37 @@ def test_pretriage_block_retains_usable_zero_finding_report_inventory(tmp_path):
     _assert_production_audit_passes(fixture)
 
 
+def test_same_kind_pretriage_block_retains_round_and_both_finding_histories(tmp_path):
+    first = BoundaryFixture(tmp_path, b"candidate v1\n", "pretriage-first")
+    first_run = first.begin_review("pretriage-1")
+    _recover_receipt(first, _nonempty_receipt(first, "pretriage-1", first_run))
+    before = copy.deepcopy(first._load_head()["review"])
+    assert before["state"] == "changes_required"
+
+    second = BoundaryFixture(
+        tmp_path, b"candidate v2\n", "pretriage-second", repository=first.repository,
+    )
+    second_run = second.begin_review("pretriage-2")
+    stage0 = second.stage0(second_run)
+    receipt = second.record_controller_return(
+        "pretriage-2", stage0,
+        round1_error=ControllerError("reviewer failed before Round1Outcome returned"),
+    )
+    payload = json.loads(receipt.read_text())
+    after = second._load_head()["review"]
+
+    assert payload["result"] == "blocked"
+    assert payload["triage_artifact_id"] is None
+    assert payload["triage_finding_ids"] == []
+    assert payload["stable_id_mapping"] == []
+    assert payload["actionable_finding_ids"] == []
+    assert payload["raw_report_ids"] == []
+    assert after["round"] == before["round"]
+    assert after["previous_open_finding_ids"] == before["previous_open_finding_ids"]
+    assert after["open_finding_ids"] == before["open_finding_ids"]
+    _assert_production_audit_passes(second)
+
+
 def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):
     captured_identity = fixture.captured_identity
     run_state = fixture.begin_review(dispatch_id)
@@ -823,28 +864,17 @@ def _recover_receipt(fixture: BoundaryFixture, receipt: Path) -> None:
                 raise ValueError("canonical receipt follows a symlink")
         if not receipt.is_file():
             raise ValueError("canonical receipt is not a regular file")
-        payload = json.loads(receipt.read_text())
-        if (
-            receipt != canonical
-            or not isinstance(payload, dict)
-            or set(payload) != RECEIPT_KEYS
-            or FF_API["strict_receipt"](receipt)[1] is not None
-            or payload.get("schema") != "feature-forge/review-receipt/v1"
-            or payload.get("kind") != review["kind"]
-            or payload.get("dispatch_id") != review["dispatch_id"]
-            or payload.get("run_ref") != review["run_ref"]
-            or payload.get("target_seal") != review["target_seal"]
-            or payload.get("source_identity") != fixture.captured_identity
-            or payload.get("source_identity") != fixture.source_identity
-            or payload.get("result") not in {"pass", "changes_required", "blocked"}
-            or not isinstance(payload.get("actionable_finding_ids"), list)
-            or payload["actionable_finding_ids"] != sorted(set(payload["actionable_finding_ids"]))
-        ):
+        if receipt != canonical:
+            raise ValueError("invalid receipt")
+        projected, checked = FF_API["recover_review_return"](
+            fixture.repository, fixture.ledger_path.parent, head,
+        )
+        if checked.status != "pass" or projected is None:
             raise ValueError("invalid receipt")
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         fixture.block_recovery()
         return
-    fixture.apply_result(payload["result"], payload["actionable_finding_ids"])
+    fixture.apply_projected_review(projected)
     audited = subprocess.run(
         [sys.executable, str(FF_CHECK), "audit", "--repo", str(fixture.repository),
          "--run", str(fixture.ledger_path.parent)],

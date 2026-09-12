@@ -245,6 +245,28 @@ def test_runs_accepts_blocked_ledger(tmp_path: Path) -> None:
     assert_result(result, "runs", "pass", 0)
 
 
+def test_runs_does_not_classify_review_active_as_resumable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    data.update(stage={"id": 5, "state": "active"}, next_action="await or recover review")
+    data["review"] = {
+        "kind": "specification", "state": "review_active", "round": 0,
+        "root_identity": "specification-root", "dispatch_id": "specification-1",
+        "run_ref": "/external/review-loop/specification-1", "target_seal": "seal-1",
+        "evidence_path": (
+            "docs/feature-forge/runs/2026-08-25-alpha/reviews/specification-1.json"
+        ),
+        "reviewed_commit": None, "previous_open_finding_ids": [],
+        "open_finding_ids": [],
+    }
+    write_ledger(run_dir(repo), data)
+
+    observed = check("runs", "--repo", str(repo), "--run-id", "alpha")
+
+    assert_result(observed, "runs", "fail", 1)
+    assert "review=active" in observed.stderr
+
+
 @pytest.mark.parametrize("defect", [
     "unknown-head-key", "missing-stage", "malformed-stage", "malformed-frozen", "malformed-review",
 ])
