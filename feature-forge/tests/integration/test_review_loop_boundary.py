@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import runpy
 import copy
@@ -48,6 +49,197 @@ CRITERION = "same grounded discrepancy against the same requirement, correctness
 COMPLETION = "No grounded discrepancies remain against the specification review charter."
 HEAD_KEYS = {"schema", "run_id", "mode", "status", "worktree", "branch", "base_identity", "stage", "next_action", "frozen", "review"}
 REVIEW_KEYS = {"kind", "state", "round", "root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit", "previous_open_finding_ids", "open_finding_ids"}
+
+
+def _materialize_committed_implementation(fixture, reviewed_commit, base, *, relevant_links=()):
+    """Exercise the skill-owned transport recipe using the checker's Git policy."""
+    repo = fixture.repository
+    raw = FF_API["git_bytes"](repo, "ls-tree", "-r", "-z", reviewed_commit)
+    assert raw is not None
+    entries = [record.split(b"\t", 1) for record in raw.split(b"\0") if record]
+    error = FF_API["transformation_gate"](repo, b"".join(path + b"\0" for _, path in entries))
+    if error:
+        raise ValueError(error)
+    changed_raw = FF_API["git_bytes"](
+        repo, "diff-tree", "-r", "--no-commit-id", "--name-status", "-z",
+        "--no-renames", base, reviewed_commit,
+    )
+    changed = FF_API["parse_name_status_z"](changed_raw)
+    base_entries = FF_API["git_bytes"](repo, "ls-tree", "-r", "-z", base)
+    for record in base_entries.split(b"\0"):
+        if record.startswith(b"120000 ") and record.split(b"\t", 1)[1].decode("utf-8") in changed:
+            raise ValueError("symlink=review-relevant")
+    links = []
+    regular = []
+    for metadata, raw_path in entries:
+        mode, kind, oid = metadata.split(b" ")
+        path = raw_path.decode("utf-8")
+        if mode == b"160000":
+            raise ValueError("gitlinks=unsupported")
+        assert kind == b"blob"
+        blob = FF_API["git_bytes"](repo, "cat-file", "blob", oid.decode("ascii"))
+        assert blob is not None
+        if mode == b"120000":
+            if path in changed or path in relevant_links:
+                raise ValueError("symlink=review-relevant")
+            links.append({"path": path, "mode": "120000", "target": os.fsdecode(blob)})
+        else:
+            assert mode in {b"100644", b"100755"}
+            regular.append((path, blob, 0o755 if mode == b"100755" else 0o644))
+    target = fixture.root / "committed-target"
+    target.mkdir()
+    for path, blob, mode in regular:
+        destination = target / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(blob)
+        destination.chmod(mode)
+    manifest = fixture.root / "symlink-manifest.json"
+    manifest.write_text(json.dumps(links, sort_keys=True))
+    _git(target, "init", "-q")
+    _git(target, "config", "user.name", "Feature Forge fixture")
+    _git(target, "config", "user.email", "fixture@example.invalid")
+    _git(target, "-c", "core.autocrlf=false", "add", "--", *(path for path, _, _ in regular))
+    _git(target, "commit", "-qm", "canonical review transport")
+    fixture.target = target
+    fixture.bootstrap_commit = _git(target, "rev-parse", "HEAD")
+    return manifest
+
+
+@pytest.mark.parametrize("entry", ["changed-link", "relevant-link", "removed-link", "gitlink", "filter"])
+def test_implementation_materialization_blocks_unsupported_subject_before_creation(tmp_path, entry):
+    fixture = BoundaryFixture(tmp_path, b"specification\n", f"unsupported-{entry}")
+    repo = fixture.repository
+    marker = fixture.root / "filter-ran"
+    link = repo / "link"
+    link.symlink_to("README.md")
+    _git(repo, "add", "--", "link")
+    _git(repo, "commit", "-qm", "existing link")
+    base = _git(repo, "rev-parse", "HEAD")
+    relevant = ()
+    if entry == "changed-link":
+        link.unlink()
+        link.symlink_to("missing")
+        _git(repo, "add", "--", "link")
+        _git(repo, "commit", "-qm", "changed link")
+    elif entry == "removed-link":
+        _git(repo, "rm", "--", "link")
+        _git(repo, "commit", "-qm", "removed link")
+    elif entry == "relevant-link":
+        relevant = ("link",)
+    elif entry == "gitlink":
+        _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{base},module")
+        _git(repo, "commit", "-qm", "unsupported gitlink")
+    else:
+        attributes = Path(_git(repo, "rev-parse", "--git-path", "info/attributes"))
+        attributes.write_text("README.md filter=unset\n")
+        _git(repo, "config", "filter.unset.clean", f': > "{marker}"; exit 1')
+    with pytest.raises(ValueError, match="unsupported|review-relevant"):
+        _materialize_committed_implementation(
+            fixture, _git(repo, "rev-parse", "HEAD"), base, relevant_links=relevant,
+        )
+    assert not (fixture.root / "committed-target").exists()
+    assert not marker.exists()
+
+
+def test_first_implementation_pass_enters_stage_14_at_atomic_checkpoint_7(tmp_path):
+    fixture = BoundaryFixture(tmp_path, b"specification\n", "implementation-checkpoint")
+    repo = fixture.repository
+    plan = Path("docs/superpowers/plans/2026-08-25-alpha.md")
+    (repo / plan).parent.mkdir(parents=True, exist_ok=True)
+    (repo / plan).write_bytes(b"plan\n")
+    source = repo / "app.py"
+    source.write_bytes(b"\x00\xffexact\r\n")
+    source.chmod(0o755)
+    (repo / "unchanged-link").symlink_to("app.py\n")
+    _git(repo, "add", "--", plan.as_posix(), "app.py", "unchanged-link")
+    _git(repo, "commit", "-qm", "frozen authorities and existing implementation")
+    base = _git(repo, "rev-parse", "HEAD")
+    source.write_bytes(b"\x00\xffreviewed\r\n")
+    _git(repo, "add", "--", "app.py")
+    _git(repo, "commit", "-qm", "complete implementation")
+    reviewed_commit = _git(repo, "rev-parse", "HEAD")
+    exclude = Path(_git(repo, "rev-parse", "--git-path", "info/exclude"))
+    exclude.write_text("ignored.cache\n")
+    (repo / "ignored.cache").write_bytes(b"excluded from review")
+    # The transport reads the committed object even when these checkout bytes drift.
+    source.write_bytes(b"unreviewed checkout bytes")
+    manifest = _materialize_committed_implementation(fixture, reviewed_commit, base)
+    assert (fixture.target / "app.py").read_bytes() == b"\x00\xffreviewed\r\n"
+    assert (fixture.target / "app.py").stat().st_mode & stat.S_IXUSR
+    assert not (fixture.target / "ignored.cache").exists()
+    assert not (fixture.target / "unchanged-link").exists()
+    assert not (fixture.target / fixture.ledger_path.relative_to(repo)).exists()
+    assert json.loads(manifest.read_text()) == [
+        {"path": "unchanged-link", "mode": "120000", "target": "app.py\n"},
+    ]
+    source.write_bytes(b"\x00\xffreviewed\r\n")
+    frozen = {
+        name: {"path": path.as_posix(), "blob": _git(repo, "rev-parse", f"HEAD:{path}")}
+        for name, path in (("specification", RELATIVE_CANDIDATE), ("plan", plan))
+    }
+    authorities = []
+    for name, item in frozen.items():
+        authority = fixture.root / f"{name}-authority.md"
+        authority.write_bytes(FF_API["git_bytes"](repo, "cat-file", "blob", item["blob"]))
+        authorities.append(authority)
+    intent = fixture.intent()
+    intent = type(intent)(**{**intent.__dict__, "ground_truth": (*authorities, manifest)})
+    run_state = fixture.controller.create_run(intent)
+    data = fixture._head()
+    data.update(stage={"id": 10, "state": "active"}, frozen=frozen,
+                next_action="await or recover the active review")
+    dispatch = "implementation-1"
+    receipt_path = fixture.receipt_path(dispatch)
+    data["review"].update(
+        kind="implementation", state="review_active", root_identity=reviewed_commit,
+        dispatch_id=dispatch, run_ref=str(run_state.run_root), target_seal=run_state.governing_seal,
+        evidence_path=receipt_path.relative_to(repo).as_posix(),
+    )
+    fixture._write_head(data)
+    progress = f"| Task 1 | complete | {reviewed_commit} | deterministic fixture checks passed | |"
+    fixture.ledger_path.write_text(fixture.ledger_path.read_text().replace("|  |  |  |  |  |", progress))
+    before_review = fixture.ledger_path.read_bytes()
+    stage0 = fixture.stage0(run_state)
+    round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
+    triage = fixture.controller.run_triage(round1, triager=fixture.triager())
+    assert fixture.ledger_path.read_bytes() == before_review
+    run_state, result, ids = _map_controller_return(triage)
+    report_ids, artifact_id, triage_ids = _triage_evidence(round1, run_state)
+    assert result == "pass" and ids == triage_ids == []
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps({
+        "schema": "feature-forge/review-receipt/v1", "kind": "implementation",
+        "dispatch_id": dispatch, "run_ref": str(run_state.run_root),
+        "target_seal": run_state.governing_seal,
+        "source_identity": {"kind": "reviewed_commit", "path": None, "value": reviewed_commit},
+        "result": "pass", "actionable_finding_ids": [],
+        "feature_forge_charter_id": "feature-forge/implementation-review/v1",
+        "completion_criterion": "No grounded discrepancies remain.",
+        "raw_report_ids": report_ids, "triage_artifact_id": artifact_id,
+        "triage_finding_ids": [], "stable_id_mapping": [],
+    }))
+    data["review"].update(state="pass", reviewed_commit=reviewed_commit)
+    data.update(stage={"id": 14, "state": "active"}, next_action="claim alpha-finish")
+    fixture._write_head(data)
+    fixture.ledger_path.write_text(
+        fixture.ledger_path.read_text().replace("|  |  |  |  |  |", progress)
+        + "\n## Finish journal\n\nfinish_id alpha-finish; phase ready; outcome pending.\n"
+    )
+    report = fixture.ledger_path.with_name("final-report.md")
+    report.write_text("Verification and acceptance passed. Finish outcome pending.\n")
+    _git(repo, "add", "--", *(path.relative_to(repo).as_posix() for path in (receipt_path, fixture.ledger_path, report)))
+    _git(repo, "commit", "-qm", "checkpoint 7: acceptance and Finish ready")
+    checkpoint = _git(repo, "rev-parse", "HEAD")
+    assert _git(repo, "rev-parse", "HEAD^") == reviewed_commit
+    assert _git(repo, "status", "--porcelain") == ""
+    for gate in ("identities", "reviewed-snapshot", "audit"):
+        observed = subprocess.run(
+            [sys.executable, str(FF_CHECK), gate, "--repo", str(repo), "--run", str(report.parent)],
+            capture_output=True, text=True,
+        )
+        assert observed.returncode == 0, observed.stderr
+        assert _git(repo, "rev-parse", "HEAD") == checkpoint
+        assert _git(repo, "status", "--porcelain") == ""
 
 
 def test_same_kind_redispatch_retains_root_round_and_finding_history(tmp_path):

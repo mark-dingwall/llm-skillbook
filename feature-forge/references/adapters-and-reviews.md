@@ -147,15 +147,32 @@ the sealed target; it takes no caller-supplied *charter*, deployment-context,
 or completion-criterion field. Materialize each review subject in a fresh
 temporary Git repository: the exact candidate at its canonical relative path
 as the sole payload for Specification and Plan review; for Implementation
-review, every regular subject file in the complete isolated worktree snapshot
-at its exact relative path and mode, excluding only Git administrative
-metadata, plus a regular manifest recording each unchanged symlink's exact
-path, mode, and link target. Also capture the source worktree's exact binary
-diff and staged-entry listing. A changed or review-relevant symlink, or any
-other unsupported entry, blocks because `review-loop` cannot admit it safely.
-Keep each `run_root` and its reports outside the target.
+review, the subject is the canonical tracked tree at `reviewed_commit`.
+Enumerate that tree with NUL-delimited `ls-tree -r -z`, using the checker's
+hardened Git policy. Before materialization or checkout comparison, apply its
+shared effective-attribute gate to every controlled path: any reported
+`filter`, `text`, `eol`, `ident`, or `working-tree-encoding` attribute is
+unsupported regardless of value. Never execute a clean/process filter.
 
-Create one disposable bootstrap commit after materialization and pass its exact
+Read regular payload bytes directly from their blob IDs with conversion-free
+`cat-file blob`, preserving exact relative paths. Materialize `100644` as
+non-executable and `100755` as owner-executable regular files; these are Git
+modes, not a seal of the source checkout's complete POSIX permission mask.
+Exclude untracked and ignored material and Git administrative metadata from
+the subject. Supply frozen specification and plan blobs separately as review
+authorities even when their tracked paths are also in the subject.
+
+Retain the existing regular manifest for unchanged symlinks, recording each
+exact path, Git mode, and link-target bytes without following the link or
+trimming whitespace. Compare base and reviewed trees, including deleted and
+type-changed entries: a changed or review-relevant symlink blocks because
+`review-loop` cannot admit it safely. Gitlinks (`160000`) and other unsupported
+entries block; do not initialize submodules. Also supply the conversion-free
+binary committed diff and NUL-delimited staged-entry listing as review inputs.
+Keep each `run_root`, manifest, and reports outside the target.
+
+Create one disposable bootstrap commit without transforming the materialized
+bytes (disable automatic line-ending conversion), and pass its exact
 commit ID as `InvocationIntent.base` so preflight can resolve the target. This
 temporary transport commit is not a candidate freeze checkpoint.
 
@@ -251,8 +268,13 @@ For every review round, the controller must:
 1. Capture source identity before materializing: require an exact regular file
    reached only through real-directory ancestors, then record its SHA-256 plus canonical path
    for a Specification or Plan candidate. For Implementation, require the
-   clean committed subject and capture the canonical source `HEAD` as
-   `reviewed_commit`. The controller retains the materialized-subject evidence
+   canonical source `HEAD` as `reviewed_commit`. Separately require checkout
+   readiness: after the attribute gate, compare regular-file raw bytes and
+   symlink `readlink` bytes to current-`HEAD` blobs, verify owner-execute agrees
+   with Git mode, and reject staged differences and ordinary untracked dirt.
+   Ignored entries are outside this boundary. Controller-owned dispatch/return
+   records remain governed by the stage-specific allowances in `workflow.md`.
+   The controller retains the materialized-subject evidence
    needed to compare all sealed paths on return. Materialize the exact subject and
    create its one disposable bootstrap commit. Allocate a fresh filename-safe
    dispatch ID, caller-chosen external run root, and absent canonical receipt

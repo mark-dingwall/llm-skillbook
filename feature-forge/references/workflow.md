@@ -106,7 +106,7 @@ behavior evidence.
 | Candidate input identity | SHA-256 of exact uncommitted spec/plan candidate bytes | Feature Forge adapter |
 | Review target seal | Seal for review-loop materialized target | review-loop only |
 | Frozen identity | canonical path plus Git blob | ff-check identities |
-| Reviewed implementation commit | source HEAD reviewed by the current returned implementation review | ff-check audit/reviewed-snapshot |
+| Reviewed implementation commit | canonical tracked tree and Git modes at source HEAD reviewed by the current returned implementation review | ff-check audit/reviewed-snapshot |
 
 These identities are not interchangeable; Feature Forge cannot derive a review
 target seal from a source commit. A human transition row records `event`,
@@ -114,6 +114,25 @@ target seal from a source commit. A human transition row records `event`,
 reason/authority, and evidence. Session provenance records the harness, current
 conversation/session ID, and root, parent, or subagent identity when materially
 different and exposed.
+
+Committed integrity and checkout readiness are separate predicates. Compare
+the reviewed commit and current `HEAD` using NUL-safe tree/blob identities;
+the net committed delta may contain only the canonical ledger and applicable
+review receipt, plus the final report from Stage 13. Renames, deletions, mode
+changes, and copy destinations remain visible without treating an unchanged
+copy source as changed. Fully reverted endpoint differences are absent.
+
+Before materialization or checkout comparison, reject transforming attributes
+through the shared checker gate described in `adapters-and-reviews.md`.
+Compare controlled regular-file raw bytes directly to current-`HEAD` blobs,
+and symlink `readlink` bytes to symlink blobs; never use conversion-aware
+hashing or trust size/mtime caches. Gitlinks are unsupported. `100755` requires
+owner execute, `100644` requires it absent, and a successful raw read proves
+readability; other permission bits are not reviewed identity. Ignore ignored
+entries, but ordinary untracked dirt and staged changes fail readiness except
+for the exact ledger/current receipt before Stage 14. Stage 14 entry permits
+no dirty controller paths. The adapter's symlink manifest and changed or
+review-relevant symlink blocking rules remain mandatory.
 
 Material dispatches, returns, corrections, authority decisions, invalidations,
 and Finish transitions record the harness and available conversation/session
@@ -286,7 +305,8 @@ Create these eight checkpoint categories only when the corresponding tree differ
 6. `fix: address final <feature> review findings` when Implementation review changes implementation.
 7. `docs: record <feature> acceptance` for the final report, UAT/waiver, verification
    summary, traceability, branch-finishing readiness, the pending Finish outcome, and
-   the active Stage 13 ledger.
+   the active ledger already at Stage 14 with Finish `ready`, plus the applicable
+   passing implementation-review receipt/evidence.
 8. `docs: record <feature> finish` whenever tracked Stage 14 state differs: the
    `claimed` commit, the `menu_pending` commit before menu delivery or unattended
    resolution, the atomic `choice_recorded`-then-`executing` commit before the first
@@ -295,9 +315,13 @@ Create these eight checkpoint categories only when the corresponding tree differ
    `blocked` overlay may also commit from any nonterminal phase — including the
    `ready -> blocked` capability-gate outcome before `claimed`.
 
-Checkpoint 7 commits the final report and ledger after verification and acceptance
-while the run remains **active**, Finish phase `ready`, and outcome `pending` — it is
-not a completed ledger. The feature worktree must be clean before Finish begins and
+Checkpoint 7 atomically commits the final report, ledger, and applicable passing
+implementation-review receipt/evidence after verification and acceptance. The
+ledger already records Stage 14 `active`, overall `active`, Finish phase `ready`,
+outcome `pending`, one stable `finish_id`, and sole next action `claim <finish_id>`.
+No extra transition commit follows: the worktree is immediately clean, and initial
+Stage 14 `identities`, `reviewed-snapshot`, and `audit` run on that exact head.
+The feature worktree must be clean before Finish begins and
 before each non-read-only Stage 14 integration step. See "Stage 14: durable Finish
 phase protocol and crash recovery" below for the full category 8 lifecycle.
 
@@ -431,10 +455,10 @@ explicit change control rather than being marked complete.
 ### Stage 13: Report
 
 - **Goal:** Persist a traceable final report and a ready, not-yet-started Finish operation.
-- **Inputs:** Complete acceptance table, verification evidence, implementation traceability, final-report template, ledger, and clean feature worktree.
+- **Inputs:** Complete acceptance table, verification evidence, implementation traceability, final-report template, ledger, and feature checkout ready under the pre-Stage-14 controller-path allowances.
 - **Mechanical check:** Run `identities`, then `reviewed-snapshot`, then `audit` before writing the report.
-- **Owned action:** Require the canonical report path to be absent through a real-directory ancestor chain, create it exclusively as a regular file without following symlinks, allocate one stable `finish_id`, record Finish `ready` and outcome pending, commit report/ledger through checkpoint 7 while the run stays active, and restore a clean worktree.
-- **Pass:** Checkpoint 7 contains report and ledger, stable `finish_id`, phase `ready`, active status, clean worktree, and sole next action `claim <finish_id>`.
+- **Owned action:** Require the canonical report path to be absent through a real-directory ancestor chain, create it exclusively as a regular file without following symlinks, allocate one stable `finish_id`, and record Finish `ready` and outcome pending. Set the ledger to Stage 14 active with sole next action `claim <finish_id>` before atomically committing report, ledger, and applicable passing implementation-review receipt/evidence through checkpoint 7. Require the worktree to be immediately clean.
+- **Pass:** Checkpoint 7 contains report, ledger, passing receipt/evidence, stable `finish_id`, phase `ready`, Stage 14 active, overall active status, pending outcome, clean worktree, and sole next action `claim <finish_id>`.
 - **Failure:** A verified `fail` routes stale identity/review evidence through read-only reconciliation and its root cause; `unverifiable` blocks. Incomplete evidence returns to Acceptance/root cause and a dirty tree blocks.
 - **Next:** Claim `<finish_id>` at Stage 14: Finish.
 
@@ -442,7 +466,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Complete or durably block the one logical Finish operation without repeating an external effect.
 - **Inputs:** Report/checkpoint 7, stable `finish_id`, phase/journal receipts, selected mode authority, Git/forge observations, and clean applicable worktree.
-- **Mechanical check:** At Stage 14 entry before the first integration effect, run `identities`, then `reviewed-snapshot`, then `audit`; after an effect, recover from the Finish journal instead of reinterpreting topology through these gates.
+- **Mechanical check:** At Stage 14 entry, run `identities`, then `reviewed-snapshot`, then `audit` against the exact checkpoint-7 head and clean worktree, without another transition commit. After an effect, recover from the Finish journal instead of reinterpreting topology through these gates.
 - **Owned action:** Perform the LLM-executed capability probe, then drive the protocol below one write-ahead side effect at a time. Do not invoke `superpowers:finishing-a-development-branch`.
 - **Pass:** A category 8 terminal commit records durable outcome evidence, phase `terminal`, overall status `complete`, and no next action.
 - **Failure:** A verified `fail` before the first effect routes implementation/review drift through read-only reconciliation/invalidation or foreign dirt to blocking; `unverifiable`, a failed capability probe, unreconcilable checkout, unresolved menu, or ambiguous recovery records the resumable blocked overlay and performs no unrecorded effect.

@@ -671,13 +671,152 @@ def test_reviewed_snapshot_rejects_same_size_dirt_hidden_by_git_stat_cache(tmp_p
     assert_result(invoke(repo, directory), "fail", 1)
 
 
-def test_reviewed_snapshot_rejects_an_ignored_file_added_after_review(tmp_path: Path) -> None:
+def test_reviewed_snapshot_excludes_an_ignored_file_added_after_review(tmp_path: Path) -> None:
     repo, directory, _ = reviewed_fixture(tmp_path)
     common_dir = Path(git(repo, "rev-parse", "--git-common-dir"))
     if not common_dir.is_absolute():
         common_dir = repo / common_dir
     (common_dir / "info" / "exclude").write_text("ignored.cache\n")
     (repo / "ignored.cache").write_text("post-review ignored content\n")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize(("committed_mode", "checkout_mode", "status", "code"), [
+    (0o644, 0o641, "pass", 0),
+    (0o644, 0o600, "pass", 0),
+    (0o755, 0o654, "fail", 1),
+    (0o755, 0o740, "pass", 0),
+])
+def test_checkout_permissions_use_owner_execute_only(
+    tmp_path: Path, committed_mode: int, checkout_mode: int, status: str, code: int,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    target.chmod(committed_mode)
+    if committed_mode == 0o755:
+        data["review"]["reviewed_commit"] = commit(repo, "review executable", "src/app.py")
+        write_receipt(directory, data["review"])
+        write_ledger(directory, data)
+    git(repo, "config", "core.fileMode", "false")
+    target.chmod(checkout_mode)
+    assert_result(invoke(repo, directory), status, code)
+
+
+@pytest.mark.parametrize("subject", ["implementation", "specification", "plan"])
+def test_checkout_compares_raw_head_bytes_despite_autocrlf_configuration(tmp_path: Path, subject: str) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    git(repo, "config", "core.autocrlf", "false")
+    path = "src/app.py" if subject == "implementation" else data["frozen"][subject]["path"]
+    (repo / path).write_bytes(b"exact\r\ncommitted\r\n")
+    data["review"]["reviewed_commit"] = commit(repo, "review CRLF bytes", path)
+    if subject != "implementation":
+        data["frozen"][subject]["blob"] = git(repo, "rev-parse", f"HEAD:{path}")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    git(repo, "config", "core.autocrlf", "true")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_checkout_compares_exact_symlink_target_bytes(tmp_path: Path, changed: bool) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    link = repo / "link"
+    link.symlink_to("src/app.py\n")
+    data["review"]["reviewed_commit"] = commit(repo, "review link manifest", "link")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    if changed:
+        link.unlink()
+        link.symlink_to("src/app.py")
+    assert_result(invoke(repo, directory), "fail" if changed else "pass", 1 if changed else 0)
+
+
+def test_reviewed_snapshot_explicitly_rejects_gitlinks(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{data['review']['reviewed_commit']},module")
+    git(repo, "commit", "-qm", "unsupported gitlink")
+    data["review"]["reviewed_commit"] = git(repo, "rev-parse", "HEAD")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert "gitlinks=unsupported" in observed.stderr
+
+
+def test_committed_controller_copy_does_not_change_its_implementation_source(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    report.write_bytes((repo / "src/app.py").read_bytes())
+    data["stage"] = {"id": 13, "state": "active"}
+    write_ledger(directory, data)
+    commit(repo, "record report copied from unchanged implementation", report.relative_to(repo).as_posix())
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_checkout_detects_deletion_with_newline_in_tracked_path(tmp_path: Path, staged: bool) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    relative = "src/line\nbreak.py"
+    (repo / relative).write_bytes(b"reviewed\n")
+    data["review"]["reviewed_commit"] = commit(repo, "review unusual file", relative)
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    (repo / relative).unlink()
+    if staged:
+        git(repo, "add", "--", relative)
+    observed = invoke(repo, directory)
+    assert observed.returncode == 1
+    assert observed.stdout == "FF-CHECK v1 gate=reviewed-snapshot status=fail\n"
+    assert observed.stderr == "path=src/line\nbreak.py\n"
+
+
+def test_checkout_detects_staged_change_even_when_working_bytes_match_head(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    target.write_bytes(b"staged\n")
+    git(repo, "add", "--", "src/app.py")
+    target.write_bytes(b"implemented\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("dirty_path", ["ledger.md", "reviews/implementation-1.json"])
+def test_stage_14_entry_requires_checkpointed_controller_files(tmp_path: Path, dirty_path: str) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["stage"] = {"id": 14, "state": "active"}
+    data["next_action"] = "claim alpha-finish"
+    report = directory / "final-report.md"
+    report.write_text("Accepted; Finish outcome pending.\n")
+    write_ledger(directory, data)
+    commit(repo, "checkpoint 7", directory.relative_to(repo).as_posix())
+    assert_result(invoke(repo, directory), "pass", 0)
+    target = directory / dirty_path
+    target.write_bytes(target.read_bytes() + b"\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_attribute_gate_includes_head_paths_deleted_from_index(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    git(repo, "rm", "--cached", "--", "src/app.py")
+    attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
+    if not attributes.is_absolute():
+        attributes = repo / attributes
+    attributes.write_text("src/app.py filter=unsupported\n")
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr == "transformations=unsupported\n"
+
+
+def test_checkout_symlink_target_comparison_requires_real_directory_ancestors(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    links = repo / "links"
+    links.mkdir()
+    (links / "reference").symlink_to("../src/app.py")
+    data["review"]["reviewed_commit"] = commit(repo, "review nested link manifest", "links/reference")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    outside = tmp_path / "outside-links"
+    links.rename(outside)
+    links.symlink_to(outside, target_is_directory=True)
     assert_result(invoke(repo, directory), "fail", 1)
 
 

@@ -710,10 +710,14 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
     if transformation_error is not None:
         return result("unverifiable", transformation_error)
     for name, path, blob in controlled:
-        observed = git(repo, "hash-object", f"--path={path}", "--", path)
-        if observed is None:
+        try:
+            observed = (repo / path).read_bytes()
+        except PATH_OBSERVATION_ERRORS:
             return result("unverifiable", f"frozen={name}:unavailable")
-        if observed != blob:
+        expected = git_bytes(repo, "cat-file", "blob", blob)
+        if expected is None:
+            return result("unverifiable", f"frozen={name}:unavailable")
+        if observed != expected:
             mismatches.append(f"path={path}")
     return result("fail", *mismatches) if mismatches else result("pass")
 
@@ -1025,14 +1029,16 @@ def transformation_gate(repo: Path, paths: bytes) -> str | None:
 def controlled_tracked_paths(repo: Path) -> tuple[bytes | None, str | None]:
     """Enumerate tracked paths and apply the conversion-free attribute gate."""
     tracked = git_bytes(repo, "ls-files", "-z")
-    if tracked is None:
+    committed = git_bytes(repo, "ls-tree", "-r", "--name-only", "-z", "HEAD")
+    if tracked is None or committed is None:
         return None, "transformations=unavailable"
+    tracked += committed
     error = transformation_gate(repo, tracked)
     return (None, error) if error is not None else (tracked, None)
 
 
-def worktree_paths(repo: Path, tracked: bytes) -> tuple[set[str] | None, str | None]:
-    """Observe dirt without running configured clean-filter commands."""
+def worktree_paths(repo: Path) -> tuple[set[str] | None, str | None]:
+    """Observe index and ordinary untracked dirt without content conversion."""
     index_flags = git_bytes(repo, "ls-files", "-v", "-z")
     if index_flags is None:
         return None, "index-flags=unavailable"
@@ -1041,11 +1047,17 @@ def worktree_paths(repo: Path, tracked: bytes) -> tuple[set[str] | None, str | N
         for record in filter(None, index_flags.split(b"\0"))
     ):
         return None, "index-flags=unsupported"
-    raw = git_bytes(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    if raw is None:
+    raw = git_bytes(repo, "diff-index", "--cached", "--name-status", "-z", "--no-renames", "HEAD", "--")
+    untracked = git_bytes(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    if raw is None or untracked is None:
         return None, "paths=unavailable"
-    parsed = parse_porcelain_z(raw)
-    return (parsed, None) if parsed is not None else (None, "paths=unsupported")
+    parsed = parse_name_status_z(raw)
+    if parsed is None:
+        return None, "paths=unsupported"
+    try:
+        return parsed | {path.decode("utf-8") for path in untracked.split(b"\0") if path}, None
+    except UnicodeError:
+        return None, "paths=unsupported"
 
 
 def parse_name_status_z(raw: bytes) -> set[str] | None:
@@ -1067,31 +1079,18 @@ def parse_name_status_z(raw: bytes) -> set[str] | None:
     return paths
 
 
-def parse_porcelain_z(raw: bytes) -> set[str] | None:
-    fields = raw.split(b"\0")
-    if fields and fields[-1] == b"":
-        fields.pop()
-    paths: set[str] = set()
-    index = 0
-    try:
-        while index < len(fields):
-            record = fields[index]
-            index += 1
-            if len(record) < 4 or record[2:3] != b" ":
-                return None
-            status = record[:2]
-            paths.add(record[3:].decode("utf-8"))
-            if b"R" in status or b"C" in status:
-                paths.add(fields[index].decode("utf-8"))
-                index += 1
-    except (IndexError, UnicodeDecodeError):
-        return None
-    return paths
+def committed_paths(repo: Path, reviewed_commit: str) -> set[str] | None:
+    """Compare tree modes/blob identities without rename heuristics or conversion."""
+    raw = git_bytes(
+        repo, "diff-tree", "-r", "--no-commit-id", "--name-status", "-z",
+        "--no-renames", "--no-ext-diff", "--no-textconv", reviewed_commit, "HEAD", "--",
+    )
+    return parse_name_status_z(raw) if raw is not None else None
 
 
 def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
     """Return tracked paths whose current entry type/executable mode differs from Git."""
-    raw = git_bytes(repo, "ls-files", "--stage", "-z")
+    raw = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD")
     if raw is None:
         return None
     mismatches: set[str] = set()
@@ -1108,8 +1107,8 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
                 mismatches.add(path)
                 continue
             expected = {
-                b"100644": stat.S_ISREG(observed) and not bool(observed & 0o111),
-                b"100755": stat.S_ISREG(observed) and bool(observed & 0o111),
+                b"100644": exact_regular_file(repo, repo / path) and not bool(observed & stat.S_IXUSR),
+                b"100755": exact_regular_file(repo, repo / path) and bool(observed & stat.S_IXUSR),
                 b"120000": stat.S_ISLNK(observed),
             }.get(mode, False)
             if not expected:
@@ -1119,46 +1118,31 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
     return mismatches
 
 
-def hash_object_bytes(repo: Path, payload: bytes) -> str | None:
-    command, environment = git_process(repo, "hash-object", "--stdin")
-    try:
-        observed = subprocess.run(
-            command, input=payload, capture_output=True, check=False, env=environment,
-        )
-    except PATH_OBSERVATION_ERRORS:
-        return None
-    if observed.returncode != 0:
-        return None
-    try:
-        return observed.stdout.strip().decode("ascii")
-    except UnicodeDecodeError:
-        return None
-
-
 def tracked_content_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
-    """Compare tracked worktree bytes with index blobs without trusting stat data."""
-    raw = git_bytes(repo, "ls-files", "--stage", "-z")
+    """Compare raw checkout bytes with current HEAD blobs, independent of the index."""
+    raw = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD")
     if raw is None:
         return None
     mismatches: set[str] = set()
     try:
         for record in filter(None, raw.split(b"\0")):
             metadata, raw_path = record.split(b"\t", 1)
-            mode, expected_oid, stage = metadata.split(b" ")
+            mode, kind, expected_oid = metadata.split(b" ")
             path = raw_path.decode("utf-8")
             if path in allowed:
                 continue
-            if stage != b"0":
+            if kind != b"blob":
                 return None
             if mode in {b"100644", b"100755"}:
-                observed_oid = git(repo, "hash-object", f"--path={path}", "--", path)
+                observed = (repo / path).read_bytes()
             elif mode == b"120000":
-                observed_oid = hash_object_bytes(repo, os.readlink(os.fsencode(repo / path)))
+                observed = os.readlink(os.fsencode(repo / path))
             else:
                 return None
-            if observed_oid is None:
+            expected = git_bytes(repo, "cat-file", "blob", expected_oid.decode("ascii"))
+            if expected is None:
                 return None
-            if observed_oid.encode("ascii") != expected_oid:
+            if observed != expected:
                 mismatches.add(path)
     except PATH_OBSERVATION_ERRORS:
         return None
@@ -1218,6 +1202,12 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     if transformation_error is not None:
         return result("unverifiable", transformation_error)
     assert tracked is not None
+    entries = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD")
+    index = git_bytes(repo, "ls-files", "--stage", "-z")
+    if entries is None or index is None:
+        return result("unverifiable", "paths=unavailable")
+    if any(record.startswith(b"160000 ") for raw in (entries, index) for record in raw.split(b"\0")):
+        return result("unverifiable", "gitlinks=unsupported")
     ancestry = git_status(repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD")
     if ancestry not in {0, 1}:
         return result("unverifiable", "ancestry=unavailable")
@@ -1226,14 +1216,8 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     frozen = frozen_snapshot(repo, run, data.get("frozen"))
     if frozen.status != "pass":
         return frozen
-    committed_raw = git_bytes(
-        repo, "diff", "--name-status", "-z", "--find-renames", "--find-copies-harder",
-        f"{review['reviewed_commit']}..HEAD", "--",
-    )
-    dirty, dirty_error = worktree_paths(repo, tracked)
-    if committed_raw is None:
-        return result("unverifiable", "paths=unavailable")
-    committed = parse_name_status_z(committed_raw)
+    committed = committed_paths(repo, str(review["reviewed_commit"]))
+    dirty, dirty_error = worktree_paths(repo)
     if dirty_error:
         return result("unverifiable", dirty_error)
     if committed is None or dirty is None:
@@ -1249,6 +1233,7 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     report_relative = report.relative_to(repo).as_posix()
     report_state = exact_entry_state(repo, report)
     if stage["id"] >= 14:
+        dirty_allowed.clear()
         if report_state != "regular":
             return result("unverifiable", "report=unavailable")
         committed_report = head_has_regular_file(repo, report_relative)
@@ -1269,22 +1254,15 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
             return result("unverifiable", "report=unavailable")
     elif report_state != "absent":
         return result("fail", "report=premature")
-    mode_mismatches = tracked_mode_mismatches(repo, committed_allowed)
+    mode_mismatches = tracked_mode_mismatches(repo, dirty_allowed)
     if mode_mismatches is None:
         return result("unverifiable", "modes=unavailable")
-    content_mismatches = tracked_content_mismatches(repo, committed_allowed | mode_mismatches)
+    content_mismatches = tracked_content_mismatches(repo, dirty_allowed | mode_mismatches)
     if content_mismatches is None:
         return result("unverifiable", "content=unavailable")
-    ignored_raw = git_bytes(repo, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
-    if ignored_raw is None:
-        return result("unverifiable", "paths=unavailable")
-    try:
-        ignored = {path.decode("utf-8") for path in ignored_raw.split(b"\0") if path}
-    except UnicodeError:
-        return result("unverifiable", "paths=unsupported")
     foreign = sorted(
         (committed - committed_allowed) | (dirty - dirty_allowed) | mode_mismatches
-        | content_mismatches | (ignored - dirty_allowed)
+        | content_mismatches
     )
     return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
 
@@ -1578,13 +1556,7 @@ def implementation_review_source(
         return result("unverifiable", "reviewed-commit=ancestry-unavailable")
     if ancestry == 1:
         return result("fail", "reviewed-commit=not-ancestor")
-    changed_raw = git_bytes(
-        repo, "diff", "--name-status", "-z", "--find-renames", "--find-copies-harder",
-        f"{reviewed_commit}..HEAD", "--",
-    )
-    if changed_raw is None:
-        return result("unverifiable", "reviewed-commit=descendants-unavailable")
-    changed = parse_name_status_z(changed_raw)
+    changed = committed_paths(repo, str(reviewed_commit))
     if changed is None:
         return result("unverifiable", "reviewed-commit=descendants-unsupported")
     if not isinstance(evidence_path, str):
