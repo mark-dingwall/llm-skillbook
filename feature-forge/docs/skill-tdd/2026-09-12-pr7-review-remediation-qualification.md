@@ -318,3 +318,116 @@ mapping or test expectation was changed to accommodate the sandbox.
 
 No schema version, checker command, durable artifact type, Review Loop API,
 installation, or runtime Bubblewrap mapping was added by this remediation.
+
+## Final permitted fix wave
+
+The independent whole-diff review accepted three additional Important findings.
+This single final wave starts at `96633872d57a841182c5ab7c4e309d3cf4e7cb93` and
+qualifies code/test/adapter commit
+`d347d62e18e16689f274efae9cfadc4c5acb3c99` (`fix: close final Feature Forge Git boundaries`).
+The following evidence-only commit updates this current remediation record;
+it does not change the qualified runtime, adapter recipe, or tests. The earlier
+observations and Task 1 process-evidence exception above remain intact.
+
+### Findings, observed RED, and minimum GREEN
+
+Each finding was developed in order: its real regression ran against the
+then-current implementation before its production fix. No RED in this final
+wave was reconstructed. Snapshot commands below use repository-root cwd;
+boundary commands use `review-loop` cwd and its existing `uv` environment.
+
+| Finding and focused command | Genuine RED | GREEN |
+| --- | --- | --- |
+| Replacement objects: `python3 -m pytest feature-forge/tests/test_ff_check_reviewed_snapshot.py -q -k ignores_replacements` | 2 failed in 0.75s. Real blob and commit replacements both caused changed `src/app.py` bytes to receive `status=pass` against the original recorded identity. | 2 passed in 0.69s after centrally setting `GIT_NO_REPLACE_OBJECTS=1`. Both now fail with `path=src/app.py`. |
+| Partial-clone lazy fetch: `python3 -m pytest feature-forge/tests/test_ff_check_reviewed_snapshot.py -q -k does_not_fetch_missing_promisor_objects` | 1 failed in 0.43s. Removing the disposable fixture's promised loose blob caused object observation to execute the configured local `git-remote-ff-marker` transport and create its marker. | Combined replacement/promisor selection: 3 passed in 0.84s after centrally setting `GIT_NO_LAZY_FETCH=1`. The missing object is unverifiable, the program marker stays absent, and object-directory paths and bytes are unchanged. |
+| Review Loop handoff: `uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q -k controller_handoff` | 8 failed in 1.93s. Ambient routing made `create_run` bind a foreign identity and made later calls reject false drift; configured fsmonitor executed for all four public calls. | 8 passed in 2.08s with the bounded trusted environment. With exception-restoration characterization and explicit successful-stage assertions added, 9 passed in 2.55s. |
+
+The first replacement GREEN attempt correctly rejected both changed files, but
+two assertions expected a diagnostic token that the checker does not use.
+Correcting that test literal to the existing `path=src/app.py` protocol produced
+the GREEN above; neither the initial false-pass RED nor production behavior was
+reconstructed. Exception-restoration coverage was added after GREEN as a
+characterization of the same context manager, not claimed as another RED cycle.
+
+The missing-promisor fixture uses only a disposable local repository and a
+local marker helper which exits unsuccessfully. It contacts no network and
+introduces no clone harness. The host is Git 2.34.1; its behavior under the real
+regression establishes support for `GIT_NO_LAZY_FETCH` here.
+
+`git_process` remains the sole checker Git argv/environment policy. Inspection
+confirmed its use at all four checker subprocess sites (`git`, `git_bytes`,
+`git_status`, and effective-attribute observation), shared by all four public
+commands. A fresh `runpy` diagnostic loaded the checker, `identity_drift.py`,
+and `remediation_pressure.py` and asserted each exported helper supplied
+`GIT_OPTIONAL_LOCKS=0`, `GIT_NO_REPLACE_OBJECTS=1`, and `GIT_NO_LAZY_FETCH=1`.
+Both scorers inherit the retained trusted helper; no second Git helper was added.
+
+The live adapter reference contains the small context-manager recipe; the
+boundary fixture executes that exact fenced recipe with the real Controller.
+Each `create_run`, `run_stage0`, `run_round1`, and `run_triage` call uses the
+trusted helper's routing/config scrub and only two new trusted config-injection
+entries: `core.fsmonitor=false` and `core.hooksPath=/dev/null`. Tests bind the
+expected target seal, require the appropriate completed stage, reject fsmonitor
+execution, and compare the entire original environment after success and a real
+reseal exception. Target-reading argument construction occurs within the scope.
+Synchronous model callbacks inherit the same environment. Process-environment
+mutation requires the documented quiescent controller: no concurrent activity
+outside the scope and no background work outliving it. No Review Loop API,
+production implementation, or generalized concurrency framework changed.
+
+### Final-wave verification
+
+Affected complete checker/scorer suites (`test_ff_check_reviewed_snapshot.py`,
+`test_ff_check_identities.py`, `test_ff_check_runs.py`, `test_ff_check_audit.py`,
+`test_behavior_oracle.py`, and `test_remediation_pressure.py`) passed together:
+800 passed in 183.10s. The complete boundary suite passed 44 tests in 18.40s;
+its rerun after explicit completed-stage assertions passed 44 in 19.74s.
+
+The complete Review Loop restricted-sandbox attempt again reported 27 failed,
+488 passed, 1 skipped in 26.66s. The fresh diagnostic
+`bwrap --ro-bind / / --unshare-net -- /usr/bin/true` failed with
+`bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted`;
+the socket seal test also failed to bind its Unix socket with `PermissionError`.
+The unchanged suite with host permission passed 515 tests, 1 skipped in 27.39s.
+These are environment failures, not compliant behavioral RED evidence, and no
+mapping or test expectation was weakened.
+
+Fresh skip diagnostics preserved the existing boundaries: root Python's
+boundary-only command reported one skip and exit 5 because `review_loop` is not
+installed in that interpreter; the owning `uv` boundary suite supplies coverage.
+The focused Review Loop ordinary-containment scope diagnostic reported one skip,
+15 deselected, exit 0, because evidence-gate/FIX mappings are outside that
+fixture's declared scope. No new skip was introduced.
+
+The initial complete Feature Forge run passed 813 tests, 1 skipped in 185.07s.
+After completing this final-wave record, the full frozen-plan command set was
+repeated against file content identical to the evidence-only commit. The final
+content results are summarized without importing earlier task totals:
+
+| Command (repository root unless noted) | Final-content result |
+| --- | --- |
+| `python3 -m pytest feature-forge/tests -q` | 813 passed, 1 existing environment skip; exit 0 |
+| In `review-loop`: `uv run pytest ../feature-forge/tests/integration/test_review_loop_boundary.py -q` | 44 passed; exit 0 |
+| In `review-loop`, host permission: `uv run pytest -q` | 515 passed, 1 existing scope skip; exit 0 |
+| `python3 -m pytest tests/test_install.py -q` | 11 passed; exit 0 |
+| `python3 -m pytest tests/test_documentation.py -q` | 20 passed; exit 0 |
+| `python3 -m pytest tests/test_plugin_agents.py -q` | 2 passed; exit 0 |
+| `claude plugin validate . --strict` | Marketplace validation passed; exit 0 |
+| `python3 -m pytest tests -q` | 33 passed; exit 0 |
+| `python3 -m py_compile feature-forge/scripts/ff-check feature-forge/tests/behavior/identity_drift.py feature-forge/tests/behavior/remediation_pressure.py` | Exit 0 |
+| `git diff --check origin/main...HEAD`, `git diff --check`, and `git diff --cached --check` | Exit 0 |
+| Explicit status, diff, and mode review | Code commit owns only the checker, adapter reference, and two focused test files; evidence commit owns only this record. Checker stays `100755`; documents/tests stay `100644`; no symlink changes. Final tracked worktree clean. |
+
+Documentation/root gates were rerun after the record update. The complete
+same-content verification and final exact commit identities are also returned
+in the controller's ignored `final-fix-report.md`; no pushed PR/CI result is
+inferred. The original frozen plan and all earlier qualification records remain
+unchanged. This record names the exact production/test commit independently of
+its own evidence-only commit identity.
+
+All prior strict-MVP boundaries remain: four commands, v1 schemas, no new state
+artifact or inventory, unsupported transformations and gitlinks, unsupported
+linked-base terminalization, the #22 quiescence/race residual, and the disclosed
+partial-Round-1/#23 limits. No stochastic campaign ran: dispatched prompts and
+semantic output contracts did not change. These are deterministic wiring and
+Git-boundary observations, not new model-behavior or human-UAT evidence.
