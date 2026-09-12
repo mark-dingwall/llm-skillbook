@@ -341,13 +341,17 @@ committed-integrity, checkout-readiness, and quiescent-observation rules above
 to the current stage's permitted controller paths. Confirm the passing
 implementation receipt, reviewed commit, frozen identities, and matching
 review seal evidence; the checker does not derive the review-loop target seal.
-Record the observations in the ledger's evidence. A non-pass permits no
-downstream action: use the owning stage's failure routing below.
+At Stages 11–13, record the observations in the ledger's evidence. A non-pass
+permits no downstream action: use the owning stage's failure routing below.
 
 Stage 14 entry applies this gate to the exact clean checkpoint-7 head without
-another transition commit. After a Finish effect, use Finish-journal recovery
-as specified by Stage 14 rather than rerunning the entry gate to reinterpret
-the resulting topology.
+another transition commit. Keep its observations session-local through the
+clean capability probe; do not write the ledger or create a transition commit
+before probing. Persist those observations only in the existing category-8
+transaction: `claimed` after all entry probes pass, or `ready -> blocked` when
+an entry probe fails. After a Finish effect, use Finish-journal recovery as
+specified by Stage 14 rather than rerunning the entry gate to reinterpret the
+resulting topology.
 
 ## Ordered outer stages
 
