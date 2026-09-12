@@ -114,6 +114,8 @@ def git_process(repo: Path, *args: str) -> tuple[list[str], dict[str, str]]:
         and GIT_INDEXED_CONFIG_VARIABLE.fullmatch(key) is None
     }
     environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    environment["GIT_NO_LAZY_FETCH"] = "1"
     command = [
         "git", "-C", str(repo),
         "-c", "core.fsmonitor=false",

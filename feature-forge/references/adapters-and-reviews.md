@@ -230,6 +230,54 @@ promotion, final challenge, or `close`. This boundary is executable because
 it stops only between public controller calls; Feature Forge owns corrections
 between rounds.
 
+Every one of those synchronous public calls, including `create_run` and all
+later reseals, must run inside the same trusted process-environment recipe
+below. Load `git_process` from the trusted installed `scripts/ff-check` before
+dispatch. It removes `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+`GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, and every indexed
+`GIT_CONFIG_KEY_<digits>` / `GIT_CONFIG_VALUE_<digits>` variable. It sets
+`GIT_OPTIONAL_LOCKS=0`, `GIT_NO_REPLACE_OBJECTS=1`, and `GIT_NO_LAZY_FETCH=1`.
+The adapter then injects only the two trusted config overrides so Review
+Loop's plain Git subprocesses inherit the bootstrap protection:
+
+```python
+# Feature Forge synchronous Review Loop environment
+import os
+from contextlib import contextmanager
+
+
+@contextmanager
+def trusted_review_loop_environment(git_process, target):
+    original = dict(os.environ)
+    _, trusted = git_process(target)
+    trusted.update({
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "core.fsmonitor",
+        "GIT_CONFIG_VALUE_0": "false",
+        "GIT_CONFIG_KEY_1": "core.hooksPath",
+        "GIT_CONFIG_VALUE_1": "/dev/null",
+    })
+    try:
+        os.environ.clear()
+        os.environ.update(trusted)
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(original)
+```
+
+Wrap each complete `Controller.create_run`, `run_stage0`, `run_round1`, and
+`run_triage` call in `with trusted_review_loop_environment(git_process,
+target):`. Construct any target-reading dispatch arguments inside that same
+scope. The controller process must be quiescent: permit no concurrent
+controller/model activity outside this scope and no asynchronous work that
+outlives the synchronous call. Model dispatch invoked by a call inherits this
+same bounded environment until it returns. Restore the original environment
+on success and on every exception; persist Feature Forge's return only after
+the call returns. This is a Feature Forge adapter recipe, not a Review Loop
+API or a process-wide concurrency framework.
+
 Every charter defines a finding as a grounded discrepancy against an approved
 requirement, correctness condition, applicable repository contract, or required
 verification result. Preferences, optional enhancements, and speculative

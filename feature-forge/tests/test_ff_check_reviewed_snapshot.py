@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import runpy
+import shlex
 import shutil
 import subprocess
 import sys
@@ -115,6 +116,61 @@ def test_reviewed_snapshot_accepts_reviewed_commit_receipt(tmp_path: Path) -> No
     }
     path.write_text(json.dumps(payload))
     assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("replaced_kind", ["blob", "commit"])
+def test_reviewed_snapshot_ignores_replacements_when_checking_committed_bytes(
+    tmp_path: Path, replaced_kind: str,
+) -> None:
+    """Replacement content must not validate bytes absent from the recorded tree."""
+    repo, directory, data = reviewed_fixture(tmp_path)
+    original_commit = data["review"]["reviewed_commit"]
+    original_blob = git(repo, "rev-parse", "HEAD:src/app.py")
+    (repo / "src/app.py").write_text("replacement implementation\n")
+    replacement_blob = git(repo, "hash-object", "-w", "src/app.py")
+    if replaced_kind == "blob":
+        git(repo, "replace", original_blob, replacement_blob)
+    else:
+        git(repo, "add", "src/app.py")
+        tree = git(repo, "write-tree")
+        replacement_commit = subprocess.run(
+            ["git", "-C", str(repo), "commit-tree", tree, "-p", data["base_identity"]],
+            input="replacement tree\n", text=True, capture_output=True, check=True,
+        ).stdout.strip()
+        git(repo, "replace", original_commit, replacement_commit)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "path=src/app.py\n"
+
+
+def test_reviewed_snapshot_does_not_fetch_missing_promisor_objects(tmp_path: Path) -> None:
+    """Reading an unavailable blob must not invoke a transport or populate objects."""
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    oid = git(repo, "rev-parse", "HEAD:src/app.py")
+    objects = Path(git(repo, "rev-parse", "--git-path", "objects")).resolve()
+    missing_blob = objects / oid[:2] / oid[2:]
+    assert missing_blob.is_file()
+    missing_blob.unlink()
+    marker = tmp_path / "promisor-transport-ran"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    helper = binary / "git-remote-ff-marker"
+    helper.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\nexit 1\n")
+    helper.chmod(0o755)
+    git(repo, "config", "extensions.partialClone", "origin")
+    git(repo, "config", "remote.origin.promisor", "true")
+    git(repo, "config", "remote.origin.url", "ff-marker::unused")
+    git(repo, "config", "protocol.ff-marker.allow", "always")
+    before = {path.relative_to(objects): path.read_bytes()
+              for path in objects.rglob("*") if path.is_file()}
+    observed = invoke(repo, directory, environment={
+        **os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+    })
+    after = {path.relative_to(objects): path.read_bytes()
+             for path in objects.rglob("*") if path.is_file()}
+    assert not marker.exists(), "missing-object read executed the promisor transport"
+    assert after == before
+    assert_result(observed, "unverifiable", 2)
 
 
 def test_reviewed_snapshot_accepts_exact_reviewed_head_without_interpreting_target_seal(tmp_path: Path) -> None:

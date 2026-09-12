@@ -11,6 +11,7 @@ import json
 import os
 import re
 import runpy
+import shlex
 import copy
 import stat
 import subprocess
@@ -45,6 +46,15 @@ RECEIPT_KEYS = {
     "triage_artifact_id", "triage_finding_ids", "stable_id_mapping",
 }
 FF_API = runpy.run_path(str(FF_CHECK))
+ADAPTER_REFERENCE = FF_CHECK.parent.parent / "references/adapters-and-reviews.md"
+ADAPTER_API = {}
+_environment_recipe = re.search(
+    r"```python\n(# Feature Forge synchronous Review Loop environment\n.*?)\n```",
+    ADAPTER_REFERENCE.read_text(), re.DOTALL,
+)
+assert _environment_recipe is not None
+exec(compile(_environment_recipe[1], str(ADAPTER_REFERENCE), "exec"), ADAPTER_API)
+trusted_review_loop_environment = ADAPTER_API["trusted_review_loop_environment"]
 CRITERION = "same grounded discrepancy against the same requirement, correctness condition, repository contract, or verification result, with no material change in the required correction"
 COMPLETION = "No grounded discrepancies remain against the specification review charter."
 HEAD_KEYS = {"schema", "run_id", "mode", "status", "worktree", "branch", "base_identity", "stage", "next_action", "frozen", "review"}
@@ -252,7 +262,7 @@ def test_first_implementation_pass_enters_stage_14_at_atomic_checkpoint_7(tmp_pa
         authorities.append(authority)
     intent = fixture.intent()
     intent = type(intent)(**{**intent.__dict__, "ground_truth": (*authorities, manifest)})
-    run_state = fixture.controller.create_run(intent)
+    run_state = fixture.create_run(intent)
     data = fixture._head()
     data.update(stage={"id": 10, "state": "active"}, frozen=frozen,
                 next_action="await or recover the active review")
@@ -269,7 +279,7 @@ def test_first_implementation_pass_enters_stage_14_at_atomic_checkpoint_7(tmp_pa
     before_review = fixture.ledger_path.read_bytes()
     stage0 = fixture.stage0(run_state)
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
-    triage = fixture.controller.run_triage(round1, triager=fixture.triager())
+    triage = fixture.run_triage(round1, triager=fixture.triager())
     assert fixture.ledger_path.read_bytes() == before_review
     run_state, result, ids = _map_controller_return(triage)
     report_ids, artifact_id, triage_ids = _triage_evidence(round1, run_state)
@@ -629,7 +639,7 @@ class BoundaryFixture:
             head["next_action"] = "resolve existing external review run root"
             self._write_head(head)
             return None
-        run_state = self.controller.create_run(self.intent())
+        run_state = self.create_run(self.intent())
         self.persist_review_active(dispatch_id, run_state)
         return run_state
 
@@ -682,6 +692,10 @@ class BoundaryFixture:
             ground_truth=(self.ground_truth,),
             run_root=self.run_root,
         )
+
+    def create_run(self, intent):
+        with trusted_review_loop_environment(FF_API["git_process"], self.target):
+            return self.controller.create_run(intent)
 
     def scout(self, *, fail: bool = False):
         seal = seal_target(self.target, GitPolicy(enabled=True, base="HEAD", include_untracked=True)).digest
@@ -754,8 +768,13 @@ class BoundaryFixture:
         return dispatch
 
     def run_round1(self, stage0, **kwargs):
-        self.round1_outcome = self.controller.run_round1(stage0, **kwargs)
+        with trusted_review_loop_environment(FF_API["git_process"], self.target):
+            self.round1_outcome = self.controller.run_round1(stage0, **kwargs)
         return self.round1_outcome
+
+    def run_triage(self, round1, **kwargs):
+        with trusted_review_loop_environment(FF_API["git_process"], self.target):
+            return self.controller.run_triage(round1, **kwargs)
 
     def triager(self, *, actionable: bool = False):
         def dispatch(expectation: RoleExpectation) -> ValidatedRoleArtifact:
@@ -781,14 +800,15 @@ class BoundaryFixture:
         return dispatch
 
     def stage0(self, run_state, *, scout_fails: bool = False, gate_fails: bool = False):
-        return self.controller.run_stage0(
-            run_state,
-            scout=self.scout(fail=scout_fails),
-            gate_dispatch=self.gate_dispatch(failed=gate_fails),
-            inventory_owner=self.inventory_owner(),
-            inventory_challenger=self.inventory_challenger(),
-            explicit_tier="low",
-        )
+        with trusted_review_loop_environment(FF_API["git_process"], self.target):
+            return self.controller.run_stage0(
+                run_state,
+                scout=self.scout(fail=scout_fails),
+                gate_dispatch=self.gate_dispatch(failed=gate_fails),
+                inventory_owner=self.inventory_owner(),
+                inventory_challenger=self.inventory_challenger(),
+                explicit_tier="low",
+            )
 
     def receipt_path(self, dispatch_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", dispatch_id):
@@ -978,7 +998,7 @@ def _nonempty_triage(fixture, run_state, severity="Important"):
     source = ({"id": "raw-source", "claim": "REQ-007 has no acceptance check", "severity": severity,
                "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source))
-    return fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
+    return fixture.run_triage(round1, triager=fixture.triager(actionable=True))
 
 
 def _nonempty_receipt(fixture, dispatch, run_state):
@@ -1098,13 +1118,89 @@ def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):
     stage0 = fixture.stage0(run_state)
     assert stage0.run_state.stage == "STAGE0" and stage0.review_may_start
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
-    triage = fixture.controller.run_triage(round1, triager=fixture.triager())
+    triage = fixture.run_triage(round1, triager=fixture.triager())
     assert triage.stage == "TRIAGE"
     assert triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"] == []
     assert fixture.source_identity == captured_identity
     assert fixture._load_head()["review"]["state"] == "review_active"
     receipt = fixture.record_controller_return(dispatch_id, triage)
     return triage, receipt, captured_identity
+
+
+@pytest.mark.parametrize("operation", ["create_run", "run_stage0", "run_round1", "run_triage"])
+@pytest.mark.parametrize("hostile", ["routing", "fsmonitor"])
+def test_controller_handoff_preserves_target_identity_and_blocks_programs(
+    tmp_path, monkeypatch, operation, hostile,
+):
+    """Every public handoff must seal the intended target without ambient Git effects."""
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "trusted-handoff")
+    expected = seal_target(
+        fixture.target,
+        GitPolicy(enabled=True, base=fixture.bootstrap_commit, include_untracked=True),
+    ).digest
+    if operation != "create_run":
+        run_state = fixture.begin_review("trusted-1")
+    if operation in {"run_round1", "run_triage"}:
+        stage0 = fixture.stage0(run_state)
+    if operation == "run_triage":
+        round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
+
+    marker = fixture.root / "fsmonitor-ran"
+    program = fixture.root / "fsmonitor"
+    program.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\nexit 0\n")
+    program.chmod(0o755)
+    _git(fixture.target, "config", "core.fsmonitor", str(program))
+    if hostile == "routing":
+        foreign = fixture.root / "foreign"
+        _git(fixture.root, "clone", "-q", "--no-hardlinks", str(fixture.target), str(foreign))
+        _git(foreign, "config", "user.name", "Foreign")
+        _git(foreign, "config", "user.email", "foreign@example.invalid")
+        (foreign / "foreign.txt").write_text("foreign identity\n")
+        _git(foreign, "add", "foreign.txt")
+        _git(foreign, "commit", "-qm", "foreign head")
+        for key, value in {
+            "GIT_DIR": str(foreign / ".git"), "GIT_WORK_TREE": str(foreign),
+            "GIT_COMMON_DIR": str(foreign / ".git"),
+            "GIT_INDEX_FILE": str(foreign / ".git/index"),
+            "GIT_OBJECT_DIRECTORY": str(foreign / ".git/objects"),
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(foreign / ".git/objects"),
+        }.items():
+            monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", f"'core.fsmonitor={program}'")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.fsmonitor")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(program))
+    monkeypatch.setenv("GIT_CONFIG_KEY_37", "core.hooksPath")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_37", str(fixture.root))
+    original_environment = dict(os.environ)
+
+    if operation == "create_run":
+        outcome = fixture.begin_review("trusted-1")
+    elif operation == "run_stage0":
+        outcome = fixture.stage0(run_state).run_state
+    elif operation == "run_round1":
+        outcome = fixture.run_round1(stage0, dispatch_role=fixture.reviewer()).run_state
+    else:
+        outcome = fixture.run_triage(round1, triager=fixture.triager())
+    assert outcome.stage == {
+        "create_run": "PREFLIGHT", "run_stage0": "STAGE0",
+        "run_round1": "REVIEW", "run_triage": "TRIAGE",
+    }[operation]
+    assert outcome.governing_seal == expected
+    assert not marker.exists(), "Review Loop Git executed the configured fsmonitor"
+    assert dict(os.environ) == original_environment
+
+
+def test_controller_handoff_restores_environment_after_real_reseal_failure(tmp_path, monkeypatch):
+    fixture = BoundaryFixture(tmp_path, b"candidate\n", "failed-handoff")
+    run_state = fixture.begin_review("failure-1")
+    (fixture.target / RELATIVE_CANDIDATE).write_bytes(b"actual target drift\n")
+    monkeypatch.setenv("GIT_DIR", str(fixture.root / "absent-git-dir"))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "17")
+    original_environment = dict(os.environ)
+    with pytest.raises(ControllerError, match="authoritative target drifted"):
+        fixture.stage0(run_state)
+    assert dict(os.environ) == original_environment
 
 
 def _recover_receipt(fixture: BoundaryFixture, receipt: Path) -> None:
@@ -1248,7 +1344,7 @@ def test_boundary_containment_and_recovery_use_only_bound_evidence(tmp_path):
 
     stage0 = fixture.stage0(run_state)
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
-    triage = fixture.controller.run_triage(round1, triager=fixture.triager())
+    triage = fixture.run_triage(round1, triager=fixture.triager())
     captured_identity = fixture.captured_identity
     receipt = fixture.write_receipt("recovery-1", triage, "pass", [], captured_identity)
     assert json.loads(receipt.read_text())["source_identity"] == fixture.captured_identity
@@ -1294,7 +1390,7 @@ def test_actionable_triage_maps_changes_required_with_sorted_ids(tmp_path, sever
     source_finding = ({"id": "raw-b", "claim": "needs a correction", "severity": severity,
                        "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
-    triage = fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
+    triage = fixture.run_triage(round1, triager=fixture.triager(actionable=True))
     actionable_ids = sorted(row["id"] for row in triage.snapshot["processor_state"]["apply_ledger_decisions"]["rows"])
     receipt = fixture.record_controller_return("actionable-1", triage)
     payload = json.loads(receipt.read_text())
@@ -1321,7 +1417,7 @@ def test_residual_minor_triage_requires_correction(tmp_path):
     source_finding = ({"id": "raw-minor", "claim": "minor residual", "severity": "Minor",
                        "locator_ids": [RELATIVE_CANDIDATE.as_posix()]},)
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer(findings=source_finding))
-    triage = fixture.controller.run_triage(round1, triager=fixture.triager(actionable=True))
+    triage = fixture.run_triage(round1, triager=fixture.triager(actionable=True))
     receipt = fixture.record_controller_return("minor-1", triage)
     assert json.loads(receipt.read_text())["result"] == "changes_required"
     assert fixture._load_head()["review"]["open_finding_ids"]
@@ -1419,7 +1515,7 @@ def test_boundary_persists_reservation_before_create_run_and_review_active_befor
 def test_boundary_stays_blocked_after_create_run_before_review_active_promotion(tmp_path):
     fixture = BoundaryFixture(tmp_path, b"candidate\n", "create-crash")
     reservation = fixture.reserve_review("crash-1")
-    fixture.controller.create_run(fixture.intent())
+    fixture.create_run(fixture.intent())
     fixture.reservations.clear()
     recovered = fixture._load_head()
     assert recovered["status"] == "blocked"
@@ -1486,7 +1582,7 @@ def test_return_rejects_a_receipt_ancestor_swapped_to_a_symlink(tmp_path):
     run_state = fixture.begin_review("late-symlink-1")
     stage0 = fixture.stage0(run_state)
     round1 = fixture.run_round1(stage0, dispatch_role=fixture.reviewer())
-    triage = fixture.controller.run_triage(round1, triager=fixture.triager())
+    triage = fixture.run_triage(round1, triager=fixture.triager())
     receipt = fixture.receipt_path("late-symlink-1")
     outside = fixture.root / "outside-return-receipts"
     outside.mkdir()
