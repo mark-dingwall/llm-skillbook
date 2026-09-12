@@ -25,6 +25,18 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True).stdout.strip()
 
 
+def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
+    files = {
+        path.relative_to(repo).as_posix(): path.read_bytes()
+        for path in repo.rglob("*") if path.is_file() and ".git" not in path.relative_to(repo).parts
+    }
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd=repo,
+        capture_output=True, check=True,
+    ).stdout
+    return files, status
+
+
 def make_primary_repo(tmp_path: Path, branch: str = "feature/alpha") -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()

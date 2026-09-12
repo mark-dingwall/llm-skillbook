@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CHECKER, check, git, head, make_repo, run_dir, write_ledger
+from conftest import CHECKER, check, fixture_snapshot, git, head, make_repo, run_dir, write_ledger
 
 
 def assert_result(result: subprocess.CompletedProcess[str], status: str, code: int) -> None:
@@ -115,18 +115,6 @@ def test_reviewed_snapshot_accepts_reviewed_commit_receipt(tmp_path: Path) -> No
     }
     path.write_text(json.dumps(payload))
     assert_result(invoke(repo, directory), "pass", 0)
-
-
-def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
-    files = {
-        path.relative_to(repo).as_posix(): path.read_bytes()
-        for path in repo.rglob("*") if path.is_file() and ".git" not in path.relative_to(repo).parts
-    }
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd=repo,
-        capture_output=True, check=True,
-    ).stdout
-    return files, status
 
 
 def test_reviewed_snapshot_accepts_exact_reviewed_head_without_interpreting_target_seal(tmp_path: Path) -> None:

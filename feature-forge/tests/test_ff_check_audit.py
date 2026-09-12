@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (
-    CHECKER, check, git, head, make_primary_repo, make_repo, run_dir,
+    CHECKER, check, fixture_snapshot, git, head, make_primary_repo, make_repo, run_dir,
     write_ledger as write_ledger_fixture,
 )
 
@@ -514,18 +514,6 @@ def test_audit_rejects_malformed_task_table(tmp_path: Path, markdown: str) -> No
     observed = invoke(repo, directory)
     assert_result(observed, "fail", 1)
     assert observed.stderr == "task-table=unsupported\n"
-
-
-def fixture_snapshot(repo: Path) -> tuple[dict[str, bytes], bytes]:
-    files = {
-        path.relative_to(repo).as_posix(): path.read_bytes()
-        for path in repo.rglob("*") if path.is_file() and ".git" not in path.relative_to(repo).parts
-    }
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd=repo,
-        capture_output=True, check=True,
-    ).stdout
-    return files, status
 
 
 def lifecycle_head(repo: Path, directory: Path, data: dict[str, object],

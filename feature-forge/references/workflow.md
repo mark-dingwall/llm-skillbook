@@ -134,6 +134,14 @@ for the exact ledger/current receipt before Stage 14. Stage 14 entry permits
 no dirty controller paths. The adapter's symlink manifest and changed or
 review-relevant symlink blocking rules remain mandatory.
 
+Path checks reject symlinks at observation time where a real directory or
+regular file is required; explicitly supported tracked symlinks retain the
+separate target/manifest checks above. Later reads are not descriptor-bound
+to those observations. The controller must remain quiescent during gates and
+prevent concurrent mutation of controlled paths. Generalized protection
+against concurrent external path replacement is deferred; these checks do
+not establish race resistance.
+
 Material dispatches, returns, corrections, authority decisions, invalidations,
 and Finish transitions record the harness and available conversation/session
 identity, plus any materially different root, parent, or subagent identity; use
@@ -320,10 +328,26 @@ implementation-review receipt/evidence after verification and acceptance. The
 ledger already records Stage 14 `active`, overall `active`, Finish phase `ready`,
 outcome `pending`, one stable `finish_id`, and sole next action `claim <finish_id>`.
 No extra transition commit follows: the worktree is immediately clean, and initial
-Stage 14 `identities`, `reviewed-snapshot`, and `audit` run on that exact head.
+Stage 14 runs the common post-review integrity gate on that exact head.
 The feature worktree must be clean before Finish begins and
 before each non-read-only Stage 14 integration step. See "Stage 14: durable Finish
 phase protocol and crash recovery" below for the full category 8 lifecycle.
+
+## Common post-review integrity gate
+
+Before the owned actions in Stages 11–13 and at Stage 14 entry, run `identities`, then
+`reviewed-snapshot`, then `audit`, and require all three to pass. Apply the
+committed-integrity, checkout-readiness, and quiescent-observation rules above
+to the current stage's permitted controller paths. Confirm the passing
+implementation receipt, reviewed commit, frozen identities, and matching
+review seal evidence; the checker does not derive the review-loop target seal.
+Record the observations in the ledger's evidence. A non-pass permits no
+downstream action: use the owning stage's failure routing below.
+
+Stage 14 entry applies this gate to the exact clean checkpoint-7 head without
+another transition commit. After a Finish effect, use Finish-journal recovery
+as specified by Stage 14 rather than rerunning the entry gate to reinterpret
+the resulting topology.
 
 ## Ordered outer stages
 
@@ -436,7 +460,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Produce fresh deterministic evidence for the unchanged reviewed snapshot.
 - **Inputs:** Passing implementation receipt, reviewed commit, frozen identities, permitted ledger/evidence delta, and verification commands.
-- **Mechanical check:** Run `identities`, then `reviewed-snapshot`, then `audit` before verification.
+- **Mechanical check:** Apply the [common post-review integrity gate](#common-post-review-integrity-gate) (`identities` → `reviewed-snapshot` → `audit`) before verification.
 - **Owned action:** Confirm the reviewed commit and sealed paths remain unchanged, compare recorded review evidence, and run fresh risk-proportionate checks.
 - **Pass:** Commands/results, reviewed commit, matching identities/seal evidence, and clean verification evidence are recorded.
 - **Failure:** A verified `fail` routes drift or a verification defect to read-only reconciliation and its specification/plan/implementation root; `unverifiable` or an unavailable required environment blocks.
@@ -446,7 +470,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Decide every requirement/scenario using its declared acceptance method and current evidence.
 - **Inputs:** Frozen specification acceptance contract, current verification evidence, reviewed commit, UAT authority/fallbacks, and acceptance table.
-- **Mechanical check:** Run `identities`, then `reviewed-snapshot`, then `audit` before acceptance.
+- **Mechanical check:** Apply the [common post-review integrity gate](#common-post-review-integrity-gate) (`identities` → `reviewed-snapshot` → `audit`) before acceptance.
 - **Owned action:** Execute each declared method and record its state, authority, evidence, and fallback without inventing human UAT.
 - **Pass:** Every required behavior has current reproducible evidence, its required authority, and no open material defect.
 - **Failure:** A verified `fail` routes identity/review drift or rejection through read-only reconciliation and root-cause classification; `unverifiable`, infeasible required acceptance, or missing authority blocks.
@@ -456,7 +480,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Persist a traceable final report and a ready, not-yet-started Finish operation.
 - **Inputs:** Complete acceptance table, verification evidence, implementation traceability, final-report template, ledger, and feature checkout ready under the pre-Stage-14 controller-path allowances.
-- **Mechanical check:** Run `identities`, then `reviewed-snapshot`, then `audit` before writing the report.
+- **Mechanical check:** Apply the [common post-review integrity gate](#common-post-review-integrity-gate) (`identities` → `reviewed-snapshot` → `audit`) before writing the report.
 - **Owned action:** Require the canonical report path to be absent through a real-directory ancestor chain, create it exclusively as a regular file without following symlinks, allocate one stable `finish_id`, and record Finish `ready` and outcome pending. Set the ledger to Stage 14 active with sole next action `claim <finish_id>` before atomically committing report, ledger, and applicable passing implementation-review receipt/evidence through checkpoint 7. Require the worktree to be immediately clean.
 - **Pass:** Checkpoint 7 contains report, ledger, passing receipt/evidence, stable `finish_id`, phase `ready`, Stage 14 active, overall active status, pending outcome, clean worktree, and sole next action `claim <finish_id>`.
 - **Failure:** A verified `fail` routes stale identity/review evidence through read-only reconciliation and its root cause; `unverifiable` blocks. Incomplete evidence returns to Acceptance/root cause and a dirty tree blocks.
@@ -466,7 +490,7 @@ explicit change control rather than being marked complete.
 
 - **Goal:** Complete or durably block the one logical Finish operation without repeating an external effect.
 - **Inputs:** Report/checkpoint 7, stable `finish_id`, phase/journal receipts, selected mode authority, Git/forge observations, and clean applicable worktree.
-- **Mechanical check:** At Stage 14 entry, run `identities`, then `reviewed-snapshot`, then `audit` against the exact checkpoint-7 head and clean worktree, without another transition commit. After an effect, recover from the Finish journal instead of reinterpreting topology through these gates.
+- **Mechanical check:** Apply the [common post-review integrity gate](#common-post-review-integrity-gate) (`identities` → `reviewed-snapshot` → `audit`) at Stage 14 entry against the exact clean checkpoint-7 head. After an effect, recover from the Finish journal as required by that gate's entry-only boundary.
 - **Owned action:** Perform the LLM-executed capability probe, then drive the protocol below one write-ahead side effect at a time. Do not invoke `superpowers:finishing-a-development-branch`.
 - **Pass:** A category 8 terminal commit records durable outcome evidence, phase `terminal`, overall status `complete`, and no next action.
 - **Failure:** A verified `fail` before the first effect routes implementation/review drift through read-only reconciliation/invalidation or foreign dirt to blocking; `unverifiable`, a failed capability probe, unreconcilable checkout, unresolved menu, or ambiguous recovery records the resumable blocked overlay and performs no unrecorded effect.
