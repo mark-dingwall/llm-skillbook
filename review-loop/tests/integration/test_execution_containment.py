@@ -26,9 +26,9 @@ from review_loop.execution import (
     preflight_codex_mapping,
 )
 from review_loop.seals import GitPolicy, SealEntry, seal_target
+from tests.integration.containment_test_helpers import resolve_bwrap_visible_python
 
 FAKE_REVIEWER = Path(__file__).resolve().parent / "fixtures" / "fake_reviewer.py"
-BWRAP_VISIBLE_PYTHON = Path("/usr/bin/python3")
 
 BWRAP = shutil.which("bwrap")
 
@@ -39,12 +39,47 @@ def _skip_reason():
     return None
 
 
+class BubblewrapVisiblePythonResolverTests(unittest.TestCase):
+    """Selection stays runnable inside the mappings that bind only ``/usr``."""
+
+    def test_prefers_resolved_sys_python_then_system_fallbacks(self):
+        cases = (
+            (
+                "/usr/bin/../bin/python3.14",
+                {Path("/usr/bin/python3.14"), Path("/usr/bin/python3"), Path("/usr/local/bin/python3")},
+                Path("/usr/bin/python3.14"),
+            ),
+            (
+                "/opt/venv/bin/python",
+                {Path("/usr/bin/python3"), Path("/usr/local/bin/python3")},
+                Path("/usr/bin/python3"),
+            ),
+            (
+                "/tmp/python",
+                {Path("/usr/local/bin/python3")},
+                Path("/usr/local/bin/python3"),
+            ),
+        )
+
+        for executable, visible, expected in cases:
+            with self.subTest(executable=executable):
+                self.assertEqual(
+                    resolve_bwrap_visible_python(executable, is_visible=visible.__contains__),
+                    expected,
+                )
+
+    def test_skips_explicitly_when_no_visible_python_exists(self):
+        with self.assertRaisesRegex(unittest.SkipTest, "Bubblewrap-visible Python"):
+            resolve_bwrap_visible_python("/tmp/python", is_visible=lambda _path: False)
+
+
 @unittest.skipIf(_skip_reason(), _skip_reason() or "")
 class ContainmentTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
+        self.bwrap_visible_python = resolve_bwrap_visible_python()
 
         self.target_root = self.root / "target"
         self.target_root.mkdir()
@@ -65,8 +100,8 @@ class ContainmentTests(unittest.TestCase):
         self.host = CodexHostPaths(
             bwrap=Path(BWRAP),
             # The real mapping binds only /usr, so the fixture runtime must
-            # be a system interpreter visible inside that unchanged mapping.
-            node=BWRAP_VISIBLE_PYTHON,
+            # be visible inside that unchanged mapping.
+            node=self.bwrap_visible_python,
             codex_package_root=FAKE_REVIEWER.parent,
             codex_entry=FAKE_REVIEWER,
             auth_file=self.auth_file,
@@ -285,7 +320,7 @@ class CodexRealBinaryPreflightTests(unittest.TestCase):
         host = resolve_codex_host_paths()
         broken = CodexHostPaths(
             bwrap=host.bwrap,
-            node=BWRAP_VISIBLE_PYTHON,
+            node=resolve_bwrap_visible_python(),
             codex_package_root=FAKE_REVIEWER.parent,
             codex_entry=FAKE_REVIEWER.parent / "incomplete_help_reviewer.py",
             auth_file=host.auth_file,

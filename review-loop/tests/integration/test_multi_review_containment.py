@@ -35,6 +35,7 @@ from review_loop.multi_review import (
     resolve_multi_review_host_paths,
 )
 from review_loop.seals import GitPolicy, seal_target
+from tests.integration.containment_test_helpers import resolve_bwrap_visible_python
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -42,7 +43,6 @@ FAKE_PROBE = FIXTURES / "fake_reviewer.py"  # Task 5's generic directive-based p
 FAKE_MR = FIXTURES / "fake_mr_reviewer.py"
 FAKE_MR_TAMPER = FIXTURES / "fake_mr_reviewer_tamper.py"
 FAKE_MR_FORGE = FIXTURES / "fake_mr_reviewer_forge.py"
-BWRAP_VISIBLE_PYTHON = Path("/usr/bin/python3")
 
 BWRAP = shutil.which("bwrap")
 
@@ -108,7 +108,7 @@ class MountPolicyProbeTests(unittest.TestCase):
         # added only for this substitution.
         probe_argv = (
             argv[:-3] + ["--ro-bind", str(FAKE_PROBE), str(FAKE_PROBE)]
-            + [str(BWRAP_VISIBLE_PYTHON), str(FAKE_PROBE)]
+            + [str(resolve_bwrap_visible_python()), str(FAKE_PROBE)]
         )
         result = subprocess.run(
             probe_argv, input=json.dumps(directive), capture_output=True, text=True, timeout=timeout,
@@ -180,7 +180,7 @@ class MountPolicyProbeTests(unittest.TestCase):
         )
         probe_argv = (
             argv[:-3] + ["--ro-bind", str(FAKE_PROBE), str(FAKE_PROBE)]
-            + [str(BWRAP_VISIBLE_PYTHON), str(FAKE_PROBE)]
+            + [str(resolve_bwrap_visible_python()), str(FAKE_PROBE)]
         )
         directive = {"spawn_orphan_heartbeat": "/out/hb.txt", "sleep_seconds": 30, "results_path": "/out/results.json"}
         proc = subprocess.Popen(probe_argv, stdin=subprocess.PIPE)
