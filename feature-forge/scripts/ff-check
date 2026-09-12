@@ -1592,8 +1592,11 @@ def recover_review_return(
     repo: Path, run: Path, data: dict[str, object],
 ) -> tuple[dict[str, object] | None, Result]:
     """Validate and project one persisted return from a review-active head."""
-    review = data.get("review")
-    if not isinstance(review, dict) or review.get("state") != "review_active":
+    if error := audit_head_shape(repo, run, data):
+        return None, result("unverifiable", error)
+    review = data["review"]
+    assert isinstance(review, dict)
+    if review["state"] != "review_active":
         return None, result("fail", "review=not-active")
     valid, _ = review_state_invariant(review)
     if not valid:

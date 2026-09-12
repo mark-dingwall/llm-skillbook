@@ -935,6 +935,33 @@ def test_recovery_rejects_malformed_mismatched_or_source_divergent_receipts(
     assert checked.status != "pass"
 
 
+@pytest.mark.parametrize("defect", [
+    "missing-fields", "negative-round", "boolean-round", "unsorted-history", "typed-history",
+])
+def test_recovery_rejects_malformed_active_review_heads_without_an_exception(
+    tmp_path: Path, defect: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, state="pass")
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 5, "state": "active"})
+    if defect == "missing-fields":
+        data["review"] = {"state": "review_active"}
+    elif defect == "negative-round":
+        active["round"] = -1
+    elif defect == "boolean-round":
+        active["round"] = True
+    elif defect == "unsorted-history":
+        active["previous_open_finding_ids"] = ["F-2", "F-1"]
+    else:
+        active["open_finding_ids"] = [1]
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert projected is None
+    assert checked.status != "pass"
+
+
 @pytest.mark.parametrize(("foreign_change", "expected"), [(False, "pass"), (True, "fail")])
 def test_implementation_recovery_allows_only_controller_owned_descendant_changes(
     tmp_path: Path, foreign_change: bool, expected: str,

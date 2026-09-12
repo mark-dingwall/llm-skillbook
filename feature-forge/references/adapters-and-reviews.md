@@ -297,8 +297,11 @@ actionable_finding_ids, feature_forge_charter_id, completion_criterion,
 raw_report_ids, triage_artifact_id, triage_finding_ids, stable_id_mapping
 ```
 
-`schema` is `feature-forge/review-receipt/v1`; kind, dispatch, run, seal, result,
-and sorted unique actionable IDs agree with the current ledger review.
+`schema` is `feature-forge/review-receipt/v1`; kind, dispatch, run, seal, and
+result agree with the current ledger review. For completed TRIAGE, sorted unique
+actionable IDs agree with the ledger's current open IDs; a pre-TRIAGE block
+instead has empty receipt actionable IDs while retaining both ledger finding-ID
+histories.
 `source_identity` has exactly `kind`, `path`, and `value`: candidates use
 `candidate_sha256`, canonical path, and SHA-256; Implementation uses
 `reviewed_commit`, null path, and the ledger's reviewed commit. The checker
