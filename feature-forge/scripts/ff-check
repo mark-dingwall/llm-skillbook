@@ -246,7 +246,7 @@ def markdown_table_cells(line: str) -> tuple[str, ...] | None:
     return tuple(cell.strip() for cell in re.split(r"(?<!\\)\|", candidate[1:-1]))
 
 
-def audit_implementation_progress(path: Path) -> Result:
+def audit_implementation_progress(path: Path, stage_id: int | None) -> Result:
     try:
         text = path.read_text()
     except PATH_OBSERVATION_ERRORS:
@@ -280,11 +280,21 @@ def audit_implementation_progress(path: Path) -> Result:
         rows.append(cells)
     placeholders = [row for row in rows if not any(row)]
     if placeholders:
-        return result("pass") if len(rows) == 1 else result("fail", "task-table=unsupported")
+        if len(rows) != 1:
+            return result("fail", "task-table=unsupported")
+        return (
+            result("fail", "task-progress=incomplete")
+            if stage_id is not None and stage_id >= 10 else result("pass")
+        )
     if any(not row[0] for row in rows):
         return result("fail", "task-table=unsupported")
     if any(row[1] not in TASK_STATUSES for row in rows):
         return result("fail", "task-status=unsupported")
+    if stage_id is not None and stage_id >= 10 and any(
+        row[1] != "complete" or not row[2].strip() or not row[3].strip()
+        for row in rows
+    ):
+        return result("fail", "task-progress=incomplete")
     return result("pass")
 
 
@@ -488,7 +498,16 @@ def runs(repo_arg: str, run_id: str) -> Result:
                 if not valid_date(directory.name, run_id):
                     diagnostics.append(f"ledger={relative}:noncanonical")
                 else:
-                    checked = audit_current_head(repo, directory, data)
+                    stage = data.get("stage")
+                    stage_id = stage.get("id") if isinstance(stage, dict) else None
+                    task_table = audit_implementation_progress(
+                        ledger_path,
+                        stage_id if isinstance(stage_id, int) and not isinstance(stage_id, bool) else None,
+                    )
+                    checked = (
+                        task_table if task_table.status != "pass"
+                        else audit_current_head(repo, directory, data)
+                    )
                     destination = unverifiable if checked.status == "unverifiable" else diagnostics
                     if checked.status == "pass":
                         ledgers.append((ledger_path, data))
@@ -1442,23 +1461,50 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
     suffix = DATED_DIRECTORY.fullmatch(run.name)
     assert suffix is not None
     expected_branch = f"feature/{suffix.group(4)}"
+    terminal = (
+        data.get("status") == "complete"
+        and data.get("stage") == {"id": 14, "state": "complete"}
+        and data.get("next_action") is None
+    )
     linked = linked_worktree(repo)
     if linked is None:
         return result("unverifiable", "worktree=unavailable")
-    if not linked:
-        return result("fail", "worktree=primary")
     if data["worktree"] != str(repo):
         return result("fail", "worktree=wrong-run")
-    if data["branch"] != expected_branch:
-        return result("fail", "branch=wrong-run")
     observed_branch = git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
     if observed_branch is None:
         return result("unverifiable", "branch=unavailable")
-    if observed_branch != f"refs/heads/{expected_branch}":
+    if terminal:
+        if linked and observed_branch != f"refs/heads/{expected_branch}":
+            return result("fail", "worktree=linked-base")
+        if observed_branch != f"refs/heads/{data['branch']}":
+            return result("fail", "branch=wrong-run")
+    elif not linked:
+        return result("fail", "worktree=primary")
+    elif data["branch"] != expected_branch or observed_branch != f"refs/heads/{expected_branch}":
         return result("fail", "branch=wrong-run")
     base = base_identity_result(repo, data["base_identity"])
     if base.status != "pass":
         return base
+    if terminal:
+        review = data.get("review")
+        if not (
+            isinstance(review, dict)
+            and review.get("kind") == "implementation"
+            and review.get("state") == "pass"
+        ):
+            return result("fail", "review=inconsistent")
+        reviewed_commit = review.get("reviewed_commit")
+        identity = commit_identity(repo, reviewed_commit)
+        if identity != "valid":
+            return result("unverifiable", f"reviewed-commit={identity}")
+        ancestry = git_status(
+            repo, "merge-base", "--is-ancestor", str(reviewed_commit), "HEAD",
+        )
+        if ancestry not in {0, 1}:
+            return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+        if ancestry == 1:
+            return result("fail", "reviewed-commit=not-ancestor")
     frozen = data["frozen"]
     assert isinstance(frozen, dict)
     for name in ("specification", "plan"):
@@ -1691,7 +1737,8 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
         review["kind"] == "implementation"
         and review["reviewed_commit"] is not None
     )
-    if implementation_return:
+    terminal = data["status"] == "complete" and stage == {"id": 14, "state": "complete"}
+    if implementation_return and not terminal:
         if review["state"] == "changes_required":
             if commit_identity(repo, review["reviewed_commit"]) != "valid":
                 return result("unverifiable", "reviewed-commit=unresolvable")
@@ -1745,7 +1792,12 @@ def audit(repo_arg: str, run_arg: str) -> Result:
     if error:
         return result("unverifiable", f"ledger={error}")
     assert data is not None
-    task_table = audit_implementation_progress(ledger)
+    stage = data.get("stage")
+    stage_id = stage.get("id") if isinstance(stage, dict) else None
+    task_table = audit_implementation_progress(
+        ledger,
+        stage_id if isinstance(stage_id, int) and not isinstance(stage_id, bool) else None,
+    )
     if task_table.status != "pass":
         return task_table
     return audit_current_head(repo, run, data)
@@ -1772,27 +1824,12 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     assert suffix is not None
     if data.get("run_id") != suffix.group(4) or not valid_run_id(repo, suffix.group(4)):
         return result("unverifiable", "run=unsupported")
-    observed_branch = git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
-    if observed_branch is None:
-        return result("unverifiable", "branch=unavailable")
-    linked = linked_worktree(repo)
-    if linked is None:
-        return result("unverifiable", "worktree=unavailable")
-    if not linked:
-        return result("fail", "worktree=primary")
     worktree, branch, base = data.get("worktree"), data.get("branch"), data.get("base_identity")
     if not all(isinstance(value, str) for value in (worktree, branch, base)):
         return result("unverifiable", "ledger-identity=unsupported")
-    expected_branch = f"feature/{suffix.group(4)}"
-    if (
-        worktree != str(repo)
-        or branch != expected_branch
-        or observed_branch != f"refs/heads/{expected_branch}"
-    ):
-        return result("fail", "identity=worktree-or-branch-mismatch")
-    base_status = base_identity_result(repo, base)
-    if base_status.status != "pass":
-        return base_status
+    claims = canonical_identity_claims(repo, run, data)
+    if claims.status != "pass":
+        return claims
     return frozen_snapshot(repo, run, data.get("frozen"))
 
 

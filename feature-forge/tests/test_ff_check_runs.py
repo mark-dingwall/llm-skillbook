@@ -245,6 +245,28 @@ def test_runs_accepts_blocked_ledger(tmp_path: Path) -> None:
     assert_result(result, "runs", "pass", 0)
 
 
+def test_runs_rejects_an_incomplete_stage_10_ledger_before_classifying_it_resumable(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    data = head(repo)
+    data.update(stage={"id": 10, "state": "active"}, next_action="review implementation")
+    write_ledger(
+        run_dir(repo), data,
+        markdown=(
+            "\n## Implementation progress\n\n"
+            "| plan task | status | commit | evidence | notes |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| W-1 | pending |  |  |  |\n"
+        ),
+    )
+
+    observed = check("runs", "--repo", str(repo), "--run-id", "alpha")
+
+    assert_result(observed, "runs", "fail", 1)
+    assert "task-progress=incomplete" in observed.stderr
+
+
 def test_runs_does_not_classify_review_active_as_resumable(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     data = head(repo)

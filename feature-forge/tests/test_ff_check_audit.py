@@ -13,7 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CHECKER, check, git, head, make_repo, run_dir, write_ledger
+from conftest import (
+    CHECKER, check, git, head, make_primary_repo, make_repo, run_dir,
+    write_ledger as write_ledger_fixture,
+)
 
 
 HEAD_KEYS = {
@@ -31,6 +34,30 @@ def task_markdown(*rows: tuple[str, str, str, str, str]) -> str:
         "| --- | --- | --- | --- | --- |\n"
         f"{body}\n"
     )
+
+
+COMPLETE_TASK_MARKDOWN = task_markdown((
+    "W-1", "complete", "abc123", "pytest: pass", "",
+))
+
+
+def write_ledger(
+    directory: Path,
+    data: object,
+    *,
+    fenced: bool = True,
+    markdown: str | None = None,
+) -> Path:
+    """Give valid Stage 10+ fixtures completed task evidence by default."""
+    if markdown is None:
+        stage = data.get("stage") if isinstance(data, dict) else None
+        stage_id = stage.get("id") if isinstance(stage, dict) else None
+        markdown = (
+            COMPLETE_TASK_MARKDOWN
+            if isinstance(stage_id, int) and stage_id >= 10
+            else task_markdown(("", "", "", "", ""))
+        )
+    return write_ledger_fixture(directory, data, fenced=fenced, markdown=markdown)
 
 # Receipt and semantic-mapping contracts are exercised through the installed file.
 def receipt_payload() -> dict[str, object]:
@@ -428,6 +455,47 @@ def test_audit_accepts_task_commentary_only_in_notes(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("markdown", [
+    task_markdown(("", "", "", "", "")),
+    task_markdown(("W-1", "pending", "", "", "")),
+    task_markdown(("W-1", "active", "", "", "work in progress")),
+])
+def test_audit_accepts_noncomplete_task_progress_during_stage_9(
+    tmp_path: Path, markdown: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(repo, directory, data, kind="plan", state="pass")
+    data.update(stage={"id": 9, "state": "active"}, next_action="continue implementation")
+    write_ledger(directory, data, markdown=markdown)
+
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize(("stage_id", "markdown"), [
+    (10, task_markdown(("", "", "", "", ""))),
+    (10, task_markdown(("W-1", "pending", "", "", ""))),
+    (10, task_markdown(("W-1", "complete", "", "pytest: pass", ""))),
+    (14, task_markdown(("W-1", "complete", "abc123", " ", ""))),
+])
+def test_audit_requires_complete_task_evidence_at_stage_10_and_later(
+    tmp_path: Path, stage_id: int, markdown: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(repo, directory, data, kind="implementation", state="pass")
+    terminal = stage_id == 14
+    data.update(
+        status="complete" if terminal else "active",
+        stage={"id": stage_id, "state": "complete" if terminal else "active"},
+        next_action=None if terminal else "continue implementation review",
+    )
+    write_ledger(directory, data, markdown=markdown)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "task-progress=incomplete\n"
+
+
+@pytest.mark.parametrize("markdown", [
     "",
     "\n## Implementation progress\n\n| plan task | status | commit | evidence |\n| --- | --- | --- | --- |\n| W-2 | active | c123 | pytest: pass |\n",
     "\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n| W-2 | active | c123 | pytest: pass | note | extra |\n",
@@ -812,6 +880,48 @@ def test_audit_accepts_only_complete_stage_14_as_terminal(tmp_path: Path) -> Non
     repo, directory, data = audit_fixture(tmp_path)
     data.update(status="complete", stage={"id": 14, "state": "complete"}, next_action=None)
     returned_review(repo, directory, data, kind="implementation")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_audit_accepts_local_merge_terminal_state_in_the_primary_base_checkout(
+    tmp_path: Path,
+) -> None:
+    repo = make_primary_repo(tmp_path, branch="main")
+    base = git(repo, "rev-parse", "HEAD")
+    feature = tmp_path / "feature-worktree"
+    git(repo, "worktree", "add", "-qb", "feature/alpha", str(feature), "HEAD")
+    paths = {
+        "specification": "docs/superpowers/specs/2026-08-25-alpha-design.md",
+        "plan": "docs/superpowers/plans/2026-08-25-alpha.md",
+    }
+    for name, relative in paths.items():
+        target = feature / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{name}\n")
+    git(feature, "add", *paths.values())
+    git(feature, "commit", "-qm", "reviewed implementation")
+    reviewed_commit = git(feature, "rev-parse", "HEAD")
+    (repo / "base-only.txt").write_text("independent base change\n")
+    git(repo, "add", "base-only.txt")
+    git(repo, "commit", "-qm", "advance base")
+    git(repo, "merge", "--no-ff", "-qm", "merge feature", "feature/alpha")
+    frozen = {
+        name: {"path": relative, "blob": git(repo, "rev-parse", f"HEAD:{relative}")}
+        for name, relative in paths.items()
+    }
+    directory = run_dir(repo)
+    data = head(
+        repo, status="complete", branch="main", base_identity=base, frozen=frozen,
+    )
+    data["stage"] = {"id": 14, "state": "complete"}
+    review = returned_review(repo, directory, data, kind="implementation")
+    review["reviewed_commit"] = reviewed_commit
+    receipt_path = repo / review["evidence_path"]
+    receipt = json.loads(receipt_path.read_text())
+    receipt["source_identity"]["value"] = reviewed_commit
+    receipt_path.write_text(json.dumps(receipt, sort_keys=True))
+    write_ledger(directory, data)
+
     assert_result(invoke(repo, directory), "pass", 0)
 
 

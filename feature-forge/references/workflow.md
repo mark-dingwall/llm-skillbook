@@ -36,7 +36,7 @@ as absent.
 | `run_id` | Work-unit slug. |
 | `mode` | Exactly `interactive`, `supervised`, or `unattended`; default `supervised`. |
 | `status` | `active`, `blocked`, or `complete`. |
-| `worktree`, `branch`, `base_identity` | Current absolute worktree; exact `feature/<run_id>` branch; canonical full, resolvable commit OID that is an ancestor of current `HEAD`. This does not reconstruct the historical fork point. |
+| `worktree`, `branch`, `base_identity` | Current absolute containing checkout and its exact named branch; canonical full, resolvable base commit OID that is an ancestor of current `HEAD`. Every nonterminal head, and a Keep or Push-and-PR terminal head, uses the isolated linked worktree and exact `feature/<run_id>` branch. A local-merge terminal head alone may use the confirmed primary base checkout and its base branch. A linked base checkout is unsupported. This does not reconstruct the historical fork point. |
 | `stage` | `{id, state}`; IDs are 1..14. The current head uses `active`, `blocked`, `complete`, or `invalidated`; `pending` describes future stages only and is rejected for the current stage. |
 | `next_action` | Nonblank for nonterminal heads; null only with overall `complete` and Stage 14 complete. Its semantic meaning remains controller-owned prose. |
 | `frozen` | `specification` and `plan`, each null or exactly `{path, blob}` strings; non-null paths are the run-derived canonical artifacts and blobs are canonical full, resolvable blob OIDs. |
@@ -162,6 +162,12 @@ or transition history, and re-audit before resuming. A missing, stale, or
 ambiguous snapshot blocks return acceptance or redispatch on resume even when
 the current table passes `audit`; the snapshot is session-local and creates no
 second artifact, durable seal, transition writer, or migration.
+
+The all-empty placeholder and noncomplete rows are valid only through Stage 9.
+Before entering Stage 10 and throughout Stages 10–14, every row must have exact
+status `complete` and nonblank `commit` and `evidence` cells; the placeholder is
+invalid. `runs` applies the same stage-aware rule before it classifies a ledger
+as resumable.
 
 The plan remains frozen authority: its checkboxes are never changed for progress.
 The table, cross-checked against Git and its evidence on resume, is authoritative
@@ -388,7 +394,7 @@ explicit change control rather than being marked complete.
 - **Inputs:** Frozen specification and plan identities, implementation table, execution authority, and `execute-return` contract.
 - **Mechanical check:** Run `identities` then `audit` at entry. Before every delegated or inline plan task, persist the selected task's pre-dispatch state, run `identities` then `audit`, and capture the snapshot bound to that selected task and the exact frozen specification/plan identity tuple. On return, run `identities` then `audit`; require the snapshot's selected-task and frozen-identity bindings to equal the current return context, compare the complete controlled projection, validate the returned fields, update the selected row, then run `audit` again. Either audit non-pass follows the bounded recovery without recording the return first; a binding mismatch is stale and blocks rather than restoring from the snapshot.
 - **Owned action:** Select exactly one authorized execution mode, execute independently bounded tasks, and record each task's status, owned commit, and evidence without changing plan checkboxes.
-- **Pass:** Every plan-task row has a verified commit/evidence record and implementation content is committed with one next action.
+- **Pass:** Every plan-task row has exact status `complete` with a nonblank verified commit and evidence record, and implementation content is committed with one next action. The checker enforces this before Stage 10 may pass.
 - **Failure:** A verified `fail` routes specification/plan drift through read-only reconciliation and the fixed graph; `unverifiable` or unavailable execution authority blocks. A task-table audit non-pass or controlled-projection mismatch permits only the bounded task-table recovery above; a missing, stale, or ambiguous snapshot blocks accepting a return or redispatching on resume.
 - **Next:** Stage 10: Implementation review.
 
@@ -511,16 +517,21 @@ or otherwise change that checkout.
 ### Terminal receipts
 
 A terminal outcome requires durable result evidence. For local merge, write the
-terminal ledger/report receipt and its category 8 commit in the **base checkout** so
-it survives feature-worktree cleanup and feature-branch deletion. For Push-and-PR and
-Keep, preserve the feature branch/worktree and write the terminal receipt there. The
-terminal category 8 commit is one atomic transaction: it records result evidence,
-changes Finish phase to `terminal`, changes overall run status to `complete`, and
-removes the next action, updating ledger and report together. A blocked category 8
-commit likewise updates ledger and report together: it records evidence, the prior
-phase, `blocked` run state, and no executable next side effect. Stage 14 bookkeeping
-commits record the controller-owned operation; they are not callbacks around another
-skill.
+terminal ledger/report receipt and its category 8 commit only in the confirmed
+**primary base checkout**, so it survives feature-worktree cleanup and
+feature-branch deletion; terminalization from a linked base checkout is unsupported.
+For Push-and-PR and Keep, preserve the feature branch/worktree and write the terminal
+receipt there. The terminal head's `worktree` and `branch` identify that containing
+checkout and named branch. Its base identity and passing implementation review's
+`reviewed_commit` must both remain ancestors of terminal `HEAD`. Record the original
+feature worktree, branch, and tip in the existing transition and Finish evidence;
+do not add head or receipt schema fields. The terminal category 8 commit is one
+atomic transaction: it records result evidence, changes Finish phase to `terminal`,
+changes overall run status to `complete`, and removes the next action, updating
+ledger and report together. A blocked category 8 commit likewise updates ledger and
+report together: it records evidence, the prior phase, `blocked` run state, and no
+executable next side effect. Stage 14 bookkeeping commits record the controller-owned
+operation; they are not callbacks around another skill.
 
 ### Recovery
 
@@ -551,6 +562,7 @@ action.
 - If the selected outcome is conclusively proven complete, recovery writes the
   terminal receipt (phase `terminal`, overall run `complete`, no next action) in one
   atomic category 8 ledger/report transaction, on the correct preserved location:
-  the base checkout for local merge, or the preserved feature branch/worktree for
-  Push-and-PR and Keep. Proof that the recorded effect is absent is never terminal
-  evidence.
+  the confirmed primary base checkout for local merge, or the preserved feature
+  branch/worktree for Push-and-PR and Keep. A linked base checkout cannot be used for
+  local-merge terminalization. Proof that the recorded effect is absent is never
+  terminal evidence.

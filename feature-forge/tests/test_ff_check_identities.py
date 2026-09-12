@@ -243,6 +243,135 @@ def test_identities_rejects_the_primary_checkout(tmp_path: Path) -> None:
     )
 
 
+def test_identities_accepts_a_feature_worktree_terminal_head(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data.update(status="complete", stage={"id": 14, "state": "complete"}, next_action=None)
+    data["review"] = {
+        "kind": "implementation", "state": "pass", "round": 0,
+        "root_identity": "implementation-root", "dispatch_id": "implementation-1",
+        "run_ref": "/external/review-loop/implementation-1", "target_seal": "seal",
+        "evidence_path": "docs/feature-forge/runs/2026-08-25-alpha/reviews/implementation-1.json",
+        "reviewed_commit": git(repo, "rev-parse", "HEAD"),
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    write_ledger(directory, data)
+
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+def test_identities_accepts_a_local_merge_terminal_head_only_in_the_primary_checkout(
+    tmp_path: Path,
+) -> None:
+    repo = make_primary_repo(tmp_path, branch="main")
+    base = git(repo, "rev-parse", "HEAD")
+    feature = tmp_path / "feature-worktree"
+    git(repo, "worktree", "add", "-qb", "feature/alpha", str(feature), "HEAD")
+    paths = {
+        "specification": "docs/superpowers/specs/2026-08-25-alpha-design.md",
+        "plan": "docs/superpowers/plans/2026-08-25-alpha.md",
+    }
+    for name, relative in paths.items():
+        target = feature / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{name}\n")
+    git(feature, "add", *paths.values())
+    git(feature, "commit", "-qm", "reviewed implementation")
+    reviewed_commit = git(feature, "rev-parse", "HEAD")
+    git(repo, "merge", "--no-ff", "-qm", "merge feature", "feature/alpha")
+    frozen = {
+        name: {"path": relative, "blob": git(repo, "rev-parse", f"HEAD:{relative}")}
+        for name, relative in paths.items()
+    }
+    directory = run_dir(repo)
+    data = head(repo, status="complete", branch="main", base_identity=base, frozen=frozen)
+    data["stage"] = {"id": 14, "state": "complete"}
+    data["review"] = {
+        "kind": "implementation", "state": "pass", "round": 0,
+        "root_identity": "implementation-root", "dispatch_id": "implementation-1",
+        "run_ref": "/external/review-loop/implementation-1", "target_seal": "seal",
+        "evidence_path": "docs/feature-forge/runs/2026-08-25-alpha/reviews/implementation-1.json",
+        "reviewed_commit": reviewed_commit,
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    write_ledger(directory, data)
+
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
+def test_identities_rejects_a_terminal_reviewed_commit_outside_head_ancestry(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    tree = git(repo, "rev-parse", "HEAD^{tree}")
+    unrelated = subprocess.run(
+        ["git", "commit-tree", tree], cwd=repo, input="unrelated\n", text=True,
+        check=True, capture_output=True,
+    ).stdout.strip()
+    data.update(status="complete", stage={"id": 14, "state": "complete"}, next_action=None)
+    data["review"] = {
+        "kind": "implementation", "state": "pass", "round": 0,
+        "root_identity": "implementation-root", "dispatch_id": "implementation-1",
+        "run_ref": "/external/review-loop/implementation-1", "target_seal": "seal",
+        "evidence_path": "docs/feature-forge/runs/2026-08-25-alpha/reviews/implementation-1.json",
+        "reviewed_commit": unrelated,
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    write_ledger(directory, data)
+
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "reviewed-commit=not-ancestor\n"
+
+
+def test_identities_requires_an_implementation_pass_for_a_terminal_head(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data.update(status="complete", stage={"id": 14, "state": "complete"}, next_action=None)
+    write_ledger(directory, data)
+
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "review=inconsistent\n"
+
+
+def test_identities_rejects_terminal_state_from_a_linked_base_checkout(tmp_path: Path) -> None:
+    primary = make_primary_repo(tmp_path, branch="main")
+    linked = tmp_path / "linked-base"
+    git(primary, "worktree", "add", "-qb", "release", str(linked), "HEAD")
+    directory = run_dir(linked)
+    data = head(linked, status="complete", branch="release")
+    data["stage"] = {"id": 14, "state": "complete"}
+    data["review"].update(
+        kind="implementation", state="pass", root_identity="implementation-root",
+        dispatch_id="implementation-1", run_ref="/external/review-loop/implementation-1",
+        target_seal="seal",
+        evidence_path="docs/feature-forge/runs/2026-08-25-alpha/reviews/implementation-1.json",
+        reviewed_commit=git(linked, "rev-parse", "HEAD"),
+    )
+    write_ledger(directory, data)
+
+    observed = check("identities", "--repo", str(linked), "--run", str(directory))
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "worktree=linked-base\n"
+
+
+def test_identities_does_not_allow_the_primary_checkout_for_a_nonterminal_head(
+    tmp_path: Path,
+) -> None:
+    repo = make_primary_repo(tmp_path, branch="main")
+    directory = run_dir(repo)
+    write_ledger(directory, head(repo, branch="main"))
+
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "worktree=primary\n"
+
+
 def test_identities_rejects_observed_branch_redirected_from_the_run_id(tmp_path: Path) -> None:
     repo, directory, data = identity_fixture(tmp_path)
     git(repo, "checkout", "-qb", "feature/other")
