@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import os
 import runpy
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -336,6 +337,20 @@ def test_runs_treats_malformed_json_head_as_unverifiable(tmp_path: Path) -> None
     assert_result(check("runs", "--repo", str(repo), "--run-id", "alpha"), "runs", "unverifiable", 2)
 
 
+def test_runs_treats_deep_json_head_as_unverifiable_without_a_traceback(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    nested = "[" * 2000 + "0" + "]" * 2000
+    (run_dir(repo) / "ledger.md").write_text(
+        '```json\n{"schema":"feature-forge/ledger/v1","nested":' + nested + "}\n```\n"
+    )
+
+    observed = check("runs", "--repo", str(repo), "--run-id", "alpha")
+
+    assert_result(observed, "runs", "unverifiable", 2)
+    assert "malformed-head" in observed.stderr
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
 def test_runs_treats_pre_schema_head_as_unverifiable(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     write_ledger(run_dir(repo), {"run_id": "alpha"})
@@ -475,6 +490,81 @@ def test_runs_parses_newline_worktree_paths_without_truncation(tmp_path: Path) -
     assert observed.returncode == 0
     assert observed.stdout == "FF-CHECK v1 gate=runs status=pass\n"
     assert f"worktree={linked}\n" in observed.stderr
+
+
+def test_runs_preserves_a_repository_path_ending_in_a_space(tmp_path: Path) -> None:
+    primary = make_primary_repo(tmp_path, branch="feature/primary")
+    linked = tmp_path / "linked-worktree "
+    subprocess.run(
+        ["git", "worktree", "add", "-qb", "feature/alpha", str(linked), "HEAD"],
+        cwd=primary, check=True, capture_output=True,
+    )
+    write_ledger(run_dir(linked), head(linked))
+
+    observed = check("runs", "--repo", str(linked), "--run-id", "alpha")
+
+    assert_result(observed, "runs", "pass", 0)
+    assert f"worktree={linked}\n" in observed.stderr
+
+
+def test_every_git_subprocess_uses_the_hardened_argv_and_environment_policy(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    write_ledger(run_dir(repo), head(repo))
+    real_git = shutil.which("git")
+    assert real_git is not None
+    marker = tmp_path / "unsafe-git-policy"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    scrubbed = [
+        "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_27", "GIT_CONFIG_VALUE_27",
+    ]
+    wrapper.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        f"marker = {str(marker)!r}\n"
+        f"scrubbed = {scrubbed!r}\n"
+        "configs = [sys.argv[index + 1] for index, value in enumerate(sys.argv[:-1]) if value == '-c']\n"
+        "unsafe = [name for name in scrubbed if name in os.environ]\n"
+        "if (unsafe or os.environ.get('GIT_OPTIONAL_LOCKS') != '0'\n"
+        "        or 'core.fsmonitor=false' not in configs\n"
+        "        or 'core.hooksPath=/dev/null' not in configs):\n"
+        "    open(marker, 'w').write(','.join(unsafe) or 'argv')\n"
+        "    raise SystemExit(97)\n"
+        f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n"
+    )
+    wrapper.chmod(0o755)
+    hook_marker = tmp_path / "configured-program-ran"
+    fsmonitor = tmp_path / "fsmonitor"
+    fsmonitor.write_text(f"#!/bin/sh\nprintf ran > {str(hook_marker)!r}\nexit 1\n")
+    fsmonitor.chmod(0o755)
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    post_index_change = hooks / "post-index-change"
+    post_index_change.write_text(f"#!/bin/sh\nprintf ran > {str(hook_marker)!r}\n")
+    post_index_change.chmod(0o755)
+    git(repo, "config", "core.fsmonitor", str(fsmonitor))
+    git(repo, "config", "core.hooksPath", str(hooks))
+    environment = {
+        **os.environ,
+        "PATH": str(binary),
+        **{name: "/ambient/redirect" for name in scrubbed},
+    }
+    environment["GIT_CONFIG_COUNT"] = "28"
+
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), "runs", "--repo", str(repo), "--run-id", "alpha"],
+        text=True, capture_output=True, env=environment,
+    )
+
+    assert_result(observed, "runs", "pass", 0)
+    assert not marker.exists()
+    assert not hook_marker.exists()
 
 
 def test_runs_does_not_parse_a_head_shaped_line_inside_a_worktree_path(tmp_path: Path) -> None:

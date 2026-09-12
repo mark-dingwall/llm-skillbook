@@ -91,6 +91,21 @@ def test_strict_receipt_requires_exact_keys(tmp_path: Path, key: str) -> None:
     assert runpy.run_path(str(CHECKER))["strict_receipt"](path) == (None, "receipt=unsupported")
 
 
+@pytest.mark.parametrize("field", ["dispatch_id", "run_ref", "target_seal", "source_value", "source_path"])
+def test_strict_receipt_rejects_whitespace_only_identities(tmp_path: Path, field: str) -> None:
+    payload = receipt_payload()
+    if field.startswith("source_"):
+        payload["source_identity"][field.removeprefix("source_")] = " \t"
+    else:
+        payload[field] = " \t"
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(payload))
+
+    assert runpy.run_path(str(CHECKER))["strict_receipt"](path) == (
+        None, "receipt=unsupported",
+    )
+
+
 @pytest.mark.parametrize(("triage_id", "expected"), [
     ("current-triage-id", "FF-8ba19360e98813264f1a2312b6cf6d0691f058ad9740655c00f6f556a4041117"),
     ("缺失-α", "FF-919d54635b202d94b3bd4c4e320557c953e6f8e0c1dd5d0cee5dfab8b96c01fc"),
@@ -720,6 +735,20 @@ def test_audit_treats_unresolvable_full_identity_as_unverifiable(
     assert_result(invoke(repo, directory), "unverifiable", 2)
 
 
+def test_audit_rejects_a_staged_only_frozen_blob(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    relative = data["frozen"]["plan"]["path"]
+    (repo / relative).write_text("staged plan\n")
+    git(repo, "add", relative)
+    data["frozen"]["plan"]["blob"] = git(repo, "rev-parse", f":{relative}")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "frozen=plan:not-at-head\n"
+
+
 @pytest.mark.parametrize(("location", "extra"), [
     ("head", "unexpected"), ("stage", "current"), ("frozen", "report"), ("review", "result"),
 ])
@@ -1127,6 +1156,27 @@ def test_audit_treats_wrong_review_scalar_types_as_unverifiable(
     review[field] = value
     write_ledger(directory, data)
     assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("field", ["root_identity", "run_ref", "target_seal"])
+def test_audit_rejects_whitespace_only_review_identities_without_a_traceback(
+    tmp_path: Path, field: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, state="pass")
+    review[field] = " \t"
+    if field in {"run_ref", "target_seal"}:
+        receipt = repo / review["evidence_path"]
+        payload = json.loads(receipt.read_text())
+        payload[field] = " \t"
+        receipt.write_text(json.dumps(payload))
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr == "review=unsupported\n"
+    assert "Traceback" not in observed.stdout + observed.stderr
 
 
 def test_audit_treats_a_nul_in_the_ledger_branch_as_unverifiable(tmp_path: Path) -> None:

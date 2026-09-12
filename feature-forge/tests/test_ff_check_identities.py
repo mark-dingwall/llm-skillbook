@@ -27,9 +27,11 @@ def identity_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
         target = repo / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(contents)
+    git(repo, "add", specification, plan)
+    git(repo, "commit", "-qm", "freeze specification and plan")
     frozen = {
-        "specification": {"path": specification, "blob": git(repo, "hash-object", "-w", specification)},
-        "plan": {"path": plan, "blob": git(repo, "hash-object", "-w", plan)},
+        "specification": {"path": specification, "blob": git(repo, "rev-parse", f"HEAD:{specification}")},
+        "plan": {"path": plan, "blob": git(repo, "rev-parse", f"HEAD:{plan}")},
     }
     directory = run_dir(repo)
     data = head(repo, frozen=frozen)
@@ -183,6 +185,8 @@ def test_identities_honors_builtin_eol_normalization_for_frozen_files(tmp_path: 
             "path": relative,
             "blob": git(repo, "hash-object", "-w", f"--path={relative}", "--", relative),
         }
+    git(repo, "add", ".gitattributes", *paths.values())
+    git(repo, "commit", "-qm", "freeze normalized specification and plan")
     directory = run_dir(repo)
     write_ledger(directory, head(repo, frozen=frozen))
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
@@ -253,6 +257,27 @@ def test_identities_treats_unresolvable_canonical_frozen_blob_as_unverifiable(tm
     data["frozen"]["specification"]["blob"] = "0" * len(git(repo, "rev-parse", "HEAD"))
     write_ledger(directory, data)
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("source", ["dangling", "staged-only"])
+def test_identities_requires_each_frozen_blob_at_its_canonical_head_path(
+    tmp_path: Path, source: str,
+) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    relative = data["frozen"]["specification"]["path"]
+    (repo / relative).write_text(f"{source}\n")
+    if source == "staged-only":
+        git(repo, "add", relative)
+        blob = git(repo, "rev-parse", f":{relative}")
+    else:
+        blob = git(repo, "hash-object", "-w", relative)
+    data["frozen"]["specification"]["blob"] = blob
+    write_ledger(directory, data)
+
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr.splitlines() == ["frozen=specification:not-at-head"]
 
 
 @pytest.mark.parametrize("entry", ["specification", "plan"])

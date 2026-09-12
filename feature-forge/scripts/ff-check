@@ -46,6 +46,12 @@ HEAD_KEYS = {
 
 AUTOMATION_MODES = frozenset({"interactive", "supervised", "unattended"})
 PATH_OBSERVATION_ERRORS = (OSError, RuntimeError, UnicodeError, ValueError)
+GIT_ROUTING_VARIABLES = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+})
+GIT_INDEXED_CONFIG_VARIABLE = re.compile(r"GIT_CONFIG_(?:KEY|VALUE)_[0-9]+\Z")
 TASK_STATUSES = frozenset({"pending", "active", "awaiting_return", "blocked", "complete"})
 TASK_TABLE_HEADER = ("plan task", "status", "commit", "evidence", "notes")
 TABLE_SEPARATOR = re.compile(r":?-{3,}:?\Z")
@@ -97,24 +103,41 @@ def resolve_observed_path(path: Path) -> Path | None:
         return None
 
 
+def git_process(repo: Path, *args: str) -> tuple[list[str], dict[str, str]]:
+    """Build one hardened policy for every checker Git subprocess."""
+    environment = {
+        key: value for key, value in os.environ.items()
+        if key not in GIT_ROUTING_VARIABLES
+        and GIT_INDEXED_CONFIG_VARIABLE.fullmatch(key) is None
+    }
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    command = [
+        "git", "-C", str(repo),
+        "-c", "core.fsmonitor=false",
+        "-c", "core.hooksPath=/dev/null",
+        *args,
+    ]
+    return command, environment
+
+
 def git(repo: Path, *args: str) -> str | None:
     """Return a Git observation, or None when Git cannot establish it."""
+    command, environment = git_process(repo, *args)
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], text=True, capture_output=True,
-            check=False, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            command, text=True, capture_output=True, check=False, env=environment,
         )
     except PATH_OBSERVATION_ERRORS:
         return None
-    return result.stdout.strip() if result.returncode == 0 else None
+    return result.stdout.removesuffix("\n") if result.returncode == 0 else None
 
 
 def git_bytes(repo: Path, *args: str) -> bytes | None:
     """Return an exact byte-oriented Git observation for NUL-delimited paths."""
+    command, environment = git_process(repo, *args)
     try:
         observed = subprocess.run(
-            ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], capture_output=True, check=False,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            command, capture_output=True, check=False, env=environment,
         )
     except PATH_OBSERVATION_ERRORS:
         return None
@@ -123,10 +146,10 @@ def git_bytes(repo: Path, *args: str) -> bytes | None:
 
 def git_status(repo: Path, *args: str) -> int | None:
     """Return a Git predicate status without interpreting its output."""
+    command, environment = git_process(repo, *args)
     try:
         observed = subprocess.run(
-            ["git", "-C", str(repo), "-c", "core.fsmonitor=false", *args], capture_output=True, check=False,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            command, capture_output=True, check=False, env=environment,
         )
     except PATH_OBSERVATION_ERRORS:
         return None
@@ -277,9 +300,12 @@ def strict_json(text: str) -> object:
             raise ValueError("oversized JSON integer")
         return int(value)
 
-    return json.loads(
-        text, object_pairs_hook=unique_object, parse_int=bounded_integer,
-    )
+    try:
+        return json.loads(
+            text, object_pairs_hook=unique_object, parse_int=bounded_integer,
+        )
+    except RecursionError as error:
+        raise ValueError("overly nested JSON") from error
 
 
 def valid_date(name: str, run_id: str) -> bool:
@@ -446,8 +472,7 @@ def runs(repo_arg: str, run_id: str) -> Result:
                 continue
             data, error = parse_ledger(ledger_path)
             if error:
-                if canonical_requested or ledger_state == "regular":
-                    unverifiable.append(f"ledger={relative}:{error}")
+                unverifiable.append(f"ledger={relative}:{error}")
                 continue
             assert data is not None
             if error := run_head_error(repo, data):
@@ -483,12 +508,8 @@ def runs(repo_arg: str, run_id: str) -> Result:
     status = data.get("status")
     if status == "complete":
         return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
-    if status not in {"active", "blocked"}:
-        return result("unverifiable", *ledger_findings, "ledger-status=unsupported")
     recorded_branch = data.get("branch")
     recorded_worktree = data.get("worktree")
-    if not isinstance(recorded_branch, str) or not isinstance(recorded_worktree, str):
-        return result("unverifiable", *ledger_findings, "ledger-identity=unsupported")
     observed_recorded_worktree = resolve_observed_path(Path(recorded_worktree))
     if observed_recorded_worktree is None:
         return result("unverifiable", *ledger_findings, "worktree=unavailable")
@@ -530,10 +551,6 @@ def canonical_run_observation(repo: Path, argument: str) -> tuple[Path | None, s
     if root_state != "directory" or candidate_state in {"absent", "unavailable", "regular", "other"}:
         return None, "unavailable"
     return observed_candidate, None
-
-
-def canonical_run(repo: Path, argument: str) -> Path | None:
-    return canonical_run_observation(repo, argument)[0]
 
 
 def frozen_path_targets_git_metadata(repo: Path, path: PurePosixPath) -> bool | None:
@@ -603,6 +620,33 @@ def observed_frozen_path(repo: Path, value: object) -> tuple[str | None, str | N
     return value, None
 
 
+def frozen_blob_identity(repo: Path, path: str, blob: str) -> str:
+    """Require a canonical blob that is the regular-file blob at HEAD:path."""
+    identity = object_identity(repo, blob, "blob")
+    if identity == "noncanonical":
+        return "noncanonical"
+    if identity == "unverifiable":
+        return "unresolvable"
+    raw = git_bytes(repo, "ls-tree", "-z", "HEAD", "--", path)
+    if raw is None:
+        return "head-unavailable"
+    records = list(filter(None, raw.split(b"\0")))
+    if len(records) != 1:
+        return "not-at-head"
+    try:
+        metadata, raw_path = records[0].split(b"\t", 1)
+        mode, kind, oid = metadata.split(b" ")
+        matches = (
+            raw_path.decode("utf-8") == path
+            and mode in {b"100644", b"100755"}
+            and kind == b"blob"
+            and oid.decode("ascii") == blob
+        )
+    except (UnicodeError, ValueError):
+        return "head-unavailable"
+    return "valid" if matches else "not-at-head"
+
+
 def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
     """Check the two frozen blobs without broadening identity semantics."""
     if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
@@ -627,11 +671,15 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
             )
         if path is None:
             return result("unverifiable", f"frozen={name}:unsupported")
-        identity = object_identity(repo, blob, "blob")
+        identity = frozen_blob_identity(repo, path, blob)
         if identity == "noncanonical":
             return result("fail", f"frozen={name}:noncanonical-blob")
-        if identity == "unverifiable":
+        if identity == "unresolvable":
             return result("unverifiable", f"frozen={name}:blob-unresolvable")
+        if identity == "head-unavailable":
+            return result("unverifiable", f"frozen={name}:head-unavailable")
+        if identity == "not-at-head":
+            return result("fail", f"frozen={name}:not-at-head")
         filter_state = paths_have_filter(repo, path.encode("utf-8") + b"\0")
         if filter_state is None:
             return result("unverifiable", f"frozen={name}:filter-unavailable")
@@ -801,10 +849,7 @@ def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
         return None, "receipt=unsupported"
     if not isinstance(payload.get("result"), str) or payload["result"] not in {"pass", "changes_required", "blocked"}:
         return None, "receipt=unsupported"
-    if not all(
-        isinstance(payload.get(field), str) and payload.get(field)
-        for field in ("dispatch_id", "run_ref", "target_seal")
-    ):
+    if not all(nonempty_text(payload.get(field)) for field in ("dispatch_id", "run_ref", "target_seal")):
         return None, "receipt=unsupported"
     if not sorted_unique_strings(payload.get("actionable_finding_ids")):
         return None, "receipt=unsupported"
@@ -821,10 +866,9 @@ def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
     if (
         not isinstance(source, dict)
         or set(source) != SOURCE_IDENTITY_KEYS
-        or not isinstance(source.get("kind"), str)
-        or not isinstance(source.get("value"), str)
-        or not source.get("value")
-        or (source.get("path") is not None and not isinstance(source.get("path"), str))
+        or not nonempty_text(source.get("kind"))
+        or not nonempty_text(source.get("value"))
+        or (source.get("path") is not None and not nonempty_text(source.get("path")))
     ):
         return None, "receipt=unsupported"
     return payload, None
@@ -847,7 +891,7 @@ def review_shape(review: object) -> tuple[dict[str, object] | None, str | None]:
     )
     if any(
         review.get(field) is not None
-        and (not isinstance(review.get(field), str) or not review.get(field))
+        and not nonempty_text(review.get(field))
         for field in nullable_strings
     ):
         return None, "review=unsupported"
@@ -903,44 +947,7 @@ def observed_entry_state(root: Path, path: Path) -> str:
 
 def exact_regular_file(root: Path, path: Path) -> bool:
     """Require a regular file reached without following any symlink component."""
-    try:
-        relative = path.relative_to(root)
-    except ValueError:
-        return False
-    current = root
-    try:
-        for index, part in enumerate(relative.parts):
-            current /= part
-            mode = current.lstat().st_mode
-            if stat.S_ISLNK(mode):
-                return False
-            if index == len(relative.parts) - 1:
-                return stat.S_ISREG(mode)
-            if not stat.S_ISDIR(mode):
-                return False
-    except PATH_OBSERVATION_ERRORS:
-        return False
-    return False
-
-
-def exact_directory(root: Path, path: Path) -> bool:
-    """Require a directory reached without following any symlink component."""
-    try:
-        relative = path.absolute().relative_to(root.absolute())
-    except ValueError:
-        return False
-    current = root
-    try:
-        if not stat.S_ISDIR(current.lstat().st_mode):
-            return False
-        for part in relative.parts:
-            current /= part
-            mode = current.lstat().st_mode
-            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-                return False
-    except PATH_OBSERVATION_ERRORS:
-        return False
-    return True
+    return observed_entry_state(root, path) == "regular"
 
 
 def exact_entry_state(root: Path, path: Path) -> str | None:
@@ -963,14 +970,10 @@ def sha256_regular_file(root: Path, path: Path) -> str | None:
 
 
 def paths_have_filter(repo: Path, paths: bytes) -> bool | None:
+    command, environment = git_process(repo, "check-attr", "-z", "--stdin", "--all")
     try:
         attributes = subprocess.run(
-            [
-                "git", "-C", str(repo), "-c", "core.fsmonitor=false",
-                "check-attr", "-z", "--stdin", "--all",
-            ],
-            input=paths, capture_output=True, check=False,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            command, input=paths, capture_output=True, check=False, env=environment,
         )
     except PATH_OBSERVATION_ERRORS:
         return None
@@ -1081,14 +1084,10 @@ def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
 
 
 def hash_object_bytes(repo: Path, payload: bytes) -> str | None:
+    command, environment = git_process(repo, "hash-object", "--stdin")
     try:
         observed = subprocess.run(
-            [
-                "git", "-C", str(repo), "-c", "core.fsmonitor=false",
-                "hash-object", "--stdin",
-            ],
-            input=payload, capture_output=True, check=False,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            command, input=payload, capture_output=True, check=False, env=environment,
         )
     except PATH_OBSERVATION_ERRORS:
         return None
@@ -1353,7 +1352,7 @@ def review_stage_invariant(status: str, stage: dict[str, object], review: dict[s
 
 def populated_review_tuple(review: dict[str, object]) -> bool:
     return all(
-        isinstance(review[field], str) and bool(review[field])
+        nonempty_text(review[field])
         for field in ("root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path")
     )
 
@@ -1379,14 +1378,14 @@ def review_state_invariant(review: dict[str, object]) -> tuple[bool, bool]:
         review["previous_open_finding_ids"] or review["open_finding_ids"]
     ):
         return False, False
-    if not isinstance(review["root_identity"], str) or not review["root_identity"]:
+    if not nonempty_text(review["root_identity"]):
         return False, False
     if state == "blocked":
         tuple_fields = ("dispatch_id", "run_ref", "target_seal", "evidence_path")
         all_null = all(review[field] is None for field in tuple_fields)
         all_present = populated_review_tuple(review)
         commit_valid = (
-            isinstance(review["reviewed_commit"], str) and bool(review["reviewed_commit"])
+            nonempty_text(review["reviewed_commit"])
             if all_present and review["kind"] == "implementation"
             else review["reviewed_commit"] is None
         )
@@ -1397,13 +1396,13 @@ def review_state_invariant(review: dict[str, object]) -> tuple[bool, bool]:
         return review["reviewed_commit"] is None, False
     if state == "changes_required":
         commit_valid = (
-            isinstance(review["reviewed_commit"], str) and bool(review["reviewed_commit"])
+            nonempty_text(review["reviewed_commit"])
             if review["kind"] == "implementation" else review["reviewed_commit"] is None
         )
         return commit_valid and review["round"] >= 1 and bool(review["open_finding_ids"]), True
     if state == "pass":
         commit_valid = (
-            isinstance(review["reviewed_commit"], str) and bool(review["reviewed_commit"])
+            nonempty_text(review["reviewed_commit"])
             if review["kind"] == "implementation" else review["reviewed_commit"] is None
         )
         return commit_valid and review["open_finding_ids"] == [], True
@@ -1457,11 +1456,15 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
                 "fail" if path_error == "wrong-path" else "unverifiable",
                 f"frozen={name}:{path_error}",
             )
-        identity = object_identity(repo, blob, "blob")
+        identity = frozen_blob_identity(repo, path_value, blob)
         if identity == "noncanonical":
             return result("fail", f"frozen={name}:noncanonical-blob")
-        if identity == "unverifiable":
+        if identity == "unresolvable":
             return result("unverifiable", f"frozen={name}:blob-unresolvable")
+        if identity == "head-unavailable":
+            return result("unverifiable", f"frozen={name}:head-unavailable")
+        if identity == "not-at-head":
+            return result("fail", f"frozen={name}:not-at-head")
     return result("pass")
 
 
