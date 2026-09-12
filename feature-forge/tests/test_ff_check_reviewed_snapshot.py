@@ -89,8 +89,15 @@ def reviewed_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
     return repo, directory, data
 
 
-def invoke(repo: Path, directory: Path) -> subprocess.CompletedProcess[str]:
-    return check("reviewed-snapshot", "--repo", str(repo), "--run", str(directory))
+def invoke(
+    repo: Path, directory: Path, *, environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if environment is None:
+        return check("reviewed-snapshot", "--repo", str(repo), "--run", str(directory))
+    return subprocess.run(
+        [sys.executable, str(CHECKER), "reviewed-snapshot", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, env=environment,
+    )
 
 
 def test_checker_exposes_only_four_public_commands() -> None:
@@ -289,22 +296,83 @@ def test_reviewed_snapshot_does_not_refresh_the_git_index(tmp_path: Path) -> Non
     assert index.stat().st_mtime_ns == before_mtime
 
 
-@pytest.mark.parametrize("driver", ["demo", "unspecified", "unset"])
-def test_reviewed_snapshot_never_runs_configured_clean_filters(
-    tmp_path: Path, driver: str,
+@pytest.mark.parametrize("attribute", [
+    "filter=demo",
+    "filter=unspecified",
+    "filter=unset",
+    "text",
+    "eol=lf",
+    "ident",
+    "working-tree-encoding=UTF-16",
+])
+def test_reviewed_snapshot_rejects_transforming_attributes_before_conversion(
+    tmp_path: Path, attribute: str,
 ) -> None:
     repo, directory, _ = reviewed_fixture(tmp_path)
     marker = tmp_path / "filter-ran"
+    conversion = tmp_path / "conversion-ran"
     info_attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
     if not info_attributes.is_absolute():
         info_attributes = repo / info_attributes
     info_attributes.parent.mkdir(parents=True, exist_ok=True)
-    info_attributes.write_text(f"src/app.py filter={driver}\n")
-    git(repo, "config", f"filter.{driver}.clean", f"touch {marker}; cat")
+    info_attributes.write_text(f"src/app.py {attribute}\n")
+    if attribute.startswith("filter="):
+        driver = attribute.removeprefix("filter=")
+        git(repo, "config", f"filter.{driver}.clean", f': > "{marker}"; exit 1')
+        git(repo, "config", f"filter.{driver}.process", f': > "{marker}"; exit 1')
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "for arg in \"$@\"; do\n"
+        f'  case "$arg" in hash-object|status|checkout-index) : > "{conversion}"; exit 97;; esac\n'
+        "done\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    environment = {**os.environ, "PATH": str(binary)}
     os.utime(repo / "src/app.py", None)
-    observed = invoke(repo, directory)
-    assert observed.returncode == 2
+    observed = invoke(repo, directory, environment=environment)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["transformations=unsupported"]
+    assert not conversion.exists()
     assert not marker.exists()
+
+
+def test_reviewed_snapshot_checks_attributes_with_nul_delimited_tracked_paths(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    unusual = repo / "src" / "line\nbreak.py"
+    unusual.write_bytes(b"tracked\x00bytes\n")
+    reviewed_commit = commit(repo, "add unusual reviewed path", "src/line\nbreak.py")
+    data["review"]["reviewed_commit"] = reviewed_commit
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    info_attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
+    if not info_attributes.is_absolute():
+        info_attributes = repo / info_attributes
+    info_attributes.parent.mkdir(parents=True, exist_ok=True)
+    info_attributes.write_text('"src/line\\nbreak.py" ident\n')
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["transformations=unsupported"]
+
+
+def test_reviewed_snapshot_preserves_byte_exact_content_without_transforming_attributes(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    target.write_bytes(b"\x00\xff\r\nexact bytes\x80\n")
+    reviewed_commit = commit(repo, "review byte-exact content", "src/app.py")
+    data["review"]["reviewed_commit"] = reviewed_commit
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "pass", 0)
 
 
 def test_reviewed_snapshot_never_runs_a_configured_fsmonitor(tmp_path: Path) -> None:

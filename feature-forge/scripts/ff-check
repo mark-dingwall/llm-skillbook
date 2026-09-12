@@ -52,6 +52,9 @@ GIT_ROUTING_VARIABLES = frozenset({
     "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
 })
 GIT_INDEXED_CONFIG_VARIABLE = re.compile(r"GIT_CONFIG_(?:KEY|VALUE)_[0-9]+\Z")
+TRANSFORMING_ATTRIBUTES = frozenset({
+    b"filter", b"text", b"eol", b"ident", b"working-tree-encoding",
+})
 TASK_STATUSES = frozenset({"pending", "active", "awaiting_return", "blocked", "complete"})
 TASK_TABLE_HEADER = ("plan task", "status", "commit", "evidence", "notes")
 TABLE_SEPARATOR = re.compile(r":?-{3,}:?\Z")
@@ -651,6 +654,7 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
     """Check the two frozen blobs without broadening identity semantics."""
     if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
         return result("unverifiable", "frozen=unsupported")
+    controlled: list[tuple[str, str, str]] = []
     mismatches: list[str] = []
     for name in ("specification", "plan"):
         item = frozen[name]
@@ -680,11 +684,13 @@ def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
             return result("unverifiable", f"frozen={name}:head-unavailable")
         if identity == "not-at-head":
             return result("fail", f"frozen={name}:not-at-head")
-        filter_state = paths_have_filter(repo, path.encode("utf-8") + b"\0")
-        if filter_state is None:
-            return result("unverifiable", f"frozen={name}:filter-unavailable")
-        if filter_state:
-            return result("unverifiable", f"frozen={name}:filter-unsupported")
+        controlled.append((name, path, blob))
+    transformation_error = transformation_gate(
+        repo, b"".join(path.encode("utf-8") + b"\0" for _name, path, _blob in controlled),
+    )
+    if transformation_error is not None:
+        return result("unverifiable", transformation_error)
+    for name, path, blob in controlled:
         observed = git(repo, "hash-object", f"--path={path}", "--", path)
         if observed is None:
             return result("unverifiable", f"frozen={name}:unavailable")
@@ -969,29 +975,38 @@ def sha256_regular_file(root: Path, path: Path) -> str | None:
     return digest.hexdigest()
 
 
-def paths_have_filter(repo: Path, paths: bytes) -> bool | None:
+def transformation_gate(repo: Path, paths: bytes) -> str | None:
+    """Reject effective transforming attributes before controlled conversion."""
     command, environment = git_process(repo, "check-attr", "-z", "--stdin", "--all")
     try:
         attributes = subprocess.run(
             command, input=paths, capture_output=True, check=False, env=environment,
         )
     except PATH_OBSERVATION_ERRORS:
-        return None
+        return "transformations=unavailable"
     if attributes.returncode != 0:
-        return None
+        return "transformations=unavailable"
     fields = attributes.stdout.split(b"\0")
     if fields and fields[-1] == b"":
         fields.pop()
     if len(fields) % 3:
-        return None
-    return any(fields[index] == b"filter" for index in range(1, len(fields), 3))
+        return "transformations=unavailable"
+    if any(fields[index] in TRANSFORMING_ATTRIBUTES for index in range(1, len(fields), 3)):
+        return "transformations=unsupported"
+    return None
 
 
-def worktree_paths(repo: Path) -> tuple[set[str] | None, str | None]:
-    """Observe dirt without running configured clean-filter commands."""
+def controlled_tracked_paths(repo: Path) -> tuple[bytes | None, str | None]:
+    """Enumerate tracked paths and apply the conversion-free attribute gate."""
     tracked = git_bytes(repo, "ls-files", "-z")
     if tracked is None:
-        return None, "filters=unavailable"
+        return None, "transformations=unavailable"
+    error = transformation_gate(repo, tracked)
+    return (None, error) if error is not None else (tracked, None)
+
+
+def worktree_paths(repo: Path, tracked: bytes) -> tuple[set[str] | None, str | None]:
+    """Observe dirt without running configured clean-filter commands."""
     index_flags = git_bytes(repo, "ls-files", "-v", "-z")
     if index_flags is None:
         return None, "index-flags=unavailable"
@@ -1000,11 +1015,6 @@ def worktree_paths(repo: Path) -> tuple[set[str] | None, str | None]:
         for record in filter(None, index_flags.split(b"\0"))
     ):
         return None, "index-flags=unsupported"
-    filter_state = paths_have_filter(repo, tracked)
-    if filter_state is None:
-        return None, "filters=unavailable"
-    if filter_state:
-        return None, "filters=unsupported"
     raw = git_bytes(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     if raw is None:
         return None, "paths=unavailable"
@@ -1178,6 +1188,10 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
     if expected is None:
         return result("unverifiable", "review=unsupported")
     expected_relative, receipt_path = expected
+    tracked, transformation_error = controlled_tracked_paths(repo)
+    if transformation_error is not None:
+        return result("unverifiable", transformation_error)
+    assert tracked is not None
     ancestry = git_status(repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD")
     if ancestry not in {0, 1}:
         return result("unverifiable", "ancestry=unavailable")
@@ -1190,7 +1204,7 @@ def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
         repo, "diff", "--name-status", "-z", "--find-renames", "--find-copies-harder",
         f"{review['reviewed_commit']}..HEAD", "--",
     )
-    dirty, dirty_error = worktree_paths(repo)
+    dirty, dirty_error = worktree_paths(repo, tracked)
     if committed_raw is None:
         return result("unverifiable", "paths=unavailable")
     committed = parse_name_status_z(committed_raw)

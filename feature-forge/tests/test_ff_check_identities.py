@@ -156,20 +156,51 @@ def test_identities_uses_full_branch_ref_when_a_tag_has_the_same_short_name(tmp_
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
 
 
-def test_identities_never_runs_a_configured_clean_filter(tmp_path: Path) -> None:
+@pytest.mark.parametrize("attribute", [
+    "filter=demo",
+    "text",
+    "eol=lf",
+    "ident",
+    "working-tree-encoding=UTF-16",
+])
+def test_identities_rejects_transforming_attributes_before_hashing(
+    tmp_path: Path, attribute: str,
+) -> None:
     repo, directory, _ = identity_fixture(tmp_path)
     marker = tmp_path / "filter-ran"
+    conversion = tmp_path / "conversion-ran"
     specification = "docs/superpowers/specs/2026-08-25-alpha-design.md"
-    (repo / ".gitattributes").write_text(f"{specification} filter=demo\n")
-    git(repo, "config", "filter.demo.clean", f"touch {marker}; cat")
-    assert_result(
-        check("identities", "--repo", str(repo), "--run", str(directory)),
-        "unverifiable", 2,
+    info_attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
+    if not info_attributes.is_absolute():
+        info_attributes = repo / info_attributes
+    info_attributes.parent.mkdir(parents=True, exist_ok=True)
+    info_attributes.write_text(f"{specification} {attribute}\n")
+    git(repo, "config", "filter.demo.clean", f': > "{marker}"; exit 1')
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "for arg in \"$@\"; do\n"
+        f'  case "$arg" in hash-object|status|checkout-index) : > "{conversion}"; exit 97;; esac\n'
+        "done\n"
+        f'exec "{real_git}" "$@"\n'
     )
+    wrapper.chmod(0o755)
+    environment = {**os.environ, "PATH": str(binary)}
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), "identities", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, env=environment,
+    )
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["transformations=unsupported"]
+    assert not conversion.exists()
     assert not marker.exists()
 
 
-def test_identities_honors_builtin_eol_normalization_for_frozen_files(tmp_path: Path) -> None:
+def test_identities_rejects_builtin_eol_normalization_for_frozen_files(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     (repo / ".gitattributes").write_text("*.md text eol=lf\n")
     paths = {
@@ -189,7 +220,9 @@ def test_identities_honors_builtin_eol_normalization_for_frozen_files(tmp_path: 
     git(repo, "commit", "-qm", "freeze normalized specification and plan")
     directory = run_dir(repo)
     write_ledger(directory, head(repo, frozen=frozen))
-    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["transformations=unsupported"]
 
 
 def test_identities_rejects_the_primary_checkout(tmp_path: Path) -> None:
