@@ -1827,6 +1827,8 @@ def identities(repo_arg: str, run_arg: str) -> Result:
     worktree, branch, base = data.get("worktree"), data.get("branch"), data.get("base_identity")
     if not all(isinstance(value, str) for value in (worktree, branch, base)):
         return result("unverifiable", "ledger-identity=unsupported")
+    if not audit_frozen_shape(repo, data.get("frozen")):
+        return result("unverifiable", "frozen=unsupported")
     claims = canonical_identity_claims(repo, run, data)
     if claims.status != "pass":
         return claims

@@ -458,6 +458,8 @@ def test_audit_accepts_task_commentary_only_in_notes(tmp_path: Path) -> None:
     task_markdown(("", "", "", "", "")),
     task_markdown(("W-1", "pending", "", "", "")),
     task_markdown(("W-1", "active", "", "", "work in progress")),
+    task_markdown(("W-1", "awaiting_return", "", "", "worker active")),
+    task_markdown(("W-1", "blocked", "", "", "await authority")),
 ])
 def test_audit_accepts_noncomplete_task_progress_during_stage_9(
     tmp_path: Path, markdown: str,

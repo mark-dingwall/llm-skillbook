@@ -526,6 +526,18 @@ def test_identities_requires_supported_head_id_to_match_dated_suffix(tmp_path: P
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "unverifiable", 2)
 
 
+def test_identities_rejects_malformed_frozen_shape_without_a_traceback(tmp_path: Path) -> None:
+    repo, directory, data = identity_fixture(tmp_path)
+    data["frozen"] = []
+    write_ledger(directory, data)
+
+    observed = check("identities", "--repo", str(repo), "--run", str(directory))
+
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr == "frozen=unsupported\n"
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
 @pytest.mark.parametrize("path, link_target", [(".git/config", None), ("docs/git-metadata-link", ".git/config")])
 def test_identities_rejects_git_metadata_paths_and_links(tmp_path: Path, path: str, link_target: str | None) -> None:
     repo, directory, data = identity_fixture(tmp_path)
