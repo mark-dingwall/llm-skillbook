@@ -339,6 +339,30 @@ def test_same_kind_redispatch_retains_root_round_and_finding_history(tmp_path):
     assert current["run_ref"] != head["review"]["run_ref"]
 
 
+def test_review_correction_dispatches_exact_uncommitted_candidate(tmp_path):
+    first = BoundaryFixture(tmp_path, b"candidate v1\n", "candidate-first")
+    first_run = first.begin_review("candidate-1")
+    _recover_receipt(first, _nonempty_receipt(first, "candidate-1", first_run))
+
+    corrected = BoundaryFixture(
+        tmp_path, b"candidate v2\n", "candidate-corrected", repository=first.repository,
+    )
+    relative = RELATIVE_CANDIDATE.as_posix()
+    assert _git(corrected.repository, "diff", "--name-only", "HEAD", "--", relative) == relative
+    assert _git(corrected.repository, "diff", "--cached", "--name-only", "--", relative) == ""
+    assert (corrected.target / RELATIVE_CANDIDATE).read_bytes() == b"candidate v2\n"
+
+    run_state = corrected.begin_review("candidate-2")
+    stage0 = corrected.stage0(run_state)
+    round1 = corrected.run_round1(stage0, dispatch_role=corrected.reviewer())
+    receipt = corrected.record_controller_return(
+        "candidate-2", corrected.run_triage(round1, triager=corrected.triager()),
+    )
+
+    assert json.loads(receipt.read_text())["source_identity"] == corrected.source_identity
+    assert corrected._load_head()["review"]["state"] == "pass"
+
+
 def _git(root: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(root), *args], check=True, text=True, capture_output=True,
@@ -487,9 +511,6 @@ class BoundaryFixture:
         if repository is None:
             _git(self.repository, "add", RELATIVE_CANDIDATE.as_posix())
             _git(self.repository, "commit", "-qm", "candidate source")
-        else:
-            _git(self.repository, "add", RELATIVE_CANDIDATE.as_posix())
-            _git(self.repository, "commit", "-qm", "correct candidate")
         self.source_commit = _git(self.repository, "rev-parse", "HEAD")
         # Capture once, before the disposable target exists.  All later reads
         # intentionally use source_identity to detect drift against this value.
@@ -514,14 +535,10 @@ class BoundaryFixture:
         self.mapper = None
         self.triage_id_overrides = []
         self.mapping_decisions = []
+        self.return_record = None
         self.prior_receipt = None
         if self.ledger_path.exists():
-            previous_review = self._load_head()["review"]
-            if previous_review["evidence_path"]:
-                receipt_path = self.repository / previous_review["evidence_path"]
-                if receipt_path.is_file():
-                    self.prior_receipt, error = FF_API["strict_receipt"](receipt_path)
-                    assert error is None
+            self.prior_receipt = self._retained_triage_receipt()
         else:
             self._write_head(self._head())
 
@@ -569,13 +586,82 @@ class BoundaryFixture:
             for item in persisted
         )
         history = [line for line in self.ledger_path.read_text().splitlines()
-                   if line.startswith("MAPPING ")] if self.ledger_path.exists() else []
+                   if line.startswith(("MAPPING ", "REVIEW_RETURN "))] if self.ledger_path.exists() else []
         if self.mapping_decisions:
             history.append("MAPPING " + json.dumps(self.mapping_decisions, sort_keys=True))
             self.mapping_decisions = []
+        if self.return_record:
+            history.append("REVIEW_RETURN " + json.dumps(self.return_record, sort_keys=True))
+            self.return_record = None
         self.ledger_path.write_text(
             "```json\n" + json.dumps(head, sort_keys=True) + "\n```\n\nFixture ledger.\n" + reservations + "\n".join(history) + "\n\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n|  |  |  |  |  |\n"
         )
+
+    def _retained_triage_receipt(self) -> dict[str, object] | None:
+        review = self._load_head()["review"]
+        if not review["open_finding_ids"]:
+            return None
+        records = [
+            json.loads(line.removeprefix("REVIEW_RETURN "))
+            for line in self.ledger_path.read_text().splitlines()
+            if line.startswith("REVIEW_RETURN ")
+        ]
+        matching = []
+        seen = set()
+        for record in records:
+            if not isinstance(record, dict):
+                raise ValueError("invalid review return lineage")
+            if (
+                record.get("kind") != review["kind"]
+                or record.get("root_identity") != review["root_identity"]
+            ):
+                continue
+            if set(record) != {"kind", "root_identity", "evidence_path"}:
+                raise ValueError("invalid review return lineage")
+            key = (record["kind"], record["root_identity"], record["evidence_path"])
+            if key in seen:
+                raise ValueError("ambiguous review return lineage")
+            seen.add(key)
+            matching.append(record)
+        for record in reversed(matching):
+            relative = record["evidence_path"]
+            if not isinstance(relative, str):
+                raise ValueError("invalid review return lineage")
+            path = self.repository / relative
+            if not FF_API["exact_regular_file"](self.repository, path):
+                raise ValueError("invalid review return lineage")
+            payload, error = FF_API["strict_receipt"](path)
+            if error is not None or payload is None:
+                raise ValueError("invalid review return lineage")
+            expected = self.receipt_path(payload["dispatch_id"])
+            if path != expected or payload["kind"] != review["kind"]:
+                raise ValueError("invalid review return lineage")
+            if payload["triage_artifact_id"] is None:
+                if (
+                    payload["result"] != "blocked"
+                    or payload["actionable_finding_ids"]
+                    or payload["triage_finding_ids"]
+                    or payload["stable_id_mapping"]
+                ):
+                    raise ValueError("invalid review return lineage")
+                continue
+            mapped_sources = sorted(
+                row["triage_finding_id"] for row in payload["stable_id_mapping"]
+            )
+            mapped_destinations = sorted(
+                row["feature_forge_finding_id"] for row in payload["stable_id_mapping"]
+            )
+            if (
+                payload["result"] not in {"changes_required", "blocked"}
+                or not payload["actionable_finding_ids"]
+                or mapped_sources != payload["triage_finding_ids"]
+                or mapped_destinations != payload["actionable_finding_ids"]
+            ):
+                raise ValueError("invalid review return lineage")
+            if payload["actionable_finding_ids"] != review["open_finding_ids"]:
+                raise ValueError("invalid review return lineage")
+            return payload
+        return None
 
     def _load_reservations(self) -> list[dict[str, object]]:
         reservations = []
@@ -882,6 +968,13 @@ class BoundaryFixture:
 
     def apply_projected_review(self, projected: dict[str, object]) -> None:
         head = self._load_head()
+        active = head["review"]
+        if active["state"] == "review_active":
+            self.return_record = {
+                "kind": active["kind"],
+                "root_identity": active["root_identity"],
+                "evidence_path": active["evidence_path"],
+            }
         head["review"] = projected
         result = projected["state"]
         if result == "pass":
@@ -917,7 +1010,8 @@ class BoundaryFixture:
             assert sorted(f["id"] for f in previous_artifact["findings"]) == prior["triage_finding_ids"]
             prior_findings = [{"feature_forge_finding_id": previous_mapping[f["id"]], "triage_finding": f}
                               for f in previous_artifact["findings"]]
-        assert sorted(row["feature_forge_finding_id"] for row in prior_findings) == self._load_head()["review"]["open_finding_ids"]
+        if sorted(row["feature_forge_finding_id"] for row in prior_findings) != self._load_head()["review"]["open_finding_ids"]:
+            raise ValueError("retained findings have no valid TRIAGE lineage")
         semantic_input = {"prior_findings": prior_findings, "current_findings": artifact["findings"],
                           "materially_same_criterion": CRITERION}
         answer = self.mapper(semantic_input) if self.mapper else {
@@ -1104,6 +1198,107 @@ def test_same_kind_pretriage_block_retains_round_and_both_finding_histories(tmp_
     assert after["previous_open_finding_ids"] == before["previous_open_finding_ids"]
     assert after["open_finding_ids"] == before["open_finding_ids"]
     _assert_production_audit_passes(second)
+
+
+def test_retry_maps_against_last_triage_receipt_across_pretriage_block(tmp_path):
+    first = BoundaryFixture(tmp_path, b"candidate v1\n", "lineage-first")
+    first_run = first.begin_review("lineage-1")
+    first_receipt = _nonempty_receipt(first, "lineage-1", first_run)
+    _recover_receipt(first, first_receipt)
+    first_payload = json.loads(first_receipt.read_text())
+    retained_ids = first_payload["actionable_finding_ids"]
+
+    blocked = BoundaryFixture(
+        tmp_path, b"candidate v2\n", "lineage-blocked", repository=first.repository,
+    )
+    blocked_run = blocked.begin_review("lineage-2")
+    blocked.record_controller_return(
+        "lineage-2", blocked.stage0(blocked_run),
+        round1_error=ControllerError("reviewer failed before Round1Outcome returned"),
+    )
+    assert blocked._load_head()["review"]["open_finding_ids"] == retained_ids
+
+    retry = BoundaryFixture(
+        tmp_path, b"candidate v3\n", "lineage-retry", repository=first.repository,
+    )
+    retry_run = retry.begin_review("lineage-3")
+    outcome = _nonempty_triage(retry, retry_run)
+
+    def mapper(packet):
+        assert sorted(
+            row["feature_forge_finding_id"] for row in packet["prior_findings"]
+        ) == retained_ids
+        decisions = []
+        for prior, current in zip(packet["prior_findings"], packet["current_findings"]):
+            assert prior["triage_finding"]["sources"][0]["claim"] == current["sources"][0]["claim"]
+            decisions.append({
+                "triage_finding_id": current["id"],
+                "decision": prior["feature_forge_finding_id"],
+                "rationale": "same missing REQ-007 acceptance check",
+            })
+        return {"decisions": decisions}
+
+    retry.mapper = mapper
+    receipt = retry.record_controller_return("lineage-3", outcome)
+
+    assert json.loads(receipt.read_text())["result"] == "blocked"
+    assert retry._load_head()["review"]["open_finding_ids"] == retained_ids
+
+
+@pytest.mark.parametrize("defect", [
+    "wrong-kind", "wrong-root", "missing", "malformed", "duplicate",
+    "pretriage-pass", "triage-pass",
+])
+def test_retry_blocks_on_invalid_prior_triage_lineage(tmp_path, defect):
+    first = BoundaryFixture(tmp_path, b"candidate v1\n", f"bad-lineage-{defect}")
+    first_run = first.begin_review("lineage-1")
+    first_receipt = _nonempty_receipt(first, "lineage-1", first_run)
+    _recover_receipt(first, first_receipt)
+    if defect == "pretriage-pass":
+        blocked = BoundaryFixture(
+            tmp_path, b"candidate blocked\n", "bad-lineage-pretriage",
+            repository=first.repository,
+        )
+        blocked_run = blocked.begin_review("lineage-blocked")
+        blocked_receipt = blocked.record_controller_return(
+            "lineage-blocked", blocked.stage0(blocked_run),
+            round1_error=ControllerError("reviewer failed before Round1Outcome returned"),
+        )
+        payload = json.loads(blocked_receipt.read_text())
+        payload["result"] = "pass"
+        blocked_receipt.write_text(json.dumps(payload, sort_keys=True))
+    elif defect == "triage-pass":
+        payload = json.loads(first_receipt.read_text())
+        payload["result"] = "pass"
+        first_receipt.write_text(json.dumps(payload, sort_keys=True))
+    ledger = first.ledger_path
+    lines = ledger.read_text().splitlines()
+    index = next(i for i, line in enumerate(lines) if line.startswith("REVIEW_RETURN "))
+    if defect in {"wrong-kind", "wrong-root"}:
+        record = json.loads(lines[index].removeprefix("REVIEW_RETURN "))
+        record["kind" if defect == "wrong-kind" else "root_identity"] = "foreign"
+        lines[index] = "REVIEW_RETURN " + json.dumps(record, sort_keys=True)
+        ledger.write_text("\n".join(lines) + "\n")
+    elif defect == "missing":
+        first_receipt.unlink()
+    elif defect == "malformed":
+        first_receipt.write_text("{}")
+    elif defect == "duplicate":
+        lines.insert(index + 1, lines[index])
+        ledger.write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(ValueError, match="lineage|retained findings"):
+        retry = BoundaryFixture(
+            tmp_path, b"candidate v2\n", f"bad-lineage-retry-{defect}",
+            repository=first.repository,
+        )
+        run_state = retry.begin_review("lineage-2")
+        if defect in {"pretriage-pass", "triage-pass"}:
+            retry._retained_triage_receipt()
+        else:
+            retry.record_controller_return("lineage-2", _nonempty_triage(retry, run_state))
+
+    assert not first.receipt_path("lineage-2").exists()
 
 
 def _map_clean_return(fixture: BoundaryFixture, dispatch_id: str):

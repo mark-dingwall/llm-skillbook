@@ -1151,6 +1151,55 @@ def tracked_content_mismatches(repo: Path, allowed: set[str]) -> set[str] | None
     return mismatches
 
 
+def review_checkout_readiness(
+    repo: Path, run: Path, data: dict[str, object],
+) -> Result:
+    """Require an exact checkout before a Stage 5, 8, or 10 review."""
+    stage = data["stage"]
+    assert isinstance(stage, dict)
+    candidate_kind = {5: "specification", 8: "plan"}.get(stage["id"])
+    if stage["id"] not in {5, 8, 10}:
+        return result("pass")
+    tracked, transformation_error = controlled_tracked_paths(repo)
+    if transformation_error is not None:
+        return result("unverifiable", transformation_error)
+    assert tracked is not None
+    dirty, dirty_error = worktree_paths(repo)
+    if dirty_error is not None:
+        return result("unverifiable", dirty_error)
+    assert dirty is not None
+    allowed = {(run / "ledger.md").relative_to(repo).as_posix()}
+    if candidate_kind is not None:
+        candidate = canonical_candidate_path(run, candidate_kind)
+        if not exact_regular_file(repo, repo / candidate):
+            return result("unverifiable", "candidate=unavailable")
+        allowed.add(candidate)
+    review = data["review"]
+    assert isinstance(review, dict)
+    evidence_path = review.get("evidence_path")
+    if isinstance(evidence_path, str):
+        allowed.add(evidence_path)
+    reviews_dir = (run / "reviews").relative_to(repo).as_posix()
+    for path in dirty:
+        relative = PurePosixPath(path)
+        if (
+            relative.parent.as_posix() == reviews_dir
+            and relative.suffix == ".json"
+            and DISPATCH_ID.fullmatch(relative.stem) is not None
+            and exact_regular_file(repo, repo / path)
+            and strict_receipt(repo / path)[1] is None
+        ):
+            allowed.add(path)
+    mode_mismatches = tracked_mode_mismatches(repo, allowed)
+    if mode_mismatches is None:
+        return result("unverifiable", "modes=unavailable")
+    content_mismatches = tracked_content_mismatches(repo, allowed | mode_mismatches)
+    if content_mismatches is None:
+        return result("unverifiable", "content=unavailable")
+    foreign = sorted((dirty - allowed) | mode_mismatches | content_mismatches)
+    return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
+
+
 def head_has_regular_file(repo: Path, path: str) -> bool | None:
     raw = git_bytes(repo, "ls-tree", "-z", "HEAD", "--", path)
     if raw is None:
@@ -1614,6 +1663,9 @@ def recover_review_return(
     """Validate and project one persisted return from a review-active head."""
     if error := audit_head_shape(repo, run, data):
         return None, result("unverifiable", error)
+    identities = canonical_identity_claims(repo, run, data)
+    if identities.status != "pass":
+        return None, identities
     review = data["review"]
     assert isinstance(review, dict)
     if review["state"] != "review_active":
@@ -1774,7 +1826,8 @@ def audit(repo_arg: str, run_arg: str) -> Result:
     )
     if task_table.status != "pass":
         return task_table
-    return audit_current_head(repo, run, data)
+    checked = audit_current_head(repo, run, data)
+    return review_checkout_readiness(repo, run, data) if checked.status == "pass" else checked
 
 
 def identities(repo_arg: str, run_arg: str) -> Result:

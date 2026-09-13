@@ -96,6 +96,10 @@ invalidation, or Finish transition, record the harness/session identity and
 any materially different root, parent, or subagent identity. Use `unavailable`
 when the harness exposes none.
 
+For every review return, record the evidence cell exactly as
+`{kind, root_identity, evidence_path}`, where `evidence_path` is the canonical
+Feature Forge receipt path.
+
 | event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |  |  |  |

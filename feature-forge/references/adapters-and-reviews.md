@@ -154,13 +154,16 @@ shared effective-attribute gate to every controlled path: any reported
 `filter`, `text`, `eol`, `ident`, or `working-tree-encoding` attribute is
 unsupported regardless of value. Never execute a clean/process filter.
 
-Read regular payload bytes directly from their blob IDs with conversion-free
-`cat-file blob`, preserving exact relative paths. Materialize `100644` as
-non-executable and `100755` as owner-executable regular files; these are Git
-modes, not a seal of the source checkout's complete POSIX permission mask.
-Exclude untracked and ignored material and Git administrative metadata from
-the subject. Supply frozen specification and plan blobs separately as review
-authorities even when their tracked paths are also in the subject.
+For Specification and Plan, write the already captured exact candidate bytes
+at their canonical relative path; the candidate need not have a Git blob yet.
+For Implementation, read regular payload bytes directly from their blob IDs
+with conversion-free `cat-file blob`, preserving exact relative paths.
+Materialize `100644` as non-executable and `100755` as owner-executable regular
+files; these are Git modes, not a seal of the source checkout's complete POSIX
+permission mask. Exclude untracked and ignored material and Git administrative
+metadata from the subject. Supply frozen specification and plan blobs
+separately as review authorities even when their tracked paths are also in the
+subject.
 
 Retain the existing regular manifest for unchanged symlinks, recording each
 exact path, Git mode, and link-target bytes without following the link or
@@ -327,13 +330,21 @@ For every review round, the controller must:
 
 1. Capture source identity before materializing: require an exact regular file
    reached only through real-directory ancestors, then record its SHA-256 plus canonical path
-   for a Specification or Plan candidate. For Implementation, require the
-   canonical source `HEAD` as `reviewed_commit`. Separately require checkout
-   readiness: after the attribute gate, compare regular-file raw bytes and
-   symlink `readlink` bytes to current-`HEAD` blobs, verify owner-execute agrees
-   with Git mode, and reject staged differences and ordinary untracked dirt.
-   Ignored entries are outside this boundary. Controller-owned dispatch/return
-   records remain governed by the stage-specific allowances in `workflow.md`.
+   for a Specification or Plan candidate. Candidate checkout readiness permits
+   that one canonical candidate path to differ from the index or `HEAD`, staged
+   or unstaged, because its captured working-tree bytes are the review subject;
+   no other candidate-review path gains that allowance. For Implementation,
+   require the canonical source `HEAD` as `reviewed_commit` and no candidate
+   allowance. Separately require checkout readiness: after the attribute gate,
+   compare every non-allowed regular-file raw byte sequence and symlink
+   `readlink` byte sequence to current-`HEAD` blobs, verify owner-execute agrees
+   with Git mode, and reject every other staged difference and ordinary
+   untracked path. Ignored entries are outside this boundary. Controller-owned
+   dispatch/return records remain governed by the stage-specific allowances in
+   `workflow.md`. At Stages 5, 8, and 10, `ff-check audit` enforces this
+   checkout-readiness boundary using the applicable canonical candidate path,
+   ledger, and structurally valid exact-regular canonical review receipts as
+   its only dirty allowances; Stage 10 has no candidate allowance.
    The controller retains the materialized-subject evidence
    needed to compare all sealed paths on return. Materialize the exact subject and
    create its one disposable bootstrap commit. Allocate a fresh filename-safe
@@ -420,17 +431,25 @@ Controller-written records agreeing with each other are not independent proof.
 Ordinary `audit` remains non-passing while the ledger records `review_active`.
 Recovery first validates the canonical receipt's exact-regular path, strict
 schema, dispatch/run/seal tuple, result, mapping, stable IDs, projected round,
-and source identity, then applies that validated projection before auditing the
-new head. Specification and Plan recovery require the current candidate bytes
-to match the receipt. Implementation recovery requires the receipt's canonical
-`reviewed_commit` to resolve, remain an ancestor of current `HEAD`, and have
-only stage-allowed controller-owned committed descendants. A failed recovery
-validation retains `review_active` under the blocked workflow overlay.
+source identity, and current canonical run/frozen identities, then applies that
+validated projection before auditing the new head. Specification and Plan
+recovery require the current candidate bytes to match the receipt.
+Implementation recovery requires the receipt's canonical `reviewed_commit` to
+resolve, remain an ancestor of current `HEAD`, and have only stage-allowed
+controller-owned committed descendants. A failed recovery validation retains
+`review_active` under the blocked workflow overlay.
 
 ### Stable-finding-ID judgment
 
 The LLM owns only material equivalence. Supply exactly `prior_findings`,
 `current_findings`, and `materially_same_criterion`:
+
+Every mapped review return appends a parent-linked transition whose evidence
+entry is exactly `{kind, root_identity, evidence_path}`; `evidence_path` is the
+canonical Feature Forge receipt path. Record this for completed TRIAGE and
+pre-TRIAGE blocked returns before a later return can replace the current review
+slot. This is an exact index inside existing transition evidence, not a new
+ledger-head field, receipt field, or artifact.
 
 - The criterion is: same grounded discrepancy against the same requirement,
   correctness condition, repository contract, or verification result, with no
@@ -441,11 +460,16 @@ The LLM owns only material equivalence. Supply exactly `prior_findings`,
   `locators`), `source_ids`, `reported_severity`, `current_severity`,
   `factual`, `state`, `evidence_locators`, and `target_seal`.
 - Prior findings have exactly `feature_forge_finding_id` and `triage_finding`.
-  Load full findings through the preceding receipt's `run_ref` and
-  `triage_artifact_id`, verify the same digest/binding and report/ID inventories,
-  then join through that receipt's `stable_id_mapping`. Require complete,
-  unique coverage of the prior open IDs. Projection rows omit claims and
-  evidence locators and cannot supply semantic input.
+  Walk the existing same-kind, same-root review-return transition evidence
+  backward, fully validating each named receipt and skipping valid pre-TRIAGE
+  blocked returns, to select the latest completed nonempty TRIAGE receipt whose
+  actionable stable IDs exactly equal the retained `open_finding_ids`. Missing,
+  divergent, or ambiguous lineage blocks before mapping. Load full findings
+  through that selected receipt's `run_ref` and `triage_artifact_id`, verify the
+  same digest/binding and report/ID inventories, then join through its
+  `stable_id_mapping`. Require complete, unique coverage of the prior open IDs.
+  Projection rows omit claims and evidence locators and cannot supply semantic
+  input.
 
 Return exactly one decision per current ID:
 

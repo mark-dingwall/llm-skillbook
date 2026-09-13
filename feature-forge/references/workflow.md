@@ -130,9 +130,13 @@ hashing or trust size/mtime caches. Gitlinks are unsupported. `100755` requires
 owner execute, `100644` requires it absent, and a successful raw read proves
 readability; other permission bits are not reviewed identity. Ignore ignored
 entries, but ordinary untracked dirt and staged changes fail readiness except
-for the exact ledger/current receipt before Stage 14. Stage 14 entry permits
-no dirty controller paths. The adapter's symlink manifest and changed or
-review-relevant symlink blocking rules remain mandatory.
+for the exact ledger/current receipt before Stage 14 and the one canonical
+uncommitted candidate during Specification or Plan review. That candidate
+exception is staged-or-unstaged and admits no other dirty path; its captured
+working-tree SHA-256, not an index or `HEAD` blob, identifies the review
+subject. Stage 14 entry permits no dirty controller paths. The adapter's
+symlink manifest and changed or review-relevant symlink blocking rules remain
+mandatory.
 
 Path checks reject symlinks at observation time where a real directory or
 regular file is required; explicitly supported tracked symlinks retain the
@@ -271,12 +275,19 @@ sealed path are unchanged, and block all other differences.
 
 ## Fixed change and invalidation graph
 
-Classify changes under the authority contract. Editorial changes enter
-`invalidated`, receive a scoped delta review, are committed, replace their
-frozen blob identity while retaining the prior identity in transition history,
-and preserve downstream evidence only when behavior and contracts are provably
-unchanged. Reviewer doubt reclassifies the change as a specification or plan
-defect.
+Classify changes under the authority contract. Optional late editorial changes
+may be deferred until after Finish. When an editorial change is required, enter
+`invalidated`, receive a scoped delta review, commit it, and replace its frozen
+blob identity while retaining the prior identity in transition history.
+Preserve unaffected implementation task commits only as artifacts; invalidate
+the prior review authority plus verification, acceptance, and report evidence.
+Those artifacts do not prove the new frozen authority tuple. A specification
+edit proceeds through Specification review, Plan review, and Implementation
+review; a plan edit proceeds through Plan review and Implementation review.
+Each completed receipt moves to transition history as the next kind takes the
+single current review slot. Resume Final verification only after the fresh
+Implementation pass. Reviewer doubt reclassifies the change as a specification
+or plan defect and applies the non-editorial graph below.
 
 For non-editorial corrections, apply this fixed graph:
 
@@ -287,7 +298,9 @@ For non-editorial corrections, apply this fixed graph:
 | implementation defect | implementation review, verification, acceptance, report | Implementation review |
 | acceptance defect | classify to specification, plan, or implementation root cause and apply that row | earliest resulting invalidated stage |
 
-No later evidence survives except under the allowed editorial transition above.
+No later review authority or downstream evidence survives an invalidated root;
+only unaffected implementation artifacts survive the editorial transition
+above.
 New requests are deferred unless the user explicitly expands the work unit.
 
 ## Git work and checkpoints

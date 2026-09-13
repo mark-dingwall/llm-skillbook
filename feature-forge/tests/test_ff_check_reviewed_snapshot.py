@@ -118,6 +118,39 @@ def test_reviewed_snapshot_accepts_reviewed_commit_receipt(tmp_path: Path) -> No
     assert_result(invoke(repo, directory), "pass", 0)
 
 
+@pytest.mark.parametrize("authority", ["specification", "plan"])
+def test_reviewed_snapshot_invalidates_pass_after_frozen_editorial_rebaseline(
+    tmp_path: Path, authority: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    frozen = data["frozen"][authority]
+    path = repo / frozen["path"]
+    path.write_text(path.read_text().rstrip() + " (wording clarified)\n")
+    commit(repo, f"editorial {authority} rebaseline", frozen["path"])
+    frozen["blob"] = git(repo, "rev-parse", f"HEAD:{frozen['path']}")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "reviewed-commit=foreign-descendant\n"
+
+
+def test_reviewed_snapshot_accepts_fresh_implementation_pass_after_editorial_rebaseline(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    frozen = data["frozen"]["specification"]
+    path = repo / frozen["path"]
+    path.write_text("specification wording clarified\n")
+    reviewed_commit = commit(repo, "editorial specification rebaseline", frozen["path"])
+    frozen["blob"] = git(repo, "rev-parse", f"HEAD:{frozen['path']}")
+    data["review"]["reviewed_commit"] = reviewed_commit
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
 @pytest.mark.parametrize("replaced_kind", ["blob", "commit"])
 def test_reviewed_snapshot_ignores_replacements_when_checking_committed_bytes(
     tmp_path: Path, replaced_kind: str,

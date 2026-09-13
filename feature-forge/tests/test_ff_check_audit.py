@@ -428,6 +428,90 @@ def invoke(repo: Path, directory: Path) -> subprocess.CompletedProcess[str]:
     return check("audit", "--repo", str(repo), "--run", str(directory))
 
 
+@pytest.mark.parametrize(("kind", "stage_id"), [("specification", 5), ("plan", 8)])
+@pytest.mark.parametrize("staged", [False, True])
+def test_audit_allows_only_the_dirty_candidate_at_review_readiness(
+    tmp_path: Path, kind: str, stage_id: int, staged: bool,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    if kind == "plan":
+        returned_review(repo, directory, data, kind="specification", state="pass")
+    else:
+        data["review"] = {
+            "kind": None, "state": "not_started", "round": 0, "root_identity": None,
+            "dispatch_id": None, "run_ref": None, "target_seal": None,
+            "evidence_path": None, "reviewed_commit": None,
+            "previous_open_finding_ids": [], "open_finding_ids": [],
+        }
+    data.update(stage={"id": stage_id, "state": "active"}, next_action=f"dispatch {kind} review")
+    candidate = repo / data["frozen"][kind]["path"]
+    candidate.write_text(f"corrected {kind} candidate\n")
+    if staged:
+        git(repo, "add", candidate.relative_to(repo).as_posix())
+    write_ledger(directory, data)
+
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_audit_rejects_a_second_dirty_path_at_specification_review_readiness(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data.update(stage={"id": 5, "state": "active"}, next_action="dispatch specification review")
+    data["review"] = {
+        "kind": None, "state": "not_started", "round": 0, "root_identity": None,
+        "dispatch_id": None, "run_ref": None, "target_seal": None,
+        "evidence_path": None, "reviewed_commit": None,
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    candidate = repo / data["frozen"]["specification"]["path"]
+    candidate.write_text("corrected specification candidate\n")
+    (repo / "unrelated.txt").write_text("unrelated dirt\n")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "path=unrelated.txt\n"
+
+
+def test_audit_rejects_dirty_implementation_at_review_readiness(tmp_path: Path) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(repo, directory, data, kind="plan", state="pass")
+    data.update(stage={"id": 10, "state": "active"}, next_action="dispatch implementation review")
+    (repo / "README.md").write_text("dirty implementation\n")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "path=README.md\n"
+
+
+def test_audit_does_not_allow_a_symlinked_historical_receipt_at_review_readiness(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    data.update(stage={"id": 5, "state": "active"}, next_action="dispatch specification review")
+    data["review"] = {
+        "kind": None, "state": "not_started", "round": 0, "root_identity": None,
+        "dispatch_id": None, "run_ref": None, "target_seal": None,
+        "evidence_path": None, "reviewed_commit": None,
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    outside = tmp_path / "outside-receipt.json"
+    outside.write_text(json.dumps(receipt_payload()))
+    receipt = directory / "reviews/historical.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.symlink_to(outside)
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == f"path={receipt.relative_to(repo).as_posix()}\n"
+
+
 @pytest.mark.parametrize("status", TASK_STATUSES + ("  awaiting_return  ",))
 def test_audit_accepts_exact_task_statuses(tmp_path: Path, status: str) -> None:
     repo, directory, data = audit_fixture(tmp_path)
@@ -1093,6 +1177,50 @@ def test_implementation_recovery_allows_only_controller_owned_descendant_changes
         assert projected["reviewed_commit"] == reviewed_commit
 
 
+@pytest.mark.parametrize("current_frozen_identity", [True, False])
+def test_implementation_recovery_rejects_frozen_editorial_descendant(
+    tmp_path: Path, current_frozen_identity: bool,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, kind="implementation", state="pass")
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 10, "state": "active"})
+    frozen = data["frozen"]["specification"]
+    path = repo / frozen["path"]
+    path.write_text("editorial specification rebaseline\n")
+    git(repo, "add", frozen["path"])
+    git(repo, "commit", "-qm", "editorial specification rebaseline")
+    if current_frozen_identity:
+        frozen["blob"] = git(repo, "rev-parse", f"HEAD:{frozen['path']}")
+    write_ledger(directory, data)
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert checked.status == "fail"
+    assert projected is None
+
+
+def test_plan_recovery_rejects_unreconciled_frozen_specification_drift(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, kind="plan", state="pass")
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 8, "state": "active"})
+    frozen = data["frozen"]["specification"]
+    path = repo / frozen["path"]
+    path.write_text("changed frozen specification\n")
+    git(repo, "add", frozen["path"])
+    git(repo, "commit", "-qm", "change frozen specification")
+    write_ledger(directory, data)
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert checked.status == "fail"
+    assert checked.findings == ("frozen=specification:not-at-head",)
+    assert projected is None
+
+
 @pytest.mark.parametrize("identity", ["HEAD", "0" * 40])
 def test_implementation_recovery_rejects_noncanonical_or_unresolvable_source_commit(
     tmp_path: Path, identity: str,
@@ -1122,6 +1250,26 @@ def test_audit_rejects_an_implementation_return_after_a_foreign_descendant_chang
     implementation.write_text("post-review change\n")
     git(repo, "add", implementation.relative_to(repo).as_posix())
     git(repo, "commit", "-qm", "change implementation after review")
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "reviewed-commit=foreign-descendant\n"
+
+
+@pytest.mark.parametrize("authority", ["specification", "plan"])
+def test_audit_invalidates_implementation_pass_after_frozen_editorial_rebaseline(
+    tmp_path: Path, authority: str,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(repo, directory, data, kind="implementation", state="pass")
+    frozen = data["frozen"][authority]
+    path = repo / frozen["path"]
+    path.write_text(path.read_text().rstrip() + " (wording clarified)\n")
+    git(repo, "add", frozen["path"])
+    git(repo, "commit", "-qm", f"editorial {authority} rebaseline")
+    frozen["blob"] = git(repo, "rev-parse", f"HEAD:{frozen['path']}")
+    write_ledger(directory, data)
 
     observed = invoke(repo, directory)
 

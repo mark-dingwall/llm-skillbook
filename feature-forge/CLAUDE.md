@@ -57,9 +57,10 @@ drift read-only. An unrelated change blocks advancement; never capture,
 stash, reset, discard, amend, or combine it. A new request stays deferred
 unless the user explicitly expands the work unit. Classify changes before
 editing frozen artifacts; route non-editorial corrections and rejected
-acceptance through the workflow-owned invalidation graph. Later evidence does
-not survive an invalidated root cause unless the defined editorial transition
-permits it.
+acceptance through the workflow-owned invalidation graph. An editorial
+rebaseline may retain unaffected implementation artifacts, but it invalidates
+review authority and downstream evidence until the workflow's sequential
+re-review chain re-establishes them.
 
 Acceptance records report only evidence actually produced in the run. Each
 requirement uses its declared method and records current state, authority,
