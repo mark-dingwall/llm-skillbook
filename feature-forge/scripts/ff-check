@@ -532,6 +532,8 @@ def runs(repo_arg: str, run_id: str) -> Result:
     status = data.get("status")
     if status == "complete":
         return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    if primary_stage14_custody_head(data, linked_worktree(repo)):
+        return result("pass", *ledger_findings, *branch_matches, *worktree_findings)
     recorded_branch = data.get("branch")
     recorded_worktree = data.get("worktree")
     observed_recorded_worktree = resolve_observed_path(Path(recorded_worktree))
@@ -1154,11 +1156,19 @@ def tracked_content_mismatches(repo: Path, allowed: set[str]) -> set[str] | None
 def review_checkout_readiness(
     repo: Path, run: Path, data: dict[str, object],
 ) -> Result:
-    """Require an exact checkout before a Stage 5, 8, or 10 review."""
+    """Require review readiness and post-freeze receipt settlement."""
     stage = data["stage"]
     assert isinstance(stage, dict)
+    review = data["review"]
+    assert isinstance(review, dict)
     candidate_kind = {5: "specification", 8: "plan"}.get(stage["id"])
-    if stage["id"] not in {5, 8, 10}:
+    if (
+        stage["id"] == 7
+        and review.get("kind") == "plan"
+        and review.get("state") == "changes_required"
+    ):
+        candidate_kind = "plan"
+    if stage["id"] not in {5, 7, 8, 9, 10}:
         return result("pass")
     tracked, transformation_error = controlled_tracked_paths(repo)
     if transformation_error is not None:
@@ -1168,28 +1178,74 @@ def review_checkout_readiness(
     if dirty_error is not None:
         return result("unverifiable", dirty_error)
     assert dirty is not None
+    if stage["id"] == 9 or (stage["id"] == 7 and candidate_kind is None):
+        reviews_dir = (run / "reviews").relative_to(repo).as_posix()
+
+        def receipt_path(path: str) -> bool:
+            relative = PurePosixPath(path)
+            return (
+                relative.parent.as_posix() == reviews_dir
+                and relative.suffix == ".json"
+                and DISPATCH_ID.fullmatch(relative.stem) is not None
+            )
+
+        try:
+            tracked_paths = {
+                path.decode("utf-8") for path in tracked.split(b"\0") if path
+            }
+        except UnicodeDecodeError:
+            return result("unverifiable", "paths=unsupported")
+        tracked_receipts = {path for path in tracked_paths if receipt_path(path)}
+        dirty_receipts = {path for path in dirty if receipt_path(path)}
+        current_receipt = (
+            review.get("evidence_path")
+            if stage["id"] == 9
+            and review.get("kind") == "implementation"
+            and review.get("state") == "changes_required"
+            else None
+        )
+        if isinstance(current_receipt, str):
+            tracked_receipts.discard(current_receipt)
+            dirty_receipts.discard(current_receipt)
+        allowed = tracked_paths - tracked_receipts
+        mode_mismatches = tracked_mode_mismatches(repo, allowed)
+        if mode_mismatches is None:
+            return result("unverifiable", "modes=unavailable")
+        content_mismatches = tracked_content_mismatches(repo, allowed | mode_mismatches)
+        if content_mismatches is None:
+            return result("unverifiable", "content=unavailable")
+        unsettled = sorted(dirty_receipts | mode_mismatches | content_mismatches)
+        return (
+            result("fail", *(f"path={path}" for path in unsettled))
+            if unsettled else result("pass")
+        )
     allowed = {(run / "ledger.md").relative_to(repo).as_posix()}
     if candidate_kind is not None:
         candidate = canonical_candidate_path(run, candidate_kind)
         if not exact_regular_file(repo, repo / candidate):
             return result("unverifiable", "candidate=unavailable")
         allowed.add(candidate)
-    review = data["review"]
-    assert isinstance(review, dict)
     evidence_path = review.get("evidence_path")
-    if isinstance(evidence_path, str):
+    expected_kind = candidate_kind or "implementation"
+    if review.get("kind") == expected_kind and isinstance(evidence_path, str):
         allowed.add(evidence_path)
-    reviews_dir = (run / "reviews").relative_to(repo).as_posix()
-    for path in dirty:
-        relative = PurePosixPath(path)
-        if (
-            relative.parent.as_posix() == reviews_dir
-            and relative.suffix == ".json"
-            and DISPATCH_ID.fullmatch(relative.stem) is not None
-            and exact_regular_file(repo, repo / path)
-            and strict_receipt(repo / path)[1] is None
-        ):
-            allowed.add(path)
+    if candidate_kind in {"specification", "plan"}:
+        reviews_dir = (run / "reviews").relative_to(repo).as_posix()
+        for path in dirty:
+            relative = PurePosixPath(path)
+            if (
+                relative.parent.as_posix() == reviews_dir
+                and relative.suffix == ".json"
+                and DISPATCH_ID.fullmatch(relative.stem) is not None
+                and exact_regular_file(repo, repo / path)
+            ):
+                payload, receipt_error = strict_receipt(repo / path)
+                if (
+                    receipt_error is None
+                    and payload is not None
+                    and payload["kind"] == candidate_kind
+                ):
+                    allowed.add(path)
     mode_mismatches = tracked_mode_mismatches(repo, allowed)
     if mode_mismatches is None:
         return result("unverifiable", "modes=unavailable")
@@ -1485,6 +1541,19 @@ def canonical_candidate_path(run: Path, kind: str) -> str:
     return f"docs/superpowers/plans/{dated_id}.md"
 
 
+def primary_stage14_custody_head(data: dict[str, object], linked: bool | None) -> bool:
+    review = data.get("review")
+    return (
+        linked is False
+        and data.get("status") in {"active", "blocked"}
+        and data.get("stage")
+        in ({"id": 14, "state": "active"}, {"id": 14, "state": "blocked"})
+        and isinstance(review, dict)
+        and review.get("kind") == "implementation"
+        and review.get("state") == "pass"
+    )
+
+
 def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) -> Result:
     """Validate that ledger identity claims cannot redirect the canonical run."""
     suffix = DATED_DIRECTORY.fullmatch(run.name)
@@ -1503,9 +1572,14 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
     observed_branch = git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
     if observed_branch is None:
         return result("unverifiable", "branch=unavailable")
+    review = data.get("review")
+    primary_custody = not terminal and primary_stage14_custody_head(data, linked)
     if terminal:
         if linked and observed_branch != f"refs/heads/{expected_branch}":
             return result("fail", "worktree=linked-base")
+        if observed_branch != f"refs/heads/{data['branch']}":
+            return result("fail", "branch=wrong-run")
+    elif primary_custody:
         if observed_branch != f"refs/heads/{data['branch']}":
             return result("fail", "branch=wrong-run")
     elif not linked:
@@ -1515,8 +1589,7 @@ def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) ->
     base = base_identity_result(repo, data["base_identity"])
     if base.status != "pass":
         return base
-    if terminal:
-        review = data.get("review")
+    if terminal or primary_custody:
         if not (
             isinstance(review, dict)
             and review.get("kind") == "implementation"
@@ -1666,6 +1739,9 @@ def recover_review_return(
     identities = canonical_identity_claims(repo, run, data)
     if identities.status != "pass":
         return None, identities
+    frozen = frozen_snapshot(repo, run, data.get("frozen"))
+    if frozen.status != "pass":
+        return None, frozen
     review = data["review"]
     assert isinstance(review, dict)
     if review["state"] != "review_active":
@@ -1764,7 +1840,8 @@ def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result
         and review["reviewed_commit"] is not None
     )
     terminal = data["status"] == "complete" and stage == {"id": 14, "state": "complete"}
-    if implementation_return and not terminal:
+    primary_custody = primary_stage14_custody_head(data, linked_worktree(repo))
+    if implementation_return and not terminal and not primary_custody:
         if review["state"] == "changes_required":
             if commit_identity(repo, review["reviewed_commit"]) != "valid":
                 return result("unverifiable", "reviewed-commit=unresolvable")

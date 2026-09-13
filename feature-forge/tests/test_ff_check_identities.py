@@ -298,6 +298,45 @@ def test_identities_accepts_a_local_merge_terminal_head_only_in_the_primary_chec
     assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
 
 
+def test_identities_accepts_nonterminal_local_merge_custody_after_merge(
+    tmp_path: Path,
+) -> None:
+    repo = make_primary_repo(tmp_path, branch="main")
+    base = git(repo, "rev-parse", "HEAD")
+    feature = tmp_path / "feature-worktree"
+    git(repo, "worktree", "add", "-qb", "feature/alpha", str(feature), "HEAD")
+    paths = {
+        "specification": "docs/superpowers/specs/2026-08-25-alpha-design.md",
+        "plan": "docs/superpowers/plans/2026-08-25-alpha.md",
+    }
+    for name, relative in paths.items():
+        target = feature / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{name}\n")
+    git(feature, "add", *paths.values())
+    git(feature, "commit", "-qm", "reviewed implementation")
+    reviewed_commit = git(feature, "rev-parse", "HEAD")
+    git(repo, "merge", "--no-ff", "-qm", "merge feature", "feature/alpha")
+    frozen = {
+        name: {"path": relative, "blob": git(repo, "rev-parse", f"HEAD:{relative}")}
+        for name, relative in paths.items()
+    }
+    directory = run_dir(repo)
+    data = head(repo, branch="main", base_identity=base, frozen=frozen)
+    data.update(stage={"id": 14, "state": "active"}, next_action="clean feature worktree")
+    data["review"] = {
+        "kind": "implementation", "state": "pass", "round": 0,
+        "root_identity": "implementation-root", "dispatch_id": "implementation-1",
+        "run_ref": "/external/review-loop/implementation-1", "target_seal": "seal",
+        "evidence_path": "docs/feature-forge/runs/2026-08-25-alpha/reviews/implementation-1.json",
+        "reviewed_commit": reviewed_commit,
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    write_ledger(directory, data)
+
+    assert_result(check("identities", "--repo", str(repo), "--run", str(directory)), "pass", 0)
+
+
 def test_identities_rejects_a_terminal_reviewed_commit_outside_head_ancestry(
     tmp_path: Path,
 ) -> None:

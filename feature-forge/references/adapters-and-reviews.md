@@ -343,8 +343,17 @@ For every review round, the controller must:
    dispatch/return records remain governed by the stage-specific allowances in
    `workflow.md`. At Stages 5, 8, and 10, `ff-check audit` enforces this
    checkout-readiness boundary using the applicable canonical candidate path,
-   ledger, and structurally valid exact-regular canonical review receipts as
-   its only dirty allowances; Stage 10 has no candidate allowance.
+   ledger, the current review's exact canonical receipt path, and structurally
+   valid same-kind candidate-review receipts awaiting that candidate's freeze
+   checkpoint as its only dirty allowances. Receipts from an earlier review kind
+   must already be settled. Stage 10 has no candidate or historical-receipt
+   allowance: each non-passing Implementation receipt must be settled before
+   redispatch. At Stages 7 and 9, a narrower byte- and mode-exact receipt-path
+   check verifies that the preceding freeze checkpoint settled its receipts;
+   Stage 7 Plan correction instead retains the Stage 8 candidate allowances.
+   Stage 9 Implementation correction may retain only its current exact receipt
+   until the category-6 fix checkpoint. Neither case replaces the workflow's
+   separate handling of frozen-authority drift.
    The controller retains the materialized-subject evidence
    needed to compare all sealed paths on return. Materialize the exact subject and
    create its one disposable bootstrap commit. Allocate a fresh filename-safe
@@ -431,8 +440,9 @@ Controller-written records agreeing with each other are not independent proof.
 Ordinary `audit` remains non-passing while the ledger records `review_active`.
 Recovery first validates the canonical receipt's exact-regular path, strict
 schema, dispatch/run/seal tuple, result, mapping, stable IDs, projected round,
-source identity, and current canonical run/frozen identities, then applies that
-validated projection before auditing the new head. Specification and Plan
+source identity, current canonical run/frozen identities, and current frozen
+working bytes, then applies that validated projection before auditing the new
+head. Specification and Plan
 recovery require the current candidate bytes to match the receipt.
 Implementation recovery requires the receipt's canonical `reviewed_commit` to
 resolve, remain an ancestor of current `HEAD`, and have only stage-allowed
@@ -460,8 +470,10 @@ ledger-head field, receipt field, or artifact.
   `locators`), `source_ids`, `reported_severity`, `current_severity`,
   `factual`, `state`, `evidence_locators`, and `target_seal`.
 - Prior findings have exactly `feature_forge_finding_id` and `triage_finding`.
-  Walk the existing same-kind, same-root review-return transition evidence
-  backward, fully validating each named receipt and skipping valid pre-TRIAGE
+  When retained `open_finding_ids` is empty, supply `prior_findings=[]` and do
+  not search receipt history. Otherwise, walk the existing same-kind, same-root
+  review-return transition evidence backward, fully validating each named
+  receipt and skipping valid pre-TRIAGE
   blocked returns, to select the latest completed nonempty TRIAGE receipt whose
   actionable stable IDs exactly equal the retained `open_finding_ids`. Missing,
   divergent, or ambiguous lineage blocks before mapping. Load full findings
@@ -529,11 +541,14 @@ Fixes occur only between rounds, never during an active round. For
 Specification review and Plan review, a fix to the candidate need not be
 committed to start the next round: re-seal the corrected candidate content and
 review it again under the applicable charter before any `pass`; only the
-passing candidate receives its freeze checkpoint commit. For Implementation
-review, each accepted fix is committed, re-sealed, and independently
-re-reviewed before a final `pass` on the post-fix whole-tree snapshot, per the
-workflow contract. After review, the controller compares seals before final
-verification and permits only the recorded controller-ledger delta and its
+passing candidate receives its freeze checkpoint commit, which also settles
+all receipts for that review root. For Implementation review, settle each
+non-passing returned receipt through checkpoint category 6 before the next
+dispatch; each accepted fix is committed in that same checkpoint, re-sealed,
+and independently re-reviewed before a final `pass` on the post-fix whole-tree
+snapshot, per the workflow contract. The current passing Implementation receipt
+is settled by checkpoint 7. After review, the controller compares seals before
+final verification and permits only the recorded controller-ledger delta and its
 recorded review-evidence reference; it separately confirms the reviewed
 implementation commit and every other sealed path remain unchanged. Any other
 delta blocks advancement under the workflow contract.

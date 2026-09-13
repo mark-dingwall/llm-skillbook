@@ -116,6 +116,9 @@ operation through `ready`, `claimed`, `menu_pending`, `choice_recorded`,
 `executing`, and `terminal`; `blocked` is a resumable overlay. Persist the
 required journal receipts before a claim, menu or unattended resolution, and
 side effect, then persist the reconciled terminal or blocked receipt.
+An authority invalidation while still `ready` retires that unclaimed operation
+and its report through the workflow's bounded reset; after `claimed`, never
+reset or reuse it automatically.
 
 Before claiming, the workflow must record a passing pre-claim capability
 receipt for durable journal interleaving and read-only Git/forge

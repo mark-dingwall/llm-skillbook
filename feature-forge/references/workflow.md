@@ -36,7 +36,7 @@ as absent.
 | `run_id` | Work-unit slug. |
 | `mode` | Exactly `interactive`, `supervised`, or `unattended`; default `supervised`. |
 | `status` | `active`, `blocked`, or `complete`. |
-| `worktree`, `branch`, `base_identity` | Current absolute containing checkout and its exact named branch; canonical full, resolvable base commit OID that is an ancestor of current `HEAD`. Every nonterminal head, and a Keep or Push-and-PR terminal head, uses the isolated linked worktree and exact `feature/<run_id>` branch. A local-merge terminal head alone may use the confirmed primary base checkout and its base branch. A linked base checkout is unsupported. This does not reconstruct the historical fork point. |
+| `worktree`, `branch`, `base_identity` | Current absolute containing checkout and its exact named branch; canonical full, resolvable base commit OID that is an ancestor of current `HEAD`. Every nonterminal head, and a Keep or Push-and-PR terminal head, uses the isolated linked worktree and exact `feature/<run_id>` branch, except the Stage 14 local-merge custody interval below. After the merge is proven by reviewed-commit ancestry, that interval and the local-merge terminal head use the confirmed primary base checkout and its base branch. A linked base checkout is unsupported. This does not reconstruct the historical fork point. |
 | `stage` | `{id, state}`; IDs are 1..14. The current head uses `active`, `blocked`, `complete`, or `invalidated`; `pending` describes future stages only and is rejected for the current stage. |
 | `next_action` | Nonblank for nonterminal heads; null only with overall `complete` and Stage 14 complete. Its semantic meaning remains controller-owned prose. |
 | `frozen` | `specification` and `plan`, each null or exactly `{path, blob}` strings; non-null paths are the run-derived canonical artifacts and blobs are canonical full, resolvable blob OIDs. |
@@ -130,8 +130,11 @@ hashing or trust size/mtime caches. Gitlinks are unsupported. `100755` requires
 owner execute, `100644` requires it absent, and a successful raw read proves
 readability; other permission bits are not reviewed identity. Ignore ignored
 entries, but ordinary untracked dirt and staged changes fail readiness except
-for the exact ledger/current receipt before Stage 14 and the one canonical
-uncommitted candidate during Specification or Plan review. That candidate
+for the exact ledger, the current review's exact canonical receipt path,
+structurally valid same-kind Specification or Plan receipts awaiting their
+candidate's freeze checkpoint, and the one canonical uncommitted candidate
+during those reviews. Earlier-kind and prior Implementation receipts must
+already be settled. That candidate
 exception is staged-or-unstaged and admits no other dirty path; its captured
 working-tree SHA-256, not an index or `HEAD` blob, identifies the review
 subject. Stage 14 entry permits no dirty controller paths. The adapter's
@@ -289,6 +292,16 @@ single current review slot. Resume Final verification only after the fresh
 Implementation pass. Reviewer doubt reclassifies the change as a specification
 or plan defect and applies the non-editorial graph below.
 
+After checkpoint 7, automatic invalidation and re-entry are supported only
+while Finish remains `ready`, before it is claimed or any integration effect
+begins. In one category-8 invalidation commit, delete `final-report.md`, retire
+the unclaimed `finish_id` in transition history, clear its current Finish
+evidence, and record the invalidated review-chain entry. The fresh chain above
+must reach a new Implementation pass before Stage 11; Stage 13 then creates a
+new report and allocates a new `finish_id`. After `claimed`, a required authority
+change blocks for explicit operator resolution rather than attempting rollback
+or automatic re-entry.
+
 For non-editorial corrections, apply this fixed graph:
 
 | Root cause | Invalidates | Resume point |
@@ -319,11 +332,16 @@ not create empty commits or commit during an active review round.
 Create these eight checkpoint categories only when the corresponding tree differs:
 
 1. `docs: draft <feature> specification` after Brainstorm.
-2. `docs: freeze reviewed <feature> specification` after Harden and Specification review.
+2. `docs: freeze reviewed <feature> specification` after Harden and Specification review,
+   including every receipt for that Specification-review root.
 3. `docs: draft <feature> implementation plan` after Plan.
-4. `docs: freeze reviewed <feature> implementation plan` after Plan review.
+4. `docs: freeze reviewed <feature> implementation plan` after Plan review,
+   including every receipt for that Plan-review root.
 5. Implementation commits owned by each reviewed plan task and the selected execution method.
-6. `fix: address final <feature> review findings` when Implementation review changes implementation.
+6. Settle each non-passing Implementation-review receipt before another
+   Implementation dispatch: use `fix: address final <feature> review findings`
+   when the same checkpoint includes accepted fixes, otherwise
+   `docs: record <feature> implementation review return`.
 7. `docs: record <feature> acceptance` for the final report, UAT/waiver, verification
    summary, traceability, branch-finishing readiness, the pending Finish outcome, and
    the active ledger already at Stage 14 with Finish `ready`, plus the applicable
@@ -570,6 +588,21 @@ next side effect. Thereafter, reconcile and receipt each completed effect before
 committing the next exact side effect. `push` and `create PR` are separate side
 effects; so are every pull, merge, cleanup, and branch deletion. Each write-ahead
 commit must succeed and the applicable worktree must be clean before its effect.
+
+For local merge, immediately after the merge is reconciled, transfer ledger and
+report custody in the next category-8 commit to the confirmed primary base
+checkout before cleanup. The controller permits this sole nonterminal-primary
+interval only for the recorded local-merge selection and custody-transfer
+evidence, with cleanup as the next effect. Preserve the original feature
+worktree, branch, and tip in existing Finish/transition evidence.
+
+The version-one checker can enforce only the structured boundary available in
+the current head: primary checkout, Stage 14, an Implementation pass, the exact
+recorded checkout and branch, and both `base_identity` and `reviewed_commit` as
+ancestors of current `HEAD`. It does not parse human Finish evidence or infer
+the meaning of `next_action`, so local-merge selection, transfer evidence, and
+the cleanup action remain controller-owned semantic checks. Do not use the
+structural exception for any other nonterminal primary head.
 
 ### Option 1 base-checkout safety
 

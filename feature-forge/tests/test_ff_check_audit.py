@@ -435,7 +435,9 @@ def test_audit_allows_only_the_dirty_candidate_at_review_readiness(
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
     if kind == "plan":
-        returned_review(repo, directory, data, kind="specification", state="pass")
+        prior = returned_review(repo, directory, data, kind="specification", state="pass")
+        git(repo, "add", str(prior["evidence_path"]))
+        git(repo, "commit", "-qm", "settle specification review receipt")
     else:
         data["review"] = {
             "kind": None, "state": "not_started", "round": 0, "root_identity": None,
@@ -477,7 +479,9 @@ def test_audit_rejects_a_second_dirty_path_at_specification_review_readiness(
 
 def test_audit_rejects_dirty_implementation_at_review_readiness(tmp_path: Path) -> None:
     repo, directory, data = audit_fixture(tmp_path)
-    returned_review(repo, directory, data, kind="plan", state="pass")
+    prior = returned_review(repo, directory, data, kind="plan", state="pass")
+    git(repo, "add", str(prior["evidence_path"]))
+    git(repo, "commit", "-qm", "settle plan review receipt")
     data.update(stage={"id": 10, "state": "active"}, next_action="dispatch implementation review")
     (repo / "README.md").write_text("dirty implementation\n")
     write_ledger(directory, data)
@@ -486,6 +490,65 @@ def test_audit_rejects_dirty_implementation_at_review_readiness(tmp_path: Path) 
 
     assert_result(observed, "fail", 1)
     assert observed.stderr == "path=README.md\n"
+
+
+def test_audit_rejects_an_unsettled_prior_kind_receipt_at_plan_readiness(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, kind="specification", state="pass")
+    data.update(stage={"id": 8, "state": "active"}, next_action="dispatch plan review")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == f"path={review['evidence_path']}\n"
+
+
+@pytest.mark.parametrize(("kind", "stage"), [("specification", 7), ("plan", 9)])
+def test_audit_rejects_an_unsettled_candidate_receipt_after_freeze(
+    tmp_path: Path, kind: str, stage: int,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    review = returned_review(repo, directory, data, kind=kind, state="pass")
+    data.update(stage={"id": stage, "state": "active"}, next_action="continue workflow")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == f"path={review['evidence_path']}\n"
+
+
+def test_audit_rejects_an_unsettled_prior_same_kind_receipt_at_readiness(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    returned_review(
+        repo, directory, data, kind="implementation", state="changes_required",
+        round_number=1, opened=["F-1"],
+    )
+    prior_path = repo / data["review"]["evidence_path"]
+    data["review"].update(
+        state="blocked",
+        dispatch_id=None,
+        run_ref=None,
+        target_seal=None,
+        evidence_path=None,
+        reviewed_commit=None,
+    )
+    data.update(
+        status="blocked",
+        stage={"id": 10, "state": "blocked"},
+        next_action="reserve implementation review",
+    )
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == f"path={prior_path.relative_to(repo).as_posix()}\n"
 
 
 def test_audit_does_not_allow_a_symlinked_historical_receipt_at_review_readiness(
@@ -549,7 +612,9 @@ def test_audit_accepts_noncomplete_task_progress_during_stage_9(
     tmp_path: Path, markdown: str,
 ) -> None:
     repo, directory, data = audit_fixture(tmp_path)
-    returned_review(repo, directory, data, kind="plan", state="pass")
+    review = returned_review(repo, directory, data, kind="plan", state="pass")
+    git(repo, "add", str(review["evidence_path"]))
+    git(repo, "commit", "-qm", "settle plan review receipt")
     data.update(stage={"id": 9, "state": "active"}, next_action="continue implementation")
     write_ledger(directory, data, markdown=markdown)
 
@@ -653,6 +718,12 @@ def test_audit_accepts_current_head_lifecycle_classes(
         data["frozen"]["specification"] = None
     if stage < 9:
         data["frozen"]["plan"] = None
+    if review == "pass" and (
+        (kind == "specification" and stage >= 7)
+        or (kind == "plan" and stage >= 9)
+    ):
+        git(repo, "add", str(data["review"]["evidence_path"]))
+        git(repo, "commit", "-qm", f"settle {kind} review receipt")
     write_ledger(directory, data)
     assert_result(invoke(repo, directory), "pass", 0)
 
@@ -773,6 +844,9 @@ def test_audit_accepts_individual_same_kind_rereview_heads(
                                            "previous_open_finding_ids", "open_finding_ids")}
     data.update(status="active", stage={"id": correction, "state": "active"})
     if phase != "correction":
+        if kind == "implementation":
+            git(repo, "add", str(review["evidence_path"]))
+            git(repo, "commit", "-qm", "settle implementation review receipt")
         review["reviewed_commit"] = None
         for field in ("dispatch_id", "run_ref", "target_seal", "evidence_path"):
             review[field] = None
@@ -999,6 +1073,55 @@ def test_audit_accepts_local_merge_terminal_state_in_the_primary_base_checkout(
     assert_result(invoke(repo, directory), "pass", 0)
 
 
+def test_audit_accepts_nonterminal_local_merge_custody_after_merge(
+    tmp_path: Path,
+) -> None:
+    repo = make_primary_repo(tmp_path, branch="main")
+    base = git(repo, "rev-parse", "HEAD")
+    feature = tmp_path / "feature-worktree"
+    git(repo, "worktree", "add", "-qb", "feature/alpha", str(feature), "HEAD")
+    paths = {
+        "specification": "docs/superpowers/specs/2026-08-25-alpha-design.md",
+        "plan": "docs/superpowers/plans/2026-08-25-alpha.md",
+    }
+    for name, relative in paths.items():
+        target = feature / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{name}\n")
+    git(feature, "add", *paths.values())
+    git(feature, "commit", "-qm", "reviewed implementation")
+    reviewed_commit = git(feature, "rev-parse", "HEAD")
+    (repo / "base-only.txt").write_text("independent base change\n")
+    git(repo, "add", "base-only.txt")
+    git(repo, "commit", "-qm", "advance base")
+    git(repo, "merge", "--no-ff", "-qm", "merge feature", "feature/alpha")
+    frozen = {
+        name: {"path": relative, "blob": git(repo, "rev-parse", f"HEAD:{relative}")}
+        for name, relative in paths.items()
+    }
+    directory = run_dir(repo)
+    data = head(repo, branch="main", base_identity=base, frozen=frozen)
+    data.update(stage={"id": 14, "state": "active"}, next_action="clean feature worktree")
+    review = returned_review(repo, directory, data, kind="implementation")
+    review["reviewed_commit"] = reviewed_commit
+    receipt_path = repo / review["evidence_path"]
+    receipt = json.loads(receipt_path.read_text())
+    receipt["source_identity"]["value"] = reviewed_commit
+    receipt_path.write_text(json.dumps(receipt, sort_keys=True))
+    write_ledger(directory, data)
+
+    assert_result(invoke(repo, directory), "pass", 0)
+    discovered = check("runs", "--repo", str(repo), "--run-id", "alpha")
+    assert discovered.returncode == 0, discovered.stderr
+    assert discovered.stdout == "FF-CHECK v1 gate=runs status=pass\n"
+    git(repo, "worktree", "remove", str(feature))
+    git(repo, "branch", "-D", "feature/alpha")
+    assert_result(invoke(repo, directory), "pass", 0)
+    discovered = check("runs", "--repo", str(repo), "--run-id", "alpha")
+    assert discovered.returncode == 0, discovered.stderr
+    assert discovered.stdout == "FF-CHECK v1 gate=runs status=pass\n"
+
+
 @pytest.mark.parametrize("frozen", [
     None,
     {"specification": None},
@@ -1218,6 +1341,24 @@ def test_plan_recovery_rejects_unreconciled_frozen_specification_drift(
 
     assert checked.status == "fail"
     assert checked.findings == ("frozen=specification:not-at-head",)
+    assert projected is None
+
+
+def test_plan_recovery_rejects_unstaged_frozen_specification_drift(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = audit_fixture(tmp_path)
+    active = returned_review(repo, directory, data, kind="plan", state="pass")
+    active.update(state="review_active", reviewed_commit=None)
+    data.update(status="active", stage={"id": 8, "state": "active"})
+    frozen = data["frozen"]["specification"]
+    (repo / frozen["path"]).write_text("unstaged frozen specification drift\n")
+    write_ledger(directory, data)
+
+    projected, checked = recover_review(repo, directory, data)
+
+    assert checked.status == "fail"
+    assert checked.findings == (f"path={frozen['path']}",)
     assert projected is None
 
 
