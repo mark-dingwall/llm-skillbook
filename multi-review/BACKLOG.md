@@ -2,6 +2,25 @@
 
 Forward-looking work, not committed to a milestone. Edit freely.
 
+## Packaging and global CLI
+
+### Add a first-class `multi-review` console entry point
+
+The project currently exposes its helper commands through
+`[project.scripts]`, while the headless driver remains the top-level
+`multi_review.py` PEP 723 script. Move or wrap the driver's `main()` in the
+package and add a `multi-review` console entry point so
+`uv tool install --editable ./multi-review` provides the complete public CLI,
+not only the `mr-*` helpers.
+
+Preserve the existing direct-script and Review-Loop invocation paths while
+adding the packaged entry point. Cover invocation from an arbitrary working
+directory, editable installation, dependency resolution without a new
+per-symlink PEP 723 environment, and parity between the packaged and legacy
+entry points. This remains deferred while Multi-Review is an internal,
+single-user tool; the development installation plus a project-backed wrapper
+is sufficient in the meantime.
+
 ## grok deferred cluster (2026-07-19)
 
 ### CLOSED BY v0.3 REMOVAL — thread `model_effort` through to `grok --reasoning-effort`
