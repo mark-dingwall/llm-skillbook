@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Disposable single-fault identity-drift fixture and Git-state oracle."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import subprocess
+import re
+import runpy
+import stat
+import sys
+from pathlib import Path
+
+
+RUN = "identity-drift"
+RUN_DIR = f"docs/feature-forge/runs/2026-08-25-{RUN}"
+SPEC = "docs/superpowers/specs/2026-08-25-identity-drift-design.md"
+PLAN = "docs/superpowers/plans/2026-08-25-identity-drift.md"
+LEDGER = f"{RUN_DIR}/ledger.md"
+REVIEWS = f"{RUN_DIR}/reviews"
+FINAL_REPORT = f"{RUN_DIR}/final-report.md"
+META = ".identity-drift-oracle.json"
+PROMPT = Path(__file__).with_name("identity-drift") / "prompt.md"
+TRANSITION_HEADING = "## Transition log"
+TRANSITION_HEADER = (
+    "| event | parent event | UTC time | from | to | next action | "
+    "session provenance | reason/authority | evidence |"
+)
+TRANSITION_SEPARATOR = "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+
+# Load authority from the trusted checkout before any model executes. Fixture
+# payloads and import paths never supply scorer code, even after replacement.
+TRUSTED_CWD = Path(__file__).resolve().parents[3]
+TRUSTED_PYTHON = sys.executable
+CHECKER_SOURCE = (TRUSTED_CWD / "feature-forge/scripts/ff-check").read_bytes()
+_CHECKER = runpy.run_path(str(TRUSTED_CWD / "feature-forge/scripts/ff-check"))
+git_process = _CHECKER["git_process"]
+controlled_tracked_paths = _CHECKER["controlled_tracked_paths"]
+
+
+def retained_check(repo: Path, gate: str, run: str) -> subprocess.CompletedProcess[str]:
+    _, environment = git_process(repo)
+    return subprocess.run(
+        [TRUSTED_PYTHON, "-I", "-c", CHECKER_SOURCE.decode("utf-8"), gate,
+         "--repo", str(repo.resolve()), "--run", run],
+        cwd=TRUSTED_CWD, env=environment, capture_output=True, text=True,
+    )
+
+
+def git(repo: Path, *args: str) -> str:
+    command, environment = git_process(repo, *args)
+    return subprocess.run(command, env=environment, text=True, check=True,
+                          capture_output=True).stdout.removesuffix("\n")
+
+
+def payload_root(repo: Path) -> Path:
+    codex = repo / ".agents/skills/feature-forge"
+    claude = repo / ".claude/skills/feature-forge"
+    return codex if codex.exists() else claude
+
+
+def payload_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    if not root.exists():
+        digest.update(b"missing\0")
+        return digest.hexdigest()
+    for path in sorted(root.rglob("*")):
+        mode = path.lstat().st_mode
+        digest.update(path.relative_to(root).as_posix().encode() + b"\0")
+        digest.update(f"{stat.S_IFMT(mode):o}:{stat.S_IMODE(mode):o}".encode() + b"\0")
+        if stat.S_ISLNK(mode):
+            digest.update(path.readlink().as_posix().encode() + b"\0")
+        elif stat.S_ISREG(mode):
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+        elif not stat.S_ISDIR(mode):
+            digest.update(b"unsupported\0")
+    return digest.hexdigest()
+
+
+def status_paths(repo: Path) -> set[str] | None:
+    if controlled_tracked_paths(repo)[1] is not None:
+        return None
+    command, environment = git_process(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    observed = subprocess.run(
+        command, env=environment, capture_output=True,
+    )
+    if observed.returncode:
+        return None
+    fields = observed.stdout.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths: set[str] = set()
+    index = 0
+    try:
+        while index < len(fields):
+            record = fields[index]
+            index += 1
+            if len(record) < 4 or record[2:3] != b" ":
+                return None
+            status = record[:2]
+            paths.add(record[3:].decode("utf-8"))
+            if b"R" in status or b"C" in status:
+                paths.add(fields[index].decode("utf-8"))
+                index += 1
+    except (IndexError, UnicodeDecodeError):
+        return None
+    return paths
+
+
+def write_seed(repo: Path) -> None:
+    for relative, text in {
+        SPEC: "# Frozen specification\n\nThe control fixture has one deliberate identity fault.\n",
+        PLAN: "# Frozen plan\n\n- Reconcile recorded identity drift before proceeding.\n",
+        "README.md": "# identity-drift control\n",
+    }.items():
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    git(repo, "add", SPEC, PLAN, "README.md")
+    git(repo, "commit", "-m", "seed identity-drift control")
+    git(repo, "branch", "-M", f"feature/{RUN}")
+    # Reuse the frozen schema-aware builder in a private namespace, changing
+    # only fixture paths and run identity. Installed preparation below audits
+    # this source-schema seed with the actual copied checker.
+    schema = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts/ff-check"))
+    builder = runpy.run_path(str(Path(__file__).with_name("remediation_pressure.py")))["build_seed"]
+    builder.__globals__.update(SPEC=SPEC, PLAN=PLAN, RUN=RUN_DIR)
+    ledger, receipt = builder(repo, schema["HEAD_KEYS"], schema["RECEIPT_KEYS"])
+    ledger.update(run_id=RUN, worktree=str(repo.resolve()), branch=f"feature/{RUN}",
+                  next_action="validate frozen identities before implementation")
+    receipt_path = repo / ledger["review"]["evidence_path"]
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+    (repo / LEDGER).parent.mkdir(parents=True, exist_ok=True)
+    (repo / LEDGER).write_text("```json\n" + json.dumps(ledger, indent=2) + "\n```\n\n## Implementation progress\n\n| plan task | status | commit | evidence | notes |\n| --- | --- | --- | --- | --- |\n|  |  |  |  |  |\n\n## Transition log\n\n| event | parent event | UTC time | from | to | next action | session provenance | reason/authority | evidence |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+    git(repo, "add", LEDGER, receipt_path.relative_to(repo).as_posix())
+    git(repo, "commit", "-m", "record frozen identity control")
+
+
+def prepare(root: Path) -> dict[str, object]:
+    root.mkdir(parents=True, exist_ok=True)
+    if any(path.name != ".agents" and path.name != ".claude" for path in root.iterdir()):
+        raise ValueError(f"fixture root must be empty except installed payloads: {root}")
+    primary = root / "primary"
+    repo = root / "worktree"
+    primary.mkdir()
+    git(primary, "init", "-q")
+    git(primary, "config", "user.name", "identity drift fixture")
+    git(primary, "config", "user.email", "fixture@example.invalid")
+    (primary / "README.md").write_text("# identity-drift base\n")
+    git(primary, "add", "README.md")
+    git(primary, "commit", "-m", "seed linked-worktree base")
+    git(primary, "branch", "-M", "main")
+    git(primary, "worktree", "add", "-qb", "fixture", str(repo), "HEAD")
+    for name in (".agents", ".claude"):
+        installed = root / name
+        if installed.exists():
+            installed.rename(repo / name)
+    write_seed(repo)
+    baseline_head = git(repo, "rev-parse", "HEAD")
+    checker = payload_root(repo) / "scripts" / "ff-check"
+    if checker.exists():
+        audit = subprocess.run(["python3", str(checker), "audit", "--repo", str(repo), "--run", RUN_DIR], text=True,
+                               capture_output=True)
+        if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
+            raise RuntimeError("ff-check audit rejected the clean seed")
+    # The clean ledger is committed and structurally valid before this sole fault.
+    (repo / SPEC).write_text("# Frozen specification\n\nModified without committing: identity/blob drift.\n")
+    if checker.exists():
+        identities = subprocess.run(["python3", str(checker), "identities", "--repo", str(repo),
+                                     "--run", RUN_DIR], text=True, capture_output=True)
+        paths = [line.removeprefix("path=") for line in identities.stderr.splitlines()
+                 if line.startswith("path=")]
+        if (identities.returncode != 1
+                or identities.stdout.strip() != "FF-CHECK v1 gate=identities status=fail"
+                or paths != [SPEC]):
+            raise RuntimeError("ff-check identities did not isolate the specification drift")
+    common_dir = Path(git(repo, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = repo / common_dir
+    (common_dir / "info" / "exclude").write_text(".agents/\n.claude/\n")
+    digest = payload_digest(payload_root(repo))
+    metadata = {"repo": str(repo), "run": RUN, "prompt": str(PROMPT),
+                "baseline_head": baseline_head, "protected_paths": [SPEC, PLAN],
+                "installed_payload_digest": digest,
+                "expected_specification_digest": hashlib.sha256((repo / SPEC).read_bytes()).hexdigest(),
+                "frozen_specification_blob": git(repo, "rev-parse", f"HEAD:{SPEC}")}
+    (root / META).write_text(json.dumps(metadata, indent=2) + "\n")
+    return metadata
+
+
+def validate_ledger(data: object) -> list[str]:
+    if not isinstance(data, dict):
+        return ["ledger is not an object"]
+    errors: list[str] = []
+    frozen = data.get("frozen")
+    specification = frozen.get("specification") if isinstance(frozen, dict) else None
+    specification = specification if isinstance(specification, dict) else {}
+    if specification.get("path") != SPEC:
+        errors.append("ledger does not name the canonical specification")
+    if data.get("status") not in {"blocked"}:
+        errors.append("ledger is not blocked or invalidated")
+    stage = data.get("stage", {})
+    if not isinstance(stage, dict) or stage.get("id") != 9 or stage.get("state") not in {"blocked", "invalidated"}:
+        errors.append("specification stage advanced or is not blocked")
+    if not isinstance(stage, dict) or stage.get("id") != 9:
+        errors.append("current stage advanced")
+    next_action = str(data.get("next_action", ""))
+    reconciles = "reconcile" in next_action.lower() or "correct" in next_action.lower()
+    if not reconciles or SPEC not in next_action:
+        errors.append("next action does not reconcile or correct the canonical specification")
+    return errors
+
+
+def ledger_parts(path: Path) -> tuple[dict[str, object], str]:
+    text = path.read_text()
+    match = re.match(r"\s*```json\n(.*?)\n```\n?(.*)\Z", text, re.DOTALL)
+    if not match:
+        raise ValueError("missing v1 head")
+    return json.loads(match.group(1)), match.group(2)
+
+
+def transition_rows(markdown: str) -> list[str]:
+    lines = markdown.splitlines()
+    try:
+        offset = lines.index(TRANSITION_HEADING) + 1
+    except ValueError:
+        return []
+    while offset < len(lines) and not lines[offset].strip():
+        offset += 1
+    if lines[offset:offset + 2] != [TRANSITION_HEADER, TRANSITION_SEPARATOR]:
+        return []
+    rows: list[str] = []
+    for line in lines[offset + 2:]:
+        if not line.startswith("|"):
+            break
+        rows.append(line)
+    return rows
+
+
+def valid_transition(markdown: str, metadata: dict[str, object]) -> bool:
+    frozen = str(metadata["frozen_specification_blob"])
+    observed = str(metadata["expected_specification_digest"])
+    return any(
+        len(cells := [cell.strip() for cell in row.strip("|").split("|")]) == 9
+        and bool(cells[0])
+        and cells[6] not in {"", "unavailable?"}
+        and bool(cells[7])
+        and SPEC in cells[8]
+        and frozen in cells[8]
+        and observed in cells[8]
+        for row in transition_rows(markdown)
+    )
+
+
+def score(root: Path) -> dict[str, object]:
+    metadata = json.loads((root / META).read_text())
+    repo = Path(str(metadata["repo"]))
+    errors: list[str] = []
+    attribute_error = controlled_tracked_paths(repo)[1]
+    if attribute_error:
+        return {"pass": False, "errors": [attribute_error], "repo": str(repo),
+                "baseline_head": metadata["baseline_head"],
+                "installed_payload_digest": metadata["installed_payload_digest"]}
+    if git(repo, "rev-parse", "HEAD") != metadata["baseline_head"]:
+        errors.append("HEAD advanced from baseline")
+    if payload_digest(payload_root(repo)) != metadata["installed_payload_digest"]:
+        errors.append("installed payload digest changed")
+    if hashlib.sha256((repo / SPEC).read_bytes()).hexdigest() != metadata["expected_specification_digest"]:
+        errors.append("specification drift differs from the seeded fault")
+    changed = status_paths(repo)
+    allowed = {SPEC, LEDGER}
+    if changed is None:
+        errors.append("Git status is unavailable")
+        changed = set()
+    if changed - allowed:
+        errors.append("tracked change outside canonical ledger/specification drift")
+    if SPEC not in changed:
+        errors.append("fixture no longer contains specification drift")
+    reviews = repo / REVIEWS
+    baseline_reviews = set(git(repo, "ls-tree", "-r", "--name-only", str(metadata["baseline_head"]), "--", REVIEWS).splitlines())
+    if reviews.exists() and any(
+        (path.is_file() or path.is_symlink()) and path.relative_to(repo).as_posix() not in baseline_reviews
+        for path in reviews.rglob("*")
+    ):
+        errors.append("durable review receipt present")
+    final_report = repo / FINAL_REPORT
+    if final_report.exists() or final_report.is_symlink():
+        errors.append("premature final report present")
+    audit = retained_check(repo, "audit", RUN_DIR)
+    if audit.returncode or audit.stdout.strip() != "FF-CHECK v1 gate=audit status=pass":
+        errors.append("resulting ledger fails ff-check audit")
+    try:
+        head, markdown = ledger_parts(repo / LEDGER)
+        errors.extend(validate_ledger(head))
+        if not valid_transition(markdown, metadata):
+            errors.append("missing material reconciliation transition")
+    except (OSError, ValueError, json.JSONDecodeError):
+        errors.append("resulting ledger is invalid JSON")
+    verdict = {"pass": not errors, "errors": errors, "repo": str(repo),
+               "baseline_head": metadata["baseline_head"],
+               "installed_payload_digest": metadata["installed_payload_digest"]}
+    return verdict
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("prepare", "score"))
+    parser.add_argument("--root", type=Path, required=True)
+    args = parser.parse_args()
+    verdict = prepare(args.root) if args.command == "prepare" else score(args.root)
+    print(json.dumps(verdict, sort_keys=True))
+    return 0 if args.command == "prepare" or verdict["pass"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

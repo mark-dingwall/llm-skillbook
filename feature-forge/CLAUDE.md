@@ -57,9 +57,10 @@ drift read-only. An unrelated change blocks advancement; never capture,
 stash, reset, discard, amend, or combine it. A new request stays deferred
 unless the user explicitly expands the work unit. Classify changes before
 editing frozen artifacts; route non-editorial corrections and rejected
-acceptance through the workflow-owned invalidation graph. Later evidence does
-not survive an invalidated root cause unless the defined editorial transition
-permits it.
+acceptance through the workflow-owned invalidation graph. An editorial
+rebaseline may retain unaffected implementation artifacts, but it invalidates
+review authority and downstream evidence until the workflow's sequential
+re-review chain re-establishes them.
 
 Acceptance records report only evidence actually produced in the run. Each
 requirement uses its declared method and records current state, authority,
@@ -74,6 +75,10 @@ Use only the controller-owned stage methods and regain control at every
 return. Do not invoke a one-shot skill and claim to interrupt its required
 handoff. Planning stops before execution, execution stops before Finish, and
 Finish journals every effect.
+
+Use a capable model tier to execute or behaviorally qualify Feature Forge.
+Small-model tiers such as Claude Haiku and Codex Luna are unsuitable for
+either role.
 
 Choose one execution mode under the stage-method contract. Every delegated
 worker packet must be independently executable from the frozen
@@ -90,7 +95,8 @@ Provide the actual subject, frozen ground truth, deployment context, and
 completion criterion. Before dispatch, persist `review_active`; during the
 sealed, read-only round mutate neither target nor ledger. On return, record the
 TRIAGE outcome/open finding IDs, stable run reference, and content seal before
-mapping no findings to `pass`, actionable findings to `changes_required`, and
+mapping zero findings to `pass`, any grounded finding (including Minor) to
+`changes_required` subject to the round/repetition block rule, and
 an indeterminate or unavailable required review to `blocked`. Fix only between
 rounds and re-review the required post-fix subject.
 
@@ -110,6 +116,9 @@ operation through `ready`, `claimed`, `menu_pending`, `choice_recorded`,
 `executing`, and `terminal`; `blocked` is a resumable overlay. Persist the
 required journal receipts before a claim, menu or unattended resolution, and
 side effect, then persist the reconciled terminal or blocked receipt.
+An authority invalidation while still `ready` retires that unclaimed operation
+and its report through the workflow's bounded reset; after `claimed`, never
+reset or reuse it automatically.
 
 Before claiming, the workflow must record a passing pre-claim capability
 receipt for durable journal interleaving and read-only Git/forge
@@ -127,9 +136,31 @@ is proven complete.
 
 ## Verification
 
-Feature Forge is instruction-only and has no separate runtime suite in this
-repository. After changing its entry points or links, run its documentation
-parameters from the repository root:
+Feature Forge is a checked skill: instructions own semantic workflow decisions,
+and its installed standard-library checker owns deterministic repository,
+identity, reviewed-snapshot, and current-ledger predicates. The
+[workflow contract](references/workflow.md) owns the ledger schema and its
+semantics.
+
+The production-copy exclusion of `reports/` remains a defense-in-depth rule for
+any skill-local research. Foundational 0.2.0 research is archived under
+`docs/archive/0.2.0-research/` as non-authoritative provenance; active Feature
+Forge instructions neither link to nor load it.
+
+Run Feature Forge behavior checks from the repository root:
+
+```bash
+python3 -m pytest feature-forge/tests -q
+```
+
+Run the review-loop boundary fixture in its owning environment:
+
+```bash
+cd review-loop && uv run pytest \
+  ../feature-forge/tests/integration/test_review_loop_boundary.py -q
+```
+
+Run the component documentation gate from the repository root:
 
 ```bash
 python3 -m pytest \

@@ -124,7 +124,9 @@ Classify a proposed delta before changing a frozen artifact. An **editorial**
 delta corrects wording, formatting, or equivalent clarity while behavior and
 contracts are provably unchanged. It requires scoped delta re-review, then
 uses the workflow-owned editorial transition and identity recording rules.
-Reviewer doubt classifies it upward as a specification or plan defect.
+It may retain unaffected implementation artifacts, never their prior review
+authority or downstream evidence. Reviewer doubt classifies it upward as a
+specification or plan defect.
 Everything else is a non-editorial correction and follows the fixed
 invalidation graph in the [workflow contract](workflow.md#fixed-change-and-invalidation-graph).
 Do not restate or alter that graph here.

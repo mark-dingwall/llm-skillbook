@@ -1,0 +1,916 @@
+"""Black-box tests for the reviewed implementation snapshot gate."""
+from __future__ import annotations
+
+import json
+import os
+import runpy
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+from conftest import CHECKER, check, fixture_snapshot, git, head, make_repo, run_dir, write_ledger
+
+
+def assert_result(result: subprocess.CompletedProcess[str], status: str, code: int) -> None:
+    assert result.returncode == code, result.stderr
+    assert result.stdout == f"FF-CHECK v1 gate=reviewed-snapshot status={status}\n"
+    assert result.stderr.splitlines() == sorted(result.stderr.splitlines())
+
+
+def commit(repo: Path, message: str, *paths: str) -> str:
+    git(repo, "add", "--", *paths)
+    git(repo, "commit", "-qm", message)
+    return git(repo, "rev-parse", "HEAD")
+
+
+def write_receipt(directory: Path, review: dict[str, object], **changes: object) -> Path:
+    path = directory / "reviews" / f"{review['dispatch_id']}.json"
+    if path.exists() or path.is_symlink():
+        path.unlink()
+    receipt = {
+        "schema": "feature-forge/review-receipt/v1",
+        "kind": "implementation",
+        "dispatch_id": review["dispatch_id"],
+        "run_ref": review["run_ref"],
+        "target_seal": review["target_seal"],
+        "source_identity": {
+            "kind": "reviewed_commit", "path": None, "value": review["reviewed_commit"],
+        },
+        "result": "pass",
+        "actionable_finding_ids": [],
+        "feature_forge_charter_id": "feature-forge/implementation-review/v1",
+        "completion_criterion": "No grounded discrepancies remain.",
+        "raw_report_ids": ["report"], "triage_artifact_id": "triage-artifact",
+        "triage_finding_ids": [], "stable_id_mapping": [],
+    }
+    receipt.update(changes)
+    receipt["feature_forge_charter_id"] = f"feature-forge/{receipt['kind']}-review/v1"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(receipt, sort_keys=True))
+    return path
+
+
+def reviewed_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
+    repo = make_repo(tmp_path)
+    specification = "docs/superpowers/specs/2026-08-25-alpha-design.md"
+    plan = "docs/superpowers/plans/2026-08-25-alpha.md"
+    implementation = "src/app.py"
+    for path, contents in (
+        (specification, "specification\n"), (plan, "plan\n"), (implementation, "implemented\n"),
+    ):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents)
+    reviewed_commit = commit(repo, "reviewed implementation", specification, plan, implementation)
+    frozen = {
+        "specification": {"path": specification, "blob": git(repo, "rev-parse", f"HEAD:{specification}")},
+        "plan": {"path": plan, "blob": git(repo, "rev-parse", f"HEAD:{plan}")},
+    }
+    directory = run_dir(repo)
+    data = head(repo, base_identity=git(repo, "rev-parse", "HEAD^"), frozen=frozen)
+    data["stage"] = {"id": 11, "state": "active"}
+    data["next_action"] = "verify the reviewed snapshot"
+    data["review"] = {
+        "kind": "implementation", "state": "pass", "round": 0,
+        "root_identity": "implementation-root", "dispatch_id": "implementation-1",
+        "run_ref": "/external/review-loop/run-1", "target_seal": "opaque-review-loop-seal",
+        "evidence_path": (
+            "docs/feature-forge/runs/2026-08-25-alpha/reviews/implementation-1.json"
+        ),
+        "reviewed_commit": reviewed_commit,
+        "previous_open_finding_ids": [], "open_finding_ids": [],
+    }
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    return repo, directory, data
+
+
+def invoke(
+    repo: Path, directory: Path, *, environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if environment is None:
+        return check("reviewed-snapshot", "--repo", str(repo), "--run", str(directory))
+    return subprocess.run(
+        [sys.executable, str(CHECKER), "reviewed-snapshot", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, env=environment,
+    )
+
+
+def test_checker_exposes_only_four_public_commands() -> None:
+    observed = check("--help")
+    assert "{runs,identities,reviewed-snapshot,audit}" in observed.stdout
+
+
+def test_reviewed_snapshot_accepts_reviewed_commit_receipt(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    path = repo / data["review"]["evidence_path"]
+    payload = json.loads(path.read_text())
+    payload["source_identity"] = {
+        "kind": "reviewed_commit", "path": None,
+        "value": data["review"]["reviewed_commit"],
+    }
+    path.write_text(json.dumps(payload))
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("authority", ["specification", "plan"])
+def test_reviewed_snapshot_invalidates_pass_after_frozen_editorial_rebaseline(
+    tmp_path: Path, authority: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    frozen = data["frozen"][authority]
+    path = repo / frozen["path"]
+    path.write_text(path.read_text().rstrip() + " (wording clarified)\n")
+    commit(repo, f"editorial {authority} rebaseline", frozen["path"])
+    frozen["blob"] = git(repo, "rev-parse", f"HEAD:{frozen['path']}")
+    write_ledger(directory, data)
+
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "reviewed-commit=foreign-descendant\n"
+
+
+def test_reviewed_snapshot_accepts_fresh_implementation_pass_after_editorial_rebaseline(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    frozen = data["frozen"]["specification"]
+    path = repo / frozen["path"]
+    path.write_text("specification wording clarified\n")
+    reviewed_commit = commit(repo, "editorial specification rebaseline", frozen["path"])
+    frozen["blob"] = git(repo, "rev-parse", f"HEAD:{frozen['path']}")
+    data["review"]["reviewed_commit"] = reviewed_commit
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("replaced_kind", ["blob", "commit"])
+def test_reviewed_snapshot_ignores_replacements_when_checking_committed_bytes(
+    tmp_path: Path, replaced_kind: str,
+) -> None:
+    """Replacement content must not validate bytes absent from the recorded tree."""
+    repo, directory, data = reviewed_fixture(tmp_path)
+    original_commit = data["review"]["reviewed_commit"]
+    original_blob = git(repo, "rev-parse", "HEAD:src/app.py")
+    (repo / "src/app.py").write_text("replacement implementation\n")
+    replacement_blob = git(repo, "hash-object", "-w", "src/app.py")
+    if replaced_kind == "blob":
+        git(repo, "replace", original_blob, replacement_blob)
+    else:
+        git(repo, "add", "src/app.py")
+        tree = git(repo, "write-tree")
+        replacement_commit = subprocess.run(
+            ["git", "-C", str(repo), "commit-tree", tree, "-p", data["base_identity"]],
+            input="replacement tree\n", text=True, capture_output=True, check=True,
+        ).stdout.strip()
+        git(repo, "replace", original_commit, replacement_commit)
+    observed = invoke(repo, directory)
+    assert_result(observed, "fail", 1)
+    assert observed.stderr == "path=src/app.py\n"
+
+
+def test_reviewed_snapshot_does_not_fetch_missing_promisor_objects(tmp_path: Path) -> None:
+    """Reading an unavailable blob must not invoke a transport or populate objects."""
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    oid = git(repo, "rev-parse", "HEAD:src/app.py")
+    objects = Path(git(repo, "rev-parse", "--git-path", "objects")).resolve()
+    missing_blob = objects / oid[:2] / oid[2:]
+    assert missing_blob.is_file()
+    missing_blob.unlink()
+    marker = tmp_path / "promisor-transport-ran"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    helper = binary / "git-remote-ff-marker"
+    helper.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\nexit 1\n")
+    helper.chmod(0o755)
+    git(repo, "config", "extensions.partialClone", "origin")
+    git(repo, "config", "remote.origin.promisor", "true")
+    git(repo, "config", "remote.origin.url", "ff-marker::unused")
+    git(repo, "config", "protocol.ff-marker.allow", "always")
+    before = {path.relative_to(objects): path.read_bytes()
+              for path in objects.rglob("*") if path.is_file()}
+    observed = invoke(repo, directory, environment={
+        **os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+    })
+    after = {path.relative_to(objects): path.read_bytes()
+             for path in objects.rglob("*") if path.is_file()}
+    assert not marker.exists(), "missing-object read executed the promisor transport"
+    assert after == before
+    assert_result(observed, "unverifiable", 2)
+
+
+def test_reviewed_snapshot_accepts_exact_reviewed_head_without_interpreting_target_seal(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    assert_result(invoke(repo, directory), "pass", 0)
+    assert "review_loop.seals" not in CHECKER.read_text()
+
+
+def test_reviewed_snapshot_accepts_only_workflow_evidence_after_review(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    report.write_text("Stage 13 report\n")
+    data["stage"] = {"id": 13, "state": "active"}
+    data["next_action"] = "enter Finish before its first integration effect"
+    write_ledger(directory, data)
+    commit(
+        repo, "record Stage 13 evidence",
+        data["review"]["evidence_path"],
+        (directory / "ledger.md").relative_to(repo).as_posix(),
+        report.relative_to(repo).as_posix(),
+    )
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_reviewed_snapshot_rejects_a_dirty_final_report_after_stage_13_checkpoint(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    report.write_text("Stage 13 report\n")
+    data["stage"] = {"id": 13, "state": "active"}
+    data["next_action"] = "enter Finish before its first integration effect"
+    write_ledger(directory, data)
+    commit(
+        repo, "record Stage 13 evidence",
+        data["review"]["evidence_path"],
+        (directory / "ledger.md").relative_to(repo).as_posix(),
+        report.relative_to(repo).as_posix(),
+    )
+    report.write_text("dirty report edit\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("entry_type", ["symlink", "directory", "fifo"])
+def test_reviewed_snapshot_requires_an_exact_regular_stage_13_report(
+    tmp_path: Path, entry_type: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    data["stage"] = {"id": 13, "state": "active"}
+    data["next_action"] = "enter Finish before its first integration effect"
+    write_ledger(directory, data)
+    if entry_type == "symlink":
+        outside = tmp_path / "outside-report.md"
+        outside.write_text("outside\n")
+        report.symlink_to(outside)
+    elif entry_type == "directory":
+        report.mkdir()
+    else:
+        os.mkfifo(report)
+    observed = invoke(repo, directory)
+    assert observed.returncode in {1, 2}
+    assert "status=pass" not in observed.stdout
+
+
+def test_reviewed_snapshot_accepts_stage_13_entry_before_the_report_is_written(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["stage"] = {"id": 13, "state": "active"}
+    data["next_action"] = "write the final report"
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_reviewed_snapshot_requires_the_report_at_stage_14_entry(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["stage"] = {"id": 14, "state": "active"}
+    data["next_action"] = "claim finish"
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("stage_id", [13, 14])
+def test_reviewed_snapshot_rejects_an_ignored_uncommitted_report(
+    tmp_path: Path, stage_id: int,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    exclude = Path(git(repo, "rev-parse", "--git-path", "info/exclude"))
+    if not exclude.is_absolute():
+        exclude = repo / exclude
+    exclude.write_text(report.relative_to(repo).as_posix() + "\n")
+    report.write_text("ignored and uncommitted\n")
+    data["stage"] = {"id": stage_id, "state": "active"}
+    data["next_action"] = "continue"
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_uses_net_endpoint_delta_so_fully_reverted_paths_are_absent(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    transient = repo / "transient.txt"
+    transient.write_text("temporary\n")
+    commit(repo, "temporary change", "transient.txt")
+    transient.unlink()
+    commit(repo, "fully revert temporary change", "transient.txt")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_reviewed_snapshot_rejects_non_descendant_head(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    git(repo, "checkout", "-q", "--detach", f"{data['review']['reviewed_commit']}^")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("identity", ["HEAD", "abbreviated"])
+def test_reviewed_snapshot_requires_a_canonical_full_reviewed_commit(
+    tmp_path: Path, identity: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    if identity == "abbreviated":
+        identity = str(data["review"]["reviewed_commit"])[:12]
+    data["review"]["reviewed_commit"] = identity
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("dirty", [False, True])
+def test_reviewed_snapshot_rejects_unreviewed_tracked_content(tmp_path: Path, dirty: bool) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    (repo / "src/app.py").write_text("unreviewed\n")
+    if not dirty:
+        commit(repo, "foreign implementation change", "src/app.py")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_requires_both_frozen_authorities_after_implementation_review(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["frozen"] = {"specification": None, "plan": None}
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_rejects_the_wrong_symbolic_branch_at_the_same_commit(
+    tmp_path: Path,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    git(repo, "checkout", "-qb", "feature/other")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_does_not_refresh_the_git_index(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    index = Path(git(repo, "rev-parse", "--git-path", "index"))
+    if not index.is_absolute():
+        index = repo / index
+    before = index.read_bytes()
+    before_mtime = index.stat().st_mtime_ns
+    time.sleep(0.01)
+    os.utime(repo / "src/app.py", None)
+    assert_result(invoke(repo, directory), "pass", 0)
+    assert index.read_bytes() == before
+    assert index.stat().st_mtime_ns == before_mtime
+
+
+@pytest.mark.parametrize("attribute", [
+    "filter=demo",
+    "filter=unspecified",
+    "filter=unset",
+    "text",
+    "eol=lf",
+    "ident",
+    "working-tree-encoding=UTF-16",
+])
+def test_reviewed_snapshot_rejects_transforming_attributes_before_conversion(
+    tmp_path: Path, attribute: str,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    marker = tmp_path / "filter-ran"
+    conversion = tmp_path / "conversion-ran"
+    info_attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
+    if not info_attributes.is_absolute():
+        info_attributes = repo / info_attributes
+    info_attributes.parent.mkdir(parents=True, exist_ok=True)
+    info_attributes.write_text(f"src/app.py {attribute}\n")
+    if attribute.startswith("filter="):
+        driver = attribute.removeprefix("filter=")
+        git(repo, "config", f"filter.{driver}.clean", f': > "{marker}"; exit 1')
+        git(repo, "config", f"filter.{driver}.process", f': > "{marker}"; exit 1')
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "for arg in \"$@\"; do\n"
+        f'  case "$arg" in hash-object|status|checkout-index) : > "{conversion}"; exit 97;; esac\n'
+        "done\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    environment = {**os.environ, "PATH": str(binary)}
+    os.utime(repo / "src/app.py", None)
+    observed = invoke(repo, directory, environment=environment)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["transformations=unsupported"]
+    assert not conversion.exists()
+    assert not marker.exists()
+
+
+def test_reviewed_snapshot_checks_attributes_with_nul_delimited_tracked_paths(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    unusual = repo / "src" / "line\nbreak.py"
+    unusual.write_bytes(b"tracked\x00bytes\n")
+    reviewed_commit = commit(repo, "add unusual reviewed path", "src/line\nbreak.py")
+    data["review"]["reviewed_commit"] = reviewed_commit
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    info_attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
+    if not info_attributes.is_absolute():
+        info_attributes = repo / info_attributes
+    info_attributes.parent.mkdir(parents=True, exist_ok=True)
+    info_attributes.write_text('"src/line\\nbreak.py" ident\n')
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["transformations=unsupported"]
+
+
+def test_reviewed_snapshot_preserves_byte_exact_content_without_transforming_attributes(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    target.write_bytes(b"\x00\xff\r\nexact bytes\x80\n")
+    reviewed_commit = commit(repo, "review byte-exact content", "src/app.py")
+    data["review"]["reviewed_commit"] = reviewed_commit
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+def test_reviewed_snapshot_never_runs_a_configured_fsmonitor(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    marker = tmp_path / "fsmonitor-ran"
+    hook = tmp_path / "fsmonitor"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+    hook.chmod(0o755)
+    git(repo, "config", "core.fsmonitor", str(hook))
+    assert invoke(repo, directory).returncode == 0
+    assert not marker.exists()
+
+
+def test_reviewed_snapshot_rejects_untracked_content_even_beside_the_allowed_receipt(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    (directory / "reviews" / "implementation-1.json.bak").write_text("foreign\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("relative", [
+    "notes.txt",
+    "docs/feature-forge/runs/2026-08-25-alpha/ledger.md.bak",
+    "docs/feature-forge/runs/2026-08-25-alpha/final-report.md.more",
+])
+def test_reviewed_snapshot_forbids_untracked_and_prefix_lookalike_paths(
+    tmp_path: Path, relative: str,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = repo / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("foreign\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_reviewed_snapshot_parses_both_paths_of_a_nul_delimited_rename(
+    tmp_path: Path, committed: bool,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = (directory / "final-report.md").relative_to(repo).as_posix()
+    git(repo, "mv", "src/app.py", target)
+    if committed:
+        git(repo, "add", "-u", "--", "src")
+        commit(repo, "rename implementation into workflow evidence", target)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_parses_both_paths_of_a_nul_delimited_copy(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = directory / "final-report.md"
+    target.write_bytes((repo / "src/app.py").read_bytes())
+    commit(repo, "copy implementation into workflow evidence", target.relative_to(repo).as_posix())
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("entry_type", ["regular", "symlink", "fifo"])
+def test_reviewed_snapshot_rejects_a_final_report_before_its_owning_stage(
+    tmp_path: Path, entry_type: str,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    if entry_type == "regular":
+        report.write_text("draft final report\n")
+    elif entry_type == "symlink":
+        outside = tmp_path / "outside-report.md"
+        outside.write_text("outside\n")
+        report.symlink_to(outside)
+    else:
+        os.mkfifo(report)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_rejects_a_mode_change_hidden_by_core_filemode(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    git(repo, "config", "core.fileMode", "false")
+    target = repo / "src/app.py"
+    target.chmod(target.stat().st_mode | 0o111)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_uses_shared_audit_result_classification(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["review"]["open_finding_ids"] = ["F-1"]
+    write_receipt(directory, data["review"], actionable_finding_ids=["F-1"])
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_treats_signal_terminated_ancestry_check_as_unverifiable(
+    tmp_path: Path,
+) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    real_git = shutil.which("git")
+    assert real_git is not None
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    wrapper = binary / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "for arg in \"$@\"; do "
+        "if [ \"$arg\" = \"merge-base\" ]; then kill -TERM $$; fi; done\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    observed = subprocess.run(
+        [sys.executable, str(CHECKER), "reviewed-snapshot", "--repo", str(repo), "--run", str(directory)],
+        text=True, capture_output=True, check=False, env={**os.environ, "PATH": str(binary)},
+    )
+    assert_result(observed, "unverifiable", 2)
+
+
+def test_reviewed_snapshot_rejects_a_symlinked_ledger(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    ledger = directory / "ledger.md"
+    target = ledger.with_name("real-ledger.md")
+    ledger.rename(target)
+    ledger.symlink_to(target.name)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_reviewed_snapshot_never_uses_a_ledger_selected_report_path(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["final_report_path"] = "src/app.py"
+    write_ledger(directory, data)
+    (repo / "src/app.py").write_text("foreign content\n")
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize("field", [
+    "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit",
+])
+def test_reviewed_snapshot_treats_missing_required_review_fields_as_unverifiable(
+    tmp_path: Path, field: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["review"][field] = None
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_treats_missing_receipt_as_unverifiable(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    (repo / data["review"]["evidence_path"]).unlink()
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_reviewed_snapshot_treats_duplicate_receipt_json_as_unreadable_without_a_traceback(
+    tmp_path: Path,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    receipt = repo / data["review"]["evidence_path"]
+    receipt.write_text('{"schema":"one","schema":"two"}')
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["receipt=unreadable"]
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
+def test_strict_receipt_treats_a_read_failure_as_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checker = runpy.run_path(str(CHECKER))
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text("{}")
+    original_read_text = Path.read_text
+
+    def denied(path: Path, *args: object, **kwargs: object) -> str:
+        if path == receipt:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", denied)
+    assert checker["strict_receipt"](receipt) == (None, "receipt=unreadable")
+
+
+def test_reviewed_snapshot_reports_a_looped_receipt_path_without_a_traceback(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    receipt = repo / data["review"]["evidence_path"]
+    receipt.unlink()
+    receipt.symlink_to(receipt.name)
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr.splitlines() == ["receipt=missing"]
+    assert "Traceback" not in observed.stdout + observed.stderr
+
+
+@pytest.mark.parametrize("link", ["receipt", "reviews-directory"])
+def test_reviewed_snapshot_rejects_symlinked_receipt_path_components(
+    tmp_path: Path, link: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    receipt = repo / data["review"]["evidence_path"]
+    if link == "receipt":
+        target = receipt.with_name("real-receipt.json")
+        receipt.rename(target)
+        receipt.symlink_to(target.name)
+    else:
+        reviews = receipt.parent
+        target = reviews.with_name("real-reviews")
+        reviews.rename(target)
+        reviews.symlink_to(target.name, target_is_directory=True)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+@pytest.mark.parametrize(("kind", "state"), [
+    (None, "not_started"),
+    ("specification", "review_active"),
+    ("plan", "changes_required"),
+    ("implementation", "blocked"),
+    ("specification", "pass"),
+])
+def test_reviewed_snapshot_reports_supported_non_implementation_pass_heads_as_fail(
+    tmp_path: Path, kind: str | None, state: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["review"]["kind"] = kind
+    data["review"]["state"] = state
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("review", [
+    {"kind": "implementation", "state": "unknown"},
+    ["implementation", "pass"],
+])
+def test_reviewed_snapshot_treats_malformed_or_unsupported_review_state_as_unverifiable(
+    tmp_path: Path, review: object,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["review"] = review
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "unverifiable", 2)
+
+
+def test_reviewed_snapshot_rejects_frozen_identity_drift(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    (repo / data["frozen"]["specification"]["path"]).write_text("drift\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("evidence_path", [
+    "docs/feature-forge/runs/2026-08-25-alpha/reviews/other.json",
+    "docs/feature-forge/runs/2026-08-25-other/reviews/implementation-1.json",
+    "docs/feature-forge/runs/2026-08-25-alpha/reviews-prefix/implementation-1.json",
+])
+def test_reviewed_snapshot_requires_the_exact_current_run_dispatch_receipt_path(
+    tmp_path: Path, evidence_path: str,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["review"]["evidence_path"] = evidence_path
+    write_ledger(directory, data)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("kind", "plan"),
+    ("dispatch_id", "other"),
+    ("run_ref", "/other/run"),
+    ("target_seal", "other-seal"),
+    ("result", "changes_required"),
+    ("actionable_finding_ids", ["finding-1"]),
+])
+def test_reviewed_snapshot_rejects_receipt_head_disagreement(
+    tmp_path: Path, field: str, value: object,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    write_receipt(directory, data["review"], **{field: value})
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("source_identity", [
+    {"kind": "implementation_snapshot_sha256", "path": "src/app.py", "value": "0" * 64},
+    {"kind": "implementation_snapshot_sha256", "path": None, "value": "0" * 64},
+    {"kind": "candidate_sha256", "path": None, "value": "0" * 64},
+])
+def test_reviewed_snapshot_requires_an_exact_implementation_source_identity(
+    tmp_path: Path, source_identity: dict[str, object],
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    write_receipt(directory, data["review"], source_identity=source_identity)
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_rejects_same_size_dirt_hidden_by_git_stat_cache(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    git(repo, "config", "core.trustctime", "false")
+    git(repo, "config", "core.checkStat", "minimal")
+    old_time = time.time() - 10
+    os.utime(target, (old_time, old_time))
+    git(repo, "update-index", "--refresh")
+    indexed = target.stat()
+    target.write_bytes(b"x" * indexed.st_size)
+    os.utime(target, ns=(indexed.st_atime_ns, indexed.st_mtime_ns))
+    assert "src/app.py" not in git(repo, "status", "--porcelain=v1")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_reviewed_snapshot_excludes_an_ignored_file_added_after_review(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    common_dir = Path(git(repo, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = repo / common_dir
+    (common_dir / "info" / "exclude").write_text("ignored.cache\n")
+    (repo / "ignored.cache").write_text("post-review ignored content\n")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize(("committed_mode", "checkout_mode", "status", "code"), [
+    (0o644, 0o641, "pass", 0),
+    (0o644, 0o600, "pass", 0),
+    (0o755, 0o654, "fail", 1),
+    (0o755, 0o740, "pass", 0),
+])
+def test_checkout_permissions_use_owner_execute_only(
+    tmp_path: Path, committed_mode: int, checkout_mode: int, status: str, code: int,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    target.chmod(committed_mode)
+    if committed_mode == 0o755:
+        data["review"]["reviewed_commit"] = commit(repo, "review executable", "src/app.py")
+        write_receipt(directory, data["review"])
+        write_ledger(directory, data)
+    git(repo, "config", "core.fileMode", "false")
+    target.chmod(checkout_mode)
+    assert_result(invoke(repo, directory), status, code)
+
+
+@pytest.mark.parametrize("subject", ["implementation", "specification", "plan"])
+def test_checkout_compares_raw_head_bytes_despite_autocrlf_configuration(tmp_path: Path, subject: str) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    git(repo, "config", "core.autocrlf", "false")
+    path = "src/app.py" if subject == "implementation" else data["frozen"][subject]["path"]
+    (repo / path).write_bytes(b"exact\r\ncommitted\r\n")
+    data["review"]["reviewed_commit"] = commit(repo, "review CRLF bytes", path)
+    if subject != "implementation":
+        data["frozen"][subject]["blob"] = git(repo, "rev-parse", f"HEAD:{path}")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    git(repo, "config", "core.autocrlf", "true")
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_checkout_compares_exact_symlink_target_bytes(tmp_path: Path, changed: bool) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    link = repo / "link"
+    link.symlink_to("src/app.py\n")
+    data["review"]["reviewed_commit"] = commit(repo, "review link manifest", "link")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    if changed:
+        link.unlink()
+        link.symlink_to("src/app.py")
+    assert_result(invoke(repo, directory), "fail" if changed else "pass", 1 if changed else 0)
+
+
+def test_reviewed_snapshot_explicitly_rejects_gitlinks(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{data['review']['reviewed_commit']},module")
+    git(repo, "commit", "-qm", "unsupported gitlink")
+    data["review"]["reviewed_commit"] = git(repo, "rev-parse", "HEAD")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert "gitlinks=unsupported" in observed.stderr
+
+
+def test_committed_controller_copy_does_not_change_its_implementation_source(tmp_path: Path) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    report = directory / "final-report.md"
+    report.write_bytes((repo / "src/app.py").read_bytes())
+    data["stage"] = {"id": 13, "state": "active"}
+    write_ledger(directory, data)
+    commit(repo, "record report copied from unchanged implementation", report.relative_to(repo).as_posix())
+    assert_result(invoke(repo, directory), "pass", 0)
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_checkout_detects_deletion_with_newline_in_tracked_path(tmp_path: Path, staged: bool) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    relative = "src/line\nbreak.py"
+    (repo / relative).write_bytes(b"reviewed\n")
+    data["review"]["reviewed_commit"] = commit(repo, "review unusual file", relative)
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    (repo / relative).unlink()
+    if staged:
+        git(repo, "add", "--", relative)
+    observed = invoke(repo, directory)
+    assert observed.returncode == 1
+    assert observed.stdout == "FF-CHECK v1 gate=reviewed-snapshot status=fail\n"
+    assert observed.stderr == "path=src/line\nbreak.py\n"
+
+
+def test_checkout_detects_staged_change_even_when_working_bytes_match_head(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    target = repo / "src/app.py"
+    target.write_bytes(b"staged\n")
+    git(repo, "add", "--", "src/app.py")
+    target.write_bytes(b"implemented\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize("dirty_path", ["ledger.md", "reviews/implementation-1.json"])
+def test_stage_14_entry_requires_checkpointed_controller_files(tmp_path: Path, dirty_path: str) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    data["stage"] = {"id": 14, "state": "active"}
+    data["next_action"] = "claim alpha-finish"
+    report = directory / "final-report.md"
+    report.write_text("Accepted; Finish outcome pending.\n")
+    write_ledger(directory, data)
+    commit(repo, "checkpoint 7", directory.relative_to(repo).as_posix())
+    assert_result(invoke(repo, directory), "pass", 0)
+    target = directory / dirty_path
+    target.write_bytes(target.read_bytes() + b"\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+def test_attribute_gate_includes_head_paths_deleted_from_index(tmp_path: Path) -> None:
+    repo, directory, _ = reviewed_fixture(tmp_path)
+    git(repo, "rm", "--cached", "--", "src/app.py")
+    attributes = Path(git(repo, "rev-parse", "--git-path", "info/attributes"))
+    if not attributes.is_absolute():
+        attributes = repo / attributes
+    attributes.write_text("src/app.py filter=unsupported\n")
+    observed = invoke(repo, directory)
+    assert_result(observed, "unverifiable", 2)
+    assert observed.stderr == "transformations=unsupported\n"
+
+
+@pytest.mark.parametrize("ignored", [False, True])
+def test_checkout_symlink_target_comparison_requires_real_directory_ancestors(tmp_path: Path, ignored: bool) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    links = repo / "links"
+    links.mkdir()
+    (links / "reference").symlink_to("../src/app.py")
+    data["review"]["reviewed_commit"] = commit(repo, "review nested link manifest", "links/reference")
+    write_receipt(directory, data["review"])
+    write_ledger(directory, data)
+    outside = tmp_path / "outside-links"
+    links.rename(outside)
+    links.symlink_to(outside, target_is_directory=True)
+    if ignored:
+        exclude = Path(git(repo, "rev-parse", "--git-path", "info/exclude"))
+        exclude.write_text("links\n")
+    assert_result(invoke(repo, directory), "fail", 1)
+
+
+@pytest.mark.parametrize(("status", "code"), [("pass", 0), ("fail", 1), ("unverifiable", 2)])
+def test_reviewed_snapshot_contract_is_read_only_for_every_result_class(
+    tmp_path: Path, status: str, code: int,
+) -> None:
+    repo, directory, data = reviewed_fixture(tmp_path)
+    if status == "fail":
+        (repo / "foreign.txt").write_text("foreign\n")
+    elif status == "unverifiable":
+        data["review"].pop("target_seal")
+        write_ledger(directory, data)
+    before = fixture_snapshot(repo)
+    assert_result(invoke(repo, directory), status, code)
+    assert fixture_snapshot(repo) == before

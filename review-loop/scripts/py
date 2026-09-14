@@ -5,4 +5,4 @@
 # project + lockfile so imports and deps resolve regardless of caller cwd.
 set -euo pipefail
 root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-exec uv run --project "$root" --locked python "$@"
+exec uv run --project "$root" --locked --no-dev python "$@"

@@ -1,0 +1,1977 @@
+#!/usr/bin/env python3
+"""Deterministic, read-only checks for Feature Forge ledger facts."""
+from __future__ import annotations
+
+import argparse
+import calendar
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Literal
+
+
+SCHEMA = "feature-forge/ledger/v1"
+RECEIPT_SCHEMA = "feature-forge/review-receipt/v1"
+SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+DATED_DIRECTORY = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})-(.+)\Z")
+DISPATCH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+REVIEW_KEYS = {
+    "kind", "state", "round", "root_identity", "dispatch_id", "run_ref",
+    "target_seal", "evidence_path", "reviewed_commit",
+    "previous_open_finding_ids", "open_finding_ids",
+}
+RECEIPT_KEYS = {
+    "schema", "kind", "dispatch_id", "run_ref", "target_seal",
+    "source_identity", "result", "actionable_finding_ids",
+    "feature_forge_charter_id", "completion_criterion", "raw_report_ids",
+    "triage_artifact_id", "triage_finding_ids", "stable_id_mapping",
+}
+CHARTER_BY_KIND = {
+    "specification": "feature-forge/specification-review/v1",
+    "plan": "feature-forge/plan-review/v1",
+    "implementation": "feature-forge/implementation-review/v1",
+}
+STABLE_MAPPING_KEYS = {"triage_finding_id", "feature_forge_finding_id"}
+SOURCE_IDENTITY_KEYS = {"kind", "path", "value"}
+HEAD_KEYS = {
+    "schema", "run_id", "mode", "status", "worktree", "branch", "base_identity",
+    "stage", "next_action", "frozen", "review",
+}
+
+AUTOMATION_MODES = frozenset({"interactive", "supervised", "unattended"})
+PATH_OBSERVATION_ERRORS = (OSError, RuntimeError, UnicodeError, ValueError)
+GIT_ROUTING_VARIABLES = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+})
+GIT_INDEXED_CONFIG_VARIABLE = re.compile(r"GIT_CONFIG_(?:KEY|VALUE)_[0-9]+\Z")
+TRANSFORMING_ATTRIBUTES = frozenset({
+    b"filter", b"text", b"eol", b"ident", b"working-tree-encoding",
+})
+TASK_STATUSES = frozenset({"pending", "active", "awaiting_return", "blocked", "complete"})
+TASK_TABLE_HEADER = ("plan task", "status", "commit", "evidence", "notes")
+TABLE_SEPARATOR = re.compile(r":?-{3,}:?\Z")
+
+REVIEW_STAGE_RULES = {
+    "specification": {
+        "dispatch": frozenset({5}),
+        "correction": frozenset({3, 4}),
+        "retained_pass": frozenset({5, 6, 7, 8}),
+    },
+    "plan": {
+        "dispatch": frozenset({8}),
+        "correction": frozenset({7}),
+        "retained_pass": frozenset({8, 9, 10}),
+    },
+    "implementation": {
+        "dispatch": frozenset({10}),
+        "correction": frozenset({9}),
+        # At Stage 14 this applies while stage.state is active or blocked. A
+        # complete Stage 14 is governed exclusively by the exact terminal triple.
+        "retained_pass": frozenset({10, 11, 12, 13, 14}),
+    },
+}
+
+
+def required_frozen_authorities(stage_id: int) -> tuple[str, ...]:
+    if stage_id >= 9:
+        return ("specification", "plan")
+    if stage_id >= 7:
+        return ("specification",)
+    return ()
+
+
+def mode_error(data: dict[str, object]) -> str | None:
+    mode = data.get("mode")
+    return None if isinstance(mode, str) and mode in AUTOMATION_MODES else "mode=unsupported"
+
+
+@dataclass(frozen=True)
+class Result:
+    status: Literal["pass", "fail", "unverifiable"]
+    findings: tuple[str, ...] = ()
+
+
+def resolve_observed_path(path: Path) -> Path | None:
+    try:
+        return path.resolve()
+    except PATH_OBSERVATION_ERRORS:
+        return None
+
+
+def git_process(repo: Path, *args: str) -> tuple[list[str], dict[str, str]]:
+    """Build one hardened policy for every checker Git subprocess."""
+    environment = {
+        key: value for key, value in os.environ.items()
+        if key not in GIT_ROUTING_VARIABLES
+        and GIT_INDEXED_CONFIG_VARIABLE.fullmatch(key) is None
+    }
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    environment["GIT_NO_LAZY_FETCH"] = "1"
+    command = [
+        "git", "-C", str(repo),
+        "-c", "core.fsmonitor=false",
+        "-c", "core.hooksPath=/dev/null",
+        *args,
+    ]
+    return command, environment
+
+
+def git(repo: Path, *args: str) -> str | None:
+    """Return a Git observation, or None when Git cannot establish it."""
+    command, environment = git_process(repo, *args)
+    try:
+        result = subprocess.run(
+            command, text=True, capture_output=True, check=False, env=environment,
+        )
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return result.stdout.removesuffix("\n") if result.returncode == 0 else None
+
+
+def git_bytes(repo: Path, *args: str) -> bytes | None:
+    """Return an exact byte-oriented Git observation for NUL-delimited paths."""
+    command, environment = git_process(repo, *args)
+    try:
+        observed = subprocess.run(
+            command, capture_output=True, check=False, env=environment,
+        )
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return observed.stdout if observed.returncode == 0 else None
+
+
+def git_status(repo: Path, *args: str) -> int | None:
+    """Return a Git predicate status without interpreting its output."""
+    command, environment = git_process(repo, *args)
+    try:
+        observed = subprocess.run(
+            command, capture_output=True, check=False, env=environment,
+        )
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return observed.returncode
+
+
+def object_identity(
+    repo: Path, value: object, kind: Literal["blob", "commit"],
+) -> Literal["valid", "noncanonical", "unverifiable"]:
+    """Separate lexical full-OID validity from typed-object observation."""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]+", value) is None:
+        return "noncanonical"
+    if len(value) not in {40, 64}:
+        return "noncanonical"
+    observed = git(repo, "rev-parse", "--verify", f"{value}^{{{kind}}}")
+    return "valid" if observed == value else "unverifiable"
+
+
+def commit_identity(repo: Path, value: object) -> Literal["valid", "noncanonical", "unverifiable"]:
+    return object_identity(repo, value, "commit")
+
+
+def base_identity_result(repo: Path, value: object) -> Result:
+    identity = commit_identity(repo, value)
+    if identity == "noncanonical":
+        return result("fail", "base-identity=noncanonical")
+    if identity == "unverifiable":
+        return result("unverifiable", "base-identity=unresolvable")
+    ancestry = git_status(repo, "merge-base", "--is-ancestor", str(value), "HEAD")
+    if ancestry not in {0, 1}:
+        return result("unverifiable", "base-identity=ancestry-unavailable")
+    return result("pass") if ancestry == 0 else result("fail", "base-identity=not-ancestor")
+
+
+def repository(path: str) -> Path | None:
+    root = git(Path(path), "rev-parse", "--show-toplevel")
+    return resolve_observed_path(Path(root)) if root else None
+
+
+def common_git_directory(repo: Path) -> Path | None:
+    value = git(repo, "rev-parse", "--git-common-dir")
+    if value is None:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = repo / candidate
+    return resolve_observed_path(candidate)
+
+
+def linked_worktree(repo: Path) -> bool | None:
+    """Distinguish an isolated linked worktree from the primary checkout."""
+    git_dir = git(repo, "rev-parse", "--absolute-git-dir")
+    common_path = common_git_directory(repo)
+    if git_dir is None or common_path is None:
+        return None
+    git_path = resolve_observed_path(Path(git_dir))
+    if git_path is None:
+        return None
+    return git_path != common_path
+
+
+def result(status: Literal["pass", "fail", "unverifiable"], *findings: str) -> Result:
+    return Result(status, tuple(sorted(set(findings))))
+
+
+def parse_ledger(path: Path) -> tuple[dict[str, object] | None, str | None]:
+    """Read only the v1 JSON head; unsupported input is never absence."""
+    try:
+        text = path.read_text()
+    except PATH_OBSERVATION_ERRORS:
+        return None, "unreadable-ledger"
+    match = re.match(r"\s*```json\n(.*?)\n```", text, re.DOTALL)
+    if not match:
+        return None, "missing-head"
+    try:
+        data = strict_json(match.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return None, "malformed-head"
+    if not isinstance(data, dict) or data.get("schema") != SCHEMA:
+        return None, "unsupported-head"
+    required = {"run_id", "status", "worktree", "branch", "base_identity", "frozen"}
+    if not required <= set(data):
+        return None, "unsupported-head"
+    return data, None
+
+
+def markdown_table_cells(line: str) -> tuple[str, ...] | None:
+    candidate = line.strip()
+    if not candidate.startswith("|") or not candidate.endswith("|"):
+        return None
+    return tuple(cell.strip() for cell in re.split(r"(?<!\\)\|", candidate[1:-1]))
+
+
+def audit_implementation_progress(path: Path, stage_id: int | None) -> Result:
+    try:
+        text = path.read_text()
+    except PATH_OBSERVATION_ERRORS:
+        return result("unverifiable", "task-table=unreadable")
+    sections = re.findall(
+        r"^## Implementation progress[ \t]*\n(?P<body>.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if len(sections) != 1:
+        return result("fail", "task-table=unsupported")
+    lines = sections[0].splitlines()
+    headers = [index for index, line in enumerate(lines)
+               if markdown_table_cells(line) == TASK_TABLE_HEADER]
+    if len(headers) != 1 or headers[0] + 1 >= len(lines):
+        return result("fail", "task-table=unsupported")
+    separator = markdown_table_cells(lines[headers[0] + 1])
+    if (separator is None or len(separator) != 5
+            or not all(TABLE_SEPARATOR.fullmatch(cell) for cell in separator)):
+        return result("fail", "task-table=unsupported")
+    row_lines = lines[headers[0] + 2:]
+    while row_lines and not row_lines[-1].strip():
+        row_lines.pop()
+    if not row_lines:
+        return result("fail", "task-table=unsupported")
+    rows: list[tuple[str, ...]] = []
+    for line in row_lines:
+        cells = markdown_table_cells(line)
+        if cells is None or len(cells) != 5:
+            return result("fail", "task-table=unsupported")
+        rows.append(cells)
+    placeholders = [row for row in rows if not any(row)]
+    if placeholders:
+        if len(rows) != 1:
+            return result("fail", "task-table=unsupported")
+        return (
+            result("fail", "task-progress=incomplete")
+            if stage_id is not None and stage_id >= 10 else result("pass")
+        )
+    if any(not row[0] for row in rows):
+        return result("fail", "task-table=unsupported")
+    if any(row[1] not in TASK_STATUSES for row in rows):
+        return result("fail", "task-status=unsupported")
+    if stage_id is not None and stage_id >= 10 and any(
+        row[1] != "complete" or not row[2].strip() or not row[3].strip()
+        for row in rows
+    ):
+        return result("fail", "task-progress=incomplete")
+    return result("pass")
+
+
+def strict_json(text: str) -> object:
+    """Parse JSON while rejecting duplicate object keys and oversized integers."""
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    def bounded_integer(value: str) -> int:
+        if len(value.removeprefix("-")) > 64:
+            raise ValueError("oversized JSON integer")
+        return int(value)
+
+    try:
+        return json.loads(
+            text, object_pairs_hook=unique_object, parse_int=bounded_integer,
+        )
+    except RecursionError as error:
+        raise ValueError("overly nested JSON") from error
+
+
+def valid_date(name: str, run_id: str) -> bool:
+    match = DATED_DIRECTORY.fullmatch(name)
+    if not match or match.group(4) != run_id:
+        return False
+    year, month, day = (int(match.group(index)) for index in range(1, 4))
+    try:
+        calendar.monthrange(year, month)[1]
+    except ValueError:
+        return False
+    return 1 <= day <= calendar.monthrange(year, month)[1]
+
+
+def valid_run_id(repo: Path, run_id: str) -> bool:
+    if not SLUG.fullmatch(run_id):
+        return False
+    return git(repo, "check-ref-format", "--branch", f"feature/{run_id}") is not None
+
+
+def run_head_error(repo: Path, data: dict[str, object]) -> str | None:
+    """Validate the values that `runs` must classify, never coerce them."""
+    if error := mode_error(data):
+        return error
+    run_id, worktree, branch, status = (data.get("run_id"), data.get("worktree"),
+                                        data.get("branch"), data.get("status"))
+    if not isinstance(run_id, str) or not valid_run_id(repo, run_id):
+        return "run-id=unsupported"
+    if not isinstance(worktree, str) or "\0" in worktree or not Path(worktree).is_absolute():
+        return "worktree=unsupported"
+    if not isinstance(branch, str) or git(repo, "check-ref-format", "--branch", branch) is None:
+        return "branch=unsupported"
+    if not isinstance(status, str) or status not in {"active", "blocked", "complete"}:
+        return "ledger-status=unsupported"
+    return None
+
+
+def worktrees(repo: Path) -> list[tuple[str, str | None]] | None:
+    requested_common = common_git_directory(repo)
+    if requested_common is None:
+        return None
+
+    def observe_candidate(path: str, branch: str | None) -> tuple[str, str | None] | None:
+        candidate = resolve_observed_path(Path(path))
+        if candidate is None:
+            return None
+        top_level = git(candidate, "rev-parse", "--show-toplevel")
+        if top_level is None:
+            return None
+        top = resolve_observed_path(Path(top_level))
+        if top is None:
+            return None
+        candidate_common = common_git_directory(top)
+        if candidate_common is None:
+            return None
+        return (str(top), branch) if candidate_common == requested_common else ("", None)
+
+    raw = git_bytes(repo, "worktree", "list", "--porcelain", "-z")
+    found: list[tuple[str, str | None]] = []
+    if raw is not None:
+        try:
+            for record in filter(None, raw.split(b"\0\0")):
+                fields = record.split(b"\0")
+                if not fields[0].startswith(b"worktree "):
+                    return None
+                path = fields[0].removeprefix(b"worktree ").decode("utf-8")
+                branch = next(
+                    (field.removeprefix(b"branch ").decode("utf-8")
+                     for field in fields[1:] if field.startswith(b"branch refs/heads/")),
+                    None,
+                )
+                observed = observe_candidate(path, branch)
+                if observed is None:
+                    return None
+                if observed[0]:
+                    found.append(observed)
+        except PATH_OBSERVATION_ERRORS:
+            return None
+        return found
+
+    # Older Git still exposes checked-out branch paths through a NUL-delimited
+    # ref atom. Detached worktrees cannot match a run branch.
+    raw = git_bytes(
+        repo, "for-each-ref", "--format=%(refname)%00%(worktreepath)%00",
+        "refs/heads",
+    )
+    if raw is None:
+        return None
+    try:
+        for record in filter(None, raw.split(b"\0\n")):
+            branch_bytes, path_bytes = record.split(b"\0", 1)
+            if not path_bytes:
+                continue
+            observed = observe_candidate(
+                path_bytes.decode("utf-8"), branch_bytes.decode("utf-8"),
+            )
+            if observed is None:
+                return None
+            if observed[0]:
+                found.append(observed)
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return found
+
+
+def runs(repo_arg: str, run_id: str) -> Result:
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    if not valid_run_id(repo, run_id):
+        return result("fail", f"run-id={run_id}")
+    branches_text = git(repo, "branch", "--list", "--format=%(refname)")
+    observed_worktrees = worktrees(repo)
+    if branches_text is None or observed_worktrees is None:
+        return result("unverifiable", "git-inventory=unavailable")
+    expected_branch = f"feature/{run_id}"
+    expected_branch_ref = f"refs/heads/{expected_branch}"
+    branches = set(filter(None, branches_text.splitlines()))
+    branch_matches = [f"branch={expected_branch}"] if expected_branch_ref in branches else []
+    worktree_matches = [
+        (path, branch) for path, branch in observed_worktrees
+        if branch == expected_branch_ref
+    ]
+    worktree_findings = [f"worktree={path}" for path, _ in worktree_matches]
+
+    runs_root = repo / "docs" / "feature-forge" / "runs"
+    ledgers: list[tuple[Path, dict[str, object]]] = []
+    diagnostics: list[str] = []
+    unverifiable: list[str] = []
+    runs_state = exact_entry_state(repo, runs_root)
+    if runs_state not in {"absent", "directory"}:
+        return result("unverifiable", "runs-directory=unavailable")
+    if runs_state == "directory":
+        try:
+            children = sorted(runs_root.iterdir(), key=lambda item: item.name)
+        except PATH_OBSERVATION_ERRORS:
+            return result("unverifiable", "runs-directory=unavailable")
+        for directory in children:
+            canonical_requested = valid_date(directory.name, run_id)
+            directory_state = observed_entry_state(repo, directory)
+            if canonical_requested and directory_state == "unavailable":
+                relative = (directory / "ledger.md").relative_to(repo).as_posix()
+                unverifiable.append(f"ledger={relative}:unreadable")
+                continue
+            if canonical_requested and directory_state != "directory":
+                diagnostics.append(f"run={directory.relative_to(repo).as_posix()}:occupied")
+                continue
+            if directory_state != "directory":
+                if directory_state in {"symlink", "unavailable"}:
+                    relative = (directory / "ledger.md").relative_to(repo).as_posix()
+                    unverifiable.append(f"ledger={relative}:unreadable")
+                continue
+            ledger_path = directory / "ledger.md"
+            relative = ledger_path.relative_to(repo).as_posix()
+            ledger_state = observed_entry_state(repo, ledger_path)
+            if canonical_requested and ledger_state == "absent":
+                unverifiable.append(f"ledger={relative}:missing")
+                continue
+            if ledger_state == "absent":
+                continue
+            if ledger_state != "regular":
+                if canonical_requested:
+                    unverifiable.append(f"ledger={relative}:unreadable")
+                continue
+            data, error = parse_ledger(ledger_path)
+            if error:
+                unverifiable.append(f"ledger={relative}:{error}")
+                continue
+            assert data is not None
+            if error := run_head_error(repo, data):
+                unverifiable.append(f"ledger={relative}:{error}")
+                continue
+            recorded_id = data.get("run_id")
+            if canonical_requested and recorded_id != run_id:
+                diagnostics.append(f"ledger={relative}:run-id-mismatch")
+            if recorded_id == run_id:
+                if not valid_date(directory.name, run_id):
+                    diagnostics.append(f"ledger={relative}:noncanonical")
+                else:
+                    stage = data.get("stage")
+                    stage_id = stage.get("id") if isinstance(stage, dict) else None
+                    task_table = audit_implementation_progress(
+                        ledger_path,
+                        stage_id if isinstance(stage_id, int) and not isinstance(stage_id, bool) else None,
+                    )
+                    checked = (
+                        task_table if task_table.status != "pass"
+                        else audit_current_head(repo, directory, data)
+                    )
+                    destination = unverifiable if checked.status == "unverifiable" else diagnostics
+                    if checked.status == "pass":
+                        ledgers.append((ledger_path, data))
+                    else:
+                        destination.extend(
+                            f"ledger={relative}:{finding}" for finding in checked.findings
+                        )
+    if unverifiable:
+        return result("unverifiable", *unverifiable, *branch_matches, *worktree_findings)
+    if diagnostics:
+        return result("fail", *diagnostics, *branch_matches, *worktree_findings)
+    ledger_findings = [f"ledger={path.relative_to(repo).as_posix()}" for path, _ in ledgers]
+    if not ledgers:
+        if branch_matches or worktree_findings:
+            return result("fail", *branch_matches, *worktree_findings)
+        return result("pass")
+    if len(ledgers) != 1:
+        return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    ledger_path, data = ledgers[0]
+    status = data.get("status")
+    if status == "complete":
+        return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    if primary_stage14_custody_head(data, linked_worktree(repo)):
+        return result("pass", *ledger_findings, *branch_matches, *worktree_findings)
+    recorded_branch = data.get("branch")
+    recorded_worktree = data.get("worktree")
+    observed_recorded_worktree = resolve_observed_path(Path(recorded_worktree))
+    if observed_recorded_worktree is None:
+        return result("unverifiable", *ledger_findings, "worktree=unavailable")
+    matching_worktree = any(
+        path == str(observed_recorded_worktree) and branch == expected_branch_ref
+        for path, branch in observed_worktrees
+    )
+    if recorded_branch != expected_branch or expected_branch_ref not in branches or not matching_worktree:
+        return result("fail", *ledger_findings, *branch_matches, *worktree_findings)
+    return result("pass", *ledger_findings, *branch_matches, *worktree_findings)
+
+
+def canonical_run_observation(repo: Path, argument: str) -> tuple[Path | None, str | None]:
+    candidate = Path(argument)
+    candidate = repo / candidate if not candidate.is_absolute() else candidate
+    root = repo / "docs" / "feature-forge" / "runs"
+    try:
+        if candidate.parent != root:
+            return None, "noncanonical"
+        match = DATED_DIRECTORY.fullmatch(candidate.name)
+        if not match or not SLUG.fullmatch(match.group(4)) or not valid_date(candidate.name, match.group(4)):
+            return None, "noncanonical"
+    except PATH_OBSERVATION_ERRORS:
+        return None, "noncanonical"
+    observed_candidate = resolve_observed_path(candidate)
+    observed_root = resolve_observed_path(root)
+    if observed_candidate is None or observed_root is None:
+        return None, "unavailable"
+    try:
+        observed_candidate.relative_to(observed_root)
+    except ValueError:
+        return None, "noncanonical"
+    if observed_candidate.parent != observed_root:
+        return None, "noncanonical"
+    root_state = observed_entry_state(repo, root)
+    candidate_state = observed_entry_state(repo, candidate)
+    if root_state == "symlink" or candidate_state == "symlink":
+        return None, "noncanonical"
+    if root_state != "directory" or candidate_state in {"absent", "unavailable", "regular", "other"}:
+        return None, "unavailable"
+    return observed_candidate, None
+
+
+def frozen_path_targets_git_metadata(repo: Path, path: PurePosixPath) -> bool | None:
+    """Identify a lexical symlink redirect into the checkout's Git metadata."""
+    current = repo
+    try:
+        for part in path.parts:
+            current /= part
+            if not stat.S_ISLNK(current.lstat().st_mode):
+                continue
+            target = Path(os.readlink(current))
+            target = current.parent / target if not target.is_absolute() else target
+            try:
+                relative = target.relative_to(repo)
+            except ValueError:
+                continue
+            if ".git" in relative.parts:
+                return True
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return False
+
+
+def observed_frozen_path(repo: Path, value: object) -> tuple[str | None, str | None]:
+    if not isinstance(value, str) or not value:
+        return None, "unsupported"
+    path = PurePosixPath(value)
+    if (
+        not path.parts
+        or path.is_absolute()
+        or path.parts[0] == ".git"
+        or ".." in path.parts
+        or path.as_posix() != value
+    ):
+        return None, "wrong-path"
+    metadata_directed = frozen_path_targets_git_metadata(repo, path)
+    if metadata_directed is None:
+        return None, "unavailable"
+    if metadata_directed:
+        return None, "wrong-path"
+    resolved = resolve_observed_path(repo / path)
+    if resolved is None:
+        return None, "unavailable"
+    try:
+        resolved.relative_to(repo)
+    except ValueError:
+        return None, "wrong-path"
+    metadata_root = resolve_observed_path(repo / ".git")
+    if metadata_root is None:
+        return None, "unavailable"
+    if resolved == metadata_root:
+        return None, "wrong-path"
+    git_dir = git(repo, "rev-parse", "--git-dir")
+    if git_dir is None:
+        return None, "unavailable"
+    metadata = resolve_observed_path(repo / git_dir if not Path(git_dir).is_absolute() else Path(git_dir))
+    if metadata is None:
+        return None, "unavailable"
+    try:
+        resolved.relative_to(metadata)
+    except ValueError:
+        pass
+    else:
+        return None, "wrong-path"
+    if not exact_regular_file(repo, repo / path):
+        return None, "unavailable"
+    return value, None
+
+
+def frozen_blob_identity(repo: Path, path: str, blob: str) -> str:
+    """Require a canonical blob that is the regular-file blob at HEAD:path."""
+    identity = object_identity(repo, blob, "blob")
+    if identity == "noncanonical":
+        return "noncanonical"
+    if identity == "unverifiable":
+        return "unresolvable"
+    raw = git_bytes(repo, "ls-tree", "-z", "HEAD", "--", path)
+    if raw is None:
+        return "head-unavailable"
+    records = list(filter(None, raw.split(b"\0")))
+    if len(records) != 1:
+        return "not-at-head"
+    try:
+        metadata, raw_path = records[0].split(b"\t", 1)
+        mode, kind, oid = metadata.split(b" ")
+        matches = (
+            raw_path.decode("utf-8") == path
+            and mode in {b"100644", b"100755"}
+            and kind == b"blob"
+            and oid.decode("ascii") == blob
+        )
+    except (UnicodeError, ValueError):
+        return "head-unavailable"
+    return "valid" if matches else "not-at-head"
+
+
+def frozen_snapshot(repo: Path, run: Path, frozen: object) -> Result:
+    """Check the two frozen blobs without broadening identity semantics."""
+    if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
+        return result("unverifiable", "frozen=unsupported")
+    controlled: list[tuple[str, str, str]] = []
+    mismatches: list[str] = []
+    for name in ("specification", "plan"):
+        item = frozen[name]
+        if item is None:
+            continue
+        if not isinstance(item, dict) or set(item) != {"path", "blob"}:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        path_value, blob = item.get("path"), item.get("blob")
+        if not isinstance(path_value, str) or not path_value or not isinstance(blob, str) or not blob:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        if path_value != canonical_candidate_path(run, name):
+            return result("fail", f"frozen={name}:wrong-path")
+        path, path_error = observed_frozen_path(repo, path_value)
+        if path_error is not None:
+            return result(
+                "fail" if path_error == "wrong-path" else "unverifiable",
+                f"frozen={name}:{path_error}",
+            )
+        if path is None:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        identity = frozen_blob_identity(repo, path, blob)
+        if identity == "noncanonical":
+            return result("fail", f"frozen={name}:noncanonical-blob")
+        if identity == "unresolvable":
+            return result("unverifiable", f"frozen={name}:blob-unresolvable")
+        if identity == "head-unavailable":
+            return result("unverifiable", f"frozen={name}:head-unavailable")
+        if identity == "not-at-head":
+            return result("fail", f"frozen={name}:not-at-head")
+        controlled.append((name, path, blob))
+    transformation_error = transformation_gate(
+        repo, b"".join(path.encode("utf-8") + b"\0" for _name, path, _blob in controlled),
+    )
+    if transformation_error is not None:
+        return result("unverifiable", transformation_error)
+    for name, path, blob in controlled:
+        try:
+            observed = (repo / path).read_bytes()
+        except PATH_OBSERVATION_ERRORS:
+            return result("unverifiable", f"frozen={name}:unavailable")
+        expected = git_bytes(repo, "cat-file", "blob", blob)
+        if expected is None:
+            return result("unverifiable", f"frozen={name}:unavailable")
+        if observed != expected:
+            mismatches.append(f"path={path}")
+    return result("fail", *mismatches) if mismatches else result("pass")
+
+
+def sorted_unique_strings(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and all(isinstance(item, str) and item for item in value)
+        and value == sorted(set(value))
+    )
+
+
+def allocated_finding_id(dispatch_id: str, triage_finding_id: str) -> str:
+    framed = json.dumps(
+        [dispatch_id, triage_finding_id], ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")
+    return "FF-" + hashlib.sha256(framed).hexdigest()
+
+
+def nonempty_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def stable_mapping_shape(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    sources, destinations = [], []
+    for row in value:
+        if not isinstance(row, dict) or set(row) != STABLE_MAPPING_KEYS:
+            return False
+        if not all(nonempty_text(item) for item in row.values()):
+            return False
+        sources.append(row["triage_finding_id"])
+        destinations.append(row["feature_forge_finding_id"])
+    return len(set(sources)) == len(sources) and len(set(destinations)) == len(destinations)
+
+
+def full_finding_shape(value: object) -> bool:
+    """Check the semantic input's local shape, not external provenance or meaning."""
+    keys = {"id", "sources", "source_ids", "reported_severity", "current_severity",
+            "factual", "state", "evidence_locators", "target_seal"}
+    if not isinstance(value, dict) or set(value) != keys:
+        return False
+    if not all(nonempty_text(value[key]) for key in
+               ("id", "reported_severity", "current_severity", "factual", "state", "target_seal")):
+        return False
+    for key in ("source_ids", "evidence_locators"):
+        if not isinstance(value[key], list) or not all(nonempty_text(x) for x in value[key]):
+            return False
+    sources = value["sources"]
+    if not isinstance(sources, list) or not sources:
+        return False
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != {"report_id", "finding_id", "claim", "severity", "locators"}:
+            return False
+        if not all(nonempty_text(source[key]) for key in ("report_id", "finding_id", "claim", "severity")):
+            return False
+        if not isinstance(source["locators"], list) or not all(nonempty_text(x) for x in source["locators"]):
+            return False
+    return value["source_ids"] == [f"{s['report_id']}:{s['finding_id']}" for s in sources]
+
+
+def apply_stable_id_decisions(payload: object) -> dict[str, object]:
+    """Pure accounting for one bounded material-equivalence judgment."""
+    failure = {"schema": "feature-forge/stable-id-map/v1", "status": "fail",
+               "stable_id_mapping": [], "error": "mapping=invalid-input"}
+    keys = {"dispatch_id", "materially_same_criterion", "prior_findings", "current_findings", "decisions"}
+    if not isinstance(payload, dict) or set(payload) != keys:
+        return failure
+    dispatch = payload["dispatch_id"]
+    if not isinstance(dispatch, str) or DISPATCH_ID.fullmatch(dispatch) is None:
+        return failure
+    if not nonempty_text(payload["materially_same_criterion"]):
+        return failure
+    if not all(isinstance(payload[key], list) for key in ("prior_findings", "current_findings", "decisions")):
+        return failure
+    prior_ids = []
+    for row in payload["prior_findings"]:
+        if (not isinstance(row, dict) or set(row) != {"feature_forge_finding_id", "triage_finding"}
+                or not nonempty_text(row["feature_forge_finding_id"])
+                or row["feature_forge_finding_id"] == "new"
+                or not full_finding_shape(row["triage_finding"])):
+            return failure
+        prior_ids.append(row["feature_forge_finding_id"])
+    if len(prior_ids) != len(set(prior_ids)):
+        return failure
+    if not all(full_finding_shape(row) for row in payload["current_findings"]):
+        return failure
+    current_ids = [row["id"] for row in payload["current_findings"]]
+    if len(current_ids) != len(set(current_ids)):
+        return failure
+    mapping = []
+    for row in payload["decisions"]:
+        if not isinstance(row, dict) or set(row) != {"triage_finding_id", "decision", "rationale"}:
+            return failure
+        identifier, decision = row["triage_finding_id"], row["decision"]
+        if not nonempty_text(identifier) or identifier not in current_ids or not nonempty_text(decision):
+            return failure
+        try:
+            allocated = allocated_finding_id(dispatch, identifier)
+        except (UnicodeError, ValueError):
+            return failure
+        if allocated in prior_ids:
+            return failure
+        if decision == "new":
+            if row["rationale"] is not None:
+                return failure
+            destination = allocated
+        else:
+            if decision not in prior_ids or not nonempty_text(row["rationale"]):
+                return failure
+            destination = decision
+        mapping.append({"triage_finding_id": identifier, "feature_forge_finding_id": destination})
+    if not stable_mapping_shape(mapping) or {row["triage_finding_id"] for row in mapping} != set(current_ids):
+        return failure
+    return {"schema": "feature-forge/stable-id-map/v1", "status": "pass",
+            "stable_id_mapping": sorted(mapping, key=lambda row: row["triage_finding_id"]), "error": None}
+
+
+def review_must_block(
+    round_number: int, previous_ids: list[str], current_ids: list[str],
+) -> bool:
+    """Apply the completed-TRIAGE cap and consecutive stable-ID rule."""
+    return bool(current_ids) and (round_number >= 3 or current_ids == previous_ids)
+
+
+def receipt_result_invariant(payload: dict[str, object], review: dict[str, object]) -> bool:
+    """Compare current controller-owned records; external evidence stays external."""
+    mapping = payload["stable_id_mapping"]
+    if not stable_mapping_shape(mapping):
+        return False
+    if sorted(row["triage_finding_id"] for row in mapping) != payload["triage_finding_ids"]:
+        return False
+    mapped = sorted(row["feature_forge_finding_id"] for row in mapping)
+    if mapped != payload["actionable_finding_ids"]:
+        return False
+    prior = review["previous_open_finding_ids"]
+    for row in mapping:
+        try:
+            allocated = allocated_finding_id(payload["dispatch_id"], row["triage_finding_id"])
+        except (UnicodeError, ValueError):
+            return False
+        destination = row["feature_forge_finding_id"]
+        if allocated in prior or (destination not in prior and destination != allocated):
+            return False
+    completed = payload["triage_artifact_id"] is not None
+    must_block = review_must_block(review["round"], prior, mapped)
+    if payload["result"] == "pass":
+        return completed and not mapped
+    if payload["result"] == "changes_required":
+        return completed and bool(mapped) and review["round"] >= 1 and not must_block
+    return (not completed and not mapped) or (completed and bool(mapped) and must_block)
+
+
+def strict_receipt(path: Path) -> tuple[dict[str, object] | None, str | None]:
+    try:
+        payload = strict_json(path.read_text())
+    except PATH_OBSERVATION_ERRORS:
+        return None, "receipt=unreadable"
+    if not isinstance(payload, dict) or set(payload) != RECEIPT_KEYS:
+        return None, "receipt=unsupported"
+    if payload.get("schema") != RECEIPT_SCHEMA:
+        return None, "receipt=unsupported"
+    if not isinstance(payload.get("kind"), str) or payload["kind"] not in CHARTER_BY_KIND:
+        return None, "receipt=unsupported"
+    if not isinstance(payload.get("result"), str) or payload["result"] not in {"pass", "changes_required", "blocked"}:
+        return None, "receipt=unsupported"
+    if not all(nonempty_text(payload.get(field)) for field in ("dispatch_id", "run_ref", "target_seal")):
+        return None, "receipt=unsupported"
+    if not sorted_unique_strings(payload.get("actionable_finding_ids")):
+        return None, "receipt=unsupported"
+    if (
+        payload["feature_forge_charter_id"] != CHARTER_BY_KIND[payload["kind"]]
+        or not nonempty_text(payload["completion_criterion"])
+        or not sorted_unique_strings(payload["raw_report_ids"])
+        or not sorted_unique_strings(payload["triage_finding_ids"])
+        or (payload["triage_artifact_id"] is not None and not nonempty_text(payload["triage_artifact_id"]))
+        or not stable_mapping_shape(payload["stable_id_mapping"])
+    ):
+        return None, "receipt=unsupported"
+    source = payload.get("source_identity")
+    if (
+        not isinstance(source, dict)
+        or set(source) != SOURCE_IDENTITY_KEYS
+        or not nonempty_text(source.get("kind"))
+        or not nonempty_text(source.get("value"))
+        or (source.get("path") is not None and not nonempty_text(source.get("path")))
+    ):
+        return None, "receipt=unsupported"
+    return payload, None
+
+
+def review_shape(review: object) -> tuple[dict[str, object] | None, str | None]:
+    if not isinstance(review, dict) or set(review) != REVIEW_KEYS:
+        return None, "review=unsupported"
+    kind = review.get("kind")
+    if kind is not None and (
+        not isinstance(kind, str) or kind not in {"specification", "plan", "implementation"}
+    ):
+        return None, "review=unsupported"
+    if not isinstance(review.get("state"), str) or review["state"] not in {
+        "not_started", "review_active", "changes_required", "pass", "blocked",
+    }:
+        return None, "review=unsupported"
+    nullable_strings = (
+        "root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit",
+    )
+    if any(
+        review.get(field) is not None
+        and not nonempty_text(review.get(field))
+        for field in nullable_strings
+    ):
+        return None, "review=unsupported"
+    if (
+        not isinstance(review.get("round"), int)
+        or isinstance(review.get("round"), bool)
+        or review["round"] < 0
+        or not sorted_unique_strings(review.get("previous_open_finding_ids"))
+        or not sorted_unique_strings(review.get("open_finding_ids"))
+    ):
+        return None, "review=unsupported"
+    return review, None
+
+
+def expected_receipt_path(repo: Path, run: Path, dispatch_id: object) -> tuple[str, Path] | None:
+    if not isinstance(dispatch_id, str) or not DISPATCH_ID.fullmatch(dispatch_id):
+        return None
+    path = run / "reviews" / f"{dispatch_id}.json"
+    return path.relative_to(repo).as_posix(), path
+
+
+def observed_entry_state(root: Path, path: Path) -> str:
+    """Observe one entry without following symlink components."""
+    try:
+        relative = path.absolute().relative_to(root.absolute())
+        if not stat.S_ISDIR(root.lstat().st_mode):
+            return "unavailable"
+    except PATH_OBSERVATION_ERRORS:
+        return "unavailable"
+    current = root
+    for index, part in enumerate(relative.parts):
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return "absent"
+        except PATH_OBSERVATION_ERRORS:
+            return "unavailable"
+        if stat.S_ISLNK(mode):
+            return "symlink"
+        final = index == len(relative.parts) - 1
+        if not final:
+            if not stat.S_ISDIR(mode):
+                return "unavailable"
+            continue
+        if stat.S_ISDIR(mode):
+            return "directory"
+        if stat.S_ISREG(mode):
+            return "regular"
+        return "other"
+    return "directory"
+
+
+def exact_regular_file(root: Path, path: Path) -> bool:
+    """Require a regular file reached without following any symlink component."""
+    return observed_entry_state(root, path) == "regular"
+
+
+def exact_entry_state(root: Path, path: Path) -> str | None:
+    """Return absent, directory, or regular without following symlink components."""
+    state = observed_entry_state(root, path)
+    return state if state in {"absent", "directory", "regular"} else None
+
+
+def sha256_regular_file(root: Path, path: Path) -> str | None:
+    if not exact_regular_file(root, path):
+        return None
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return digest.hexdigest()
+
+
+def transformation_gate(repo: Path, paths: bytes) -> str | None:
+    """Reject effective transforming attributes before controlled conversion."""
+    command, environment = git_process(repo, "check-attr", "-z", "--stdin", "--all")
+    try:
+        attributes = subprocess.run(
+            command, input=paths, capture_output=True, check=False, env=environment,
+        )
+    except PATH_OBSERVATION_ERRORS:
+        return "transformations=unavailable"
+    if attributes.returncode != 0:
+        return "transformations=unavailable"
+    fields = attributes.stdout.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    if len(fields) % 3:
+        return "transformations=unavailable"
+    if any(fields[index] in TRANSFORMING_ATTRIBUTES for index in range(1, len(fields), 3)):
+        return "transformations=unsupported"
+    return None
+
+
+def controlled_tracked_paths(repo: Path) -> tuple[bytes | None, str | None]:
+    """Enumerate tracked paths and apply the conversion-free attribute gate."""
+    tracked = git_bytes(repo, "ls-files", "-z")
+    committed = git_bytes(repo, "ls-tree", "-r", "--name-only", "-z", "HEAD")
+    if tracked is None or committed is None:
+        return None, "transformations=unavailable"
+    tracked += committed
+    error = transformation_gate(repo, tracked)
+    return (None, error) if error is not None else (tracked, None)
+
+
+def worktree_paths(repo: Path) -> tuple[set[str] | None, str | None]:
+    """Observe index and ordinary untracked dirt without content conversion."""
+    index_flags = git_bytes(repo, "ls-files", "-v", "-z")
+    if index_flags is None:
+        return None, "index-flags=unavailable"
+    if any(
+        len(record) < 3 or record[:2] != b"H "
+        for record in filter(None, index_flags.split(b"\0"))
+    ):
+        return None, "index-flags=unsupported"
+    raw = git_bytes(repo, "diff-index", "--cached", "--name-status", "-z", "--no-renames", "HEAD", "--")
+    untracked = git_bytes(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    if raw is None or untracked is None:
+        return None, "paths=unavailable"
+    parsed = parse_name_status_z(raw)
+    if parsed is None:
+        return None, "paths=unsupported"
+    try:
+        return parsed | {path.decode("utf-8") for path in untracked.split(b"\0") if path}, None
+    except UnicodeError:
+        return None, "paths=unsupported"
+
+
+def parse_name_status_z(raw: bytes) -> set[str] | None:
+    fields = raw.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths: set[str] = set()
+    index = 0
+    try:
+        while index < len(fields):
+            status = fields[index].decode("ascii")
+            index += 1
+            count = 2 if status.startswith(("R", "C")) else 1
+            for _ in range(count):
+                paths.add(fields[index].decode("utf-8"))
+                index += 1
+    except (IndexError, UnicodeDecodeError):
+        return None
+    return paths
+
+
+def committed_paths(repo: Path, reviewed_commit: str) -> set[str] | None:
+    """Compare tree modes/blob identities without rename heuristics or conversion."""
+    raw = git_bytes(
+        repo, "diff-tree", "-r", "--no-commit-id", "--name-status", "-z",
+        "--no-renames", "--no-ext-diff", "--no-textconv", reviewed_commit, "HEAD", "--",
+    )
+    return parse_name_status_z(raw) if raw is not None else None
+
+
+def tracked_mode_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
+    """Return tracked paths whose current entry type/executable mode differs from Git."""
+    raw = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD")
+    if raw is None:
+        return None
+    mismatches: set[str] = set()
+    try:
+        for record in filter(None, raw.split(b"\0")):
+            metadata, raw_path = record.split(b"\t", 1)
+            mode = metadata.split(b" ", 1)[0]
+            path = raw_path.decode("utf-8")
+            if path in allowed:
+                continue
+            try:
+                observed = (repo / path).lstat().st_mode
+            except (FileNotFoundError, NotADirectoryError):
+                mismatches.add(path)
+                continue
+            expected = {
+                b"100644": exact_regular_file(repo, repo / path) and not bool(observed & stat.S_IXUSR),
+                b"100755": exact_regular_file(repo, repo / path) and bool(observed & stat.S_IXUSR),
+                b"120000": stat.S_ISLNK(observed) and exact_entry_state(repo, (repo / path).parent) == "directory",
+            }.get(mode, False)
+            if not expected:
+                mismatches.add(path)
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return mismatches
+
+
+def tracked_content_mismatches(repo: Path, allowed: set[str]) -> set[str] | None:
+    """Compare raw checkout bytes with current HEAD blobs, independent of the index."""
+    raw = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD")
+    if raw is None:
+        return None
+    mismatches: set[str] = set()
+    try:
+        for record in filter(None, raw.split(b"\0")):
+            metadata, raw_path = record.split(b"\t", 1)
+            mode, kind, expected_oid = metadata.split(b" ")
+            path = raw_path.decode("utf-8")
+            if path in allowed:
+                continue
+            if kind != b"blob":
+                return None
+            if mode in {b"100644", b"100755"}:
+                observed = (repo / path).read_bytes()
+            elif mode == b"120000":
+                observed = os.readlink(os.fsencode(repo / path))
+            else:
+                return None
+            expected = git_bytes(repo, "cat-file", "blob", expected_oid.decode("ascii"))
+            if expected is None:
+                return None
+            if observed != expected:
+                mismatches.add(path)
+    except PATH_OBSERVATION_ERRORS:
+        return None
+    return mismatches
+
+
+def review_checkout_readiness(
+    repo: Path, run: Path, data: dict[str, object],
+) -> Result:
+    """Require review readiness and post-freeze receipt settlement."""
+    stage = data["stage"]
+    assert isinstance(stage, dict)
+    review = data["review"]
+    assert isinstance(review, dict)
+    candidate_kind = {5: "specification", 8: "plan"}.get(stage["id"])
+    if (
+        stage["id"] == 7
+        and review.get("kind") == "plan"
+        and review.get("state") == "changes_required"
+    ):
+        candidate_kind = "plan"
+    if stage["id"] not in {5, 7, 8, 9, 10}:
+        return result("pass")
+    tracked, transformation_error = controlled_tracked_paths(repo)
+    if transformation_error is not None:
+        return result("unverifiable", transformation_error)
+    assert tracked is not None
+    dirty, dirty_error = worktree_paths(repo)
+    if dirty_error is not None:
+        return result("unverifiable", dirty_error)
+    assert dirty is not None
+    if stage["id"] == 9 or (stage["id"] == 7 and candidate_kind is None):
+        reviews_dir = (run / "reviews").relative_to(repo).as_posix()
+
+        def receipt_path(path: str) -> bool:
+            relative = PurePosixPath(path)
+            return (
+                relative.parent.as_posix() == reviews_dir
+                and relative.suffix == ".json"
+                and DISPATCH_ID.fullmatch(relative.stem) is not None
+            )
+
+        try:
+            tracked_paths = {
+                path.decode("utf-8") for path in tracked.split(b"\0") if path
+            }
+        except UnicodeDecodeError:
+            return result("unverifiable", "paths=unsupported")
+        tracked_receipts = {path for path in tracked_paths if receipt_path(path)}
+        dirty_receipts = {path for path in dirty if receipt_path(path)}
+        current_receipt = (
+            review.get("evidence_path")
+            if stage["id"] == 9
+            and review.get("kind") == "implementation"
+            and review.get("state") == "changes_required"
+            else None
+        )
+        if isinstance(current_receipt, str):
+            tracked_receipts.discard(current_receipt)
+            dirty_receipts.discard(current_receipt)
+        allowed = tracked_paths - tracked_receipts
+        mode_mismatches = tracked_mode_mismatches(repo, allowed)
+        if mode_mismatches is None:
+            return result("unverifiable", "modes=unavailable")
+        content_mismatches = tracked_content_mismatches(repo, allowed | mode_mismatches)
+        if content_mismatches is None:
+            return result("unverifiable", "content=unavailable")
+        unsettled = sorted(dirty_receipts | mode_mismatches | content_mismatches)
+        return (
+            result("fail", *(f"path={path}" for path in unsettled))
+            if unsettled else result("pass")
+        )
+    allowed = {(run / "ledger.md").relative_to(repo).as_posix()}
+    if candidate_kind is not None:
+        candidate = canonical_candidate_path(run, candidate_kind)
+        if not exact_regular_file(repo, repo / candidate):
+            return result("unverifiable", "candidate=unavailable")
+        allowed.add(candidate)
+    evidence_path = review.get("evidence_path")
+    expected_kind = candidate_kind or "implementation"
+    if review.get("kind") == expected_kind and isinstance(evidence_path, str):
+        allowed.add(evidence_path)
+    if candidate_kind in {"specification", "plan"}:
+        reviews_dir = (run / "reviews").relative_to(repo).as_posix()
+        for path in dirty:
+            relative = PurePosixPath(path)
+            if (
+                relative.parent.as_posix() == reviews_dir
+                and relative.suffix == ".json"
+                and DISPATCH_ID.fullmatch(relative.stem) is not None
+                and exact_regular_file(repo, repo / path)
+            ):
+                payload, receipt_error = strict_receipt(repo / path)
+                if (
+                    receipt_error is None
+                    and payload is not None
+                    and payload["kind"] == candidate_kind
+                ):
+                    allowed.add(path)
+    mode_mismatches = tracked_mode_mismatches(repo, allowed)
+    if mode_mismatches is None:
+        return result("unverifiable", "modes=unavailable")
+    content_mismatches = tracked_content_mismatches(repo, allowed | mode_mismatches)
+    if content_mismatches is None:
+        return result("unverifiable", "content=unavailable")
+    foreign = sorted((dirty - allowed) | mode_mismatches | content_mismatches)
+    return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
+
+
+def head_has_regular_file(repo: Path, path: str) -> bool | None:
+    raw = git_bytes(repo, "ls-tree", "-z", "HEAD", "--", path)
+    if raw is None:
+        return None
+    records = list(filter(None, raw.split(b"\0")))
+    if len(records) != 1:
+        return False
+    try:
+        metadata, observed_path = records[0].split(b"\t", 1)
+        mode, kind, _oid = metadata.split(b" ")
+        return (
+            observed_path.decode("utf-8") == path
+            and kind == b"blob"
+            and mode in {b"100644", b"100755"}
+        )
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def reviewed_snapshot(repo_arg: str, run_arg: str) -> Result:
+    """Verify the pre-Finish reviewed tree plus exact workflow evidence."""
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
+    ledger = run / "ledger.md"
+    if not exact_regular_file(repo, ledger):
+        return result("unverifiable", "ledger=unreadable-ledger")
+    data, error = parse_ledger(ledger)
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    audited = audit_current_head(repo, run, data)
+    if audited.status != "pass":
+        return audited
+    review = data["review"]
+    assert isinstance(review, dict)
+    if review["kind"] != "implementation" or review["state"] != "pass":
+        return result("fail", "review=not-implementation-pass")
+    required = ("root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path", "reviewed_commit")
+    if not all(isinstance(review[field], str) and review[field] for field in required):
+        return result("unverifiable", "review=unsupported")
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if expected is None:
+        return result("unverifiable", "review=unsupported")
+    expected_relative, receipt_path = expected
+    tracked, transformation_error = controlled_tracked_paths(repo)
+    if transformation_error is not None:
+        return result("unverifiable", transformation_error)
+    assert tracked is not None
+    entries = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD")
+    index = git_bytes(repo, "ls-files", "--stage", "-z")
+    if entries is None or index is None:
+        return result("unverifiable", "paths=unavailable")
+    if any(record.startswith(b"160000 ") for raw in (entries, index) for record in raw.split(b"\0")):
+        return result("unverifiable", "gitlinks=unsupported")
+    ancestry = git_status(repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD")
+    if ancestry not in {0, 1}:
+        return result("unverifiable", "ancestry=unavailable")
+    if ancestry == 1:
+        return result("fail", "ancestry=not-descendant")
+    frozen = frozen_snapshot(repo, run, data.get("frozen"))
+    if frozen.status != "pass":
+        return frozen
+    committed = committed_paths(repo, str(review["reviewed_commit"]))
+    dirty, dirty_error = worktree_paths(repo)
+    if dirty_error:
+        return result("unverifiable", dirty_error)
+    if committed is None or dirty is None:
+        return result("unverifiable", "paths=unsupported")
+    committed_allowed = {
+        (run / "ledger.md").relative_to(repo).as_posix(),
+        expected_relative,
+    }
+    dirty_allowed = set(committed_allowed)
+    stage = data["stage"]
+    assert isinstance(stage, dict)
+    report = run / "final-report.md"
+    report_relative = report.relative_to(repo).as_posix()
+    report_state = exact_entry_state(repo, report)
+    if stage["id"] >= 14:
+        dirty_allowed.clear()
+        if report_state != "regular":
+            return result("unverifiable", "report=unavailable")
+        committed_report = head_has_regular_file(repo, report_relative)
+        if committed_report is None:
+            return result("unverifiable", "report=commit-unavailable")
+        if not committed_report:
+            return result("fail", "report=uncommitted")
+        committed_allowed.add(report_relative)
+    elif stage["id"] == 13:
+        if report_state == "regular":
+            committed_report = head_has_regular_file(repo, report_relative)
+            if committed_report is None:
+                return result("unverifiable", "report=commit-unavailable")
+            if not committed_report:
+                return result("fail", "report=uncommitted")
+            committed_allowed.add(report_relative)
+        elif report_state != "absent":
+            return result("unverifiable", "report=unavailable")
+    elif report_state != "absent":
+        return result("fail", "report=premature")
+    mode_mismatches = tracked_mode_mismatches(repo, dirty_allowed)
+    if mode_mismatches is None:
+        return result("unverifiable", "modes=unavailable")
+    content_mismatches = tracked_content_mismatches(repo, dirty_allowed | mode_mismatches)
+    if content_mismatches is None:
+        return result("unverifiable", "content=unavailable")
+    foreign = sorted(
+        (committed - committed_allowed) | (dirty - dirty_allowed) | mode_mismatches
+        | content_mismatches
+    )
+    return result("fail", *(f"path={path}" for path in foreign)) if foreign else result("pass")
+
+
+def audit_frozen_shape(repo: Path, frozen: object) -> bool:
+    if not isinstance(frozen, dict) or set(frozen) != {"specification", "plan"}:
+        return False
+    for item in frozen.values():
+        if item is None:
+            continue
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"path", "blob"}
+        ):
+            return False
+    return True
+
+
+def audit_head_shape(repo: Path, run: Path, data: dict[str, object]) -> str | None:
+    if error := mode_error(data):
+        return error
+    if set(data) != HEAD_KEYS:
+        return "head=unsupported"
+    suffix = DATED_DIRECTORY.fullmatch(run.name)
+    if suffix is None:
+        return "run=unsupported"
+    run_id = data.get("run_id")
+    if not isinstance(run_id, str) or run_id != suffix.group(4) or not valid_run_id(repo, run_id):
+        return "run=unsupported"
+    if not isinstance(data.get("status"), str) or data["status"] not in {"active", "blocked", "complete"}:
+        return "status=unsupported"
+    if (
+        not isinstance(data.get("worktree"), str)
+        or "\0" in str(data["worktree"])
+        or not Path(str(data["worktree"])).is_absolute()
+    ):
+        return "worktree=unsupported"
+    if not isinstance(data.get("branch"), str) or git(repo, "check-ref-format", "--branch", str(data["branch"])) is None:
+        return "branch=unsupported"
+    if not isinstance(data.get("base_identity"), str) or not data["base_identity"]:
+        return "base-identity=unsupported"
+    stage = data.get("stage")
+    if (
+        not isinstance(stage, dict)
+        or set(stage) != {"id", "state"}
+        or not isinstance(stage.get("id"), int)
+        or isinstance(stage.get("id"), bool)
+        or not 1 <= stage["id"] <= 14
+        or not isinstance(stage.get("state"), str)
+        or stage.get("state") not in {"pending", "active", "blocked", "complete", "invalidated"}
+    ):
+        return "stage=unsupported"
+    next_action = data.get("next_action")
+    if next_action is not None and not isinstance(next_action, str):
+        return "next-action=unsupported"
+    if not audit_frozen_shape(repo, data.get("frozen")):
+        return "frozen=unsupported"
+    _, error = review_shape(data.get("review"))
+    return error
+
+
+def head_transition_invariant(data: dict[str, object]) -> bool:
+    status = data["status"]
+    stage = data["stage"]
+    state = stage["state"]
+    terminal_stage = stage == {"id": 14, "state": "complete"}
+    if status == "complete" or terminal_stage:
+        return (
+            status == "complete"
+            and terminal_stage
+            and data["next_action"] is None
+        )
+    if data["next_action"] is None or not str(data["next_action"]).strip():
+        return False
+    return (
+        (status == "active" and state in {"active", "complete"})
+        or (status == "blocked" and state in {"blocked", "invalidated"})
+    )
+
+
+def review_stage_invariant(status: str, stage: dict[str, object], review: dict[str, object]) -> bool:
+    """Check current-head compatibility; historical succession is controller-owned."""
+    if status == "complete":
+        return review["kind"] == "implementation" and review["state"] == "pass"
+    if stage["state"] == "invalidated":
+        return status == "blocked" and review["state"] == "not_started"
+    ordinary = (
+        (status == "active" and stage["state"] in {"active", "complete"})
+        or (status == "blocked" and stage["state"] == "blocked")
+    )
+    if review["state"] == "not_started":
+        return stage["id"] <= 5 and ordinary
+    rules = REVIEW_STAGE_RULES[review["kind"]]
+    if review["state"] == "review_active":
+        return stage["id"] in rules["dispatch"] and (
+            (status == "active" and stage["state"] == "active")
+            or (status == "blocked" and stage["state"] == "blocked")
+        )
+    if review["state"] == "blocked":
+        return stage["id"] in rules["dispatch"] and status == "blocked" and stage["state"] == "blocked"
+    if review["state"] == "changes_required":
+        return stage["id"] in rules["correction"] and ordinary
+    return review["state"] == "pass" and stage["id"] in rules["retained_pass"] and ordinary
+
+
+def populated_review_tuple(review: dict[str, object]) -> bool:
+    return all(
+        nonempty_text(review[field])
+        for field in ("root_identity", "dispatch_id", "run_ref", "target_seal", "evidence_path")
+    )
+
+
+def review_state_invariant(review: dict[str, object]) -> tuple[bool, bool]:
+    """Return (valid, receipt_required) for the exact current-state matrix."""
+    state = review["state"]
+    scalars = (
+        "kind", "root_identity", "dispatch_id", "run_ref", "target_seal",
+        "evidence_path", "reviewed_commit",
+    )
+    if state == "not_started":
+        return (
+            all(review[field] is None for field in scalars)
+            and review["round"] == 0
+            and review["previous_open_finding_ids"] == []
+            and review["open_finding_ids"] == [],
+            False,
+        )
+    if review["kind"] not in {"specification", "plan", "implementation"}:
+        return False, False
+    if review["round"] == 0 and (
+        review["previous_open_finding_ids"] or review["open_finding_ids"]
+    ):
+        return False, False
+    if not nonempty_text(review["root_identity"]):
+        return False, False
+    if state == "blocked":
+        tuple_fields = ("dispatch_id", "run_ref", "target_seal", "evidence_path")
+        all_null = all(review[field] is None for field in tuple_fields)
+        all_present = populated_review_tuple(review)
+        commit_valid = (
+            nonempty_text(review["reviewed_commit"])
+            if all_present and review["kind"] == "implementation"
+            else review["reviewed_commit"] is None
+        )
+        return commit_valid and (all_null or all_present), all_present
+    if not populated_review_tuple(review):
+        return False, False
+    if state == "review_active":
+        return review["reviewed_commit"] is None, False
+    if state == "changes_required":
+        commit_valid = (
+            nonempty_text(review["reviewed_commit"])
+            if review["kind"] == "implementation" else review["reviewed_commit"] is None
+        )
+        return commit_valid and review["round"] >= 1 and bool(review["open_finding_ids"]), True
+    if state == "pass":
+        commit_valid = (
+            nonempty_text(review["reviewed_commit"])
+            if review["kind"] == "implementation" else review["reviewed_commit"] is None
+        )
+        return commit_valid and review["open_finding_ids"] == [], True
+    return False, False
+
+
+def canonical_candidate_path(run: Path, kind: str) -> str:
+    dated_id = run.name
+    if kind == "specification":
+        return f"docs/superpowers/specs/{dated_id}-design.md"
+    return f"docs/superpowers/plans/{dated_id}.md"
+
+
+def primary_stage14_custody_head(data: dict[str, object], linked: bool | None) -> bool:
+    review = data.get("review")
+    return (
+        linked is False
+        and data.get("status") in {"active", "blocked"}
+        and data.get("stage")
+        in ({"id": 14, "state": "active"}, {"id": 14, "state": "blocked"})
+        and isinstance(review, dict)
+        and review.get("kind") == "implementation"
+        and review.get("state") == "pass"
+    )
+
+
+def canonical_identity_claims(repo: Path, run: Path, data: dict[str, object]) -> Result:
+    """Validate that ledger identity claims cannot redirect the canonical run."""
+    suffix = DATED_DIRECTORY.fullmatch(run.name)
+    assert suffix is not None
+    expected_branch = f"feature/{suffix.group(4)}"
+    terminal = (
+        data.get("status") == "complete"
+        and data.get("stage") == {"id": 14, "state": "complete"}
+        and data.get("next_action") is None
+    )
+    linked = linked_worktree(repo)
+    if linked is None:
+        return result("unverifiable", "worktree=unavailable")
+    if data["worktree"] != str(repo):
+        return result("fail", "worktree=wrong-run")
+    observed_branch = git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
+    if observed_branch is None:
+        return result("unverifiable", "branch=unavailable")
+    review = data.get("review")
+    primary_custody = not terminal and primary_stage14_custody_head(data, linked)
+    if terminal:
+        if linked and observed_branch != f"refs/heads/{expected_branch}":
+            return result("fail", "worktree=linked-base")
+        if observed_branch != f"refs/heads/{data['branch']}":
+            return result("fail", "branch=wrong-run")
+    elif primary_custody:
+        if observed_branch != f"refs/heads/{data['branch']}":
+            return result("fail", "branch=wrong-run")
+    elif not linked:
+        return result("fail", "worktree=primary")
+    elif data["branch"] != expected_branch or observed_branch != f"refs/heads/{expected_branch}":
+        return result("fail", "branch=wrong-run")
+    base = base_identity_result(repo, data["base_identity"])
+    if base.status != "pass":
+        return base
+    if terminal or primary_custody:
+        if not (
+            isinstance(review, dict)
+            and review.get("kind") == "implementation"
+            and review.get("state") == "pass"
+        ):
+            return result("fail", "review=inconsistent")
+        reviewed_commit = review.get("reviewed_commit")
+        identity = commit_identity(repo, reviewed_commit)
+        if identity != "valid":
+            return result("unverifiable", f"reviewed-commit={identity}")
+        ancestry = git_status(
+            repo, "merge-base", "--is-ancestor", str(reviewed_commit), "HEAD",
+        )
+        if ancestry not in {0, 1}:
+            return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+        if ancestry == 1:
+            return result("fail", "reviewed-commit=not-ancestor")
+    frozen = data["frozen"]
+    assert isinstance(frozen, dict)
+    for name in ("specification", "plan"):
+        item = frozen[name]
+        if item is None:
+            continue
+        assert isinstance(item, dict)
+        path_value, blob = item["path"], item["blob"]
+        if not isinstance(path_value, str) or not path_value or not isinstance(blob, str) or not blob:
+            return result("unverifiable", f"frozen={name}:unsupported")
+        if path_value != canonical_candidate_path(run, name):
+            return result("fail", f"frozen={name}:wrong-path")
+        path, path_error = observed_frozen_path(repo, path_value)
+        if path_error is not None:
+            return result(
+                "fail" if path_error == "wrong-path" else "unverifiable",
+                f"frozen={name}:{path_error}",
+            )
+        identity = frozen_blob_identity(repo, path_value, blob)
+        if identity == "noncanonical":
+            return result("fail", f"frozen={name}:noncanonical-blob")
+        if identity == "unresolvable":
+            return result("unverifiable", f"frozen={name}:blob-unresolvable")
+        if identity == "head-unavailable":
+            return result("unverifiable", f"frozen={name}:head-unavailable")
+        if identity == "not-at-head":
+            return result("fail", f"frozen={name}:not-at-head")
+    return result("pass")
+
+
+def receipt_source_matches(
+    repo: Path, run: Path, review: dict[str, object], payload: dict[str, object],
+    *, observe_current: bool,
+) -> Result:
+    source = payload["source_identity"]
+    assert isinstance(source, dict)
+    if review["kind"] in {"specification", "plan"}:
+        path = canonical_candidate_path(run, str(review["kind"]))
+        value = source.get("value")
+        if (
+            source.get("kind") != "candidate_sha256"
+            or source.get("path") != path
+            or not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        ):
+            return result("fail", "receipt=source-mismatch")
+        if not observe_current:
+            return result("pass")
+        digest = sha256_regular_file(repo, repo / path)
+        if digest is None:
+            return result("unverifiable", "receipt=source-unavailable")
+        return result("pass") if source.get("value") == digest else result("fail", "receipt=source-mismatch")
+    if source != {"kind": "reviewed_commit", "path": None, "value": review["reviewed_commit"]}:
+        return result("fail", "receipt=source-mismatch")
+    return result("pass")
+
+
+def implementation_review_source(
+    repo: Path, run: Path, reviewed_commit: object, stage_id: int, evidence_path: object,
+) -> Result:
+    """Validate a historical implementation source and stage-owned descendants."""
+    identity = commit_identity(repo, reviewed_commit)
+    if identity == "noncanonical":
+        return result("unverifiable", "reviewed-commit=noncanonical")
+    if identity == "unverifiable":
+        return result("unverifiable", "reviewed-commit=unresolvable")
+    ancestry = git_status(
+        repo, "merge-base", "--is-ancestor", str(reviewed_commit), "HEAD",
+    )
+    if ancestry not in {0, 1}:
+        return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+    if ancestry == 1:
+        return result("fail", "reviewed-commit=not-ancestor")
+    changed = committed_paths(repo, str(reviewed_commit))
+    if changed is None:
+        return result("unverifiable", "reviewed-commit=descendants-unsupported")
+    if not isinstance(evidence_path, str):
+        return result("unverifiable", "review=unsupported")
+    allowed = {
+        (run / "ledger.md").relative_to(repo).as_posix(),
+        evidence_path,
+    }
+    if stage_id >= 13:
+        allowed.add((run / "final-report.md").relative_to(repo).as_posix())
+    return (
+        result("fail", "reviewed-commit=foreign-descendant")
+        if changed - allowed else result("pass")
+    )
+
+
+def audit_receipt(
+    repo: Path, run: Path, review: dict[str, object], *, observe_current: bool,
+) -> Result:
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if expected is None:
+        return result("unverifiable", "review=unsupported")
+    relative, path = expected
+    if review["evidence_path"] != relative:
+        return result("fail", "receipt=wrong-path")
+    if not exact_regular_file(repo, path):
+        return result("unverifiable", "receipt=missing")
+    payload, error = strict_receipt(path)
+    if error:
+        return result("unverifiable", error)
+    assert payload is not None
+    if (
+        payload["kind"] != review["kind"]
+        or payload["dispatch_id"] != review["dispatch_id"]
+        or payload["run_ref"] != review["run_ref"]
+        or payload["target_seal"] != review["target_seal"]
+        or payload["result"] != review["state"]
+        or (
+            payload["triage_artifact_id"] is not None
+            and payload["actionable_finding_ids"] != review["open_finding_ids"]
+        )
+        or not receipt_result_invariant(payload, review)
+    ):
+        return result("fail", "receipt=mismatch")
+    return receipt_source_matches(
+        repo, run, review, payload, observe_current=observe_current,
+    )
+
+
+def recover_review_return(
+    repo: Path, run: Path, data: dict[str, object],
+) -> tuple[dict[str, object] | None, Result]:
+    """Validate and project one persisted return from a review-active head."""
+    if error := audit_head_shape(repo, run, data):
+        return None, result("unverifiable", error)
+    identities = canonical_identity_claims(repo, run, data)
+    if identities.status != "pass":
+        return None, identities
+    frozen = frozen_snapshot(repo, run, data.get("frozen"))
+    if frozen.status != "pass":
+        return None, frozen
+    review = data["review"]
+    assert isinstance(review, dict)
+    if review["state"] != "review_active":
+        return None, result("fail", "review=not-active")
+    valid, _ = review_state_invariant(review)
+    if not valid:
+        return None, result("fail", "review=inconsistent")
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if expected is None:
+        return None, result("unverifiable", "review=unsupported")
+    relative, path = expected
+    if review["evidence_path"] != relative:
+        return None, result("fail", "receipt=wrong-path")
+    if not exact_regular_file(repo, path):
+        return None, result("unverifiable", "receipt=missing")
+    payload, error = strict_receipt(path)
+    if error is not None:
+        return None, result("unverifiable", error)
+    assert payload is not None
+    if (
+        payload["kind"] != review["kind"]
+        or payload["dispatch_id"] != review["dispatch_id"]
+        or payload["run_ref"] != review["run_ref"]
+        or payload["target_seal"] != review["target_seal"]
+    ):
+        return None, result("fail", "receipt=mismatch")
+
+    projected = dict(review)
+    completed = payload["triage_artifact_id"] is not None
+    actionable = payload["actionable_finding_ids"]
+    assert isinstance(actionable, list)
+    if completed and actionable:
+        projected["round"] = review["round"] + 1
+        projected["previous_open_finding_ids"] = review["open_finding_ids"]
+        projected["open_finding_ids"] = actionable
+        projected["state"] = (
+            "blocked" if review_must_block(
+                projected["round"],
+                projected["previous_open_finding_ids"],
+                projected["open_finding_ids"],
+            ) else "changes_required"
+        )
+    elif completed:
+        projected["state"] = "pass"
+        projected["open_finding_ids"] = []
+    else:
+        projected["state"] = "blocked"
+    source = payload["source_identity"]
+    assert isinstance(source, dict)
+    projected["reviewed_commit"] = (
+        source["value"] if review["kind"] == "implementation" else None
+    )
+    if payload["result"] != projected["state"]:
+        return None, result("fail", "receipt=mismatch")
+    projected_valid, receipt_required = review_state_invariant(projected)
+    if not projected_valid or not receipt_required:
+        return None, result("fail", "review=inconsistent")
+    if review["kind"] == "implementation":
+        stage = data.get("stage")
+        if not isinstance(stage, dict) or not isinstance(stage.get("id"), int):
+            return None, result("unverifiable", "stage=unsupported")
+        implementation_source = implementation_review_source(
+            repo, run, projected["reviewed_commit"], stage["id"], projected["evidence_path"],
+        )
+        if implementation_source.status != "pass":
+            return None, implementation_source
+    checked = audit_receipt(repo, run, projected, observe_current=True)
+    return (projected, checked) if checked.status == "pass" else (None, checked)
+
+
+def audit_current_head(repo: Path, run: Path, data: dict[str, object]) -> Result:
+    """Apply the exact shared v1 current-head predicates."""
+    if error := audit_head_shape(repo, run, data):
+        return result("unverifiable", error)
+    stage = data["stage"]
+    frozen = data["frozen"]
+    assert isinstance(stage, dict) and isinstance(frozen, dict)
+    if any(frozen[name] is None for name in required_frozen_authorities(stage["id"])):
+        return result("fail", "frozen=incomplete")
+    identities = canonical_identity_claims(repo, run, data)
+    if identities.status != "pass":
+        return identities
+    if not head_transition_invariant(data):
+        terminal_error = (
+            data["status"] == "complete" or stage == {"id": 14, "state": "complete"}
+            or data["next_action"] is None or not str(data["next_action"]).strip()
+        )
+        return result("fail", "terminal=inconsistent" if terminal_error else "status-stage=inconsistent")
+    review = data["review"]
+    assert isinstance(review, dict)
+    valid, receipt_required = review_state_invariant(review)
+    if not valid or not review_stage_invariant(data["status"], stage, review):
+        return result("fail", "review=inconsistent")
+    implementation_return = (
+        review["kind"] == "implementation"
+        and review["reviewed_commit"] is not None
+    )
+    terminal = data["status"] == "complete" and stage == {"id": 14, "state": "complete"}
+    primary_custody = primary_stage14_custody_head(data, linked_worktree(repo))
+    if implementation_return and not terminal and not primary_custody:
+        if review["state"] == "changes_required":
+            if commit_identity(repo, review["reviewed_commit"]) != "valid":
+                return result("unverifiable", "reviewed-commit=unresolvable")
+            ancestry = git_status(
+                repo, "merge-base", "--is-ancestor", str(review["reviewed_commit"]), "HEAD",
+            )
+            if ancestry not in {0, 1}:
+                return result("unverifiable", "reviewed-commit=ancestry-unavailable")
+            if ancestry == 1:
+                return result("fail", "reviewed-commit=not-ancestor")
+        else:
+            implementation_source = implementation_review_source(
+                repo, run, review["reviewed_commit"], stage["id"], review["evidence_path"],
+            )
+            if implementation_source.status != "pass":
+                return implementation_source
+    expected = expected_receipt_path(repo, run, review["dispatch_id"])
+    if review["state"] == "review_active":
+        if expected is None:
+            return result("unverifiable", "review=unsupported")
+        if review["evidence_path"] != expected[0]:
+            return result("fail", "receipt=wrong-path")
+        if exact_entry_state(repo, expected[1]) != "absent":
+            return result("unverifiable", "receipt=unavailable")
+        return result("fail", "review=active")
+    observe_current = review["state"] != "changes_required"
+    if implementation_return and review["state"] == "changes_required":
+        current_head = git(repo, "rev-parse", "HEAD")
+        if current_head is None:
+            return result("unverifiable", "reviewed-commit=head-unavailable")
+        observe_current = current_head == review["reviewed_commit"]
+    return (
+        audit_receipt(repo, run, review, observe_current=observe_current)
+        if receipt_required else result("pass")
+    )
+
+
+def audit(repo_arg: str, run_arg: str) -> Result:
+    """Audit only deterministic invariants of the current v1 ledger head."""
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
+    ledger = run / "ledger.md"
+    if not exact_regular_file(repo, ledger):
+        return result("unverifiable", "ledger=unreadable-ledger")
+    data, error = parse_ledger(ledger)
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    stage = data.get("stage")
+    stage_id = stage.get("id") if isinstance(stage, dict) else None
+    task_table = audit_implementation_progress(
+        ledger,
+        stage_id if isinstance(stage_id, int) and not isinstance(stage_id, bool) else None,
+    )
+    if task_table.status != "pass":
+        return task_table
+    checked = audit_current_head(repo, run, data)
+    return review_checkout_readiness(repo, run, data) if checked.status == "pass" else checked
+
+
+def identities(repo_arg: str, run_arg: str) -> Result:
+    repo = repository(repo_arg)
+    if repo is None:
+        return result("unverifiable", "repository=unavailable")
+    run, run_error = canonical_run_observation(repo, run_arg)
+    if run_error is not None:
+        return result("fail" if run_error == "noncanonical" else "unverifiable", f"run={run_error}")
+    assert run is not None
+    ledger = run / "ledger.md"
+    if not exact_regular_file(repo, ledger):
+        return result("unverifiable", "ledger=unreadable-ledger")
+    data, error = parse_ledger(ledger)
+    if error:
+        return result("unverifiable", f"ledger={error}")
+    assert data is not None
+    if error := mode_error(data):
+        return result("unverifiable", error)
+    suffix = DATED_DIRECTORY.fullmatch(run.name)
+    assert suffix is not None
+    if data.get("run_id") != suffix.group(4) or not valid_run_id(repo, suffix.group(4)):
+        return result("unverifiable", "run=unsupported")
+    worktree, branch, base = data.get("worktree"), data.get("branch"), data.get("base_identity")
+    if not all(isinstance(value, str) for value in (worktree, branch, base)):
+        return result("unverifiable", "ledger-identity=unsupported")
+    if not audit_frozen_shape(repo, data.get("frozen")):
+        return result("unverifiable", "frozen=unsupported")
+    claims = canonical_identity_claims(repo, run, data)
+    if claims.status != "pass":
+        return claims
+    return frozen_snapshot(repo, run, data.get("frozen"))
+
+
+def parser() -> argparse.ArgumentParser:
+    parsed = argparse.ArgumentParser(prog="ff-check")
+    subcommands = parsed.add_subparsers(dest="command", required=True)
+    command = subcommands.add_parser("runs")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run-id", required=True)
+    command = subcommands.add_parser("identities")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run", required=True)
+    command = subcommands.add_parser("reviewed-snapshot")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run", required=True)
+    command = subcommands.add_parser("audit")
+    command.add_argument("--repo", required=True)
+    command.add_argument("--run", required=True)
+    return parsed
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    if args.command == "runs":
+        checked = runs(args.repo, args.run_id)
+    elif args.command == "identities":
+        checked = identities(args.repo, args.run)
+    elif args.command == "reviewed-snapshot":
+        checked = reviewed_snapshot(args.repo, args.run)
+    else:
+        checked = audit(args.repo, args.run)
+    print(f"FF-CHECK v1 gate={args.command} status={checked.status}")
+    for finding in checked.findings:
+        print(finding, file=sys.stderr)
+    return {"pass": 0, "fail": 1, "unverifiable": 2}[checked.status]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
